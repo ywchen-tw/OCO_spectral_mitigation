@@ -3,22 +3,22 @@
 Combined Demo: Complete OCO-2/MODIS Collocation Pipeline
 =========================================================
 
-This unified script orchestrates all 5 phases of the OCO-2/MODIS footprint
+This unified script orchestrates all 5 steps of the OCO-2/MODIS footprint
 analysis workflow to produce final results in a single command.
 
-Phase Workflow:
-  Phase 1: Metadata Acquisition (temporal/orbital boundaries)
-  Phase 2: Targeted Data Ingestion (download OCO-2 & MODIS)
-  Phase 3: Spatial and Bitmask Processing (extract footprints & clouds)
-  Phase 4: High-Performance Computational Geometry (calculate distances)
-  Phase 5: Synthesis and Data Export (consolidate results)
+Step Workflow:
+    Step 1: Metadata Acquisition (temporal/orbital boundaries)
+    Step 2: Targeted Data Ingestion (download OCO-2 & MODIS)
+    Step 3: Spatial and Bitmask Processing (extract footprints & clouds)
+    Step 4: High-Performance Computational Geometry (calculate distances)
+    Step 5: Synthesis and Data Export (consolidate results)
 
 Cache Structure:
   data/processing/{year}/{doy:03d}/{orbit_id}/
-  ├── footprints.pkl              # Phase 3: OCO-2 footprints
-  ├── clouds.pkl                  # Phase 3: MODIS cloud pixels (myd35*.pkl data)
-  ├── granule_combined_*.pkl      # Phase 3: Combined OCO-2 + MODIS for this orbit
-  └── phase4_results.pkl          # Phase 4: Distance calculation results
+    ├── footprints.pkl              # Step 3: OCO-2 footprints
+    ├── clouds.pkl                  # Step 3: MODIS cloud pixels (myd35*.pkl data)
+    ├── granule_combined_*.pkl      # Step 3: Combined OCO-2 + MODIS for this orbit
+    └── phase4_results.pkl          # Step 4: Distance calculation results
   
   All cache files for a specific orbit are stored in its own subdirectory
   (e.g., 22845a/, 22846a/) for clean separation and independent processing.
@@ -73,10 +73,10 @@ def print_banner(text: str):
     logger.info("=" * width)
 
 
-def print_phase_header(phase_num: int, title: str):
-    """Print phase header."""
+def print_step_header(step_num: int, title: str):
+    """Print step header."""
     logger.info(f"\n{'='*70}")
-    logger.info(f"PHASE {phase_num}: {title}".ljust(70))
+    logger.info(f"STEP {step_num}: {title}".ljust(70))
     logger.info(f"{'='*70}")
 
 
@@ -156,13 +156,13 @@ def cleanup_modis_data(target_date: datetime, data_dir: Path) -> bool:
 
 
 # ============================================================================
-# Phase Execution Functions
+# Step Execution Functions
 # ============================================================================
 
 def run_phase_1(target_date: datetime, orbit: Optional[int] = None, 
                 mode: str = None) -> Tuple[Dict, bool]:
     """
-    Phase 1: Metadata Acquisition and Temporal Filtering
+    Step 1: Metadata Acquisition and Temporal Filtering
     
     Args:
         target_date: Target date for metadata retrieval
@@ -172,7 +172,7 @@ def run_phase_1(target_date: datetime, orbit: Optional[int] = None,
     Returns:
         Tuple of (metadata_dict, success_flag)
     """
-    print_phase_header(1, "Metadata Acquisition and Temporal Filtering")
+    print_step_header(1, "Metadata Acquisition and Temporal Filtering")
     
     try:
         logger.info(f"Target Date: {target_date.date()}")
@@ -208,11 +208,11 @@ def run_phase_1(target_date: datetime, orbit: Optional[int] = None,
             'num_granules': len(granules),
         }
         
-        logger.info(f"\n✓ Phase 1 Complete: {len(granules)} granule(s) identified")
+        logger.info(f"\n✓ Step 1 Complete: {len(granules)} granule(s) identified")
         return metadata, True
         
     except Exception as e:
-        logger.error(f"✗ Phase 1 Failed: {e}")
+        logger.error(f"✗ Step 1 Failed: {e}")
         return {}, False
 
 
@@ -220,24 +220,24 @@ def run_phase_2(target_date: datetime, metadata: Dict, data_dir: Path,
                 dry_run: bool = False, skip_phase: bool = False,
                 force_download: bool = False, limit_granules: Optional[int] = None) -> Tuple[Dict, bool]:
     """
-    Phase 2: Targeted Data Ingestion
+    Step 2: Targeted Data Ingestion
     
     Args:
         target_date: Target date for data download
-        metadata: Metadata from Phase 1
+        metadata: Metadata from Step 1
         data_dir: Data storage directory
         dry_run: Only check file existence without downloading
-        skip_phase: Skip this phase (use existing data)
+        skip_phase: Skip this step (use existing data)
         force_download: Force re-download even if status file exists
         limit_granules: Limit to first N granules (for testing)
     
     Returns:
         Tuple of (file_info_dict, success_flag)
     """
-    print_phase_header(2, "Targeted Data Ingestion")
+    print_step_header(2, "Targeted Data Ingestion")
     
     if skip_phase:
-        logger.info("[SKIPPED] Using existing data from Phase 2")
+        logger.info("[SKIPPED] Using existing data from Step 2")
         return {}, True
     
     try:
@@ -270,18 +270,18 @@ def run_phase_2(target_date: datetime, metadata: Dict, data_dir: Path,
             'total_files': len(oco2_files) + len(modis_files),
         }
         
-        logger.info(f"\n✓ Phase 2 Complete: {file_info['total_files']} file(s) ready")
+        logger.info(f"\n✓ Step 2 Complete: {file_info['total_files']} file(s) ready")
         return file_info, True
         
     except Exception as e:
-        logger.error(f"✗ Phase 2 Failed: {e}")
+        logger.error(f"✗ Step 2 Failed: {e}")
         return {}, False
 
 
 def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
                 viz_dir: Optional[Path] = None) -> Tuple[Dict, bool]:
     """
-    Phase 3: Spatial and Bitmask Processing
+    Step 3: Spatial and Bitmask Processing
     
     Processes OCO-2 footprints and MODIS cloud data. Automatically processes any
     granules that don't have cached results.
@@ -295,7 +295,7 @@ def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
     Returns:
         Tuple of (processing_info_dict, success_flag)
     """
-    print_phase_header(3, "Spatial and Bitmask Processing")
+    print_step_header(3, "Spatial and Bitmask Processing")
     
     try:
         data_dir = Path(data_dir)
@@ -318,8 +318,8 @@ def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
             logger.warning("⚠ No OCO-2 granules found in data directory")
             return {}, False
         
-        # Check if Phase 3 cache already exists
-        logger.info("\n[Step 2] Checking for Phase 3 cache...")
+        # Check if Step 3 cache already exists
+        logger.info("\n[Step 2] Checking for Step 3 cache...")
         processing_day_dir = data_dir / "processing" / str(year) / f"{doy:03d}"
         
         cached_granules = set()
@@ -341,7 +341,7 @@ def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
                 'granules': len(cached_granules),
                 'cache_location': str(processing_day_dir),
             }
-            logger.info(f"✓ Phase 3 Complete: Using existing cache for {len(cached_granules)} granule(s)")
+            logger.info(f"✓ Step 3 Complete: Using existing cache for {len(cached_granules)} granule(s)")
             return processing_info, True
         
         # Process missing granules
@@ -531,11 +531,11 @@ def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
                         logger.warning(f"    ⚠ Processing returned no result")
                         
             except Exception as e:
-                logger.error(f"    ✗ Error during Phase 3 processing: {e}")
+                logger.error(f"    ✗ Error during Step 3 processing: {e}")
                 import traceback
                 traceback.print_exc()
             
-            logger.info(f"\n✓ Phase 3 Processing Complete")
+            logger.info(f"\n✓ Step 3 Processing Complete")
             logger.info(f"  Total granules cached: {len(cached_granules)}/{len(oco2_granules)}")
         
         processing_info = {
@@ -545,14 +545,14 @@ def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
         }
         
         if len(cached_granules) == len(oco2_granules):
-            logger.info(f"✓ Phase 3 Complete: All {len(cached_granules)} granule(s) cached")
+            logger.info(f"✓ Step 3 Complete: All {len(cached_granules)} granule(s) cached")
             return processing_info, True
         else:
-            logger.warning(f"⚠ Phase 3 Incomplete: {len(cached_granules)}/{len(oco2_granules)} granules cached")
+            logger.warning(f"⚠ Step 3 Incomplete: {len(cached_granules)}/{len(oco2_granules)} granules cached")
             return processing_info, False
         
     except Exception as e:
-        logger.error(f"✗ Phase 3 Failed: {e}")
+        logger.error(f"✗ Step 3 Failed: {e}")
         import traceback
         traceback.print_exc()
         return {}, False
@@ -563,7 +563,7 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
                 visualize: bool = False, viz_dir: Optional[Path] = None,
                 force_recompute: bool = False) -> Tuple[List, bool]:
     """
-    Phase 4: High-Performance Computational Geometry
+    Step 4: High-Performance Computational Geometry
     
     Args:
         target_date: Target date for processing
@@ -573,24 +573,24 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
         band_overlap: Latitude band overlap in degrees
         visualize: Create visualizations
         viz_dir: Visualization output directory
-        force_recompute: Force recalculation of distances (ignore Phase 4 cache)
+        force_recompute: Force recalculation of distances (ignore Step 4 cache)
     
     Returns:
         Tuple of (results_list, success_flag)
     """
-    print_phase_header(4, "High-Performance Computational Geometry")
+    print_step_header(4, "High-Performance Computational Geometry")
     
     try:
         data_dir = Path(data_dir)
         spatial_processor = SpatialProcessor(data_dir=str(data_dir))
         geometry_processor = GeometryProcessor(data_dir=str(data_dir))
         
-        # Load cached data from Phase 3
-        logger.info("\n[Step 1] Loading Phase 3 cache...")
+        # Load cached data from Step 3
+        logger.info("\n[Step 1] Loading Step 3 cache...")
         processing_day_dir = data_dir / "processing" / str(target_date.year) / f"{target_date.timetuple().tm_yday:03d}"
         
         if not processing_day_dir.exists():
-            logger.error("Phase 3 cache directory not found")
+            logger.error("Step 3 cache directory not found")
             return [], False
         
         granule_dirs = [d for d in processing_day_dir.glob("*") if d.is_dir()]
@@ -654,7 +654,7 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
             all_cloud_lats = np.concatenate((all_cloud_lats, cloud_lat))
             all_cloud_flags = np.concatenate((all_cloud_flags, cloud_flag))
             
-            # Check for Phase 4 cache (unless force_recompute is True)
+            # Check for Step 4 cache (unless force_recompute is True)
             phase4_cache_path = granule_dir / "phase4_results.pkl"
             cached_results = None
             if phase4_cache_path.exists() and not force_recompute:
@@ -764,11 +764,11 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
             except Exception as e:
                 logger.warning(f"  ⚠ Overall latitude-band visualization failed: {e}")
         
-        logger.info(f"\n✓ Phase 4 Complete: {len(results):,} soundings with distances")
+        logger.info(f"\n✓ Step 4 Complete: {len(results):,} soundings with distances")
         return results, True
         
     except Exception as e:
-        logger.error(f"✗ Phase 4 Failed: {e}")
+        logger.error(f"✗ Step 4 Failed: {e}")
         import traceback
         traceback.print_exc()
         return [], False
@@ -777,10 +777,10 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
 def run_phase_5(results: List, target_date: datetime, output_dir: Path,
                 max_distance: float = 50.0) -> bool:
     """
-    Phase 5: Synthesis and Data Export
+    Step 5: Synthesis and Data Export
     
     Args:
-        results: Results from Phase 4
+        results: Results from Step 4
         target_date: Target date
         output_dir: Output directory for results
         max_distance: Maximum cloud distance in km
@@ -788,7 +788,7 @@ def run_phase_5(results: List, target_date: datetime, output_dir: Path,
     Returns:
         Success flag
     """
-    print_phase_header(5, "Synthesis and Data Export")
+    print_step_header(5, "Synthesis and Data Export")
     
     try:
         output_dir = Path(output_dir)
@@ -841,11 +841,11 @@ def run_phase_5(results: List, target_date: datetime, output_dir: Path,
         logger.info(f"     10-20 km:  {stats['distance_distribution']['10-20_km']}")
         logger.info(f"     20+ km:    {stats['distance_distribution']['20+_km']}")
         
-        logger.info(f"\n✓ Phase 5 Complete: Results exported to {output_dir}")
+        logger.info(f"\n✓ Step 5 Complete: Results exported to {output_dir}")
         return True
         
     except Exception as e:
-        logger.error(f"✗ Phase 5 Failed: {e}")
+        logger.error(f"✗ Step 5 Failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -862,7 +862,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run all phases for a specific date
+    # Run all steps for a specific date
   python demo_combined.py --date 2018-10-18
   
   # Run with visualizations
@@ -880,7 +880,7 @@ Examples:
   # Delete MODIS data after completion (save disk space)
   python demo_combined.py --date 2018-10-18 --delete-modis
   
-  # Skip Phase 2 (use existing data)
+    # Skip Step 2 (use existing data)
   python demo_combined.py --date 2018-10-18 --skip-phase 2
   
   # Custom output directory
@@ -914,7 +914,7 @@ Examples:
     
     # Workflow control
     parser.add_argument('--skip-phase', type=int, action='append',
-                       help='Skip specific phase(s) (can use multiple times)')
+                       help='Skip specific step(s) (can use multiple times)')
     parser.add_argument('--force-recompute', action='store_true',
                        help='Force recomputation (ignore Phase 4 cache)')
     parser.add_argument('--force-download', action='store_true',
@@ -974,10 +974,10 @@ Examples:
     if 1 not in skip_phases:
         metadata, success = run_phase_1(target_date, args.orbit, args.mode)
         if not success:
-            logger.error("Pipeline aborted at Phase 1")
+            logger.error("Pipeline aborted at Step 1")
             return 1
     else:
-        logger.info("[PHASE 1] SKIPPED")
+        logger.info("[STEP 1] SKIPPED")
         metadata = {}
     
     # ========================================================================
@@ -992,10 +992,10 @@ Examples:
             limit_granules=args.limit_granules
         )
         if not success:
-            logger.error("Pipeline aborted at Phase 2")
+            logger.error("Pipeline aborted at Step 2")
             return 1
     else:
-        logger.info("[PHASE 2] SKIPPED - Using existing data")
+        logger.info("[STEP 2] SKIPPED - Using existing data")
         file_info = {}
     
     # ========================================================================
@@ -1008,10 +1008,10 @@ Examples:
             viz_dir=viz_dir
         )
         if not success:
-            logger.error("Pipeline aborted at Phase 3")
+            logger.error("Pipeline aborted at Step 3")
             return 1
     else:
-        logger.info("[PHASE 3] SKIPPED - Using cached data")
+        logger.info("[STEP 3] SKIPPED - Using cached data")
         processing_info = {}
     
     # ========================================================================
@@ -1028,10 +1028,10 @@ Examples:
             force_recompute=args.force_recompute
         )
         if not success:
-            logger.error("Pipeline aborted at Phase 4")
+            logger.error("Pipeline aborted at Step 4")
             return 1
     else:
-        logger.info("[PHASE 4] SKIPPED")
+        logger.info("[STEP 4] SKIPPED")
         results = []
         return 1
     
@@ -1044,12 +1044,12 @@ Examples:
             max_distance=args.max_distance
         )
         if not success:
-            logger.error("Pipeline aborted at Phase 5")
+            logger.error("Pipeline aborted at Step 5")
             return 1
     elif not results:
-        logger.warning("[PHASE 5] SKIPPED - No results from Phase 4")
+        logger.warning("[STEP 5] SKIPPED - No results from Step 4")
     else:
-        logger.info("[PHASE 5] SKIPPED")
+        logger.info("[STEP 5] SKIPPED")
     
     # ========================================================================
     # Cleanup: Delete MODIS data if requested

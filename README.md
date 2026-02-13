@@ -1,14 +1,14 @@
 # OCO-2/MODIS Footprint Analysis
 
-A phased workflow for collocating OCO-2 glint-mode footprints with Aqua MODIS cloud masks and computing the nearest-cloud distance for each OCO-2 sounding.
+A step-based workflow for collocating OCO-2 glint-mode footprints with Aqua MODIS cloud masks and computing the nearest-cloud distance for each OCO-2 sounding.
 
 ## What this project does
 
-- **Phase 1 (Metadata):** query OCO-2 L1B XML metadata and derive temporal/orbit windows
-- **Phase 2 (Ingestion):** download OCO-2 products plus MODIS MYD35_L2 and MYD03
-- **Phase 3 (Processing):** extract OCO-2 footprints, unpack MODIS cloud masks, and match by time
-- **Phase 4 (Geometry):** convert to ECEF and run KD-Tree distance searches (banded for speed)
-- **Phase 5 (Integration):** export results and summary statistics
+- **Step 1 (Metadata):** query OCO-2 L1B XML metadata and derive temporal/orbit windows
+- **Step 2 (Ingestion):** download OCO-2 products plus MODIS MYD35_L2 and MYD03
+- **Step 3 (Processing):** extract OCO-2 footprints, unpack MODIS cloud masks, and match by time
+- **Step 4 (Geometry):** convert to ECEF and run KD-Tree distance searches (banded for speed)
+- **Step 5 (Integration):** export results and summary statistics
 
 ## Quickstart
 
@@ -45,7 +45,7 @@ CSV output is intentionally disabled.
 
 ## Cache layout
 
-Phase 3 and Phase 4 cache their intermediate outputs under:
+Step 3 and Step 4 cache their intermediate outputs under:
 
 ```
 data/processing/{year}/{doy}/{orbit_id}/
@@ -73,7 +73,7 @@ fp_analysis/
 │   ├── demo_phase_02.py
 │   ├── demo_phase_03.py
 │   └── demo_phase_04.py
-├── prompts/                      # Phase specifications and constraints
+├── prompts/                      # Step specifications and constraints
 ├── log/
 ├── data/
 └── requirements.txt
@@ -87,7 +87,7 @@ fp_analysis/
 
 ## Prompts
 
-The `prompts/` folder documents the intended phase-by-phase behavior and scientific constraints:
+The `prompts/` folder documents the intended step-by-step behavior and scientific constraints:
 
 - `OCO2_data_analyst.md`
 - `Phase_01_Metadata.md`
@@ -98,7 +98,7 @@ The `prompts/` folder documents the intended phase-by-phase behavior and scienti
 
 ## Troubleshooting
 
-- If a granule has no cloud pixels, Phase 4 will skip distance calculation for that granule.
+- If a granule has no cloud pixels, Step 4 will skip distance calculation for that granule.
 - Visualization failures are logged as warnings and do not stop the pipeline.
 
 ## References
