@@ -607,7 +607,7 @@ class GeometryProcessor:
         
         # Create latitude bands
         bands = []
-        lat = -85.0 # Start at -85° since no retrievals near poles and to allow for band overlap
+        lat = -90.0 
         while lat < 90.0:
             band_min = lat
             band_max = min(lat + band_width_deg, 90.0)
@@ -641,8 +641,8 @@ class GeometryProcessor:
                 continue
             
             # Get clouds in this band with overlap buffer
-            cloud_lat_min = band_min - band_overlap_deg
-            cloud_lat_max = band_max + band_overlap_deg
+            cloud_lat_min = band_min - band_overlap_deg # it is okay if this goes below -90, the filtering will handle it
+            cloud_lat_max = band_max + band_overlap_deg # it is okay if this goes above 90, the filtering will handle it
             
             # Array-based filtering
             in_band = (cloudy_uncertain_lats >= cloud_lat_min) & (cloudy_uncertain_lats <= cloud_lat_max)

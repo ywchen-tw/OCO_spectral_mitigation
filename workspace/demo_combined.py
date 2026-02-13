@@ -898,7 +898,7 @@ Examples:
                        help='Maximum cloud distance in km (default: 25.0)')
     parser.add_argument('--band-width', type=float, default=2.5,
                        help='Latitude band width in degrees (default: 2.5)')
-    parser.add_argument('--band-overlap', type=float, default=1.0,
+    parser.add_argument('--band-overlap', type=float, default=0.5,
                        help='Latitude band overlap in degrees (default: 1.0)')
     
     # Optional data directory
