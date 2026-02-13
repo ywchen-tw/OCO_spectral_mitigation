@@ -61,6 +61,7 @@ output/
 results/
 visualizations*/
 prompts/
+data/
 *.csv
 *.json
 
