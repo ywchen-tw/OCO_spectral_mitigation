@@ -954,7 +954,7 @@ Examples:
     else:
         output_dir = storage_dir / "results"
 
-    viz_dir = Path(args.viz_dir) if args.visualize else None
+    viz_dir = Path(args.viz_dir) if args.visualize else storage_dir / "visualizations_combined"
     
     print_banner("OCO-2/MODIS Footprint Analysis - Combined Pipeline")
     logger.info(f"Date: {target_date.date()}")
