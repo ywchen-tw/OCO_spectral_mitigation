@@ -192,7 +192,8 @@ def run_phase_1(target_date: datetime, orbit: Optional[int] = None,
         logger.info(f"✓ Found {len(granules)} granule(s)")
         
         if not granules:
-            logger.warning("⚠ No granules found for the specified criteria")
+            logger.error(f"✗ No OCO-2 data found for the specified date ({target_date.date()})")
+            logger.error("  This date may not have any OCO-2 observations available.")
             return {}, False
         
         logger.info("[Step 3] Extracting temporal window...")
@@ -974,7 +975,12 @@ Examples:
     if 1 not in skip_phases:
         metadata, success = run_phase_1(target_date, args.orbit, args.mode)
         if not success:
-            logger.error("Pipeline aborted at Step 1")
+            if not metadata.get('granules'):
+                logger.error("\nPipeline cannot proceed: No OCO-2 data available for this date.")
+                logger.error(f"Date requested: {target_date.date()}")
+                logger.error("Please select a different date with available OCO-2 data.")
+            else:
+                logger.error("Pipeline aborted at Step 1")
             return 1
     else:
         logger.info("[STEP 1] SKIPPED")
