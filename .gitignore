@@ -47,8 +47,13 @@ htmlcov/
 # Data files
 *.h5
 *.hdf
+*.hdf4
 *.nc
 *.nc4
+*.pkl
+*.csv
+*.json
+*.png
 
 # Cache and temporary files
 cache/
