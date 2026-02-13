@@ -54,6 +54,7 @@ htmlcov/
 *.csv
 *.json
 *.png
+sbatch*.txt
 
 # Cache and temporary files
 cache/
