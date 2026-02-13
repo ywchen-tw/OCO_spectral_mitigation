@@ -1,0 +1,42 @@
+# OCO-2/MODIS Footprint Analysis - Python Dependencies
+
+# Core scientific computing
+numpy>=1.24.0
+scipy>=1.10.0
+pandas>=2.0.0
+
+# HDF5/NetCDF file handling
+h5py>=3.8.0
+netCDF4>=1.6.0
+xarray>=2023.1.0
+python-hdf4>=0.10.0  # For MODIS HDF4 files (pyhdf)
+
+# Geospatial and coordinate transformations
+pyproj>=3.5.0
+
+# HTTP requests and data download
+requests>=2.28.0
+requests-futures>=1.0.0
+
+# XML parsing (built-in, but for reference)
+# xml.etree.ElementTree (standard library)
+
+# Date/time handling
+python-dateutil>=2.8.0
+
+# Logging and progress
+tqdm>=4.65.0
+
+# Optional: For advanced visualization
+matplotlib>=3.7.0
+cartopy>=0.21.0
+
+# Optional: For faster KD-Tree operations
+scikit-learn>=1.2.0
+
+# Development dependencies
+pytest>=7.3.0
+pytest-cov>=4.1.0
+black>=23.3.0
+flake8>=6.0.0
+mypy>=1.3.0
