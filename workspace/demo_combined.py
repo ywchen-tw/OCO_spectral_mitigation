@@ -946,13 +946,13 @@ Examples:
         logger.error(str(e))
         return 1
     
-    data_dir = Path(args.data_dir)
+    storage_dir = get_storage_dir()
+    data_dir = storage_dir / "data" if args.data_dir == "./data" else Path(args.data_dir)
     if args.output_dir:
         output_dir = Path(args.output_dir)
     else:
-        storage_dir = get_storage_dir()
         output_dir = storage_dir / "results"
-    
+
     viz_dir = Path(args.viz_dir) if args.visualize else None
     
     print_banner("OCO-2/MODIS Footprint Analysis - Combined Pipeline")
