@@ -1,63 +1,9 @@
-backports.zstd @ file:///Users/runner/miniforge3/conda-bld/bld/rattler-build_backports.zstd_1767045020/work
-beautifulsoup4==4.14.3
-Brotli @ file:///Users/runner/miniforge3/conda-bld/brotli-split_1764017116075/work
-cached-property @ file:///private/var/folders/nz/j6p8yfhx1mv_0grj5xl4650h0000gp/T/abs_c4vlbtvcv5/croot/cached-property_1754404484345/work
-Cartopy @ file:///Users/runner/miniforge3/conda-bld/cartopy_1756883747081/work
-certifi @ file:///Users/ec2-user/croot/certifi_1767659246487/work/certifi
-cftime @ file:///opt/miniconda3/conda-bld/cftime_1761561583109/work
-charset-normalizer @ file:///home/conda/feedstock_root/build_artifacts/charset-normalizer_1760437218288/work
-contourpy @ file:///Users/runner/miniforge3/conda-bld/bld/rattler-build_contourpy_1769156091/work
-cycler @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_cycler_1764466758/work
-er3t==1.0.0
-filelock==3.20.3
-flexcache==0.3
-flexparser==0.4
-fonttools @ file:///Users/runner/miniforge3/conda-bld/fonttools_1765632680641/work
-gdown==5.2.1
-geographiclib==2.1
-geopy==2.4.1
-h2 @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_h2_1756364871/work
-h5py @ file:///Users/runner/miniforge3/conda-bld/h5py_1764017310325/work
-haversine==2.9.0
-hpack @ file:///home/conda/feedstock_root/build_artifacts/hpack_1737618293087/work
-hyperframe @ file:///home/conda/feedstock_root/build_artifacts/hyperframe_1737618333194/work
-idna @ file:///home/conda/feedstock_root/build_artifacts/idna_1760286409563/work
-joblib==1.5.3
-kiwisolver @ file:///Users/runner/miniforge3/conda-bld/bld/rattler-build_kiwisolver_1762488860/work
-llvmlite==0.46.0
-lxml @ file:///Users/runner/miniforge3/conda-bld/lxml_1762506343555/work
+h5py==3.15.1
 matplotlib==3.10.8
-MetPy==1.7.1
-mpi4py @ file:///Users/ec2-user/croot/mpi4py_1767706445425/work
-munkres==1.1.4
-netCDF4 @ file:///Users/runner/miniforge3/conda-bld/bld/rattler-build_netcdf4_1768552880/work
-numba==0.63.1
-numpy==2.3.5
-OWSLib @ file:///home/conda/feedstock_root/build_artifacts/owslib_1761671706049/work
-packaging @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_packaging_1769093650/work
-pandas==3.0.0
-pillow @ file:///Users/runner/miniforge3/conda-bld/bld/rattler-build_pillow_1767353279/work
-Pint==0.25.2
-platformdirs==4.5.1
-pooch==1.9.0
-pyhdf @ file:///Users/runner/miniforge3/conda-bld/pyhdf_1760611562742/work
-pyparsing @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_pyparsing_1769003998/work
-pyproj @ file:///Users/runner/miniforge3/conda-bld/pyproj_1757954880273/work
-pyshp @ file:///home/conda/feedstock_root/build_artifacts/pyshp_1764355200360/work
-PySocks @ file:///home/conda/feedstock_root/build_artifacts/pysocks_1733217236728/work
-python-dateutil @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_python-dateutil_1751104122/work
-PyYAML @ file:///Users/runner/miniforge3/conda-bld/pyyaml_1770223350679/work
-requests @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_requests_1766926974/work
-scikit-learn==1.8.0
+netcdf4==1.7.4
+numpy==2.4.2
+Pillow==12.1.1
+pyhdf==0.11.6
+Requests==2.32.5
 scipy==1.17.0
-shapely @ file:///Users/runner/miniforge3/conda-bld/shapely_1762523682279/work
-six @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_six_1753199211/work
-soupsieve==2.8.3
-threadpoolctl==3.6.0
-tornado @ file:///Users/runner/miniforge3/conda-bld/tornado_1765836484236/work
-tqdm==4.67.3
-traitlets==5.14.3
-typing_extensions==4.15.0
-unicodedata2 @ file:///Users/runner/miniforge3/conda-bld/unicodedata2_1763054903095/work
-urllib3 @ file:///home/conda/feedstock_root/build_artifacts/urllib3_1767817748113/work
-xarray==2026.1.0
+Shapely==2.1.2
