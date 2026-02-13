@@ -862,20 +862,18 @@ class GeometryProcessor:
         
     def visualize_kdtree_spatial_range(self,
                                       results: List[CollocationResult],
-                                      cloud_lons: np.ndarray,
-                                      cloud_lats: np.ndarray,
-                                      cloud_flags: np.ndarray,
+                                      num_cloudy: int,
+                                      num_uncertain: int,
                                       output_path: Path,
                                       max_distance: float = 50.0,
                                       dpi: int = 200) -> Optional[Path]:
         """
-        Create 2-panel KD-Tree spatial filtering visualization.
+        Create 3-panel KD-Tree spatial filtering visualization (no cloud plotting for memory efficiency).
         
         Args:
             results: List of collocation results
-            cloud_lons: All cloud longitudes
-            cloud_lats: All cloud latitudes
-            cloud_flags: All cloud flags
+            num_cloudy: Total count of cloudy pixels
+            num_uncertain: Total count of uncertain pixels
             output_path: Path to save visualization
             max_distance: Maximum distance for colorbar
             dpi: DPI for output image
@@ -886,9 +884,6 @@ class GeometryProcessor:
         if not MATPLOTLIB_AVAILABLE:
             logger.error("matplotlib not available")
             return None
-        
-        # Handle dateline crossing
-        cloud_lons = np.where(cloud_lons > 180, cloud_lons - 360, cloud_lons)
         
         # Extract footprint data
         fp_lats = [r.footprint_lat for r in results]
@@ -906,51 +901,34 @@ class GeometryProcessor:
         
         fig, axes = plt.subplots(2, 2, figsize=(18, 12), dpi=dpi)
         
-        # Left: Cloud pixels + Footprints
+        # Top Left: Footprints colored by distance threshold
         ax = axes[0, 0]
-        cloudy_mask = cloud_flags == 1
-        uncertain_mask = cloud_flags == 0
-        
-        ax.scatter(cloud_lons[cloudy_mask], cloud_lats[cloudy_mask],
-                  c='lightgray', s=1, alpha=0.5, label=f'Cloudy ({np.sum(cloud_flags==1):,})', 
-                  rasterized=True)
-        ax.scatter(cloud_lons[uncertain_mask], cloud_lats[uncertain_mask],
-                  c='darkgray', s=1, alpha=0.5, label=f'Uncertain ({np.sum(cloud_flags==0):,})',
-                  rasterized=True)
-        ax.plot(fp_lons_lt_threshold, fp_lats_lt_threshold, 'go', markersize=3, alpha=0.8,
+        ax.plot(fp_lons_lt_threshold, fp_lats_lt_threshold, 'go', markersize=4, alpha=0.8,
                label=f'Footprints ≤ {distance_threshold} km ({len(fp_lats_lt_threshold):,})', zorder=6)
-        ax.plot(fp_lons_gt_threshold, fp_lats_gt_threshold, 'ro', markersize=3, alpha=0.8,
+        ax.plot(fp_lons_gt_threshold, fp_lats_gt_threshold, 'ro', markersize=4, alpha=0.8,
                label=f'Footprints > {distance_threshold} km ({len(fp_lats_gt_threshold):,})', zorder=6)
         
         ax.set_xlabel('Longitude (°)', fontsize=12)
         ax.set_ylabel('Latitude (°)', fontsize=12)
-        ax.set_title(f'Spatial Filtering Result\n{len(cloud_lats):,} clouds, {len(fp_lats):,} footprints',
+        ax.set_title(f'OCO-2 Footprints by Distance Threshold\n{len(fp_lats):,} total footprints',
                     fontsize=13, fontweight='bold')
-        ax.legend(loc='best', fontsize=9)
+        ax.legend(loc='best', fontsize=10)
         ax.grid(True, alpha=0.3)
         
-        # Right: Footprints colored by distance
+        # Top Right: Footprints colored by distance
         ax = axes[0, 1]
-        ax.scatter(cloud_lons, cloud_lats, c='lightgray', s=5, alpha=0.3, rasterized=True)
-        scatter = ax.scatter(fp_lons, fp_lats, c=fp_distances, cmap='jet', s=10,
-                           edgecolors=None, #linewidths=0.3,
+        scatter = ax.scatter(fp_lons, fp_lats, c=fp_distances, cmap='jet', s=15,
+                           edgecolors=None, linewidths=0.3,
                            vmin=0, vmax=max_distance, zorder=5)
-        
-        # Sample connections
-        n_connections = min(500, len(results))
-        connection_indices = np.random.choice(len(results), n_connections, replace=False)
-        for idx in connection_indices:
-            ax.plot([fp_lons[idx], nc_lons[idx]], [fp_lats[idx], nc_lats[idx]],
-                   'k-', linewidth=0.3, alpha=0.15, zorder=4)
         
         fig.colorbar(scatter, ax=ax, label='Nearest Cloud Distance (km)')
         ax.set_xlabel('Longitude (°)', fontsize=12)
         ax.set_ylabel('Latitude (°)', fontsize=12)
-        ax.set_title(f'Footprint Cloud Distances\nMean: {np.mean(fp_distances):.2f} km, Median: {np.median(fp_distances):.2f} km',
+        ax.set_title(f'Footprint-Cloud Distances\nMean: {np.mean(fp_distances):.2f} km, Median: {np.median(fp_distances):.2f} km',
                     fontsize=13, fontweight='bold')
         ax.grid(True, alpha=0.3)
         
-        # panel 3: cloud distance histogram
+        # Bottom Left: cloud distance histogram
         ax = axes[1, 0]
         ax.hist(fp_distances, bins=30, range=(0, max_distance), color='steelblue', edgecolor='black')
         ax.set_xlabel('Distance to Nearest Cloud (km)', fontsize=12)
@@ -963,10 +941,16 @@ class GeometryProcessor:
         ax.text(0.5, 0.5, f'Total Footprints: {len(fp_lats):,}\n'
                             f'Footprints ≤ {distance_threshold} km: {len(fp_lats_lt_threshold):,}\n'
                             f'Footprints > {distance_threshold} km: {len(fp_lats_gt_threshold):,}\n'
-                            f'Cloudy Pixels: {np.sum(cloud_flags==1):,}\n'
-                            f'Uncertain Pixels: {np.sum(cloud_flags==0):,}\n'
-                            f'Mean Distance: {np.mean(fp_distances):.2f} km\n'
-                            f'Median Distance: {np.median(fp_distances):.2f} km'
+                            f'\n'
+                            f'Cloud Pixels (total):  {num_cloudy + num_uncertain:,}\n'
+                            f'  • Cloudy: {num_cloudy:,}\n'
+                            f'  • Uncertain: {num_uncertain:,}\n'
+                            f'\n'
+                            f'Distance Statistics:\n'
+                            f'  • Mean: {np.mean(fp_distances):.2f} km\n'
+                            f'  • Median: {np.median(fp_distances):.2f} km\n'
+                            f'  • Min: {np.min(fp_distances):.2f} km\n'
+                            f'  • Max: {np.max(fp_distances):.2f} km'
                             ,
                  fontsize=12, ha='center', va='center', wrap=True)
         

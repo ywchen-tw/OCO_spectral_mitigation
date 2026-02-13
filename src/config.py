@@ -143,12 +143,12 @@ class Config:
     #   Windows: D:/oco2_data
     #   CURC: /projects/$USER/oco2_data or /pl/active/<project>/oco2_data
     DATA_ROOT_DIRS = {
-        'default': './data',
-        'local': './data',
-        'external': os.environ.get('OCO2_DATA_ROOT', './data'),
+        'default': '.',
+        'local': '.',
+        'external': os.environ.get('OCO2_DATA_ROOT', '.'),
         'scratch': os.environ.get('SCRATCH_DIR', './workspace/scratch_data'),
         'shared': os.environ.get('SHARED_DATA_ROOT', '/shared/oco2_data'),
-        'curc': os.environ.get('CURC_DATA_ROOT', os.environ.get('OCO2_DATAROOT', './data'))
+        'curc': os.environ.get('CURC_DATA_ROOT', os.environ.get('OCO2_DATAROOT', '.'))
     }
     
     @classmethod

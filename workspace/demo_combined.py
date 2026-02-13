@@ -34,6 +34,7 @@ import sys
 import logging
 import argparse
 import re
+import gc
 from pathlib import Path
 from datetime import datetime, timedelta
 import json
@@ -494,7 +495,7 @@ def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
                     cache_dir = processing_day_dir / granule_id
                     cache_dir.mkdir(parents=True, exist_ok=True)
                     
-                    # Extract MODIS cloud masks for this granule with proper orbit_id
+                        # Extract MODIS cloud masks for this granule with proper orbit_id
                     # This will save myd35_*.pkl files in the correct orbit folder
                     if matched_modis_files:
                         # Find matching MYD03 files
@@ -513,6 +514,9 @@ def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
                             myd03_files=matched_myd03 if matched_myd03 else None,
                             oco2_orbit_id=granule_id  # Pass orbit_id so files save to correct folder
                         )
+                        
+                        # Free memory: delete matched file references
+                        del matched_myd03
                     else:
                         granule_cloud_masks = {}
                     
@@ -530,6 +534,10 @@ def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
                         cached_granules.add(granule_id)
                     else:
                         logger.warning(f"    ⚠ Processing returned no result")
+                    
+                    # Free memory: delete granule-specific data
+                    del granule_cloud_masks, granule_footprints, result
+                    gc.collect()  # Force garbage collection after each granule
                         
             except Exception as e:
                 logger.error(f"    ✗ Error during Step 3 processing: {e}")
@@ -603,9 +611,9 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
         cache_hits = 0
         cache_misses = 0
         
-        all_cloud_lons = np.array([], dtype=np.float32)
-        all_cloud_lats = np.array([], dtype=np.float32)
-        all_cloud_flags = np.array([], dtype=np.int8)
+        # Track cloud statistics for visualization (counts only, not pixels)
+        total_cloudy_pixels = 0
+        total_uncertain_pixels = 0
         
         if visualize and viz_dir:
             viz_dir = Path(viz_dir)
@@ -651,9 +659,11 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
                 logger.warning(f"    ⊘ Skipping - no cloud data for distance calculation")
                 continue
             
-            all_cloud_lons = np.concatenate((all_cloud_lons, cloud_lon))
-            all_cloud_lats = np.concatenate((all_cloud_lats, cloud_lat))
-            all_cloud_flags = np.concatenate((all_cloud_flags, cloud_flag))
+            # Count cloudy and uncertain pixels for statistics
+            cloudy_count = np.sum(cloud_flag == 1)
+            uncertain_count = np.sum(cloud_flag == 0)
+            total_cloudy_pixels += cloudy_count
+            total_uncertain_pixels += uncertain_count
             
             # Check for Step 4 cache (unless force_recompute is True)
             phase4_cache_path = granule_dir / "phase4_results.pkl"
@@ -690,6 +700,7 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
             
             results.extend(granule_results)
             logger.info(f"    ✓ Processed {len(granule_results):,} soundings")
+
             
             # Create per-granule latitude-band visualizations
             if visualize and viz_dir:
@@ -716,6 +727,12 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
                 except Exception as e:
                     logger.warning(f"    ⚠ Visualization failed for {granule_id}: {e}")
                     logger.warning(f"    → Continuing with next granule...")
+                    
+            # Free memory: delete large arrays for this granule
+            del cloud_lon, cloud_lat, cloud_flag
+            del fp_lon, fp_lat, fp_ids, fp_modes
+            del combined_data, granule_results
+            gc.collect()  # Force garbage collection
         
         logger.info(f"\n✓ Total results: {len(results):,} soundings")
         logger.info(f"  Cache: {cache_hits} hit(s), {cache_misses} miss(es)")
@@ -723,6 +740,10 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
         if not results:
             logger.error("No collocation results generated")
             return [], False
+        
+        logger.info(f"  Cloud pixel statistics:")
+        logger.info(f"    Cloudy: {total_cloudy_pixels:,}")
+        logger.info(f"    Uncertain: {total_uncertain_pixels:,}")
         
         # Always create KD-Tree spatial range visualization
         kdtree_output_dir = Path(viz_dir) if viz_dir else Path("./visualizations_combined")
@@ -732,9 +753,8 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
         try:
             geometry_processor.visualize_kdtree_spatial_range(
                 results=results,
-                cloud_lons=all_cloud_lons,
-                cloud_lats=all_cloud_lats,
-                cloud_flags=all_cloud_flags,
+                num_cloudy=total_cloudy_pixels,
+                num_uncertain=total_uncertain_pixels,
                 output_path=kdtree_output_dir / f"kdtree_range_{target_date.date()}.png",
                 max_distance=max_distance,
                 dpi=200
@@ -742,28 +762,6 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
             logger.info("  ✓ KD-Tree spatial range visualization saved")
         except Exception as e:
             logger.warning(f"  ⚠ KD-Tree visualization failed: {e}")
-        
-        # Create additional visualizations when requested
-        if visualize and viz_dir:
-            logger.info("\n[Step 4] Creating overall latitude-band visualizations...")
-            
-            try:
-                distance_paths = geometry_processor.visualize_latband_distance(
-                    results=results,
-                    cloud_lons=all_cloud_lons,
-                    cloud_lats=all_cloud_lats,
-                    cloud_flags=all_cloud_flags,
-                    output_dir=viz_dir,
-                    max_distance=max_distance,
-                    lat_band_size=10.0,
-                    max_clouds_per_band=50000,
-                    dpi=100
-                )
-                
-                if distance_paths:
-                    logger.info(f"  ✓ Created {len(distance_paths)} overall latitude-band plot(s)")
-            except Exception as e:
-                logger.warning(f"  ⚠ Overall latitude-band visualization failed: {e}")
         
         logger.info(f"\n✓ Step 4 Complete: {len(results):,} soundings with distances")
         return results, True
