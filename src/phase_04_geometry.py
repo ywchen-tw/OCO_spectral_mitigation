@@ -904,9 +904,9 @@ class GeometryProcessor:
         # Top Left: Footprints colored by distance threshold
         ax = axes[0, 0]
         ax.plot(fp_lons_lt_threshold, fp_lats_lt_threshold, 'go', markersize=4, alpha=0.8,
-               label=f'Footprints ≤ {distance_threshold} km ({len(fp_lats_lt_threshold):,})', zorder=6)
+               label=f'Footprints ≤ {distance_threshold} km', zorder=6)
         ax.plot(fp_lons_gt_threshold, fp_lats_gt_threshold, 'ro', markersize=4, alpha=0.8,
-               label=f'Footprints > {distance_threshold} km ({len(fp_lats_gt_threshold):,})', zorder=6)
+               label=f'Footprints > {distance_threshold} km', zorder=6)
         
         ax.set_xlabel('Longitude (°)', fontsize=12)
         ax.set_ylabel('Latitude (°)', fontsize=12)
@@ -941,6 +941,8 @@ class GeometryProcessor:
         ax.text(0.5, 0.5, f'Total Footprints: {len(fp_lats):,}\n'
                             f'Footprints ≤ {distance_threshold} km: {len(fp_lats_lt_threshold):,}\n'
                             f'Footprints > {distance_threshold} km: {len(fp_lats_gt_threshold):,}\n'
+                            f'Footprint ≤ 4 km percentage: {100 * len(fp_lats_lt_threshold) / len(fp_lats):.1f}%\n'
+                            f'Footprint ≤ 10 km percentage: {100 * (len(fp_lats_lt_threshold) + len(fp_lats_gt_threshold)) / len(fp_lats):.1f}%\n'
                             f'\n'
                             f'Cloud Pixels (total):  {num_cloudy + num_uncertain:,}\n'
                             f'  • Cloudy: {num_cloudy:,}\n'
@@ -948,9 +950,7 @@ class GeometryProcessor:
                             f'\n'
                             f'Distance Statistics:\n'
                             f'  • Mean: {np.mean(fp_distances):.2f} km\n'
-                            f'  • Median: {np.median(fp_distances):.2f} km\n'
-                            f'  • Min: {np.min(fp_distances):.2f} km\n'
-                            f'  • Max: {np.max(fp_distances):.2f} km'
+                            f'  • Median: {np.median(fp_distances):.2f} km'
                             ,
                  fontsize=12, ha='center', va='center', wrap=True)
         

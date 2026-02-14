@@ -1,14 +1,13 @@
 #!/bin/env bash
 
-#SBATCH --partition=amilan
 #SBATCH --nodes=1
-#SBATCH --ntasks=4
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks=8
+#SBATCH --ntasks-per-node=8
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
 #SBATCH --output=sbatch-output_%x_%j.txt
-#SBATCH --job-name=arcsix-lrt_simulation
+#SBATCH --job-name=oco_spectral_anal
 #SBATCH --account=blanca-airs
 #SBATCH --partition=blanca-airs
 #SBATCH --qos=blanca-airs
@@ -26,10 +25,10 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # Specify year, month, and day ranges
 start_year=2020
 end_year=2020
-start_month=1
-end_month=1
+start_month=3
+end_month=3
 start_day=1
-end_day=3
+end_day=15
 
 # Loop through year, month, day
 for year in $(seq $start_year $end_year); do
