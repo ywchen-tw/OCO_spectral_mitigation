@@ -938,11 +938,13 @@ class GeometryProcessor:
         
         ax = axes[1, 1]
         ax.axis('off')
+        fp_distances_array = np.array(fp_distances)
         ax.text(0.5, 0.5, f'Total Footprints: {len(fp_lats):,}\n'
                             f'Footprints ≤ {distance_threshold} km: {len(fp_lats_lt_threshold):,}\n'
                             f'Footprints > {distance_threshold} km: {len(fp_lats_gt_threshold):,}\n'
-                            f'Footprint ≤ 4 km percentage: {100 * len(fp_lats_lt_threshold) / len(fp_lats):.3f}%\n'
-                            f'Footprint ≤ 10 km percentage: {100 * (len(fp_lats_lt_threshold) + len(fp_lats_gt_threshold)) / len(fp_lats):.3f}%\n'
+                            f'Footprint ≤ 4 km percentage: {100 *  np.sum(fp_distances_array <= 4) / len(fp_lats):.3f}%\n'
+                            f'Footprint ≤ 10 km percentage: {100 * np.sum(fp_distances_array <= 10) / len(fp_lats):.3f}%\n'
+                            f'Footprint ≤ 15 km percentage: {100 * np.sum(fp_distances_array <= 15) / len(fp_lats):.3f}%\n'
                             f'\n'
                             f'Cloud Pixels (total):  {num_cloudy + num_uncertain:,}\n'
                             f'  • Cloudy: {num_cloudy:,}\n'
