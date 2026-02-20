@@ -13,12 +13,12 @@
 #SBATCH --qos=blanca-airs
 
 
-module load anaconda intel/2022.1.2 hdf5/1.10.1 zlib/1.2.11 netcdf/4.8.1 swig/4.1.1 gsl/2.7
+module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
 conda activate data
 
 # HDF5 file locking is not supported on Lustre (/pl/active/).
 # Without this, HDF5 ≥ 1.10 raises NC_EHDF (-101) on any open() call.
-export HDF5_USE_FILE_LOCKING=FALSE
+# export HDF5_USE_FILE_LOCKING=FALSE
 
 
 cd /projects/yuch8913/OCO_spectral_mitigation
