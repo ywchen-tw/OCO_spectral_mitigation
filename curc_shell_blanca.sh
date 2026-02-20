@@ -18,7 +18,7 @@ conda activate data
 
 # HDF5 file locking is not supported on Lustre (/pl/active/).
 # Without this, HDF5 ≥ 1.10 raises NC_EHDF (-101) on any open() call.
-# export HDF5_USE_FILE_LOCKING=FALSE
+export HDF5_USE_FILE_LOCKING=FALSE
 
 
 cd /projects/yuch8913/OCO_spectral_mitigation
