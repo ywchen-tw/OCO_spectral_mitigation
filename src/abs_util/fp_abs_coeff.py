@@ -423,7 +423,7 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
     if platform.system() == "Darwin":
         pathinp = "./src/abs_util/abs/"
     elif platform.system() == "Linux":
-        pathinp = "/pl/active/vikas-arcsix/yuch8913/oco/data/absco/v5.2_final/"
+        pathinp = "/scratch/alpine/yuch8913/oco/data/absco/v5.2_final/"
     else:
         raise RuntimeError(f"Unsupported platform: {platform.system()}")
 
