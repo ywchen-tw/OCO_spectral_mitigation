@@ -617,7 +617,9 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
     if platform.system() == "Darwin":
         mp_ctx = multiprocessing.get_context("spawn")
     else:
-        mp_ctx = multiprocessing.get_context("fork")
+        # mp_ctx = multiprocessing.get_context("fork")
+        mp_ctx = multiprocessing.get_context("spawn")
+        
 
     print(f"Dispatching {n_tracks} tracks across {n_workers_actual} workers (all 3 bands) ...")
     try:
