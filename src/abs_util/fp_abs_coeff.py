@@ -608,14 +608,16 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
         n_workers_actual = (cpu_count - 1) if platform.system() in ("Darwin", "Windows") else cpu_count
         n_workers_actual = max(1, min(n_workers_actual, n_tracks))
 
-    # fork is unsafe with multithreaded BLAS/MKL: forked workers inherit the parent's
-    # OpenMP/MKL thread-pool state, but the threads don't exist in the child → deadlock
-    # on the first numpy call.  forkserver spawns workers from a clean, pre-thread
-    # helper process, avoiding the inherited-mutex problem on Linux HPC (e.g. CURC+Intel MKL).
+    # fork is safe on Linux *only when* MKL/OpenBLAS are forced to single-threaded mode
+    # (OMP_NUM_THREADS=1 / MKL_NUM_THREADS=1) before Python starts, so the parent never
+    # builds a thread pool.  The shell script exports those vars before invoking Python.
+    # forkserver is avoided because it re-imports every module per worker from scratch;
+    # on Lustre (/pl/active/) that cold-import penalty causes 10-30 min of apparent hang
+    # at "Tracks: 0/N" before any computation begins.
     if platform.system() == "Darwin":
         mp_ctx = multiprocessing.get_context("spawn")
     else:
-        mp_ctx = multiprocessing.get_context("forkserver")
+        mp_ctx = multiprocessing.get_context("fork")
 
     print(f"Dispatching {n_tracks} tracks across {n_workers_actual} workers (all 3 bands) ...")
     try:
