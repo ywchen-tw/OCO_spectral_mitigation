@@ -4,6 +4,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# Must be set before any HDF5 library call; Lustre does not support POSIX
+# advisory locks and HDF5 >= 1.10 raises NC_EHDF (-101) without this.
+os.environ.setdefault('HDF5_USE_FILE_LOCKING', 'FALSE')
+
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
