@@ -19,7 +19,13 @@ conda activate data
 # Prepend conda's libs so Python's netCDF4/h5py loads the conda-compiled
 # libhdf5 rather than the system one injected by `module load hdf5/...`.
 # Without this, an ABI mismatch causes NC_EHDF (-101) at H5Fopen() time.
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+# On Linux, $CONDA_PREFIX may be empty when conda activate runs non-interactively
+# (SLURM batch context), so hardcode the path as a reliable fallback.
+if [[ "$(uname -s)" == "Linux" ]]; then
+    export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
+else
+    export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+fi
 
 # HDF5 file locking is not supported on Lustre (/pl/active/).
 # Without this, HDF5 ≥ 1.10 raises NC_EHDF (-101) on any open() call.

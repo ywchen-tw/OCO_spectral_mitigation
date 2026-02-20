@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from utils import oco2_rad_nadir
 from netCDF4 import Dataset as dataset
-from scipy.optimize import curve_fit, minimize
+from scipy.optimize import curve_fit
 from scipy.interpolate import UnivariateSpline
 from scipy.signal import savgol_filter
 
