@@ -222,58 +222,87 @@ _shm_handles = []   # SharedMemory objects kept alive inside each worker
 def _init_worker(state):
     """Receive lightweight state; reconstruct Gas_Absorption arrays from shared memory."""
     global _shared_state, _shm_handles
+    
+    print(f"Worker {os.getpid()} starting initialization...", flush=True)
+    
+    try:
 
-    # Attach H2O Gas_Absorption from shared memory
-    shm_h2o = SharedMemory(name=state['h2o_gas_abs_shm']['name'])
-    _shm_handles.append(shm_h2o)
-    h2o_gas_abs = np.ndarray(
-        state['h2o_gas_abs_shm']['shape'],
-        dtype=state['h2o_gas_abs_shm']['dtype'],
-        buffer=shm_h2o.buf,
-    )
-    absco_data_h2o = dict(state['absco_data_h2o'])
-    absco_data_h2o['Gas_Absorption'] = h2o_gas_abs
-
-    # Attach per-band Gas_Absorption from shared memory.
-    # CO2 bands (1 and 2) share the same shm block — open it only once.
-    _opened: dict = {}
-    bands = {}
-    for iband, bs in state['bands'].items():
-        shm_meta = bs['gas_abs_shm']
-        shm_name = shm_meta['name']
-        if shm_name not in _opened:
-            shm = SharedMemory(name=shm_name)
-            _shm_handles.append(shm)
-            _opened[shm_name] = shm
-        gas_abs = np.ndarray(
-            shm_meta['shape'], dtype=shm_meta['dtype'],
-            buffer=_opened[shm_name].buf,
+        # Attach H2O Gas_Absorption from shared memory
+        shm_h2o = SharedMemory(name=state['h2o_gas_abs_shm']['name'])
+        _shm_handles.append(shm_h2o)
+        h2o_gas_abs = np.ndarray(
+            state['h2o_gas_abs_shm']['shape'],
+            dtype=state['h2o_gas_abs_shm']['dtype'],
+            buffer=shm_h2o.buf,
         )
-        _shm_keys = {'gas_abs_shm', 'xx_fps_shm', 'yy_fps_shm', 'wloco_fps_shm'}
-        new_bs = {k: v for k, v in bs.items() if k not in _shm_keys}
-        new_bs['absco_data_gas'] = dict(new_bs['absco_data_gas'])
-        new_bs['absco_data_gas']['Gas_Absorption'] = gas_abs
-        for key in ('xx_fps', 'yy_fps', 'wloco_fps'):
-            meta = bs[f'{key}_shm']
-            shm = SharedMemory(name=meta['name'])
-            _shm_handles.append(shm)
-            new_bs[key] = np.ndarray(meta['shape'], dtype=meta['dtype'], buffer=shm.buf)
-        bands[iband] = new_bs
+        absco_data_h2o = dict(state['absco_data_h2o'])
+        absco_data_h2o['Gas_Absorption'] = h2o_gas_abs
 
-    _shared_state = {
-        'bands': bands,
-        'absco_data_h2o': absco_data_h2o,
-        'ph2o': state['ph2o'],
-        'tkh2o': state['tkh2o'],
-        'broadh2o': state['broadh2o'],
-        'hpah2o': state['hpah2o'],
-        'trilinear_matrix': state['trilinear_matrix'],
-        'pdmax': state['pdmax'],
-        'tdmax': state['tdmax'],
-        'solar_h5_path': state['solar_h5_path'],
-    }
+        # Attach per-band Gas_Absorption from shared memory.
+        # CO2 bands (1 and 2) share the same shm block — open it only once.
+        _opened: dict = {}
+        bands = {}
+        for iband, bs in state['bands'].items():
+            shm_meta = bs['gas_abs_shm']
+            shm_name = shm_meta['name']
+            if shm_name not in _opened:
+                shm = SharedMemory(name=shm_name)
+                _shm_handles.append(shm)
+                _opened[shm_name] = shm
+            gas_abs = np.ndarray(
+                shm_meta['shape'], dtype=shm_meta['dtype'],
+                buffer=_opened[shm_name].buf,
+            )
+            _shm_keys = {'gas_abs_shm', 'xx_fps_shm', 'yy_fps_shm', 'wloco_fps_shm'}
+            new_bs = {k: v for k, v in bs.items() if k not in _shm_keys}
+            new_bs['absco_data_gas'] = dict(new_bs['absco_data_gas'])
+            new_bs['absco_data_gas']['Gas_Absorption'] = gas_abs
+            for key in ('xx_fps', 'yy_fps', 'wloco_fps'):
+                meta = bs[f'{key}_shm']
+                shm = SharedMemory(name=meta['name'])
+                _shm_handles.append(shm)
+                new_bs[key] = np.ndarray(meta['shape'], dtype=meta['dtype'], buffer=shm.buf)
+            bands[iband] = new_bs
 
+        _shared_state = {
+            'bands': bands,
+            'absco_data_h2o': absco_data_h2o,
+            'ph2o': state['ph2o'],
+            'tkh2o': state['tkh2o'],
+            'broadh2o': state['broadh2o'],
+            'hpah2o': state['hpah2o'],
+            'trilinear_matrix': state['trilinear_matrix'],
+            'pdmax': state['pdmax'],
+            'tdmax': state['tdmax'],
+            'solar_h5_path': state['solar_h5_path'],
+        }
+    
+        print(f"Worker {os.getpid()} successfully attached to SharedMemory.", flush=True)
+    except Exception as e:
+        print(f"Worker {os.getpid()} FAILED: {e}", flush=True)
 
+import psutil
+
+def monitor_memory_and_init(func):
+    """Decorator to log worker health and memory usage to SLURM output."""
+    def wrapper(*args, **kwargs):
+        pid = os.getpid()
+        process = psutil.Process(pid)
+        # Check memory before
+        mem_gb = process.memory_info().rss / 1e9
+        
+        # Run the physics task
+        result = func(*args, **kwargs)
+        
+        # Periodic log for HPC (only log every 10th track to avoid clutter)
+        # You can adjust this logic or remove for local Mac use.
+        if np.random.rand() < 0.1: 
+            print(f"  [Worker {pid}] Mem: {mem_gb:.2f}GB | Task complete.", flush=True)
+        return result
+    return wrapper
+
+# Apply it to your worker
+@monitor_memory
 def _process_track_all_bands(track_data):
     """Process a single track for all 3 bands in one pool call."""
     s = _shared_state
@@ -622,18 +651,48 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
         
 
     print(f"Dispatching {n_tracks} tracks across {n_workers_actual} workers (all 3 bands) ...")
+    # try:
+    #     with ProcessPoolExecutor(
+    #         max_workers=n_workers_actual,
+    #         mp_context=mp_ctx,
+    #         initializer=_init_worker,
+    #         initargs=(shared_state,),
+    #     ) as pool:
+    #         results = list(tqdm(pool.map(_process_track_all_bands, track_args), total=n_tracks, desc="Tracks"))
+    # finally:
+    #     for shm in _shm_blocks:
+    #         shm.close()
+    #         shm.unlink()
+    results = []
     try:
-        with ProcessPoolExecutor(
-            max_workers=n_workers_actual,
-            mp_context=mp_ctx,
+        # Use mp_ctx.Pool instead of ProcessPoolExecutor
+        # This allows us to use .imap() which is much better for large HPC jobs
+        with mp_ctx.Pool(
+            processes=n_workers_actual,
             initializer=_init_worker,
             initargs=(shared_state,),
         ) as pool:
-            results = list(tqdm(pool.map(_process_track_all_bands, track_args), total=n_tracks, desc="Tracks"))
+
+            # imap with chunksize=1 is the "Secret Sauce" for HPC:
+            # 1. It doesn't pickle the entire 'track_args' list at once (prevents memory spike).
+            # 2. It lets tqdm update the second a worker finishes (prevents the 'stuck' look).
+            pbar = tqdm(total=n_tracks, desc="Tracks")
+            for res in pool.imap(_process_track_all_bands, track_args, chunksize=1):
+                results.append(res)
+                pbar.update(1)
+            pbar.close()
+
+    except Exception as e:
+        print(f"\nCRITICAL FAILURE: {e}", flush=True)
+        raise
     finally:
+        # Cleanup SharedMemory blocks
         for shm in _shm_blocks:
-            shm.close()
-            shm.unlink()
+            try:
+                shm.close()
+                shm.unlink()
+            except:
+                pass
 
     o2a_tau  = np.zeros((n_tracks, 1016));  o2a_me  = np.zeros((n_tracks, 1016));  o2a_sol  = np.zeros((n_tracks, 1016))
     wco2_tau = np.zeros((n_tracks, 1016));  wco2_me = np.zeros((n_tracks, 1016));  wco2_sol = np.zeros((n_tracks, 1016))
