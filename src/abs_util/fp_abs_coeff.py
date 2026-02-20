@@ -303,15 +303,18 @@ def monitor_memory_and_init(func):
 
 
 def _process_track_all_bands(track_data):
-    """Pickle-safe worker function for macOS and HPC."""
-    # --- MANUAL MONITORING ---
-    pid = os.getpid()
-    process = psutil.Process(pid)
-    mem_before = process.memory_info().rss / 1e9
-    
     """Process a single track for all 3 bands in one pool call."""
     s = _shared_state
     pprf, tprf, d_air_lay, o2den, co2den, h2oden, h2o_vmr, dzf, solzen, obszen, fp, v_solar, v_inst, dist_au = track_data
+
+
+    """Pickle-safe worker function for macOS and HPC."""
+    # ACCESS GLOBAL STATE (Populated by _init_worker)
+    pid = os.getpid()
+    
+    # --- MANUAL MEMORY MONITORING ---
+    process = psutil.Process(pid)
+    mem_start = process.memory_info().rss / 1e9
 
     # Data shared across all bands
     absco_data_h2o   = s['absco_data_h2o']
@@ -443,11 +446,12 @@ def _process_track_all_bands(track_data):
         mean_ext = tau / (np.sum(dzf) * (musolzen + muobszen))
         band_results.append((tau, mean_ext, toa_sol))
        
-    # --- LOGGING ---
-    # On HPC, we use a small chance to log so we don't flood the SLURM file
-    if np.random.rand() < 0.05: # 5% chance to log memory
-        print(f"  [Worker {pid}] Memory: {mem_before:.2f}GB -> {process.memory_info().rss / 1e9:.2f}GB", flush=True) 
-    
+    # --- HEALTH LOGGING ---
+    # Log memory for roughly 5% of tasks to verify stability in SLURM .out file
+    if np.random.rand() < 0.05:
+        mem_end = process.memory_info().rss / 1e9
+        print(f"  [Worker {pid}] Memory: {mem_start:.2f}GB -> {mem_end:.2f}GB | Task Complete", flush=True)
+        
     return band_results[0], band_results[1], band_results[2]
 
 
@@ -674,35 +678,31 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
     #         shm.close()
     #         shm.unlink()
     results = []
+    print(f"Dispatching {n_tracks} tracks via imap (chunksize=1)...", flush=True)
+
     try:
-        # Use mp_ctx.Pool instead of ProcessPoolExecutor
-        # This allows us to use .imap() which is much better for large HPC jobs
         with mp_ctx.Pool(
             processes=n_workers_actual,
             initializer=_init_worker,
             initargs=(shared_state,),
         ) as pool:
 
-            # imap with chunksize=1 is the "Secret Sauce" for HPC:
-            # 1. It doesn't pickle the entire 'track_args' list at once (prevents memory spike).
-            # 2. It lets tqdm update the second a worker finishes (prevents the 'stuck' look).
-            pbar = tqdm(total=n_tracks, desc="Tracks")
-            for res in pool.imap(_process_track_all_bands, track_args, chunksize=1):
-                results.append(res)
-                pbar.update(1)
-            pbar.close()
+            # chunksize=1 is vital for heavy tasks to avoid 'clogging' the pipe
+            result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=1)
+            
+            results = list(tqdm(
+                result_iterator, 
+                total=n_tracks, 
+                desc="Tracks", 
+                smoothing=0.1
+            ))
 
     except Exception as e:
-        print(f"\nCRITICAL FAILURE: {e}", flush=True)
-        raise
-    finally:
-        # Cleanup SharedMemory blocks
+        print(f"FAILED during processing: {e}", flush=True)
+        # Manual cleanup in case of crash
         for shm in _shm_blocks:
-            try:
-                shm.close()
-                shm.unlink()
-            except:
-                pass
+            shm.close()
+            shm.unlink()
 
     o2a_tau  = np.zeros((n_tracks, 1016));  o2a_me  = np.zeros((n_tracks, 1016));  o2a_sol  = np.zeros((n_tracks, 1016))
     wco2_tau = np.zeros((n_tracks, 1016));  wco2_me = np.zeros((n_tracks, 1016));  wco2_sol = np.zeros((n_tracks, 1016))
