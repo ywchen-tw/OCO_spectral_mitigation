@@ -3,7 +3,7 @@ import numpy as np
 import bisect as bs
 from numba import njit
 
-@njit
+@njit(cache=True)
 def get_P_index(pobs_arr, hpa, trilinear=True):
     """
     tkobs: temperatrue of the layer in K
@@ -29,7 +29,7 @@ def get_P_index(pobs_arr, hpa, trilinear=True):
 
     return P_inds
 
-@njit
+@njit(cache=True)
 def get_T_index(tkobs, tk, P_ind, trilinear=True):
     """
     tkobs: temperatrue of the layer in K
