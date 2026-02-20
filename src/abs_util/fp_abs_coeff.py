@@ -302,7 +302,7 @@ def monitor_memory_and_init(func):
     return wrapper
 
 # Apply it to your worker
-@monitor_memory
+@monitor_memory_and_init
 def _process_track_all_bands(track_data):
     """Process a single track for all 3 bands in one pool call."""
     s = _shared_state
