@@ -30,6 +30,14 @@ fi
 # Without this, HDF5 ≥ 1.10 raises NC_EHDF (-101) on any open() call.
 export HDF5_USE_FILE_LOCKING=FALSE
 
+# Prevent MKL/OpenBLAS from creating a thread pool in the parent process.
+# fp_abs_coeff.py parallelises at the Python (ProcessPoolExecutor) level, so
+# each worker should run single-threaded numpy.  Without this, fork/forkserver
+# workers inherit a broken BLAS thread state → deadlock on first numpy call.
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+
 cd /projects/yuch8913/OCO_spectral_mitigation
 
 # ============================================================================

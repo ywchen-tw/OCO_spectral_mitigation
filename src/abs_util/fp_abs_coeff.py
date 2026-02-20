@@ -608,12 +608,14 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
         n_workers_actual = (cpu_count - 1) if platform.system() in ("Darwin", "Windows") else cpu_count
         n_workers_actual = max(1, min(n_workers_actual, n_tracks))
 
-    # On macOS, fork is unsafe with multithreaded libraries (numpy/BLAS, h5py file handles).
-    # Use spawn on Darwin to avoid BrokenProcessPool crashes; fork is safe on Linux.
+    # fork is unsafe with multithreaded BLAS/MKL: forked workers inherit the parent's
+    # OpenMP/MKL thread-pool state, but the threads don't exist in the child → deadlock
+    # on the first numpy call.  forkserver spawns workers from a clean, pre-thread
+    # helper process, avoiding the inherited-mutex problem on Linux HPC (e.g. CURC+Intel MKL).
     if platform.system() == "Darwin":
         mp_ctx = multiprocessing.get_context("spawn")
     else:
-        mp_ctx = multiprocessing.get_context("fork")
+        mp_ctx = multiprocessing.get_context("forkserver")
 
     print(f"Dispatching {n_tracks} tracks across {n_workers_actual} workers (all 3 bands) ...")
     try:
