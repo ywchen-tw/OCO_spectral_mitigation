@@ -603,7 +603,8 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
     if n_workers is not None:
         n_workers_actual = n_workers
     else:
-        cpu_count = os.cpu_count() or 1
+        slurm_ntasks = int(os.environ.get('SLURM_NTASKS', 0))
+        cpu_count = slurm_ntasks if slurm_ntasks > 0 else (os.cpu_count() or 1)
         n_workers_actual = (cpu_count - 1) if platform.system() in ("Darwin", "Windows") else cpu_count
         n_workers_actual = max(1, min(n_workers_actual, n_tracks))
 
