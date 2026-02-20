@@ -301,9 +301,14 @@ def monitor_memory_and_init(func):
         return result
     return wrapper
 
-# Apply it to your worker
-@monitor_memory_and_init
+
 def _process_track_all_bands(track_data):
+    """Pickle-safe worker function for macOS and HPC."""
+    # --- MANUAL MONITORING ---
+    pid = os.getpid()
+    process = psutil.Process(pid)
+    mem_before = process.memory_info().rss / 1e9
+    
     """Process a single track for all 3 bands in one pool call."""
     s = _shared_state
     pprf, tprf, d_air_lay, o2den, co2den, h2oden, h2o_vmr, dzf, solzen, obszen, fp, v_solar, v_inst, dist_au = track_data
@@ -437,7 +442,12 @@ def _process_track_all_bands(track_data):
         tau      = (np.sum(ext_profile * dzf, axis=1) + tau_molec_ext_lays) * (musolzen + muobszen)
         mean_ext = tau / (np.sum(dzf) * (musolzen + muobszen))
         band_results.append((tau, mean_ext, toa_sol))
-        
+       
+    # --- LOGGING ---
+    # On HPC, we use a small chance to log so we don't flood the SLURM file
+    if np.random.rand() < 0.05: # 5% chance to log memory
+        print(f"  [Worker {pid}] Memory: {mem_before:.2f}GB -> {process.memory_info().rss / 1e9:.2f}GB", flush=True) 
+    
     return band_results[0], band_results[1], band_results[2]
 
 
