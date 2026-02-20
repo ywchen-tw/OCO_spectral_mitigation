@@ -631,7 +631,7 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
                 shm.close()
                 shm.unlink()
         results = []
-        print(f"Dispatching {n_tracks} tracks via imap (chunksize=50)...", flush=True)
+        print(f"Dispatching {n_tracks} tracks via imap (chunksize=10)...", flush=True)
     else:
         try:
             with mp_ctx.Pool(
@@ -641,7 +641,7 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
             ) as pool:
 
                 # chunksize=1 is vital for heavy tasks to avoid 'clogging' the pipe
-                result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=50)
+                result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=10)
                 
                 results = list(tqdm(
                     result_iterator, 
@@ -651,11 +651,17 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
                 ))
 
         except Exception as e:
-            print(f"FAILED during processing: {e}", flush=True)
-            # Manual cleanup in case of crash
+            print(f"CRITICAL ERROR: {e}", flush=True)
+            # If using SharedMemory, the ResourceTracker might try to clean up, 
+            # but manual unlinking is safer here.
+        finally:
+            print("Cleaning up Shared Memory...", flush=True)
             for shm in _shm_blocks:
-                shm.close()
-                shm.unlink()
+                try:
+                    shm.close()
+                    shm.unlink()
+                except:
+                    pass
 
     o2a_tau  = np.zeros((n_tracks, 1016));  o2a_me  = np.zeros((n_tracks, 1016));  o2a_sol  = np.zeros((n_tracks, 1016))
     wco2_tau = np.zeros((n_tracks, 1016));  wco2_me = np.zeros((n_tracks, 1016));  wco2_sol = np.zeros((n_tracks, 1016))
