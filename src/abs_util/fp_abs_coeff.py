@@ -192,7 +192,7 @@ def _init_worker(state):
     """Receive lightweight state; reconstruct Gas_Absorption arrays from shared memory."""
     global _shared_state, _shm_handles
     
-    print(f"Worker {os.getpid()} starting initialization...", flush=True)
+    # print(f"Worker {os.getpid()} starting initialization...", flush=True)
     
     try:
 
@@ -631,7 +631,7 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
                 shm.close()
                 shm.unlink()
         results = []
-        print(f"Dispatching {n_tracks} tracks via imap (chunksize=10)...", flush=True)
+        print(f"Dispatching {n_tracks} tracks via imap (chunksize=20)...", flush=True)
     else:
         try:
             with mp_ctx.Pool(
@@ -641,7 +641,7 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
             ) as pool:
 
                 # chunksize=1 is vital for heavy tasks to avoid 'clogging' the pipe
-                result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=10)
+                result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=20)
                 
                 results = list(tqdm(
                     result_iterator, 

@@ -1,6 +1,7 @@
 import h5py
 import sys
 import os
+import platform
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
@@ -173,7 +174,10 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
         print(f'Total number of soundings to process: {final_length}')
         
         
-        processing_length = 2000
+        if platform.system() == "Darwin":
+            processing_length = 2000
+        elif platform.system() == "Linux":
+            processing_length = 5000
         for i in range(0, final_length, processing_length):
             print(f'Processing sounding {i} to {min(i+processing_length, final_length)} out of {final_length}...')
             output_tmp = output.replace('.h5', '_tmp_{}.h5'.format(i))
