@@ -12,7 +12,6 @@ from netCDF4 import Dataset as dataset
 from scipy.optimize import curve_fit, minimize
 from scipy.interpolate import UnivariateSpline
 from scipy.signal import savgol_filter
-import statsmodels.api as sm
 
 from result_ana import k1k2_analysis
 from abs_util.fp_atm import oco_fp_atm_abs
