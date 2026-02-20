@@ -1,10 +1,13 @@
 import os
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+import platform
+if platform.system() == "Linux":
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 import sys
+import psutil
 import multiprocessing
 import h5py
 import numpy as np
@@ -243,29 +246,11 @@ def _init_worker(state):
             'solar_h5_path': state['solar_h5_path'],
         }
     
-        print(f"Worker {os.getpid()} successfully attached to SharedMemory.", flush=True)
+        # print(f"Worker {os.getpid()} successfully attached to SharedMemory.", flush=True)
     except Exception as e:
         print(f"Worker {os.getpid()} FAILED: {e}", flush=True)
 
-import psutil
 
-def monitor_memory_and_init(func):
-    """Decorator to log worker health and memory usage to SLURM output."""
-    def wrapper(*args, **kwargs):
-        pid = os.getpid()
-        process = psutil.Process(pid)
-        # Check memory before
-        mem_gb = process.memory_info().rss / 1e9
-        
-        # Run the physics task
-        result = func(*args, **kwargs)
-        
-        # Periodic log for HPC (only log every 10th track to avoid clutter)
-        # You can adjust this logic or remove for local Mac use.
-        if np.random.rand() < 0.1: 
-            print(f"  [Worker {pid}] Mem: {mem_gb:.2f}GB | Task complete.", flush=True)
-        return result
-    return wrapper
 
 
 def _process_track_all_bands(track_data):
@@ -414,9 +399,9 @@ def _process_track_all_bands(track_data):
        
     # --- HEALTH LOGGING ---
     # Log memory for roughly 5% of tasks to verify stability in SLURM .out file
-    if np.random.rand() < 0.05:
-        mem_end = process.memory_info().rss / 1e9
-        print(f"  [Worker {pid}] Memory: {mem_start:.2f}GB -> {mem_end:.2f}GB | Task Complete", flush=True)
+    # if np.random.rand() < 0.05:
+    #     mem_end = process.memory_info().rss / 1e9
+    #     print(f"  [Worker {pid}] Memory: {mem_start:.2f}GB -> {mem_end:.2f}GB | Task Complete", flush=True)
         
     return band_results[0], band_results[1], band_results[2]
 
@@ -614,7 +599,7 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
     else:
         slurm_ntasks = int(os.environ.get('SLURM_NTASKS', 0))
         if slurm_ntasks > 0:
-            slurm_ntasks = max(1, slurm_ntasks - 4)  # Leave one CPU free for system responsiveness
+            slurm_ntasks = max(1, slurm_ntasks//2)  # Leave one CPU free for system responsiveness
         cpu_count = slurm_ntasks if slurm_ntasks > 0 else (os.cpu_count() or 1)
         n_workers_actual = (cpu_count - 1) if platform.system() in ("Darwin", "Windows") else cpu_count
         n_workers_actual = max(1, min(n_workers_actual, n_tracks))
@@ -631,46 +616,46 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
         # mp_ctx = multiprocessing.get_context("fork")
         mp_ctx = multiprocessing.get_context("spawn")
         
+    if platform.system() == "Darwin":
+        print(f"Dispatching {n_tracks} tracks across {n_workers_actual} workers (all 3 bands) ...")
+        try:
+            with ProcessPoolExecutor(
+                max_workers=n_workers_actual,
+                mp_context=mp_ctx,
+                initializer=_init_worker,
+                initargs=(shared_state,),
+            ) as pool:
+                results = list(tqdm(pool.map(_process_track_all_bands, track_args), total=n_tracks, desc="Tracks"))
+        finally:
+            for shm in _shm_blocks:
+                shm.close()
+                shm.unlink()
+        results = []
+        print(f"Dispatching {n_tracks} tracks via imap (chunksize=50)...", flush=True)
+    else:
+        try:
+            with mp_ctx.Pool(
+                processes=n_workers_actual,
+                initializer=_init_worker,
+                initargs=(shared_state,),
+            ) as pool:
 
-    print(f"Dispatching {n_tracks} tracks across {n_workers_actual} workers (all 3 bands) ...")
-    # try:
-    #     with ProcessPoolExecutor(
-    #         max_workers=n_workers_actual,
-    #         mp_context=mp_ctx,
-    #         initializer=_init_worker,
-    #         initargs=(shared_state,),
-    #     ) as pool:
-    #         results = list(tqdm(pool.map(_process_track_all_bands, track_args), total=n_tracks, desc="Tracks"))
-    # finally:
-    #     for shm in _shm_blocks:
-    #         shm.close()
-    #         shm.unlink()
-    results = []
-    print(f"Dispatching {n_tracks} tracks via imap (chunksize=20)...", flush=True)
+                # chunksize=1 is vital for heavy tasks to avoid 'clogging' the pipe
+                result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=50)
+                
+                results = list(tqdm(
+                    result_iterator, 
+                    total=n_tracks, 
+                    desc="Tracks", 
+                    smoothing=0.1
+                ))
 
-    try:
-        with mp_ctx.Pool(
-            processes=n_workers_actual,
-            initializer=_init_worker,
-            initargs=(shared_state,),
-        ) as pool:
-
-            # chunksize=1 is vital for heavy tasks to avoid 'clogging' the pipe
-            result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=20)
-            
-            results = list(tqdm(
-                result_iterator, 
-                total=n_tracks, 
-                desc="Tracks", 
-                smoothing=0.1
-            ))
-
-    except Exception as e:
-        print(f"FAILED during processing: {e}", flush=True)
-        # Manual cleanup in case of crash
-        for shm in _shm_blocks:
-            shm.close()
-            shm.unlink()
+        except Exception as e:
+            print(f"FAILED during processing: {e}", flush=True)
+            # Manual cleanup in case of crash
+            for shm in _shm_blocks:
+                shm.close()
+                shm.unlink()
 
     o2a_tau  = np.zeros((n_tracks, 1016));  o2a_me  = np.zeros((n_tracks, 1016));  o2a_sol  = np.zeros((n_tracks, 1016))
     wco2_tau = np.zeros((n_tracks, 1016));  wco2_me = np.zeros((n_tracks, 1016));  wco2_sol = np.zeros((n_tracks, 1016))
