@@ -203,22 +203,26 @@ class OCO2MetadataRetriever:
         Returns:
             XML string containing granule metadata, or None if failed
         """
-        # Get the appropriate collection for this date
-        collection = self._get_cmr_collection(target_date)
-        
+        # CMR requires short_name and version as separate parameters.
+        # The collection short name is always "OCO2_L1B_Science"; the version
+        # ("11r" or "11.2r") selects the correct dataset vintage.
+        version = self._get_collection_version(target_date)
+
         # Set up temporal bounds (full day)
         start_time = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_time = start_time + timedelta(days=1)
-        
+
         # Build CMR search parameters
         params = {
-            'short_name': collection,
+            'short_name': 'OCO2_L1B_Science',
+            'version': version,
             'temporal': f"{start_time.isoformat()}Z,{end_time.isoformat()}Z",
             'page_size': 100,
             'sort_key': '-start_date'
         }
-        
-        logger.info(f"Querying CMR for OCO-2 L1B data on {target_date.date()} (Collection: {collection})")
+
+        logger.info(f"Querying CMR for OCO-2 L1B data on {target_date.date()} "
+                    f"(short_name=OCO2_L1B_Science, version={version})")
         
         try:
             response = self.session.get(self.CMR_SEARCH_URL, params=params, timeout=10)
