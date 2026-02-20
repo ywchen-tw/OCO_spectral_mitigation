@@ -175,9 +175,9 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
         
         
         if platform.system() == "Darwin":
-            processing_length = 2000
+            processing_length = 1000
         elif platform.system() == "Linux":
-            processing_length = 5000
+            processing_length = 3000
         for i in range(0, final_length, processing_length):
             print(f'Processing sounding {i} to {min(i+processing_length, final_length)} out of {final_length}...')
             output_tmp = output.replace('.h5', '_tmp_{}.h5'.format(i))
