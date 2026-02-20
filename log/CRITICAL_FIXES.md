@@ -173,3 +173,80 @@ processing_info, success = run_phase_3(target_date, data_dir)
 ### Fix
 
 Added `import traceback` to the top-level imports and removed all four inline imports.
+
+---
+
+## Fix 7 — Dual L2 Lite files downloaded when CMR returns cross-midnight orbit (2026-02-20)
+
+**File**: `src/phase_02_ingestion.py`
+**Method**: `download_all_for_date`
+
+### Problem
+
+When `fetch_oco2_xml_from_cmr` is used (fallback when GES DISC directory query fails), CMR
+uses a **temporal-overlap** search: any granule whose time extent overlaps
+`[target_date 00:00Z, target_date+1 00:00Z]` is returned.
+
+The last orbit of the *previous* day (e.g. 2020-07-31 22:50 UTC → 2020-08-01 00:30 UTC)
+overlaps with 2020-08-01's window and is returned by CMR.  For that orbit:
+
+- `granule.start_time` = 2020-07-31 → `doy = 213`, `date_str = '200731'`
+- `download_oco2_granule` downloads `oco2_LtCO2_200731_...nc4` into `data/OCO2/2020/213/`
+
+The genuine Aug-01 orbits download `oco2_LtCO2_200801_...nc4` into `data/OCO2/2020/214/`.
+Result: two L2 Lite files in the data tree for a single requested date.
+
+### Fix
+
+Added an off-day filter in `download_all_for_date` immediately after `parse_orbit_info`,
+before any orbit/mode/limit filters and before any downloads:
+
+```python
+target_date_only = target_date.date()
+off_day = [g for g in granules if g.start_time.date() != target_date_only]
+if off_day:
+    logger.warning(
+        f"Dropping {len(off_day)} granule(s) whose start_time is not on "
+        f"{target_date_only}: {[g.granule_id for g in off_day]}"
+    )
+    granules = [g for g in granules if g.start_time.date() == target_date_only]
+```
+
+Works for both timezone-aware datetimes (CMR returns `+00:00`) and naive datetimes
+(GES DISC directory path), since `.date()` returns the UTC calendar date in both cases.
+The GES DISC directory path is not affected (it never returns off-day files); the filter
+is a no-op there and adds only negligible overhead.
+
+---
+
+## Fix 8 — Corrupted L2 Lite `.nc4` silently accepted; cryptic HDF error in spec anal (2026-02-20)
+
+**Files**: `src/phase_02_ingestion.py`, `src/oco_fp_spec_anal.py`
+
+### Problem
+
+GES DISC returns HTTP 200 with an HTML login page (instead of 401/403) when the session
+cookie expires. `_download_file` only called `raise_for_status()` — which passes on a
+200 — so the HTML page was written to disk as a `.nc4` file. On the next run,
+`download_oco2_granule`'s `output_path.exists()` check accepted the corrupt file without
+re-downloading. When `oco_fp_spec_anal.py` later opened it via `netCDF4.Dataset`, the
+HDF5 library returned an opaque `OSError: [Errno -101] NetCDF: HDF error`.
+
+### Fixes (three layers)
+
+**A. `_download_file`** — reject HTML responses before writing to disk:
+check `Content-Type: text/html` and raise immediately.
+
+**B. `download_oco2_granule` "file exists" branch** — validate HDF5 header with
+`h5py.is_hdf5()` for `.nc4/.h5/.hdf5` files; delete and re-download if invalid.
+
+**C. `preprocess` in `oco_fp_spec_anal.py`** — validate L2 Lite before passing it to
+`oco_fp_atm_abs`; raise an `OSError` with the filename and remediation command.
+Also fixed glob pattern from `*nc4` to `*.nc4`.
+
+### Immediate remediation for already-corrupted files
+
+```bash
+rm /path/to/data/OCO2/YYYY/DOY/oco2_LtCO2_*.nc4
+python workspace/demo_combined.py --date YYYY-MM-DD
+```

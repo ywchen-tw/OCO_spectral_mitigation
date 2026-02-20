@@ -1,8 +1,8 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=8
-#SBATCH --ntasks-per-node=8
+#SBATCH --ntasks=16
+#SBATCH --ntasks-per-node=16
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
@@ -16,6 +16,10 @@
 module load anaconda intel/2022.1.2 hdf5/1.10.1 zlib/1.2.11 netcdf/4.8.1 swig/4.1.1 gsl/2.7
 conda activate data
 
+# HDF5 file locking is not supported on Lustre (/pl/active/).
+# Without this, HDF5 ≥ 1.10 raises NC_EHDF (-101) on any open() call.
+export HDF5_USE_FILE_LOCKING=FALSE
+
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
@@ -26,7 +30,7 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 start_year=2020
 end_year=2020
 start_month=1
-end_month=3
+end_month=1
 start_day=1
 end_day=1
 

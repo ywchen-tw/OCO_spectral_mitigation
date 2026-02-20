@@ -988,7 +988,19 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
     logger.info(f"Orbits found: {oco2_orbit_list}")
 
     OCO2_data_dir = f"{data_dir}/OCO2/{year}/{doy:03d}"
-    lite_nc_file  = glob.glob(f"{OCO2_data_dir}/*nc4")[0]
+    nc4_matches = glob.glob(f"{OCO2_data_dir}/*.nc4")
+    if not nc4_matches:
+        raise FileNotFoundError(
+            f"No L2 Lite .nc4 file found in {OCO2_data_dir}. "
+            f"Re-run demo_combined.py for this date to download it."
+        )
+    lite_nc_file = nc4_matches[0]
+    if not h5py.is_hdf5(lite_nc_file):
+        raise OSError(
+            f"L2 Lite file is corrupted or not a valid HDF5/NetCDF4 file:\n"
+            f"  {lite_nc_file}\n"
+            f"Delete this file and re-run demo_combined.py --date {date.date()} to re-download."
+        )
 
     sat0 = {
         "date":       date,

@@ -81,3 +81,6 @@ credentials.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Agent configuration
+AGENTS.md

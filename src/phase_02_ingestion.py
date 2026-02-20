@@ -250,7 +250,16 @@ class DataIngestionManager:
             # Make request with stream=True for large files
             response = session.get(url, stream=True, timeout=30)
             response.raise_for_status()
-            
+
+            # Detect HTML auth redirect: GES DISC returns 200 + HTML login page
+            # when the session cookie has expired instead of a proper 401/403.
+            content_type = response.headers.get('Content-Type', '')
+            if 'text/html' in content_type:
+                raise requests.exceptions.RequestException(
+                    f"Server returned HTML instead of data (authentication may have failed "
+                    f"or URL is incorrect): {url}"
+                )
+
             # Get file size if available
             total_size = int(response.headers.get('content-length', 0))
             
@@ -523,19 +532,44 @@ class DataIngestionManager:
             
             # Check if already downloaded (local file exists)
             if output_path.exists():
-                file_size_mb = output_path.stat().st_size / (1024 * 1024)
-                status = "📋" if self.dry_run else "⏭️"
-                logger.info(f"  {status} File exists locally: {filename} ({file_size_mb:.2f} MB)")
-                downloaded_files.append(
-                    DownloadedFile(
-                        filepath=output_path,
-                        product_type=f"OCO2_{product_type}",
-                        granule_id=granule.granule_id,
-                        file_size_mb=file_size_mb,
-                        download_time_seconds=0.0
+                # For HDF5/NetCDF4 files, validate the header to catch corrupted or
+                # partially-downloaded files (e.g. HTML auth redirects saved as .nc4).
+                if output_path.suffix in ('.nc4', '.h5', '.hdf5') and not self.dry_run:
+                    import h5py
+                    if not h5py.is_hdf5(str(output_path)):
+                        logger.warning(
+                            f"  ⚠️  {filename} exists but is not valid HDF5 "
+                            f"(possibly corrupted or incomplete download) — re-downloading"
+                        )
+                        output_path.unlink()
+                        # Fall through to download below
+                    else:
+                        file_size_mb = output_path.stat().st_size / (1024 * 1024)
+                        logger.info(f"  ⏭️  File exists locally: {filename} ({file_size_mb:.2f} MB)")
+                        downloaded_files.append(
+                            DownloadedFile(
+                                filepath=output_path,
+                                product_type=f"OCO2_{product_type}",
+                                granule_id=granule.granule_id,
+                                file_size_mb=file_size_mb,
+                                download_time_seconds=0.0
+                            )
+                        )
+                        continue
+                else:
+                    file_size_mb = output_path.stat().st_size / (1024 * 1024)
+                    status = "📋" if self.dry_run else "⏭️"
+                    logger.info(f"  {status} File exists locally: {filename} ({file_size_mb:.2f} MB)")
+                    downloaded_files.append(
+                        DownloadedFile(
+                            filepath=output_path,
+                            product_type=f"OCO2_{product_type}",
+                            granule_id=granule.granule_id,
+                            file_size_mb=file_size_mb,
+                            download_time_seconds=0.0
+                        )
                     )
-                )
-                continue
+                    continue
             
             # Download the file (or check if it exists remotely in dry-run mode)
             action = "Checking" if self.dry_run else "Downloading"
@@ -1175,9 +1209,22 @@ class DataIngestionManager:
         if limit_granules:
             logger.info(f"Limiting to first {limit_granules} granule(s) for testing")
             granules = granules[:limit_granules]
-        
+
+        # Drop granules whose start_time is not on target_date.
+        # CMR temporal-overlap queries can return the last orbit of the previous day
+        # when it crosses midnight into target_date; that orbit's L1B file and L2 Lite
+        # file belong to the previous DOY and should not be downloaded here.
+        target_date_only = target_date.date()
+        off_day = [g for g in granules if g.start_time.date() != target_date_only]
+        if off_day:
+            logger.warning(
+                f"Dropping {len(off_day)} granule(s) whose start_time is not on "
+                f"{target_date_only}: {[g.granule_id for g in off_day]}"
+            )
+            granules = [g for g in granules if g.start_time.date() == target_date_only]
+
         logger.info(f"✓ Found {len(granules)} granule(s) to download")
-        
+
         if not granules:
             logger.warning("No granules found. Exiting.")
             return {'granules': [], 'oco2_files': [], 'modis_files': []}
