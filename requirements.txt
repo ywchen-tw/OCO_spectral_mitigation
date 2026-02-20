@@ -1,6 +1,10 @@
 h5py
 matplotlib
-netcdf4
+# netcdf4 must be installed via conda-forge, NOT pip:
+#   conda install -c conda-forge netcdf4
+# The pip wheel bundles its own libhdf5 (via RPATH) which ignores
+# HDF5_USE_FILE_LOCKING=FALSE, causing NC_EHDF (-101) on Lustre (/pl/active/).
+# netcdf4
 numba
 numpy
 pandas
