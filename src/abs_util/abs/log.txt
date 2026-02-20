@@ -1,0 +1,11 @@
+  
+  extract: wavel1,wavel2 wcm1,wcm2 
+       0.757000     0.773000        12936.6      13210.0
+  
+  init3: initialized tau3 and kval to zero
+  init3: tasu3 is tau3(nwav,nmodz)
+  init3: nwav,nmodz        27343      31
+  
+  extract: min and max tau 
+    0.000551035      558.818
+Save absorption data to IDL save file: /Users/schmidt/rtm/oco/abs/o2_v4.1.1-lowres.hdf.sav

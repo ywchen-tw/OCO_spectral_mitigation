@@ -1,0 +1,22 @@
+
+To create an ascii file of absorption coefficients in 1/km units
+run task3.pro (set itask=3 main.pro). The output ascii file
+is   abscoef.dat
+
+The task3.pro routine currently finds the first absorption coefficient
+at the surface for which  absorption coefficient is greater than
+datkval
+
+Edit the zabsco.list to specify the pathnames of Vivien's hdf files 
+of the o2, weak co2, and strong co2 files  
+
+You can specify whih band to work with by iband=0,1,2 for
+O2, weak CO2, and strong CO2
+
+The alculation is done for wavel1 to wavel2 (e.g. wavel1+0.01 microns)
+
+The broadening index (0,1,2,3   program has jbroado2=1) is set in
+task3.pro and by rdabscoo2.pro2 and rdabscoco2.pro
+
+The copy subdirectory has copies of the .pros 
+

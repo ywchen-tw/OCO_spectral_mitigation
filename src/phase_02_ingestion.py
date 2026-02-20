@@ -395,6 +395,22 @@ class DataIngestionManager:
                             logger.warning(f"  This file may contain data from multiple dates")
                     else:
                         filename = matches[0]
+                elif granule_id:
+                    # For Met/CO2Prior: filter by orbit ID (e.g., "22845a") so each orbit
+                    # gets its own file instead of always getting the first in the directory
+                    parts = granule_id.split('_')
+                    if len(parts) >= 3:
+                        orbit_id = parts[2]  # e.g., "22845a"
+                        orbit_matches = [m for m in matches if orbit_id in m]
+                        if orbit_matches:
+                            filename = orbit_matches[0]
+                            logger.debug(f"Found orbit-specific file for {orbit_id}: {filename}")
+                        else:
+                            filename = matches[0]
+                            logger.warning(f"No orbit-specific file found for {orbit_id}, using first match: {filename}")
+                    else:
+                        filename = matches[0]
+                    logger.debug(f"Found file in directory: {filename}")
                 else:
                     filename = matches[0]
                     logger.debug(f"Found file in directory: {filename}")
@@ -1140,36 +1156,9 @@ class DataIngestionManager:
             logger.info("\n[Step 0] Checking for existing downloads...")
             existing_status = self._check_download_status(target_date)
             if existing_status:
-                logger.info("✓ Data already downloaded. Loading existing files...")
-                # Still need metadata to return granules
-                logger.info("\n[Step 1] Retrieving OCO-2 metadata...")
-                xml_contents = self.metadata_retriever.fetch_oco2_xml(target_date)
-                granules = self.metadata_retriever.parse_orbit_info(xml_contents)
-                
-                # Apply same filters as would have been applied
-                if orbit_filter:
-                    granules = [g for g in granules if g.orbit_number == orbit_filter]
-                if mode_filter:
-                    granules = [g for g in granules if g.viewing_mode == mode_filter]
-                if limit_granules:
-                    granules = granules[:limit_granules]
-                
-                granule_ids = [g.granule_id for g in granules]
-                oco2_files, modis_files = self._list_existing_files(target_date, granule_ids)
-                
-                logger.info(f"\n{'='*70}")
-                logger.info("Download Summary (Existing Files)")
-                logger.info(f"{'='*70}")
-                logger.info(f"OCO-2 files: {len(oco2_files)}")
-                logger.info(f"MODIS files: {len(modis_files)}")
-                
-                return {
-                    'granules': granules,
-                    'oco2_files': oco2_files,
-                    'modis_files': modis_files,
-                    'stats': self.download_stats,
-                    'loaded_from_cache': True
-                }
+                logger.info("✓ Previous download status found. Verifying files and downloading any missing ones...")
+            # Always fall through to the download loop so per-file existence checks
+            # catch any files missing from orbit folders (e.g. after a partial run).
         
         # Phase 1: Get metadata
         logger.info("\n[Step 1] Retrieving OCO-2 metadata...")

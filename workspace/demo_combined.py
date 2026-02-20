@@ -42,6 +42,7 @@ import numpy as np
 import pickle
 import platform
 import shutil
+import traceback
 from typing import Dict, List, Optional, Tuple
 
 # Add src to path
@@ -151,7 +152,6 @@ def cleanup_modis_data(target_date: datetime, data_dir: Path) -> bool:
         
     except Exception as e:
         logger.error(f"✗ Cleanup Failed: {e}")
-        import traceback
         traceback.print_exc()
         return False
 
@@ -218,30 +218,24 @@ def run_phase_1(target_date: datetime, orbit: Optional[int] = None,
         return {}, False
 
 
-def run_phase_2(target_date: datetime, metadata: Dict, data_dir: Path,
-                dry_run: bool = False, skip_phase: bool = False,
+def run_phase_2(target_date: datetime, data_dir: Path,
+                dry_run: bool = False,
                 force_download: bool = False, limit_granules: Optional[int] = None) -> Tuple[Dict, bool]:
     """
     Step 2: Targeted Data Ingestion
-    
+
     Args:
         target_date: Target date for data download
-        metadata: Metadata from Step 1
         data_dir: Data storage directory
         dry_run: Only check file existence without downloading
-        skip_phase: Skip this step (use existing data)
         force_download: Force re-download even if status file exists
         limit_granules: Limit to first N granules (for testing)
-    
+
     Returns:
         Tuple of (file_info_dict, success_flag)
     """
     print_step_header(2, "Targeted Data Ingestion")
-    
-    if skip_phase:
-        logger.info("[SKIPPED] Using existing data from Step 2")
-        return {}, True
-    
+
     try:
         ingestion_manager = DataIngestionManager(
             output_dir=str(data_dir),
@@ -280,20 +274,17 @@ def run_phase_2(target_date: datetime, metadata: Dict, data_dir: Path,
         return {}, False
 
 
-def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
-                viz_dir: Optional[Path] = None) -> Tuple[Dict, bool]:
+def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
     """
     Step 3: Spatial and Bitmask Processing
-    
+
     Processes OCO-2 footprints and MODIS cloud data. Automatically processes any
     granules that don't have cached results.
-    
+
     Args:
         target_date: Target date for processing
         data_dir: Data storage directory
-        visualize: Create visualizations
-        viz_dir: Visualization output directory
-    
+
     Returns:
         Tuple of (processing_info_dict, success_flag)
     """
@@ -541,7 +532,6 @@ def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
                         
             except Exception as e:
                 logger.error(f"    ✗ Error during Step 3 processing: {e}")
-                import traceback
                 traceback.print_exc()
             
             logger.info(f"\n✓ Step 3 Processing Complete")
@@ -562,7 +552,6 @@ def run_phase_3(target_date: datetime, data_dir: Path, visualize: bool = False,
         
     except Exception as e:
         logger.error(f"✗ Step 3 Failed: {e}")
-        import traceback
         traceback.print_exc()
         return {}, False
 
@@ -768,32 +757,32 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
         
     except Exception as e:
         logger.error(f"✗ Step 4 Failed: {e}")
-        import traceback
         traceback.print_exc()
         return [], False
 
 
 def run_phase_5(results: List, target_date: datetime, output_dir: Path,
-                max_distance: float = 50.0) -> bool:
+                data_dir: Path, max_distance: float = 50.0) -> bool:
     """
     Step 5: Synthesis and Data Export
-    
+
     Args:
         results: Results from Step 4
         target_date: Target date
         output_dir: Output directory for results
+        data_dir: Data storage directory
         max_distance: Maximum cloud distance in km
-    
+
     Returns:
         Success flag
     """
     print_step_header(5, "Synthesis and Data Export")
-    
+
     try:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        
-        geometry_processor = GeometryProcessor(data_dir="./data")
+
+        geometry_processor = GeometryProcessor(data_dir=str(data_dir))
         
         # Determine output paths
         results_file = output_dir / f"results_{target_date.date()}.h5"
@@ -845,7 +834,6 @@ def run_phase_5(results: List, target_date: datetime, output_dir: Path,
         
     except Exception as e:
         logger.error(f"✗ Step 5 Failed: {e}")
-        import traceback
         traceback.print_exc()
         return False
 
@@ -989,9 +977,8 @@ Examples:
     # ========================================================================
     if 2 not in skip_phases:
         file_info, success = run_phase_2(
-            target_date, metadata, data_dir,
+            target_date, data_dir,
             dry_run=args.dry_run,
-            skip_phase=(2 in skip_phases),
             force_download=args.force_download,
             limit_granules=args.limit_granules
         )
@@ -1006,11 +993,7 @@ Examples:
     # Phase 3: Spatial Processing
     # ========================================================================
     if 3 not in skip_phases:
-        processing_info, success = run_phase_3(
-            target_date, data_dir,
-            visualize=args.visualize,
-            viz_dir=viz_dir
-        )
+        processing_info, success = run_phase_3(target_date, data_dir)
         if not success:
             logger.error("Pipeline aborted at Step 3")
             return 1
@@ -1045,6 +1028,7 @@ Examples:
     if 5 not in skip_phases and results:
         success = run_phase_5(
             results, target_date, output_dir,
+            data_dir=data_dir,
             max_distance=args.max_distance
         )
         if not success:

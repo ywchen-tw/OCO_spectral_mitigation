@@ -23,12 +23,12 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # Option 1: Loop with year, month, day (ACTIVE)
 # ============================================================================
 # Specify year, month, and day ranges
-start_year=2020
-end_year=2020
+start_year=2018
+end_year=2018
 start_month=1
-end_month=1
-start_day=8
-end_day=8
+end_month=12
+start_day=1
+end_day=1
 
 # Loop through year, month, day
 for year in $(seq $start_year $end_year); do
@@ -42,6 +42,7 @@ for year in $(seq $start_year $end_year); do
                 echo "Failed to process date: $date"
             else
                 echo "Successfully processed: $date"
+                python src/oco_fp_spec_anal.py --date "$date" --delete-ocofiles
             fi
             echo ""
         done
