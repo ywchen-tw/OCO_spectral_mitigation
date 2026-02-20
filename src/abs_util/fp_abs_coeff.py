@@ -1,4 +1,9 @@
 import os
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 import sys
 import multiprocessing
 import h5py
@@ -45,6 +50,9 @@ from abs_util.abs.rdabs_gas_absco import rdabs_species_absco
 from abs_util.abs.rdabsco_gas_absco import rdabsco_species_absco  # read absorption coefficients O2 or CO2 for a given pressure, temperature, and H2O mixing ratio
 from abs_util.oco_util import timing
 from scipy.interpolate import interp1d
+
+# Constants
+C_LIGHT = 299792458.0  # Speed of light in m/s
 
 # Edit from EaR3T code (See Chen et al., 2023, AMT, https://doi.org/10.5194/amt-16-1971-2023)
 def cal_sol_fac(doy):
@@ -167,49 +175,7 @@ def cal_mol_ext(mol_ext_wvl_array, d_air_lay, dz, lat=0, h_lay=0, dp_lev=0):
     return tauray
 
 
-# Constants
-C_LIGHT = 299792458.0  # Speed of light in m/s
 
-def derive_oco2_solar_radiance(solar_h5_path,
-                               v_solar, v_inst, dist_au, target_wl_microns, band_num):
-    """
-    Final implementation using exact OCO-2 L1B metadata and solar H5 structure.
-    band_num: 1 (O2), 2 (WCO2), or 3 (SCO2)
-    """
-
-    # 2. Extract Solar Model Tables
-    with h5py.File(solar_h5_path, 'r') as f_sol:
-        # Using the specific paths from your solar h5 metadata
-        abs_path = f'Solar/Absorption/Absorption_{band_num}'
-        cont_path = f'Solar/Continuum/Continuum_{band_num}'
-
-        sol_abs_nu = f_sol[abs_path]['wavenumber'][:]
-        sol_abs_val = f_sol[abs_path]['spectrum'][:]
-
-        sol_cont_nu = f_sol[cont_path]['wavenumber'][:]
-        sol_cont_val = f_sol[cont_path]['spectrum'][:]
-
-    # 3. Create Observed Wavenumber Grid (Instrument frame)
-    target_nu_obs = 10000.0 / target_wl_microns  # Convert microns to cm^-1
-
-    # 4. Doppler Correction Logic
-    # The tables are in the SOLAR REST FRAME.
-    # We shift our observed wavenumbers to match the table's frame.
-    # Formula: nu_rest = nu_obs * (1 + (v_solar + v_inst)/c)
-    beta_total = (v_solar + v_inst) / C_LIGHT
-    nu_shifted = target_nu_obs * (1.0 + beta_total)
-
-    # 5. Interpolate and Scale
-    # Interpolate solar absorption (dimensionless) and continuum (ph/s/m^2/um)
-    interp_abs = interp1d(sol_abs_nu, sol_abs_val, bounds_error=False, fill_value=1.0)
-    interp_cont = interp1d(sol_cont_nu, sol_cont_val, bounds_error=False, fill_value="extrapolate")
-
-    # Final TOA solar radiance = Transmittance * Continuum * (1/d^2)
-    dist_scaling = (1.0 / dist_au)**2
-
-    toa_solar_radiance = interp_abs(nu_shifted) * interp_cont(nu_shifted) * dist_scaling
-
-    return target_wl_microns, toa_solar_radiance
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +613,8 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
         n_workers_actual = n_workers
     else:
         slurm_ntasks = int(os.environ.get('SLURM_NTASKS', 0))
+        if slurm_ntasks > 0:
+            slurm_ntasks = max(1, slurm_ntasks - 4)  # Leave one CPU free for system responsiveness
         cpu_count = slurm_ntasks if slurm_ntasks > 0 else (os.cpu_count() or 1)
         n_workers_actual = (cpu_count - 1) if platform.system() in ("Darwin", "Windows") else cpu_count
         n_workers_actual = max(1, min(n_workers_actual, n_tracks))
@@ -678,7 +646,7 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
     #         shm.close()
     #         shm.unlink()
     results = []
-    print(f"Dispatching {n_tracks} tracks via imap (chunksize=1)...", flush=True)
+    print(f"Dispatching {n_tracks} tracks via imap (chunksize=20)...", flush=True)
 
     try:
         with mp_ctx.Pool(
@@ -688,7 +656,7 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
         ) as pool:
 
             # chunksize=1 is vital for heavy tasks to avoid 'clogging' the pipe
-            result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=1)
+            result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=20)
             
             results = list(tqdm(
                 result_iterator, 
