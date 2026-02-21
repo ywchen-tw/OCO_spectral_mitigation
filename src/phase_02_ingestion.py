@@ -385,9 +385,12 @@ class DataIngestionManager:
                 pattern = r'href=["\']+([\w._-]+\.h5)["\']+'
             
             matches = re.findall(pattern, response.text)
+            # remove duplicates and sort
+            matches = sorted(set(matches))
             
             if matches:
                 # For L2_Lite with specific date pattern, prefer exact match
+                filename = None
                 if 'L2_Lite' in product_url and granule_id:
                     # Check if we found a date-specific file
                     parts = granule_id.split('_')
@@ -410,69 +413,24 @@ class DataIngestionManager:
                     parts = granule_id.split('_')
                     if len(parts) >= 3:
                         orbit_id = parts[2]  # e.g., "22845a"
-                        is_tg_granule = len(parts) > 1 and 'TG' in parts[1]
+                        viewing_mode = parts[1][-2:]  # e.g., "GL", "ND", "TG"
+                        if viewing_mode not in ['GL', 'ND', 'TG']:
+                            viewing_mode = None
                         orbit_matches = [m for m in matches if orbit_id in m]
-                        if orbit_matches:
-                            if is_tg_granule:
-                                # e.g. oco2_L2MetTG_31017a_... — require TG-mode file; do NOT fall back
-                                # to GL/ND files (e.g. oco2_L2MetGL_34133a) because they belong in the
-                                # GL folder and would be misplaced in the TG folder.
-                                tg_matches = [m for m in orbit_matches if 'TG' in m.upper()]
-                                if not tg_matches:
-                                    logger.warning(
-                                        f"No TG-mode file found for orbit {orbit_id} in:\n"
-                                        f"  URL: {dir_url}\n"
-                                        f"  orbit_matches (non-TG): {orbit_matches}\n"
-                                        f"  Skipping — TG ancillary files may be in a different GES DISC collection."
-                                    )
-                                    return None
-                                filename = tg_matches[0]
-                            else:
-                                # e.g. oco2_L2MetGL_31017a_... — exclude TG files so we don't
-                                # accidentally pick up the sibling TG product for the same orbit.
-                                # Then further filter by GL vs ND so orbits that share the same
-                                # orbit_id but differ in viewing mode each get the correct file.
-                                non_tg_matches = [m for m in orbit_matches if 'TG' not in m.upper()]
-                                product_str = parts[1].upper()  # e.g. "L1BSCGL", "L2METND"
-                                if 'GL' in product_str:
-                                    viewing_mode = 'GL'
-                                elif 'ND' in product_str:
-                                    viewing_mode = 'ND'
-                                else:
-                                    viewing_mode = None
-                                if viewing_mode:
-                                    mode_matches = [m for m in non_tg_matches if viewing_mode in m.upper()]
-                                    if not mode_matches:
-                                        logger.warning(
-                                            f"No {viewing_mode}-mode file found for orbit {orbit_id} in:\n"
-                                            f"  URL: {dir_url}\n"
-                                            f"  orbit_matches (non-TG): {non_tg_matches}\n"
-                                            f"  Skipping — file may be unavailable or in a different collection."
-                                        )
-                                        return None
-                                    filename = mode_matches[0]
-                                else:
-                                    filename = non_tg_matches[0] if non_tg_matches else orbit_matches[0]
-                            logger.debug(f"Found orbit-specific file for {orbit_id}: {filename}")
-                        else:
-                            if is_tg_granule:
-                                # No file at all for this orbit_id — TG ancillary may not
-                                # have been posted to GES DISC yet.  Do not fall back to a
-                                # random file from the directory.
+                        if orbit_matches and viewing_mode:          
+                            mode_matches = [m for m in orbit_matches if viewing_mode+'_' in m.upper()]
+                            if not mode_matches:
                                 logger.warning(
-                                    f"No file for orbit {orbit_id} found in:\n"
+                                    f"No {viewing_mode}-mode file found for orbit {orbit_id} mode {viewing_mode} in:\n"
                                     f"  URL: {dir_url}\n"
-                                    f"  The TG ancillary file may not yet be available on GES DISC."
+                                    f"  Skipping — file may be unavailable or in a different collection."
                                 )
                                 return None
-                            filename = matches[0]
-                            logger.warning(f"No orbit-specific file found for {orbit_id}, using first match: {filename}")
-                    else:
-                        filename = matches[0]
-                    logger.debug(f"Found file in directory: {filename}")
+                            filename = mode_matches[0]
+                            logger.debug(f"Found orbit-specific file for {orbit_id} mode {viewing_mode}: {filename}")
                 else:
-                    filename = matches[0]
-                    logger.debug(f"Found file in directory: {filename}")
+                    logger.debug(f"No matching files found for {granule_id}")
+                    return None
                 
                 # Construct full URL
                 file_url = f"{dir_url}{filename}"
@@ -500,10 +458,8 @@ class DataIngestionManager:
         Returns:
             List of DownloadedFile objects
         """
-        is_tg = granule.viewing_mode == 'TG'
         if product_types is None:
-            # TG granules have no L2_Lite product; only L1B, Met, and CO2Prior apply
-            product_types = ['L1B', 'L2_Met', 'L2_CO2Prior'] if is_tg else ['L1B', 'L2_Lite', 'L2_Met', 'L2_CO2Prior']
+            product_types = 'L1B', 'L2_Lite', 'L2_Met', 'L2_CO2Prior'
 
         downloaded_files = []
         
@@ -532,6 +488,8 @@ class DataIngestionManager:
         # - L2_Lite: data/OCO2/{YYYY}/{DOY}/
         year = granule.start_time.year
         doy = granule.start_time.timetuple().tm_yday
+        orbit_str = granule.orbit_str  # e.g., "22845a"
+        viewing_mode = granule.viewing_mode  # "GL", "ND", or "TG"
         
         for product_type in product_types:
             if product_type not in product_configs:
@@ -582,15 +540,12 @@ class DataIngestionManager:
                     })
                     continue
                 short_orbit_id = fname_parts[2]
-                fprod = fname_parts[1].upper()
-                if 'GL' in fprod:
-                    file_mode = 'GL'
-                elif 'ND' in fprod:
-                    file_mode = 'ND'
-                elif 'TG' in fprod:
-                    file_mode = 'TG'
-                else:
-                    logger.warning(f"Unrecognised viewing mode in '{filename}'; skipping")
+                file_mode = fname_parts[1].upper()[-2:]  # Get last 2 characters for mode
+                if file_mode not in ['GL', 'ND', 'TG']:
+                    logger.warning(f"Unrecognised viewing mode '{file_mode}' in '{filename}'; skipping")
+                    self.download_stats['failed_downloads'].append({
+                        'url': url, 'product_type': product_type, 'granule_id': granule.granule_id
+                    })
                     continue
                 folder_name = f"{short_orbit_id}_{file_mode}"
                 output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}" / folder_name

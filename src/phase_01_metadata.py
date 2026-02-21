@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 class OCO2Granule:
     """Represents an OCO-2 granule with its metadata."""
     granule_id: str
-    orbit_number: int
-    viewing_mode: str  # "GL" (Glint) or "ND" (Nadir)
+    orbit_str: str # e.g., "22845a"
+    viewing_mode: str  # "GL" (Glint) or "ND" (Nadir) or "TG" (Target)
     version: str  # e.g., "B11"
     start_time: datetime
     end_time: datetime
@@ -40,7 +40,7 @@ class OCO2Granule:
     
     def __repr__(self):
         num_polygons = len(self.spatial_bounds) if self.spatial_bounds else 0
-        return (f"OCO2Granule(orbit={self.orbit_number}, mode={self.viewing_mode}, "
+        return (f"OCO2Granule(orbit={self.orbit_str}, mode={self.viewing_mode}, "
                 f"version={self.version}, polygons={num_polygons}, start={self.start_time.isoformat()})")
 
 
@@ -236,7 +236,7 @@ class OCO2MetadataRetriever:
             return None
     
     def fetch_oco2_xml(self, target_date: datetime, 
-                       orbit_number: Optional[int] = None,
+                       orbit_str: Optional[str] = None,
                        viewing_mode: Optional[str] = None) -> List[str]:
         """
         Fetch OCO-2 L1B Science XML metadata for a specific date.
@@ -245,7 +245,7 @@ class OCO2MetadataRetriever:
         
         Args:
             target_date: The observation date to query
-            orbit_number: Optional specific orbit number to filter
+            orbit_str: Optional specific orbit string to filter
             viewing_mode: Optional viewing mode filter ("GL" or "ND")
         
         Returns:
@@ -364,9 +364,9 @@ class OCO2MetadataRetriever:
             granule_id = granule_id_elem.text if granule_id_elem is not None else "Unknown"
             
             # Parse granule ID to extract orbit and mode
-            orbit_num, view_mode, version = self._parse_granule_id(granule_id)
+            orbit_str, view_mode, version = self._parse_granule_id(granule_id)
             
-            logger.debug(f"Parsing S4PA granule: {granule_id}, orbit={orbit_num}, mode={view_mode}, version={version}")
+            logger.debug(f"Parsing S4PA granule: {granule_id}, orbit={orbit_str}, mode={view_mode}, version={version}")
             
             # Extract temporal bounds
             begin_date_elem = root.find('.//RangeDateTime/RangeBeginningDate')
@@ -413,12 +413,12 @@ class OCO2MetadataRetriever:
             
             # Check all required fields
             missing_fields = []
-            if not orbit_num:
-                missing_fields.append("orbit_number")
+            if not orbit_str:
+                missing_fields.append("orbit_str")
             if not view_mode:
                 missing_fields.append("viewing_mode")
             if not version:
-                missingwarninlds.append("version")
+                missing_fields.append("version")
             if not start_dt:
                 missing_fields.append("start_time")
             if not end_dt:
@@ -433,7 +433,7 @@ class OCO2MetadataRetriever:
             
             granule = OCO2Granule(
                 granule_id=granule_id,
-                orbit_number=orbit_num,
+                orbit_str=orbit_str,
                 viewing_mode=view_mode,
                 version=version,
                 start_time=start_dt,
@@ -523,7 +523,7 @@ class OCO2MetadataRetriever:
             granule_id = title.text if title is not None else "Unknown"
             
             # Parse granule ID to extract orbit and mode
-            orbit_num, view_mode, version = self._parse_granule_id(granule_id)
+            orbit_str, view_mode, version = self._parse_granule_id(granule_id)
             
             # Extract temporal bounds
             time_start = entry.find('.//echo:temporal/echo:RangeDateTime/echo:BeginningDateTime', 
@@ -542,10 +542,10 @@ class OCO2MetadataRetriever:
                     download_url = link.get('href')
                     break
             
-            if all([orbit_num, view_mode, version, start_dt, end_dt]):
+            if all([orbit_str, view_mode, version, start_dt, end_dt]):
                 granule = OCO2Granule(
                     granule_id=granule_id,
-                    orbit_number=orbit_num,
+                    orbit_str=orbit_str,
                     viewing_mode=view_mode,
                     version=version,
                     start_time=start_dt,
@@ -562,7 +562,7 @@ class OCO2MetadataRetriever:
             logger.warning(f"Failed to parse ATOM entry: {e}")
             return None
     
-    def _parse_granule_id(self, granule_id: str) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+    def _parse_granule_id(self, granule_id: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         Parse granule ID to extract orbit number, viewing mode, and version.
         
@@ -576,7 +576,7 @@ class OCO2MetadataRetriever:
             granule_id: The granule filename
         
         Returns:
-            Tuple of (orbit_number, viewing_mode, version)
+            Tuple of (orbit_str, viewing_mode, version)
         """
         try:
             parts = granule_id.split('_')
@@ -592,28 +592,27 @@ class OCO2MetadataRetriever:
                 view_mode = None
             
             # Extract orbit number (remove trailing 'a' or other letters)
-            orbit_str = parts[2].rstrip('abcdefghijklmnopqrstuvwxyz')
-            orbit_num = int(orbit_str) if orbit_str.isdigit() else None
+            orbit_str = parts[2]
             
             # Extract version (e.g., B11006r) - it's in parts[4], after the date
             # parts[3] is the date (YYMMDD), parts[4] is the version string
             version = parts[4] if len(parts) > 4 else None
             
-            return orbit_num, view_mode, version
+            return orbit_str, view_mode, version
             
         except (IndexError, ValueError) as e:
             logger.warning(f"Could not parse granule ID '{granule_id}': {e}")
             return None, None, None
     
     def extract_temporal_window(self, granules: List[OCO2Granule], 
-                                orbit_number: Optional[int] = None,
+                                orbit_str: Optional[str] = None,
                                 viewing_mode: Optional[str] = None) -> Tuple[datetime, datetime]:
         """
         Extract the temporal window for specified orbit/mode.
         
         Args:
             granules: List of OCO2Granule objects
-            orbit_number: Optional specific orbit to filter
+            orbit_str: Optional specific orbit to filter
             viewing_mode: Optional viewing mode to filter ("GL" or "ND")
         
         Returns:
@@ -625,14 +624,14 @@ class OCO2MetadataRetriever:
         # Filter granules
         filtered = granules
         
-        if orbit_number is not None:
-            filtered = [g for g in filtered if g.orbit_number == orbit_number]
+        if orbit_str is not None:
+            filtered = [g for g in filtered if g.orbit_str == orbit_str]
         
         if viewing_mode is not None:
             filtered = [g for g in filtered if g.viewing_mode == viewing_mode]
         
         if not filtered:
-            raise ValueError(f"No granules found for orbit={orbit_number}, mode={viewing_mode}")
+            raise ValueError(f"No granules found for orbit={orbit_str}, mode={viewing_mode}")
         
         # Get temporal bounds across all matching granules
         start_time = min(g.start_time for g in filtered)
@@ -644,14 +643,14 @@ class OCO2MetadataRetriever:
         return start_time, end_time
     
     def extract_granule_temporal_windows(self, granules: List[OCO2Granule],
-                                         orbit_number: Optional[int] = None,
+                                         orbit_str: Optional[str] = None,
                                          viewing_mode: Optional[str] = None) -> List[Dict]:
         """
         Extract separate start and end times for each granule.
         
         Args:
             granules: List of OCO2Granule objects
-            orbit_number: Optional specific orbit to filter
+            orbit_str: Optional specific orbit to filter
             viewing_mode: Optional viewing mode to filter ("GL" or "ND")
         
         Returns:
@@ -659,7 +658,7 @@ class OCO2MetadataRetriever:
             [
                 {
                     'granule_id': str,
-                    'orbit_number': int,
+                    'orbit_str': str,
                     'viewing_mode': str,
                     'start_time': datetime,
                     'end_time': datetime,
@@ -674,14 +673,14 @@ class OCO2MetadataRetriever:
         # Filter granules
         filtered = granules
         
-        if orbit_number is not None:
-            filtered = [g for g in filtered if g.orbit_number == orbit_number]
+        if orbit_str is not None:
+            filtered = [g for g in filtered if g.orbit_str == orbit_str]
         
         if viewing_mode is not None:
             filtered = [g for g in filtered if g.viewing_mode == viewing_mode]
         
         if not filtered:
-            raise ValueError(f"No granules found for orbit={orbit_number}, mode={viewing_mode}")
+            raise ValueError(f"No granules found for orbit={orbit_str}, mode={viewing_mode}")
         
         # Extract per-granule temporal windows
         windows = []
@@ -689,7 +688,7 @@ class OCO2MetadataRetriever:
             duration = (granule.end_time - granule.start_time).total_seconds() / 60
             windows.append({
                 'granule_id': granule.granule_id,
-                'orbit_number': granule.orbit_number,
+                'orbit_str': granule.orbit_str,
                 'viewing_mode': granule.viewing_mode,
                 'start_time': granule.start_time,
                 'end_time': granule.end_time,
@@ -703,21 +702,21 @@ class OCO2MetadataRetriever:
         return windows
     
     def get_metadata_summary(self, target_date: datetime, 
-                            orbit_number: Optional[int] = None,
+                            orbit_str: Optional[str] = None,
                             viewing_mode: Optional[str] = None) -> Dict:
         """
         High-level method to fetch and summarize OCO-2 metadata for a date.
         
         Args:
             target_date: The observation date
-            orbit_number: Optional orbit number filter
+            orbit_str: Optional orbit string filter
             viewing_mode: Optional viewing mode filter
         
         Returns:
             Dictionary containing granule information and temporal window
         """
         # Fetch XML files
-        xml_contents = self.fetch_oco2_xml(target_date, orbit_number, viewing_mode)
+        xml_contents = self.fetch_oco2_xml(target_date, orbit_str, viewing_mode)
         
         if not xml_contents:
             logger.warning("No XML content retrieved")
@@ -747,7 +746,7 @@ class OCO2MetadataRetriever:
         # Extract temporal window
         try:
             start_time, end_time = self.extract_temporal_window(
-                granules, orbit_number, viewing_mode
+                granules, orbit_str, viewing_mode
             )
             temporal_window = (start_time, end_time)
         except ValueError:
@@ -756,7 +755,7 @@ class OCO2MetadataRetriever:
         # Group granules by orbit and mode
         orbit_summary = {}
         for g in granules:
-            key = (g.orbit_number, g.viewing_mode)
+            key = (g.orbit_str, g.viewing_mode)
             if key not in orbit_summary:
                 orbit_summary[key] = []
             orbit_summary[key].append(g)
@@ -798,7 +797,7 @@ def main_example():
         print(f"\nGranule Details:")
         for i, granule in enumerate(summary['granules'][:5], 1):  # Show first 5
             print(f"\n{i}. {granule.granule_id}")
-            print(f"   Orbit: {granule.orbit_number}")
+            print(f"   Orbit: {granule.orbit_str}")
             print(f"   Mode: {granule.viewing_mode}")
             print(f"   Version: {granule.version}")
             print(f"   Time: {granule.start_time.strftime('%Y-%m-%d %H:%M:%S')} - "

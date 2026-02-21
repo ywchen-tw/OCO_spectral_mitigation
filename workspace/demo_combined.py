@@ -183,7 +183,7 @@ def run_phase_1(target_date: datetime, orbit: Optional[int] = None,
     Args:
         target_date: Target date for metadata retrieval
         orbit: Optional specific orbit number
-        mode: Optional viewing mode filter ('GL' or 'ND')
+        mode: Optional viewing mode filter ('GL' or 'ND' or 'TG')
     
     Returns:
         Tuple of (metadata_dict, success_flag)
@@ -942,8 +942,8 @@ Examples:
     # Filtering
     parser.add_argument('--orbit', type=str,
                        help='Specific orbit filter: orbit number (e.g. 31017) or orbit+suffix (e.g. 31017b)')
-    parser.add_argument('--mode', type=str, choices=['GL', 'ND'],
-                       help='Viewing mode filter (GL=Glint, ND=Nadir)')
+    parser.add_argument('--mode', type=str, choices=['GL', 'ND', 'TG'],
+                       help='Viewing mode filter (GL=Glint, ND=Nadir, TG=Target)')
     parser.add_argument('--limit-granules', type=int,
                        help='Limit to first N granules (for testing, Phase 2)')
     
