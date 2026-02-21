@@ -32,7 +32,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
     if sat == None:
         sys.exit("[Error] sat information must be provided!")
     elif sat != None:
-        print("sat0: ", sat)
+        print("oco_files_dict: ", oco_files_dict)
         # Get reanalysis from met and CO2 prior sounding data
         with h5py.File(oco_files_dict['oco_l1b'], 'r') as oco_l1b:
             lon_l1b = oco_l1b['SoundingGeometry/sounding_longitude'][...]
