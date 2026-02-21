@@ -36,9 +36,11 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
         with h5py.File(oco_files_dict['oco_l1b'], 'r') as oco_l1b:
             lon_l1b = oco_l1b['SoundingGeometry/sounding_longitude'][...]
             lat_l1b = oco_l1b['SoundingGeometry/sounding_latitude'][...]
+            print("lat_l1b shape before logic: ", lat_l1b.shape)
             logic = np.isfinite(lon_l1b) & np.isfinite(lat_l1b)
             oco_l1b_snd_id = oco_l1b['SoundingGeometry/sounding_id'][...][logic]
             lat_l1b_select = lat_l1b[logic]
+            print("lat_l1b_select shape after logic: ", lat_l1b_select.shape)
             # Solar Doppler Stretch (Fraunhofer vs Telluric)
             # Includes Earth rotation
             v_solar = oco_l1b['SoundingGeometry/sounding_solar_relative_velocity'][...][logic]
@@ -58,6 +60,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
         with h5py.File(oco_files_dict['oco_met'], 'r') as oco_met:
             lon_oco_met = oco_met['SoundingGeometry/sounding_longitude'][...]
             lat_oco_met = oco_met['SoundingGeometry/sounding_latitude'][...]
+            print("lat_oco_met shape before logic: ", lat_oco_met.shape)
             logic = np.isfinite(lon_oco_met) & np.isfinite(lat_oco_met)
             hprf_l = oco_met['Meteorology/height_profile_met'][...][logic][:, ::-1]
             qprf_l = oco_met['Meteorology/specific_humidity_profile_met'][...][logic][:, ::-1]      # specific humidity mid grid
@@ -68,6 +71,8 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
             uprf_l = oco_met['Meteorology/wind_u_profile_met'][...][logic][:, ::-1]
             vprf_l = oco_met['Meteorology/wind_v_profile_met'][...][logic][:, ::-1]
             sfc_gph = oco_met['Meteorology/gph_met'][...][logic]
+            print("lat_oco_met shape after logic: ", lat_oco_met.shape)
+
 
         with h5py.File(oco_files_dict['oco_co2prior'], 'r') as oco_co2_aprior:
             lon_oco_co2p = oco_co2_aprior['SoundingGeometry/sounding_longitude'][...]
