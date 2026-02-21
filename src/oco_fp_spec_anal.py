@@ -620,8 +620,10 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     """
     date        = sat['date'].strftime("%Y-%m-%d")
     output_dir  = f"{sat['result_dir']}/{date}/{orbit_id}"
-    output_file = f"{output_dir}/fitting_details.h5"
+    h5_output_dir = f"{sat['result_dir']}/fitting_details"
+    output_file = f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
     os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(h5_output_dir, exist_ok=True)
 
     if os.path.isfile(output_file) and not overwrite:
         logger.info(f"[{orbit_id}] Skipping — output exists and overwrite=False.")
@@ -1028,7 +1030,7 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
             if "CPr" in file:
                 sat0[orbit_id]["oco_co2prior"] = file
                 
-        fp_tau_file = os.path.abspath(f"{OCO2_data_dir}/{orbit_id}/fp_tau_combined.h5")
+        fp_tau_file = os.path.abspath(f"{result_dir}/{orbit_id}/fp_tau_combined.h5")
         if not os.path.isfile(fp_tau_file):
             print(f"Computing footprint optical depths for orbit {orbit_id}...")
             oco_fp_atm_abs(
