@@ -4,7 +4,11 @@ import numpy as np
 from functools import wraps
 import matplotlib.pyplot as plt
 import matplotlib.image as mpl_img
-plt.rcParams["font.family"] = "Arial"
+import matplotlib.font_manager as _fm
+if any(f.name == "Arial" for f in _fm.fontManager.ttflist):
+    plt.rcParams["font.family"] = "Arial"
+else:
+    plt.rcParams["font.family"] = "DejaVu Sans"
 
 def path_dir(path_dir):
     """
