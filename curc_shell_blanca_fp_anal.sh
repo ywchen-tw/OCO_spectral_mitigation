@@ -51,7 +51,7 @@ for year in $(seq $start_year $end_year); do
             # Format date as YYYY-MM-DD with zero-padding
             date=$(printf "%04d-%02d-%02d" $year $month $day)
             echo "Processing date: $date"
-            python src/oco_fp_spec_anal.py --date "$date" --delete-ocofiles
+            python src/oco_fp_spec_anal.py --date "$date" --delete-ocofiles 
             if [ $? -ne 0 ]; then
                 echo "Failed to process date: $date"
             else

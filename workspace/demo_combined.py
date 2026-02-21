@@ -724,7 +724,8 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
                 granule_vis_dir = viz_dir / f"granule_{granule_id}"
                 granule_vis_dir.mkdir(parents=True, exist_ok=True)
                 
-                try:
+                # try:
+                if 1:
                     # Use granule-specific cloud and result data
                     granule_vis_paths = geometry_processor.visualize_latband_distance(
                         results=granule_results,
@@ -740,9 +741,9 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
                     
                     if granule_vis_paths:
                         logger.info(f"    ✓ Created {len(granule_vis_paths)} latitude-band plot(s) for this granule")
-                except Exception as e:
-                    logger.warning(f"    ⚠ Visualization failed for {granule_id}: {e}")
-                    logger.warning(f"    → Continuing with next granule...")
+                # except Exception as e:
+                #     logger.warning(f"    ⚠ Visualization failed for {granule_id}: {e}")
+                #     logger.warning(f"    → Continuing with next granule...")
                     
             # Free memory: delete large arrays for this granule
             del cloud_lon, cloud_lat, cloud_flag
