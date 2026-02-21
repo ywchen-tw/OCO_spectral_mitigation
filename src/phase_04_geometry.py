@@ -1039,18 +1039,17 @@ class GeometryProcessor:
             band_clouds = clouds_by_band.get(lat_band_key, {'lons': [], 'lats': [], 'flags': []})
             band_results = footprints_by_band.get(lat_band_key, {'lons': [], 'lats': [], 'distances': []})
             
-            if not band_clouds['lons'] and not band_results['lons']:
+            cloud_lons_band = np.array(band_clouds['lons']).flatten()
+            cloud_lats_band = np.array(band_clouds['lats']).flatten()
+            if cloud_lons_band.size == 0 and not band_results['lons']:
                 continue
-            
+
             fig, ax = plt.subplots(figsize=(16, 10), dpi=dpi)
             cross_dateline = False
             xtick_interval = 1
-            if len(band_clouds['lons']) > 0:
-                cloud_lons_band = np.array(band_clouds['lons']).flatten()
-                cloud_lats_band = np.array(band_clouds['lats']).flatten()
-                cloud_flags_band = np.array(band_clouds['flags']).flatten()
+            cloud_flags_band = np.array(band_clouds['flags']).flatten()
 
-            if len(band_clouds['lons']) > 0 and cloud_lons_band.size > 0:
+            if cloud_lons_band.size > 0:
                 if cloud_lons_band.min() < -90 and cloud_lons_band.max() > 90:
                     cross_dateline = True
                     cloud_lons_band = cloud_lons_band % 360
