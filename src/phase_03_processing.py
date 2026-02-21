@@ -194,10 +194,20 @@ class SpatialProcessor:
             return granule_id
         
         # OCO-2 L1B/L2 format: oco2_L1bScGL_22845a_181018_B11006r_220921185957.h5
+        # Include viewing mode so GL and ND orbits with the same orbit_id get separate
+        # cache directories (e.g. "22845a_GL", "22845a_ND", "22845a_TG").
         if granule_id.startswith('oco2_'):
             parts = granule_id.split('_')
             if len(parts) >= 3:
-                return parts[2]  # Extract "22845a"
+                orbit_id = parts[2]  # e.g. "22845a"
+                product_str = parts[1].upper() if len(parts) > 1 else ''  # e.g. "L1BSCGL"
+                if 'GL' in product_str:
+                    return f"{orbit_id}_GL"
+                elif 'ND' in product_str:
+                    return f"{orbit_id}_ND"
+                elif 'TG' in product_str:
+                    return f"{orbit_id}_TG"
+                return orbit_id  # fallback for unrecognised modes
         
         # MODIS format: MYD35_L2.A2018291.0130.061.2018291164841.hdf
         # Extract time-based ID: A2018291.0130

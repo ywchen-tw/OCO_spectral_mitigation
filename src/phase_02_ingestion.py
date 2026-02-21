@@ -419,9 +419,22 @@ class DataIngestionManager:
                                 filename = tg_matches[0] if tg_matches else orbit_matches[0]
                             else:
                                 # e.g. oco2_L2MetGL_31017a_... — exclude TG files so we don't
-                                # accidentally pick up the sibling TG product for the same orbit
+                                # accidentally pick up the sibling TG product for the same orbit.
+                                # Then further filter by GL vs ND so orbits that share the same
+                                # orbit_id but differ in viewing mode each get the correct file.
                                 non_tg_matches = [m for m in orbit_matches if 'TG' not in m.upper()]
-                                filename = non_tg_matches[0] if non_tg_matches else orbit_matches[0]
+                                product_str = parts[1].upper()  # e.g. "L1BSCGL", "L2METND"
+                                if 'GL' in product_str:
+                                    viewing_mode = 'GL'
+                                elif 'ND' in product_str:
+                                    viewing_mode = 'ND'
+                                else:
+                                    viewing_mode = None
+                                if viewing_mode:
+                                    mode_matches = [m for m in non_tg_matches if viewing_mode in m.upper()]
+                                    filename = mode_matches[0] if mode_matches else (non_tg_matches[0] if non_tg_matches else orbit_matches[0])
+                                else:
+                                    filename = non_tg_matches[0] if non_tg_matches else orbit_matches[0]
                             logger.debug(f"Found orbit-specific file for {orbit_id}: {filename}")
                         else:
                             filename = matches[0]
@@ -531,10 +544,12 @@ class DataIngestionManager:
                 output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}"
             else:
                 # L1B, Met, CO2Prior: data/OCO2/{YYYY}/{DOY}/{folder_name}/
-                # TG granules get their own {orbit_id}_TG subfolder to separate from GL/ND
+                # Each viewing mode gets its own subfolder to avoid collisions when GL and
+                # ND granules share the same orbit_id.
+                # e.g.: 22845a_GL, 22845a_ND, 22845a_TG
                 # Format: oco2_L1bScGL_22845a_181018_B11006r_220921185957.h5
                 short_orbit_id = granule.granule_id.split('_')[2]  # Extract "22845a"
-                folder_name = f"{short_orbit_id}_TG" if is_tg else short_orbit_id
+                folder_name = f"{short_orbit_id}_{granule.viewing_mode}"
                 output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}" / folder_name
             
             if not self.dry_run:

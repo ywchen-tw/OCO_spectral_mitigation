@@ -11,7 +11,7 @@ from abs_util.fp_abs_coeff import oco_fp_abs_all_bands
 from netCDF4 import Dataset
 
 
-def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5', 
+def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5', 
                    oco_files_dict=None,
                     oco_nc_file=None,
                    overwrite=False):
@@ -19,7 +19,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
 
     """
     
-    abs_skip = os.path.isfile(output.format('all')) and not overwrite
+    abs_skip = os.path.isfile(output) and not overwrite
     
     
     # --------- Constants ------------
@@ -214,7 +214,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
                 (tau_wco2, me_wco2, sol_wco2), \
                 (tau_sco2, me_sco2, sol_sco2) = oco_fp_abs_all_bands(atm_dict)
 
-                print('Saving to file ' + output_tmp.format("combined"))
+                print('Saving to file ' + output_tmp)
                 with h5py.File(output_tmp, 'w') as h5f:
                     h5f.create_dataset('sza',                   data=sza_id[id_select])
                     h5f.create_dataset('vza',                   data=vza_id[id_select])
@@ -230,7 +230,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
                     h5f.create_dataset('sco2_mean_ext_output',  data=me_sco2)
                     h5f.create_dataset('sco2_toa_sol_output',   data=sol_sco2)
             else:
-                print(f'[Warning] Output file {output_tmp.format("combined")} exists - skipping!')
+                print(f'[Warning] Output file {output_tmp} exists - skipping!')
         
         
         sza_select_all = np.empty(final_length)

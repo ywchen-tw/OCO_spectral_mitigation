@@ -159,38 +159,29 @@ def main():
                 modis_date = datetime(year, 1, 1) + timedelta(days=doy - 1)
                 modis_time = modis_date.replace(hour=hour, minute=minute)
                 
-                # Find closest OCO-2 granule by time window (fallback to midpoint)
-                buffer_minutes = 10
-                candidates = []
+                # Assign this MODIS granule to ALL OCO-2 granules whose time window it
+                # overlaps.  A single 5-minute MODIS swath can legitimately fall inside
+                # the ±buffer window of two different OCO-2 granules (e.g. a GL and an ND
+                # orbit that are temporally adjacent, or two orbits from the same day with
+                # overlapping edges).  Picking only the "closest" would silently deprive
+                # the other orbit of cloud pixels in that region.
+                buffer_minutes = 20  # matches Phase 3 spec (±20 min for Aqua drift)
+                matched_any = False
 
                 for oco2_granule_id, (start_time, end_time, mid_time) in granule_time_ranges.items():
                     window_start = start_time - timedelta(minutes=buffer_minutes)
                     window_end = end_time + timedelta(minutes=buffer_minutes)
                     if window_start <= modis_time <= window_end:
                         time_diff = abs((modis_time - mid_time).total_seconds())
-                        candidates.append((time_diff, oco2_granule_id))
+                        if oco2_granule_id not in modis_to_oco2_mapping:
+                            modis_to_oco2_mapping[oco2_granule_id] = []
+                        modis_to_oco2_mapping[oco2_granule_id].append(modis_file)
+                        orbit_id = processor._extract_short_orbit_id(oco2_granule_id)
+                        print(f"    {modis_file.filepath.name} → orbit {orbit_id} (Δt={time_diff/60:.1f} min)")
+                        matched_any = True
 
-                if candidates:
-                    closest_granule = min(candidates, key=lambda item: item[0])[1]
-                    min_time_diff = min(candidates, key=lambda item: item[0])[0]
-                else:
-                    closest_granule = None
-                    min_time_diff = None
-                    for oco2_granule_id, (_, _, mid_time) in granule_time_ranges.items():
-                        time_diff = abs((modis_time - mid_time).total_seconds())
-                        if min_time_diff is None or time_diff < min_time_diff:
-                            min_time_diff = time_diff
-                            closest_granule = oco2_granule_id
-                
-                if closest_granule:
-                    if closest_granule not in modis_to_oco2_mapping:
-                        modis_to_oco2_mapping[closest_granule] = []
-                    modis_to_oco2_mapping[closest_granule].append(modis_file)
-                    
-                    # Extract orbit ID for logging
-                    orbit_id = closest_granule.split('_')[2] if closest_granule.startswith('oco2_') and len(closest_granule.split('_')) >= 3 else closest_granule
-                    print(f"    {modis_file.filepath.name} → orbit {orbit_id} (Δt={min_time_diff/60:.1f} min)")
-                    print("closest_granule:", closest_granule)
+                if not matched_any:
+                    print(f"    {modis_file.filepath.name} → no OCO-2 granule within ±{buffer_minutes} min (skipped)")
         print(f"\n  ✓ Matched {len(myd35_files)} MODIS files to {len(modis_to_oco2_mapping)} OCO-2 orbit(s)")
         
         print("\n[Step 4] Extracting MODIS cloud masks (per OCO-2 orbit)...")
@@ -202,13 +193,11 @@ def main():
             # Extract short orbit ID from granule_id
             # Expected format: oco2_L1bScGL_22845a_181018_B11006r_220921185957.h5
             print(f"\n  Debug - Processing granule_id: {oco2_granule_id}")
-            oco2_orbit_id = None
-            if oco2_granule_id.startswith('oco2_'):
-                parts = oco2_granule_id.split('_')
-                print(f"      Parts from split('_'): {parts}")
-                if len(parts) >= 3:
-                    oco2_orbit_id = parts[2]
-                    print(f"      Extracted orbit_id from parts[2]: {oco2_orbit_id}")
+            # Use the same helper as Phase 3/4 so the cache folder name always includes
+            # the viewing mode (e.g. "22845a_GL") and GL/ND orbits that share an orbit_id
+            # are kept in separate directories.
+            oco2_orbit_id = processor._extract_short_orbit_id(oco2_granule_id) if oco2_granule_id else None
+            print(f"      Extracted orbit_id: {oco2_orbit_id}")
             
             print("oco2_granule_id:", oco2_granule_id)
             print("oco2_orbit_id:", oco2_orbit_id)
@@ -351,26 +340,17 @@ def main():
         print(f"\n  Expected MYD35 cache file locations:")
         processing_dir = Path(args.data_dir) / "processing"
         if processing_dir.exists():
-            for orbit_id in modis_to_oco2_mapping.keys():
-                # Extract orbit ID from granule
-                if orbit_id.startswith('oco2_'):
-                    parts = orbit_id.split('_')
-                    if len(parts) >= 3:
-                        actual_orbit_id = parts[2]
-                    else:
-                        actual_orbit_id = orbit_id
-                else:
-                    actual_orbit_id = orbit_id
-                
+            for oco2_granule_id in modis_to_oco2_mapping.keys():
+                actual_orbit_id = processor._extract_short_orbit_id(oco2_granule_id)
                 # Find matching cache folders
                 for year_dir in processing_dir.glob("*"):
                     for doy_dir in year_dir.glob("*"):
                         orbit_cache_folder = doy_dir / str(actual_orbit_id)
                         if orbit_cache_folder.exists():
-                            myd35_files = list(orbit_cache_folder.glob("myd35_*.pkl"))
-                            if myd35_files:
-                                print(f"    ✓ Orbit {actual_orbit_id}: {len(myd35_files)} cache file(s)")
-                                for f in myd35_files:
+                            cached_myd35 = list(orbit_cache_folder.glob("myd35_*.pkl"))
+                            if cached_myd35:
+                                print(f"    ✓ Orbit {actual_orbit_id}: {len(cached_myd35)} cache file(s)")
+                                for f in cached_myd35:
                                     print(f"        - {f.name}")
         
         print("\n[Step 5] Temporal matching (OCO-2 ↔ MODIS)...")
