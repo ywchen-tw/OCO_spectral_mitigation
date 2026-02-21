@@ -48,8 +48,8 @@ start_year=2020
 end_year=2020
 start_month=9
 end_month=9
-start_day=1
-end_day=1
+start_day=2
+end_day=2
 
 # Loop through year, month, day
 for year in $(seq $start_year $end_year); do
