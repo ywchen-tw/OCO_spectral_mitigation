@@ -48,8 +48,8 @@ start_year=2020
 end_year=2020
 start_month=9
 end_month=9
-start_day=2
-end_day=2
+start_day=3
+end_day=3
 
 # Loop through year, month, day
 for year in $(seq $start_year $end_year); do
@@ -58,12 +58,12 @@ for year in $(seq $start_year $end_year); do
             # Format date as YYYY-MM-DD with zero-padding
             date=$(printf "%04d-%02d-%02d" $year $month $day)
             echo "Processing date: $date"
-            python workspace/demo_combined.py --date "$date" --delete-modis --visualize
+            python workspace/demo_combined.py --date "$date" --delete-modis
             if [ $? -ne 0 ]; then
                 echo "Failed to process date: $date"
             else
                 echo "Successfully processed: $date"
-                # python src/oco_fp_spec_anal.py --date "$date"
+                python src/oco_fp_spec_anal.py --date "$date" --delete-ocofiles
             fi
             echo ""
         done
