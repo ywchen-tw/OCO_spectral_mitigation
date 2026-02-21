@@ -184,6 +184,12 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
             print("[Error] Mismatch in number of soundings between L1B and selection mask!")
             print("lat_l1b_select shape: ", lat_l1b_select.shape)
             print("id_select_all shape: ", id_select_all.shape)
+            
+            if 'oco_l1b_tg' in oco_files_dict.keys():
+                with h5py.File(oco_files_dict['oco_l1b_tg'], 'r') as oco_l1b_tg:
+                    lat_l1b_tg = oco_l1b_tg['SoundingGeometry/sounding_latitude'][...]
+                    print("lat_l1b_tg shape: ", lat_l1b_tg.shape)
+            
             sys.exit(1)
         
         if platform.system() == "Darwin":
