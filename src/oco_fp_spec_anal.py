@@ -1017,6 +1017,10 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
         sat0[orbit_id] = {}
         for file in glob.glob(f"{OCO2_data_dir}/{orbit_id}/*"):
             print(f"Checking file: {file}")
+            print(f"Contains 'L1b': {'L1b' in file}")
+            print(f"Contains 'GL': {'GL' in file}")
+            print(f"Contains 'ND': {'ND' in file}")
+            print(f"Contains 'TG': {'TG' in file}")
             if "L1b" in file and ('GL' or 'ND' in file):
                 sat0[orbit_id]["oco_l1b"] = file
             elif "L1b" in file and ("TG" in file):
@@ -1026,7 +1030,7 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
             elif "CPr" in file:
                 sat0[orbit_id]["oco_co2prior"] = file
                 
-            print("sat0[orbit_id]:", sat0[orbit_id])
+        print("sat0[orbit_id]:", sat0[orbit_id])
             
 
         fp_tau_file = os.path.abspath(f"{OCO2_data_dir}/{orbit_id}/fp_tau_combined.h5")
