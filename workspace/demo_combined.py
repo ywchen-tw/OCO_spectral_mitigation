@@ -537,6 +537,8 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                         del matched_myd03
                     else:
                         granule_cloud_masks = {}
+                        print(f"No matched MODIS files for granule {granule_id}, not using this granule for processing.")
+                        continue  # Skip to next granule since we have no cloud data to combine
                     
                     # Combine and cache (this function handles saving myd35_*.pkl files internally)
                     result = spatial_processor.combine_OCO_fp_cloud_masks_by_granule(

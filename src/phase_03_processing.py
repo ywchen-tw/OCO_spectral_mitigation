@@ -794,7 +794,7 @@ class SpatialProcessor:
     def _extract_footprints_from_l1b(self,
                                     filepath: Path,
                                     granule_id: str,
-                                    viewing_mode: str = 'GL') -> Dict[int, OCO2Footprint]:
+                                    viewing_mode=None) -> Dict[int, OCO2Footprint]:
         """
         Extract footprints from L1B Science HDF5 file.
         
@@ -803,7 +803,7 @@ class SpatialProcessor:
         Args:
             filepath: Path to L1B Science HDF5 file
             granule_id: OCO-2 granule identifier
-            viewing_mode: Expected viewing mode ('GL' or 'ND')
+            viewing_mode: Expected viewing mode ('GL' or 'ND' or 'TG') for filtering (optional)
         
         Returns:
             Dictionary of footprints indexed by sounding_id
@@ -813,6 +813,9 @@ class SpatialProcessor:
         
         try:
             with h5py.File(filepath, 'r') as f:
+                viewing_mode = filepath.name.split('_')[1].upper()[-2:]  # e.g. "L1BScGL" -> "L1BSCGL"
+                print(f"    Processing L1B file: {filepath.name} (viewing mode: {viewing_mode})")
+                sys.exit()
                 # L1B Science files have /SoundingGeometry group
                 if 'SoundingGeometry' not in f:
                     logger.warning(f"    No SoundingGeometry group in {filepath.name}")
