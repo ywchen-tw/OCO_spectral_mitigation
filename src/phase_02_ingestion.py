@@ -419,7 +419,12 @@ class DataIngestionManager:
                                 # GL folder and would be misplaced in the TG folder.
                                 tg_matches = [m for m in orbit_matches if 'TG' in m.upper()]
                                 if not tg_matches:
-                                    logger.debug(f"No TG-mode file found for orbit {orbit_id} in {dir_url}, skipping")
+                                    logger.warning(
+                                        f"No TG-mode file found for orbit {orbit_id} in:\n"
+                                        f"  URL: {dir_url}\n"
+                                        f"  orbit_matches (non-TG): {orbit_matches}\n"
+                                        f"  Skipping — TG ancillary files may be in a different GES DISC collection."
+                                    )
                                     return None
                                 filename = tg_matches[0]
                             else:
@@ -442,6 +447,16 @@ class DataIngestionManager:
                                     filename = non_tg_matches[0] if non_tg_matches else orbit_matches[0]
                             logger.debug(f"Found orbit-specific file for {orbit_id}: {filename}")
                         else:
+                            if is_tg_granule:
+                                # No file at all for this orbit_id — TG ancillary may not
+                                # have been posted to GES DISC yet.  Do not fall back to a
+                                # random file from the directory.
+                                logger.warning(
+                                    f"No file for orbit {orbit_id} found in:\n"
+                                    f"  URL: {dir_url}\n"
+                                    f"  The TG ancillary file may not yet be available on GES DISC."
+                                )
+                                return None
                             filename = matches[0]
                             logger.warning(f"No orbit-specific file found for {orbit_id}, using first match: {filename}")
                     else:
