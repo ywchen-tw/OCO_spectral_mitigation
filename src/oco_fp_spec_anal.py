@@ -1025,6 +1025,7 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
 
         fp_tau_file = os.path.abspath(f"{OCO2_data_dir}/{orbit_id}/fp_tau_combined.h5")
         if not os.path.isfile(fp_tau_file):
+            print(f"Computing footprint optical depths for orbit {orbit_id}...")
             oco_fp_atm_abs(
                 sat=sat0,
                 o2mix=0.20935,
