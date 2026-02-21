@@ -665,9 +665,11 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
             fp_lat = combined_data.get('oco2_fp_lats')
             fp_ids = combined_data.get('oco2_fp_sounding_ids')
             fp_modes = combined_data.get('oco2_fp_viewing_modes')
+            print("cloud_lon count:", len(cloud_lon) if cloud_lon is not None else "None")
+            print("fp_ids count:", len(fp_ids) if fp_ids is not None else "None")
             print("set of fp_modes:", set(fp_modes))
             print("fp_modes=='ND':", np.sum(fp_modes == 'ND'), "fp_modes=='GL':", np.sum(fp_modes == 'GL'), "fp_modes=='TG':", np.sum(fp_modes == 'TG'))
-            sys.exit()
+            continue
             if cloud_lon is None or cloud_lat is None:
                 logger.warning(f"    No cloud data in cache")
                 continue
@@ -928,7 +930,7 @@ Examples:
     # Optional features
     parser.add_argument('--visualize', action='store_true',
                        help='Create visualizations')
-    parser.add_argument('--viz-dir', type=str, default='./visualizations_combined',
+    parser.add_argument('--viz-dir', type=str, default=None,
                        help='Visualization output directory')
     
     # Workflow control
@@ -982,7 +984,10 @@ Examples:
     else:
         output_dir = storage_dir / "results"
 
-    viz_dir = Path(args.viz_dir) if args.visualize else storage_dir / "visualizations_combined"
+    if args.viz_dir:
+        viz_dir = Path(args.viz_dir) 
+    else:
+        viz_dir = storage_dir / "visualizations_combined"
     
     print_banner("OCO-2/MODIS Footprint Analysis - Combined Pipeline")
     logger.info(f"Date: {target_date.date()}")
