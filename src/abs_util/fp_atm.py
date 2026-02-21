@@ -173,6 +173,13 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
         final_length = np.sum(id_select_all)
         print(f'Total number of soundings to process: {final_length}')
         
+        print("lat_l1b_select size: ", lat_l1b_select.shape)
+        print("id_select_all size: ", id_select_all.shape)
+        if lat_l1b_select.shape[0] != id_select_all.shape[0]:
+            print("[Error] Mismatch in number of soundings between L1B and selection mask!")
+            print("lat_l1b_select shape: ", lat_l1b_select.shape)
+            print("id_select_all shape: ", id_select_all.shape)
+            sys.exit(1)
         
         if platform.system() == "Darwin":
             processing_length = 1000
