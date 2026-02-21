@@ -1021,6 +1021,7 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
             print(f"Contains 'GL': {'GL' in file}")
             print(f"Contains 'ND': {'ND' in file}")
             print(f"Contains 'TG': {'TG' in file}")
+            print('"L1b" in file and ("TG" in file):', "L1b" in file and ("TG" in file))
             if "L1b" in file and ('GL' or 'ND' in file):
                 sat0[orbit_id]["oco_l1b"] = file
             elif "L1b" in file and ("TG" in file):
