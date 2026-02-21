@@ -1161,8 +1161,15 @@ class DataIngestionManager:
                 # This matches the folder structure used in download_oco2_granule()
                 gid_parts = granule_id.split('_')
                 short_orbit_id = gid_parts[2]
-                tg_granule = len(gid_parts) > 1 and 'TG' in gid_parts[1]
-                folder_name = f"{short_orbit_id}_TG" if tg_granule else short_orbit_id
+                product_str = gid_parts[1].upper() if len(gid_parts) > 1 else ''
+                if 'GL' in product_str:
+                    folder_name = f"{short_orbit_id}_GL"
+                elif 'ND' in product_str:
+                    folder_name = f"{short_orbit_id}_ND"
+                elif 'TG' in product_str:
+                    folder_name = f"{short_orbit_id}_TG"
+                else:
+                    folder_name = short_orbit_id
 
                 status_dir = Path(self.output_dir) / "OCO2" / str(target_date.year) / f"{doy:03d}" / folder_name
                 status_dir.mkdir(parents=True, exist_ok=True)
