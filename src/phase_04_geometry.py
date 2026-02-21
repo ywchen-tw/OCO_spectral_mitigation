@@ -1049,7 +1049,10 @@ class GeometryProcessor:
                 cloud_lons_band = np.array(band_clouds['lons'])
                 cloud_lats_band = np.array(band_clouds['lats'])
                 cloud_flags_band = np.array(band_clouds['flags'])
-                       
+                
+                print("len(cloud_lons_band)", len(cloud_lons_band))
+                print("cloud_lons_band:", cloud_lons_band)
+                print("cloud_lons_band min/max:", cloud_lons_band.min(), cloud_lons_band.max())
                 if cloud_lons_band.min() < -90 and cloud_lons_band.max() > 90:
                     cross_dateline = True
                     cloud_lons_band = cloud_lons_band % 360
