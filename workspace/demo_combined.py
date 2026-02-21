@@ -641,6 +641,8 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
             
             # Load combined cache
             combined_cache_files = list(granule_dir.glob("granule_combined_*.pkl"))
+            
+            print("combined_cache_files:", combined_cache_files)
             if not combined_cache_files:
                 logger.warning(f"    No combined cache found for {granule_id}")
                 continue
