@@ -1059,6 +1059,14 @@ def run_simulation(target_date, data_dir, result_dir,
     shared_data = load_shared_data(sat0)
 
     for orbit_id in sat0["orbit_list"]:
+        date       = sat0['date'].strftime("%Y-%m-%d")
+        output_dir  = f"{sat0['result_dir']}/{date}/{orbit_id}"
+        output_file = f"{output_dir}/fitting_details.h5"
+        
+        if os.path.isfile(output_file):
+            logger.info(f"[{orbit_id}] Output already exists. Skipping orbit.")
+            continue
+        
         process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order, overwrite=True)
 
         if delete_ocofiles:
@@ -1070,7 +1078,7 @@ def run_simulation(target_date, data_dir, result_dir,
 
         # k1k2_analysis(sat0, orbit_id)
     #     # k1k2_analysis(sat0, orbit_id, reference_csv='/Users/yuch8913/programming/oco_fp_analysis/results/2018-10-18/22846a/combined_k1_k2_individual_fp.csv')
-    
+    print("sat0:", sat0)
     k1k2_analysis(sat0)
     # k1k2_analysis(sat0, '22849a', reference_csv='/Users/yuch8913/programming/oco_fp_analysis/results/2018-10-18/combined_k1_k2_individual_fp_3granules.csv')
     

@@ -410,9 +410,18 @@ class DataIngestionManager:
                     parts = granule_id.split('_')
                     if len(parts) >= 3:
                         orbit_id = parts[2]  # e.g., "22845a"
+                        is_tg_granule = len(parts) > 1 and 'TG' in parts[1]
                         orbit_matches = [m for m in matches if orbit_id in m]
                         if orbit_matches:
-                            filename = orbit_matches[0]
+                            if is_tg_granule:
+                                # e.g. oco2_L2MetTG_31017a_... — prefer TG file; fall back to any orbit match
+                                tg_matches = [m for m in orbit_matches if 'TG' in m.upper()]
+                                filename = tg_matches[0] if tg_matches else orbit_matches[0]
+                            else:
+                                # e.g. oco2_L2MetGL_31017a_... — exclude TG files so we don't
+                                # accidentally pick up the sibling TG product for the same orbit
+                                non_tg_matches = [m for m in orbit_matches if 'TG' not in m.upper()]
+                                filename = non_tg_matches[0] if non_tg_matches else orbit_matches[0]
                             logger.debug(f"Found orbit-specific file for {orbit_id}: {filename}")
                         else:
                             filename = matches[0]
@@ -450,9 +459,11 @@ class DataIngestionManager:
         Returns:
             List of DownloadedFile objects
         """
+        is_tg = granule.viewing_mode == 'TG'
         if product_types is None:
-            product_types = ['L1B', 'L2_Lite', 'L2_Met', 'L2_CO2Prior']
-        
+            # TG granules have no L2_Lite product; only L1B, Met, and CO2Prior apply
+            product_types = ['L1B', 'L2_Met', 'L2_CO2Prior'] if is_tg else ['L1B', 'L2_Lite', 'L2_Met', 'L2_CO2Prior']
+
         downloaded_files = []
         
         # Map product types to their base URLs and expected filename patterns
@@ -519,11 +530,12 @@ class DataIngestionManager:
                 # L2_Lite: data/OCO2/{YYYY}/{DOY}/
                 output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}"
             else:
-                # L1B, Met, CO2Prior: data/OCO2/{YYYY}/{DOY}/{short_orbit_id}/
-                # Extract short orbit ID (e.g., "22845a") from granule_id
+                # L1B, Met, CO2Prior: data/OCO2/{YYYY}/{DOY}/{folder_name}/
+                # TG granules get their own {orbit_id}_TG subfolder to separate from GL/ND
                 # Format: oco2_L1bScGL_22845a_181018_B11006r_220921185957.h5
                 short_orbit_id = granule.granule_id.split('_')[2]  # Extract "22845a"
-                output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}" / short_orbit_id
+                folder_name = f"{short_orbit_id}_TG" if is_tg else short_orbit_id
+                output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}" / folder_name
             
             if not self.dry_run:
                 output_subdir.mkdir(parents=True, exist_ok=True)
@@ -1132,11 +1144,14 @@ class DataIngestionManager:
                 # Extract short orbit ID (e.g., "22845a") from granule_id
                 # Format: oco2_L1bScGL_22845a_181018_B11006r_220921185957.h5
                 # This matches the folder structure used in download_oco2_granule()
-                short_orbit_id = granule_id.split('_')[2]
-                
-                status_dir = Path(self.output_dir) / "OCO2" / str(target_date.year) / f"{doy:03d}" / short_orbit_id
+                gid_parts = granule_id.split('_')
+                short_orbit_id = gid_parts[2]
+                tg_granule = len(gid_parts) > 1 and 'TG' in gid_parts[1]
+                folder_name = f"{short_orbit_id}_TG" if tg_granule else short_orbit_id
+
+                status_dir = Path(self.output_dir) / "OCO2" / str(target_date.year) / f"{doy:03d}" / folder_name
                 status_dir.mkdir(parents=True, exist_ok=True)
-                
+
                 status_file = status_dir / "sat_data_status.json"
                 status_data = {
                     'downloading_completed': True,
@@ -1144,7 +1159,7 @@ class DataIngestionManager:
                     'target_date': target_date.isoformat(),
                     'granule_id': granule_id,
                     'short_orbit_id': short_orbit_id,
-                    'oco2_file_count': sum(1 for f in oco2_files if short_orbit_id in str(f.filepath)),
+                    'oco2_file_count': sum(1 for f in oco2_files if f.filepath.parent.name == folder_name),
                     'modis_file_count': len(modis_files),
                     'total_oco2_files': len(oco2_files),
                     'total_modis_files': len(modis_files)
@@ -1163,28 +1178,31 @@ class DataIngestionManager:
     def download_all_for_date(self,
                              target_date: datetime,
                              orbit_filter: Optional[int] = None,
+                             granule_suffix: Optional[str] = None,
                              mode_filter: Optional[str] = None,
                              include_modis: bool = True,
                              limit_granules: Optional[int] = None,
                              skip_existing: bool = True) -> Dict:
         """
         Download all OCO-2 and MODIS products for a specific date.
-        
+
         Args:
             target_date: Target date for data acquisition
             orbit_filter: Optional specific orbit number to download
+            granule_suffix: Optional single-letter suffix to narrow orbit filter (e.g. 'b'
+                            selects only the '31017b' granule when orbit_filter=31017)
             mode_filter: Optional viewing mode filter ('GL' or 'ND')
             include_modis: Whether to download MODIS products
             limit_granules: Optional limit to download only first N granules (useful for testing)
             skip_existing: If True, check for existing downloads and skip if already completed
-        
+
         Returns:
             Dictionary with download summary
         """
         logger.info(f"{'='*70}")
         logger.info(f"Phase 2: Data Ingestion for {target_date.date()}")
         logger.info(f"{'='*70}")
-        
+
         # Check for existing downloads if requested
         if skip_existing:
             logger.info("\n[Step 0] Checking for existing downloads...")
@@ -1193,15 +1211,18 @@ class DataIngestionManager:
                 logger.info("✓ Previous download status found. Verifying files and downloading any missing ones...")
             # Always fall through to the download loop so per-file existence checks
             # catch any files missing from orbit folders (e.g. after a partial run).
-        
+
         # Phase 1: Get metadata
         logger.info("\n[Step 1] Retrieving OCO-2 metadata...")
         xml_contents = self.metadata_retriever.fetch_oco2_xml(target_date)
         granules = self.metadata_retriever.parse_orbit_info(xml_contents)
-        
+
         # Filter granules if requested
         if orbit_filter:
             granules = [g for g in granules if g.orbit_number == orbit_filter]
+        if granule_suffix and orbit_filter:
+            target_part = f"_{orbit_filter}{granule_suffix}_"
+            granules = [g for g in granules if target_part in g.granule_id]
         if mode_filter:
             granules = [g for g in granules if g.viewing_mode == mode_filter]
         

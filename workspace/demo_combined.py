@@ -90,6 +90,21 @@ def validate_date(date_str: str) -> datetime:
         raise ValueError(f"Invalid date format: {date_str}. Use YYYY-MM-DD")
 
 
+def parse_orbit_arg(orbit_str: str) -> Tuple[int, Optional[str]]:
+    """Parse --orbit argument into (orbit_number, granule_suffix).
+
+    Accepts plain orbit numbers ('31017') or orbit+suffix ('31017b').
+    Returns the integer orbit number and the optional lowercase suffix letter.
+    """
+    m = re.match(r'^(\d+)([a-z]?)$', orbit_str)
+    if not m:
+        raise ValueError(
+            f"Invalid --orbit value '{orbit_str}'. "
+            "Use a plain orbit number (e.g. 31017) or add a suffix letter (e.g. 31017b)."
+        )
+    return int(m.group(1)), m.group(2) or None
+
+
 def get_storage_dir() -> Path:
     """Determine storage directory based on platform."""
     if platform.system() == "Darwin":
@@ -220,7 +235,9 @@ def run_phase_1(target_date: datetime, orbit: Optional[int] = None,
 
 def run_phase_2(target_date: datetime, data_dir: Path,
                 dry_run: bool = False,
-                force_download: bool = False, limit_granules: Optional[int] = None) -> Tuple[Dict, bool]:
+                force_download: bool = False, limit_granules: Optional[int] = None,
+                orbit: Optional[int] = None, granule_suffix: Optional[str] = None,
+                mode: Optional[str] = None) -> Tuple[Dict, bool]:
     """
     Step 2: Targeted Data Ingestion
 
@@ -230,6 +247,9 @@ def run_phase_2(target_date: datetime, data_dir: Path,
         dry_run: Only check file existence without downloading
         force_download: Force re-download even if status file exists
         limit_granules: Limit to first N granules (for testing)
+        orbit: Optional orbit number filter (passed through from --orbit)
+        granule_suffix: Optional granule suffix letter to narrow orbit filter (e.g. 'b')
+        mode: Optional viewing mode filter (passed through from --mode)
 
     Returns:
         Tuple of (file_info_dict, success_flag)
@@ -241,14 +261,21 @@ def run_phase_2(target_date: datetime, data_dir: Path,
             output_dir=str(data_dir),
             dry_run=dry_run
         )
-        
+
         logger.info("\n[Step 1] Downloading OCO-2 and MODIS products...")
         logger.info("  OCO-2: L1B Science, L2 Lite, L2 Met, L2 CO2Prior")
         logger.info("  MODIS: MYD35_L2 (cloud mask), MYD03 (geolocation)")
-        
+        if orbit:
+            suffix_str = granule_suffix or ''
+            logger.info(f"  Orbit filter: {orbit}{suffix_str}")
+        if mode:
+            logger.info(f"  Mode filter: {mode}")
+
         result = ingestion_manager.download_all_for_date(
             target_date=target_date,
-            mode_filter=None,
+            orbit_filter=orbit,
+            granule_suffix=granule_suffix,
+            mode_filter=mode,
             include_modis=True,
             limit_granules=limit_granules,
             skip_existing=(not force_download)
@@ -912,8 +939,8 @@ Examples:
                        help='Check file existence without downloading')
     
     # Filtering
-    parser.add_argument('--orbit', type=int,
-                       help='Specific orbit number filter (Phase 1)')
+    parser.add_argument('--orbit', type=str,
+                       help='Specific orbit filter: orbit number (e.g. 31017) or orbit+suffix (e.g. 31017b)')
     parser.add_argument('--mode', type=str, choices=['GL', 'ND'],
                        help='Viewing mode filter (GL=Glint, ND=Nadir)')
     parser.add_argument('--limit-granules', type=int,
@@ -926,12 +953,22 @@ Examples:
     # ========================================================================
     
     skip_phases = set(args.skip_phase) if args.skip_phase else set()
-    
+
     try:
         target_date = validate_date(args.date)
     except ValueError as e:
         logger.error(str(e))
         return 1
+
+    # Parse --orbit into integer orbit number + optional granule suffix (e.g. 'b')
+    orbit_num: Optional[int] = None
+    granule_suffix: Optional[str] = None
+    if args.orbit:
+        try:
+            orbit_num, granule_suffix = parse_orbit_arg(args.orbit)
+        except ValueError as e:
+            logger.error(str(e))
+            return 1
     
     storage_dir = get_storage_dir()
     data_dir = storage_dir / "data" if args.data_dir == "./data" else Path(args.data_dir)
@@ -959,7 +996,7 @@ Examples:
     # Phase 1: Metadata
     # ========================================================================
     if 1 not in skip_phases:
-        metadata, success = run_phase_1(target_date, args.orbit, args.mode)
+        metadata, success = run_phase_1(target_date, orbit_num, args.mode)
         if not success:
             if not metadata.get('granules'):
                 logger.error("\nPipeline cannot proceed: No OCO-2 data available for this date.")
@@ -980,7 +1017,10 @@ Examples:
             target_date, data_dir,
             dry_run=args.dry_run,
             force_download=args.force_download,
-            limit_granules=args.limit_granules
+            limit_granules=args.limit_granules,
+            orbit=orbit_num,
+            granule_suffix=granule_suffix,
+            mode=args.mode
         )
         if not success:
             logger.error("Pipeline aborted at Step 2")
