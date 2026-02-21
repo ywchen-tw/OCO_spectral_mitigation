@@ -1019,12 +1019,14 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
             print(f"Checking file: {file}")
             if "L1b" in file and ('GL' or 'ND' in file):
                 sat0[orbit_id]["oco_l1b"] = file
-            elif "L1b" in file and "TG" in file:
+            elif "L1b" in file and ("TG" in file):
                 sat0[orbit_id]["oco_l1b_tg"] = file
             elif "Met" in file:
                 sat0[orbit_id]["oco_met"] = file
             elif "CPr" in file:
                 sat0[orbit_id]["oco_co2prior"] = file
+                
+            print("sat0[orbit_id]:", sat0[orbit_id])
             
 
         fp_tau_file = os.path.abspath(f"{OCO2_data_dir}/{orbit_id}/fp_tau_combined.h5")
