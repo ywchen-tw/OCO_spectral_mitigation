@@ -1017,9 +1017,9 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
         sat0[orbit_id] = {}
         for file in glob.glob(f"{OCO2_data_dir}/{orbit_id}/*"):
             if "L1b" in file and ('GL' or 'ND' in file):
-                sat0[orbit_id]["oco_l1b"] = file
+                sat0[orbit_id]["oco_l1b"] = file.copy()
             if "L1b" in file and ("TG" in file):
-                sat0[orbit_id]["oco_l1b_tg"] = file
+                sat0[orbit_id]["oco_l1b_tg"] = file.copy()
             if "Met" in file:
                 sat0[orbit_id]["oco_met"] = file
             if "CPr" in file:
