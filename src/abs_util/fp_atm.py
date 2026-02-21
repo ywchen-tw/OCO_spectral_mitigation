@@ -32,13 +32,14 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
     if sat == None:
         sys.exit("[Error] sat information must be provided!")
     elif sat != None:
+        print("sat0: ", sat)
         # Get reanalysis from met and CO2 prior sounding data
         with h5py.File(oco_files_dict['oco_l1b'], 'r') as oco_l1b:
             lon_l1b = oco_l1b['SoundingGeometry/sounding_longitude'][...]
             lat_l1b = oco_l1b['SoundingGeometry/sounding_latitude'][...]
             print("lat_l1b shape before logic: ", lat_l1b.shape)
             logic = np.isfinite(lon_l1b) & np.isfinite(lat_l1b)
-            oco_l1b_snd_id = oco_l1b['SoundingGeometry/sounding_id'][...][logic]
+            snd_id_l1b = oco_l1b['SoundingGeometry/sounding_id'][...][logic]
             lat_l1b_select = lat_l1b[logic]
             print("lat_l1b_select shape after logic: ", lat_l1b_select.shape)
             # Solar Doppler Stretch (Fraunhofer vs Telluric)
@@ -156,6 +157,39 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
         z_last_layer_ind = -1
 
         sfc_p_mask = np.isfinite(sfc_p)
+        
+
+        # oco2_LtCO2_170718_B10206Ar_200730084737s.nc4
+        date = oco_nc_file.split("_")[-3]
+        doy = pd.to_datetime('20'+date, format="%Y%m%d").dayofyear
+        
+        
+        
+        print("lat_l1b_select size: ", lat_l1b_select.shape)
+        print("sfc_p_mask size: ", sfc_p_mask.shape)
+        if lat_l1b_select.shape[0] != sfc_p_mask.shape[0]:
+            print("Mismatch in number of soundings between L1B and selection mask!")
+            print("Checking L1B TG file...")
+
+            if 'oco_l1b_tg' in oco_files_dict.keys():
+                with h5py.File(oco_files_dict['oco_l1b_tg'], 'r') as oco_l1b_tg:
+                    lon_l1b_tg = oco_l1b_tg['SoundingGeometry/sounding_longitude'][...]
+                    lat_l1b_tg = oco_l1b_tg['SoundingGeometry/sounding_latitude'][...]
+                    tg_logic = np.isfinite(lon_l1b_tg) & np.isfinite(lat_l1b_tg)
+                    lat_l1b_tg_select = lat_l1b_tg[tg_logic]
+                    snd_id_l1b_tg = oco_l1b_tg['SoundingGeometry/sounding_id'][...][tg_logic]
+                    v_solar_tg = oco_l1b_tg['SoundingGeometry/sounding_solar_relative_velocity'][...][tg_logic]
+                    v_inst_tg = oco_l1b_tg['SoundingGeometry/sounding_relative_velocity'][...][tg_logic]
+                    dist_au_tg = oco_l1b_tg['SoundingGeometry/sounding_solar_distance'][...][tg_logic] / AU_M
+                    
+                    print("lat_l1b_tg shape: ", lat_l1b_tg.shape)
+                    print("lat_l1b_tg flat + lat_l1b_select flat length sum: ", lat_l1b_tg.flatten().shape[0] + lat_l1b_select.flatten().shape[0])
+            else:
+                print("[Error] No L1B TG file provided for debugging!")
+                
+            
+            sys.exit(1)
+            
         # mask fp_id not in oco_l1b_snd_id
         # snd_id_mask = np.isin(sounding_id, oco_l1b_snd_id)
         # do not process sounding not oco_lt_id
@@ -165,37 +199,14 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_{}.h5',
         print("oco_lt_id: ", oco_lt_id)
         
         
+        
         print("np.sum(sfc_p_mask): ", np.sum(sfc_p_mask))
         print("np.sum(oco_lt_id_mask): ", np.sum(oco_lt_id_mask))
-        
-
-        # oco2_LtCO2_170718_B10206Ar_200730084737s.nc4
-        date = oco_nc_file.split("_")[-3]
-        doy = pd.to_datetime('20'+date, format="%Y%m%d").dayofyear
         
         id_select_all = sfc_p_mask & oco_lt_id_mask
         
         final_length = np.sum(id_select_all)
         print(f'Total number of soundings to process: {final_length}')
-        
-        print("lat_l1b_select size: ", lat_l1b_select.shape)
-        print("id_select_all size: ", id_select_all.shape)
-        if lat_l1b_select.shape[0] != id_select_all.shape[0]:
-            print("[Error] Mismatch in number of soundings between L1B and selection mask!")
-            print("lat_l1b_select shape: ", lat_l1b_select.shape)
-            print("id_select_all shape: ", id_select_all.shape)
-            
-            print("oco_files_dict keys: ", oco_files_dict.keys())
-            if 'oco_l1b_tg' in oco_files_dict.keys():
-                with h5py.File(oco_files_dict['oco_l1b_tg'], 'r') as oco_l1b_tg:
-                    lat_l1b_tg = oco_l1b_tg['SoundingGeometry/sounding_latitude'][...]
-                    print("lat_l1b_tg shape: ", lat_l1b_tg.shape)
-                    print("lat_l1b_tg flat + lat_l1b_select flat length sum: ", lat_l1b_tg.flatten().shape[0] + lat_l1b_select.flatten().shape[0])
-            else:
-                print("[Error] No L1B TG file provided for debugging!")
-                
-            
-            sys.exit(1)
         
         if platform.system() == "Darwin":
             processing_length = 1000
