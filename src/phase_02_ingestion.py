@@ -414,9 +414,14 @@ class DataIngestionManager:
                         orbit_matches = [m for m in matches if orbit_id in m]
                         if orbit_matches:
                             if is_tg_granule:
-                                # e.g. oco2_L2MetTG_31017a_... — prefer TG file; fall back to any orbit match
+                                # e.g. oco2_L2MetTG_31017a_... — require TG-mode file; do NOT fall back
+                                # to GL/ND files (e.g. oco2_L2MetGL_34133a) because they belong in the
+                                # GL folder and would be misplaced in the TG folder.
                                 tg_matches = [m for m in orbit_matches if 'TG' in m.upper()]
-                                filename = tg_matches[0] if tg_matches else orbit_matches[0]
+                                if not tg_matches:
+                                    logger.debug(f"No TG-mode file found for orbit {orbit_id} in {dir_url}, skipping")
+                                    return None
+                                filename = tg_matches[0]
                             else:
                                 # e.g. oco2_L2MetGL_31017a_... — exclude TG files so we don't
                                 # accidentally pick up the sibling TG product for the same orbit.
@@ -544,12 +549,26 @@ class DataIngestionManager:
                 output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}"
             else:
                 # L1B, Met, CO2Prior: data/OCO2/{YYYY}/{DOY}/{folder_name}/
-                # Each viewing mode gets its own subfolder to avoid collisions when GL and
-                # ND granules share the same orbit_id.
-                # e.g.: 22845a_GL, 22845a_ND, 22845a_TG
-                # Format: oco2_L1bScGL_22845a_181018_B11006r_220921185957.h5
+                # Derive the viewing mode from the DOWNLOADED FILE's own name so that a
+                # Met/CO2Prior file labeled with a different mode than the requesting L1B
+                # (e.g. oco2_L2MetGL_34133a found for a TG orbit) goes to the folder that
+                # matches its own product mode, not the L1B mode.
                 short_orbit_id = granule.granule_id.split('_')[2]  # Extract "22845a"
-                folder_name = f"{short_orbit_id}_{granule.viewing_mode}"
+                fname_parts = filename.split('_')
+                if len(fname_parts) >= 2:
+                    fprod = fname_parts[1].upper()
+                    if 'GL' in fprod:
+                        file_mode = 'GL'
+                    elif 'ND' in fprod:
+                        file_mode = 'ND'
+                    elif 'TG' in fprod:
+                        file_mode = 'TG'
+                    else:
+                        logger.warning(f"Unrecognised viewing mode in filename '{filename}'; falling back to granule mode '{granule.viewing_mode}'")
+                        file_mode = granule.viewing_mode
+                else:
+                    file_mode = granule.viewing_mode
+                folder_name = f"{short_orbit_id}_{file_mode}"
                 output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}" / folder_name
             
             if not self.dry_run:
@@ -1169,6 +1188,7 @@ class DataIngestionManager:
                 elif 'TG' in product_str:
                     folder_name = f"{short_orbit_id}_TG"
                 else:
+                    logger.warning(f"Unrecognised viewing mode in granule_id '{granule_id}'; status file will use bare orbit folder '{short_orbit_id}'")
                     folder_name = short_orbit_id
 
                 status_dir = Path(self.output_dir) / "OCO2" / str(target_date.year) / f"{doy:03d}" / folder_name
