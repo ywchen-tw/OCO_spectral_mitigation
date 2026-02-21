@@ -442,7 +442,15 @@ class DataIngestionManager:
                                     viewing_mode = None
                                 if viewing_mode:
                                     mode_matches = [m for m in non_tg_matches if viewing_mode in m.upper()]
-                                    filename = mode_matches[0] if mode_matches else (non_tg_matches[0] if non_tg_matches else orbit_matches[0])
+                                    if not mode_matches:
+                                        logger.warning(
+                                            f"No {viewing_mode}-mode file found for orbit {orbit_id} in:\n"
+                                            f"  URL: {dir_url}\n"
+                                            f"  orbit_matches (non-TG): {non_tg_matches}\n"
+                                            f"  Skipping — file may be unavailable or in a different collection."
+                                        )
+                                        return None
+                                    filename = mode_matches[0]
                                 else:
                                     filename = non_tg_matches[0] if non_tg_matches else orbit_matches[0]
                             logger.debug(f"Found orbit-specific file for {orbit_id}: {filename}")
@@ -563,26 +571,27 @@ class DataIngestionManager:
                 # L2_Lite: data/OCO2/{YYYY}/{DOY}/
                 output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}"
             else:
-                # L1B, Met, CO2Prior: data/OCO2/{YYYY}/{DOY}/{folder_name}/
-                # Derive the viewing mode from the DOWNLOADED FILE's own name so that a
-                # Met/CO2Prior file labeled with a different mode than the requesting L1B
-                # (e.g. oco2_L2MetGL_34133a found for a TG orbit) goes to the folder that
-                # matches its own product mode, not the L1B mode.
-                short_orbit_id = granule.granule_id.split('_')[2]  # Extract "22845a"
+                # L1B, Met, CO2Prior: data/OCO2/{YYYY}/{DOY}/{orbit_id}_{mode}/
+                # Parse orbit_id and viewing_mode directly from the downloaded filename.
+                # Files whose viewing mode is not GL/ND/TG are skipped.
                 fname_parts = filename.split('_')
-                if len(fname_parts) >= 2:
-                    fprod = fname_parts[1].upper()
-                    if 'GL' in fprod:
-                        file_mode = 'GL'
-                    elif 'ND' in fprod:
-                        file_mode = 'ND'
-                    elif 'TG' in fprod:
-                        file_mode = 'TG'
-                    else:
-                        logger.warning(f"Unrecognised viewing mode in filename '{filename}'; falling back to granule mode '{granule.viewing_mode}'")
-                        file_mode = granule.viewing_mode
+                if len(fname_parts) < 3:
+                    logger.warning(f"Cannot parse orbit_id/viewing_mode from '{filename}'; skipping")
+                    self.download_stats['failed_downloads'].append({
+                        'url': url, 'product_type': product_type, 'granule_id': granule.granule_id
+                    })
+                    continue
+                short_orbit_id = fname_parts[2]
+                fprod = fname_parts[1].upper()
+                if 'GL' in fprod:
+                    file_mode = 'GL'
+                elif 'ND' in fprod:
+                    file_mode = 'ND'
+                elif 'TG' in fprod:
+                    file_mode = 'TG'
                 else:
-                    file_mode = granule.viewing_mode
+                    logger.warning(f"Unrecognised viewing mode in '{filename}'; skipping")
+                    continue
                 folder_name = f"{short_orbit_id}_{file_mode}"
                 output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}" / folder_name
             
@@ -1194,8 +1203,11 @@ class DataIngestionManager:
                 # Format: oco2_L1bScGL_22845a_181018_B11006r_220921185957.h5
                 # This matches the folder structure used in download_oco2_granule()
                 gid_parts = granule_id.split('_')
+                if len(gid_parts) < 3:
+                    logger.warning(f"Cannot parse orbit_id/viewing_mode from granule_id '{granule_id}'; skipping status file")
+                    continue
                 short_orbit_id = gid_parts[2]
-                product_str = gid_parts[1].upper() if len(gid_parts) > 1 else ''
+                product_str = gid_parts[1].upper()
                 if 'GL' in product_str:
                     folder_name = f"{short_orbit_id}_GL"
                 elif 'ND' in product_str:
@@ -1203,8 +1215,8 @@ class DataIngestionManager:
                 elif 'TG' in product_str:
                     folder_name = f"{short_orbit_id}_TG"
                 else:
-                    logger.warning(f"Unrecognised viewing mode in granule_id '{granule_id}'; status file will use bare orbit folder '{short_orbit_id}'")
-                    folder_name = short_orbit_id
+                    logger.warning(f"Unrecognised viewing mode in granule_id '{granule_id}'; skipping status file")
+                    continue
 
                 status_dir = Path(self.output_dir) / "OCO2" / str(target_date.year) / f"{doy:03d}" / folder_name
                 status_dir.mkdir(parents=True, exist_ok=True)
