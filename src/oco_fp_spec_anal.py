@@ -1016,12 +1016,13 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
     for orbit_id in oco2_orbit_list:
         sat0[orbit_id] = {}
         for file in glob.glob(f"{OCO2_data_dir}/{orbit_id}/*"):
-            if "L1b" in file and ('GL' or 'ND' in file):
-                print(f"Found L1b file for orbit {orbit_id}: {file}")
-                sat0[orbit_id]["oco_l1b"] = file
-            if "L1b" in file and ("TG" in file):
-                print(f"Found L1b TG file for orbit {orbit_id}: {file}")
-                sat0[orbit_id]["oco_l1b_tg"] = file
+            if "L1b" in file:
+                if "TG" not in file:
+                    print(f"Found L1b file for orbit {orbit_id}: {file}")
+                    sat0[orbit_id]["oco_l1b"] = file
+                elif "TG" in file:
+                    print(f"Found L1b TG file for orbit {orbit_id}: {file}")
+                    sat0[orbit_id]["oco_l1b_tg"] = file
             if "Met" in file:
                 sat0[orbit_id]["oco_met"] = file
             if "CPr" in file:
