@@ -530,7 +530,7 @@ class GeometryProcessor:
     
     def calculate_nearest_cloud_distances_banded(
         self,
-        footprints_by_granule: tuple[np.ndarray, np.ndarray],
+        footprints_by_granule: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
         band_width_deg: float = 5.0,
         band_overlap_deg: float = 1.0,
         max_distance_km: float = 30.0,
