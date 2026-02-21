@@ -426,9 +426,10 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                 
                 logger.info(f"  Loaded {len(oco2_files)} OCO-2 file(s) and {len(modis_files)} MODIS file(s)")
                 
-                # Extract footprints
-                logger.info("  Extracting OCO-2 footprints...")
-                oco2_footprints = spatial_processor.extract_oco2_footprints(oco2_files, viewing_mode='GL')
+                # Extract footprints for all viewing modes so GL, ND, and TG granules
+                # are all available when the per-granule loop looks them up.
+                logger.info("  Extracting OCO-2 footprints (all viewing modes)...")
+                oco2_footprints = spatial_processor.extract_oco2_footprints(oco2_files, viewing_mode=None)
                 footprints_by_granule = spatial_processor.group_footprints_by_granule(oco2_footprints)
                 
                 # Calculate time windows for each OCO-2 granule
@@ -466,32 +467,31 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                     modis_date = datetime(year_m, 1, 1) + timedelta(days=doy_m - 1)
                     modis_time = modis_date.replace(hour=hour, minute=minute)
                     
-                    # Find closest OCO-2 granule
-                    best_match = None
-                    min_time_diff = None
-                    
+                    # Assign this MODIS file to ALL OCO-2 granules whose ±20-minute
+                    # window it falls in.  A single 5-minute MODIS swath can overlap
+                    # the time windows of two adjacent (or mode-separated) OCO-2 orbits;
+                    # picking only the "closest" would silently drop cloud data for the other.
+                    buffer_seconds = 20 * 60  # ±20 minutes (matches Phase 3 spec)
                     for oco2_granule_id, (start_time, end_time) in granule_time_ranges.items():
-                        time_diff = min(abs((modis_time - start_time).total_seconds()),
-                                       abs((modis_time - end_time).total_seconds()))
-                        
-                        if time_diff < 1800:  # Within 30 minutes
-                            if min_time_diff is None or time_diff < min_time_diff:
-                                min_time_diff = time_diff
-                                best_match = oco2_granule_id
-                    
-                    if best_match:
-                        if best_match not in modis_to_oco2_mapping:
-                            modis_to_oco2_mapping[best_match] = []
-                        modis_to_oco2_mapping[best_match].append(modis_file)
+                        window_start = start_time - timedelta(seconds=buffer_seconds)
+                        window_end = end_time + timedelta(seconds=buffer_seconds)
+                        if window_start <= modis_time <= window_end:
+                            if oco2_granule_id not in modis_to_oco2_mapping:
+                                modis_to_oco2_mapping[oco2_granule_id] = []
+                            modis_to_oco2_mapping[oco2_granule_id].append(modis_file)
                 
                 # Process each missing granule
                 for granule_id in sorted(missing_granules):
                     logger.info(f"\n  Processing granule: {granule_id}")
                     
-                    # Find full granule ID
+                    # Find the full granule ID whose _extract_short_orbit_id matches
+                    # the folder name.  The folder name is now "{orbit_id}_{mode}"
+                    # (e.g. "34145a_GL"), which is NOT a simple substring of the full
+                    # L1B filename ("oco2_L1bScGL_34145a_201201_..."), so a plain
+                    # `granule_id in fg_id` check would silently fail for every granule.
                     full_granule_id = None
                     for fg_id in footprints_by_granule.keys():
-                        if granule_id in fg_id:
+                        if spatial_processor._extract_short_orbit_id(fg_id) == granule_id:
                             full_granule_id = fg_id
                             break
                     
