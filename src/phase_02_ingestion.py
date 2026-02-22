@@ -553,8 +553,7 @@ class DataIngestionManager:
                     continue
                 folder_name = f"{short_orbit_id}_{file_mode}"
                 output_subdir = self.output_dir / "OCO2" / str(target_year) / f"{target_doy:03d}" / folder_name
-            print(f"Output subdir for {product_type}: {output_subdir}")
-            sys.exit()               
+          
             if not self.dry_run:
                 output_subdir.mkdir(parents=True, exist_ok=True)
             
