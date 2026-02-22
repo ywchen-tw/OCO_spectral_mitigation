@@ -1029,9 +1029,10 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
                 sat0[orbit_id]["oco_met"] = file
             if "CPr" in file:
                 sat0[orbit_id]["oco_co2prior"] = file
-                
-        fp_tau_file = os.path.abspath(f"{result_dir}/{orbit_id}/fp_tau_combined.h5")
-        os.makedirs(os.path.abspath(f"{result_dir}/{orbit_id}"), exist_ok=True)
+        
+        date_str = date.strftime("%Y-%m-%d")
+        fp_tau_file = os.path.abspath(f"{result_dir}/{date_str}/{orbit_id}/fp_tau_combined.h5")
+        os.makedirs(os.path.abspath(f"{result_dir}/{date_str}/{orbit_id}"), exist_ok=True)
         if not os.path.isfile(fp_tau_file):
             print(f"Computing footprint optical depths for orbit {orbit_id}...")
             oco_fp_atm_abs(
