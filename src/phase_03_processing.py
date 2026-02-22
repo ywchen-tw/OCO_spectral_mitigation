@@ -814,8 +814,6 @@ class SpatialProcessor:
         try:
             with h5py.File(filepath, 'r') as f:
                 viewing_mode = filepath.name.split('_')[1].upper()[-2:]  # e.g. "L1BScGL" -> "L1BSCGL"
-                print(f"    Processing L1B file: {filepath.name} (viewing mode: {viewing_mode})")
-                sys.exit()
                 # L1B Science files have /SoundingGeometry group
                 if 'SoundingGeometry' not in f:
                     logger.warning(f"    No SoundingGeometry group in {filepath.name}")
