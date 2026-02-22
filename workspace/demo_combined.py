@@ -507,6 +507,8 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                     
                     if not full_granule_id:
                         logger.warning(f"    ⚠ No footprints found for {granule_id}")
+                        # remove this granule from missing_granules so we don't try to process it again next time
+                        oco2_granules.discard(granule_id)
                         continue
                     
                     # Get footprints for this granule
