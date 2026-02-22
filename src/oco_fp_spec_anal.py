@@ -1059,8 +1059,8 @@ def run_simulation(target_date, data_dir, result_dir,
 
     for orbit_id in sat0["orbit_list"]:
         date       = sat0['date'].strftime("%Y-%m-%d")
-        output_dir  = f"{sat0['result_dir']}/{date}/{orbit_id}"
-        output_file = f"{output_dir}/fitting_details.h5"
+        h5_output_dir = f"{sat0['result_dir']}/fitting_details"
+        output_file = f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
         
         if os.path.isfile(output_file):
             logger.info(f"[{orbit_id}] Output already exists. Skipping orbit.")

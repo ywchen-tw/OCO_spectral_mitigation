@@ -383,6 +383,7 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                                     file_size = file_path.stat().st_size / (1024 * 1024)
                                     oco2_files.append(DownloadedFile(
                                         filepath=file_path,
+                                        target_year=year,
                                         target_doy=doy,
                                         product_type=product_type,
                                         granule_id=file_path.name,
@@ -397,6 +398,7 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                             oco2_files.append(DownloadedFile(
                                 filepath=file_path,
                                 product_type=product_type,
+                                target_year=year,
                                 target_doy=doy,
                                 granule_id=file_path.name,
                                 file_size_mb=file_size,
@@ -414,6 +416,7 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                         modis_files.append(DownloadedFile(
                             filepath=modis_file,
                             product_type="MYD35_L2",
+                            target_year=year,
                             target_doy=doy,
                             granule_id=modis_file.name,
                             file_size_mb=file_size,
@@ -426,6 +429,7 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                         modis_files.append(DownloadedFile(
                             filepath=modis_file,
                             product_type="MYD03",
+                            target_year=year,
                             target_doy=doy,
                             granule_id=modis_file.name,
                             file_size_mb=file_size,
@@ -437,7 +441,9 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                 # Extract footprints for all viewing modes so GL, ND, and TG granules
                 # are all available when the per-granule loop looks them up.
                 logger.info("  Extracting OCO-2 footprints (all viewing modes)...")
-                oco2_footprints = spatial_processor.extract_oco2_footprints(oco2_files, target_doy=doy, viewing_mode=None)
+                oco2_footprints = spatial_processor.extract_oco2_footprints(oco2_files, 
+                                                                            target_year=year,
+                                                                            target_doy=doy, viewing_mode=None)
                 footprints_by_granule = spatial_processor.group_footprints_by_granule(oco2_footprints)
                 
                 # Calculate time windows for each OCO-2 granule
@@ -540,6 +546,7 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                                         break
                         
                         granule_cloud_masks = spatial_processor.extract_modis_cloud_mask(
+                            target_year=year,
                             target_doy=doy,
                             modis_files=matched_modis_files,
                             myd03_files=matched_myd03 if matched_myd03 else None,

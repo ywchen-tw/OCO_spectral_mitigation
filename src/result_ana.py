@@ -88,13 +88,15 @@ def k1k2_analysis(sat, orbit_id=None, reference_csv=None):
     all_data = []
     if orbit_id is None:
         for orbit_id in orbit_list:
-            filepath = f"{result_dir}/{date}/{orbit_id}/fitting_details.h5"
+            h5_output_dir = f"{sat['result_dir']}/fitting_details"
+            filepath = f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
             if os.path.exists(filepath):
                 all_data.append(load_output_dict(filepath))
             else:
                 print(f"File not found: {filepath}")
     else:
-        filepath = f"{result_dir}/{date}/{orbit_id}/fitting_details.h5"
+        h5_output_dir = f"{sat['result_dir']}/fitting_details"
+        filepath = f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
         if os.path.exists(filepath):
             all_data.append(load_output_dict(filepath))
         else:

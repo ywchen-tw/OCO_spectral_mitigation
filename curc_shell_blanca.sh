@@ -51,7 +51,7 @@ for year in $(seq $start_year $end_year); do
             # Format date as YYYY-MM-DD with zero-padding
             date=$(printf "%04d-%02d-%02d" $year $month $day)
             echo "Processing date: $date"
-            python workspace/demo_combined.py --date "$date" --delete-modis
+            python workspace/demo_combined.py --date "$date" --delete-modis --limit-granules 1
             if [ $? -ne 0 ]; then
                 echo "Failed to process date: $date"
             else

@@ -50,6 +50,7 @@ class DownloadedFile:
     """Represents a successfully downloaded file."""
     filepath: Path
     product_type: str  # e.g., "OCO2_L1B", "MYD35_L2"
+    target_year: int
     target_doy: int
     granule_id: str
     file_size_mb: float
@@ -446,8 +447,9 @@ class DataIngestionManager:
     
     def download_oco2_granule(self,
                               granule: OCO2Granule,
-                              product_types: List[str] = None,
-                              target_doy: int = None) -> List[DownloadedFile]:
+                              target_year: int,
+                              target_doy: int,
+                              product_types: List[str] = None,) -> List[DownloadedFile]:
         """
         Download OCO-2 products for a specific granule.
         
@@ -550,11 +552,9 @@ class DataIngestionManager:
                     })
                     continue
                 folder_name = f"{short_orbit_id}_{file_mode}"
-                if not target_doy or doy == target_doy:
-                    output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}" / folder_name
-                else:
-                    output_subdir = self.output_dir / "OCO2" / str(year) / f"{target_doy:03d}" / folder_name
-                                
+                output_subdir = self.output_dir / "OCO2" / str(target_year) / f"{target_doy:03d}" / folder_name
+            print(f"Output subdir for {product_type}: {output_subdir}")
+            sys.exit()               
             if not self.dry_run:
                 output_subdir.mkdir(parents=True, exist_ok=True)
             
@@ -580,7 +580,8 @@ class DataIngestionManager:
                             DownloadedFile(
                                 filepath=output_path,
                                 product_type=f"OCO2_{product_type}",
-                                target_doy=target_doy if target_doy else doy,
+                                target_year=target_year,
+                                target_doy=target_doy,
                                 granule_id=granule.granule_id,
                                 file_size_mb=file_size_mb,
                                 download_time_seconds=0.0
@@ -595,7 +596,8 @@ class DataIngestionManager:
                         DownloadedFile(
                             filepath=output_path,
                             product_type=f"OCO2_{product_type}",
-                            target_doy=target_doy if target_doy else doy,
+                            target_year=target_year,
+                            target_doy=target_doy,
                             granule_id=granule.granule_id,
                             file_size_mb=file_size_mb,
                             download_time_seconds=0.0
@@ -617,7 +619,8 @@ class DataIngestionManager:
                     DownloadedFile(
                         filepath=output_path,
                         product_type=f"OCO2_{product_type}",
-                        target_doy=target_doy if target_doy else doy,
+                        target_year=target_year,
+                        target_doy=target_doy,
                         granule_id=granule.granule_id,
                         file_size_mb=file_size_mb,
                         download_time_seconds=download_time
@@ -919,6 +922,7 @@ class DataIngestionManager:
                               product_type: str,
                               year: int,
                               doy: int,
+                              target_year: int,
                               target_doy: int,
                               skip_night_passes: bool = False) -> Optional[DownloadedFile]:
         """
@@ -938,7 +942,7 @@ class DataIngestionManager:
         url = f"{self.LAADS_ARCHIVE_URL}/{self.MODIS_VERSION}/{product_type}/{year}/{doy:03d}/{granule_filename}"
         
         # Create output directory: data/MODIS/{PRODUCT}/{YEAR}/{DOY}/
-        output_subdir = self.output_dir / "MODIS" / product_type / str(year) / f"{target_doy:03d}"
+        output_subdir = self.output_dir / "MODIS" / product_type / str(target_year) / f"{target_doy:03d}"
         if not self.dry_run:
             output_subdir.mkdir(parents=True, exist_ok=True)
         
@@ -965,6 +969,7 @@ class DataIngestionManager:
             return DownloadedFile(
                 filepath=output_path,
                 product_type=product_type,
+                target_year=target_year,
                 target_doy=target_doy,
                 granule_id=granule_filename,
                 file_size_mb=file_size_mb,
@@ -1011,6 +1016,7 @@ class DataIngestionManager:
             return DownloadedFile(
                 filepath=output_path,
                 product_type=product_type,
+                target_year=target_year,
                 target_doy=target_doy,
                 granule_id=granule_filename,
                 file_size_mb=file_size_mb,
@@ -1109,6 +1115,7 @@ class DataIngestionManager:
                         oco2_files.append(DownloadedFile(
                             filepath=hdf_file,
                             product_type=ptype,
+                            target_year=target_date.year,
                             target_doy=doy,
                             granule_id=granule_id,
                             file_size_mb=hdf_file.stat().st_size / (1024 * 1024),
@@ -1123,6 +1130,7 @@ class DataIngestionManager:
                 oco2_files.append(DownloadedFile(
                     filepath=nc4_file,
                     product_type="L2_Lite",
+                    target_year=target_date.year,
                     target_doy=doy,
                     granule_id=nc4_file.stem,
                     file_size_mb=nc4_file.stat().st_size / (1024 * 1024),
@@ -1140,6 +1148,7 @@ class DataIngestionManager:
                     modis_files.append(DownloadedFile(
                         filepath=hdf_file,
                         product_type=product_type,
+                        target_year=target_date.year,
                         target_doy=doy,
                         granule_id=hdf_file.stem,
                         file_size_mb=hdf_file.stat().st_size / (1024 * 1024),
@@ -1299,7 +1308,9 @@ class DataIngestionManager:
         oco2_files = []
         for i, granule in enumerate(granules, 1):
             logger.info(f"\nGranule {i}/{len(granules)}: {granule.granule_id}")
-            files = self.download_oco2_granule(granule, target_doy=target_doy)
+            files = self.download_oco2_granule(granule, 
+                                               target_year=target_date.year,
+                                               target_doy=target_doy)
             oco2_files.extend(files)
         
         # Download MODIS products
@@ -1345,7 +1356,9 @@ class DataIngestionManager:
                     doy = int(match.group(2))
                     time_str = match.group(3)  # HHMM
                     
-                    file_obj = self.download_modis_granule(granule_id, 'MYD35_L2', year, doy, target_doy=target_doy, skip_night_passes=False)
+                    file_obj = self.download_modis_granule(granule_id, 'MYD35_L2', year, doy, 
+                                                           target_year=target_date.year,
+                                                           target_doy=target_doy, skip_night_passes=False)
                     if file_obj:
                         modis_files.append(file_obj)
                         # Track this time stamp for MYD03 matching
@@ -1363,7 +1376,9 @@ class DataIngestionManager:
                     
                     # Only download MYD03 if corresponding MYD35_L2 was kept
                     if time_id in kept_myd35_times:
-                        file_obj = self.download_modis_granule(granule_id, 'MYD03', year, doy, target_doy=target_doy, )
+                        file_obj = self.download_modis_granule(granule_id, 'MYD03', year, doy, 
+                                                               target_year=target_date.year,
+                                                               target_doy=target_doy)
                         if file_obj:
                             modis_files.append(file_obj)
                     else:
