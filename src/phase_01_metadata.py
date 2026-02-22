@@ -20,6 +20,7 @@ from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 import logging
 import os
+import numpy as np
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -606,7 +607,7 @@ class OCO2MetadataRetriever:
     
     def extract_temporal_window(self, granules: List[OCO2Granule], 
                                 orbit_str: Optional[str] = None,
-                                viewing_mode: Optional[str] = None) -> Tuple[datetime, datetime]:
+                                viewing_mode: Optional[str] = None) -> Tuple[np.ndarray, np.ndarray]:
         """
         Extract the temporal window for specified orbit/mode.
         
@@ -623,7 +624,6 @@ class OCO2MetadataRetriever:
         """
         # Filter granules
         filtered = granules
-        
         if orbit_str is not None:
             filtered = [g for g in filtered if g.orbit_str == orbit_str]
         
@@ -632,15 +632,16 @@ class OCO2MetadataRetriever:
         
         if not filtered:
             raise ValueError(f"No granules found for orbit={orbit_str}, mode={viewing_mode}")
-        
         # Get temporal bounds across all matching granules
-        start_time = min(g.start_time for g in filtered)
-        end_time = max(g.end_time for g in filtered)
+        start_time_arr = np.array([g.start_time for g in filtered])
+        end_time_arr = np.array([g.end_time for g in filtered])
+        start_time_min = min(g.start_time for g in filtered)
+        end_time_max = max(g.end_time for g in filtered)
         
-        logger.info(f"Temporal window: {start_time.isoformat()} to {end_time.isoformat()}")
-        logger.info(f"Duration: {(end_time - start_time).total_seconds() / 60:.1f} minutes")
+        logger.info(f"Temporal window: {start_time_min.isoformat()} to {end_time_max.isoformat()}")
+        logger.info(f"Duration: {(end_time_max - start_time_min).total_seconds() / 60:.1f} minutes")
         
-        return start_time, end_time
+        return start_time_arr, end_time_arr
     
     def extract_granule_temporal_windows(self, granules: List[OCO2Granule],
                                          orbit_str: Optional[str] = None,

@@ -175,7 +175,7 @@ def cleanup_modis_data(target_date: datetime, data_dir: Path) -> bool:
 # Step Execution Functions
 # ============================================================================
 
-def run_phase_1(target_date: datetime, orbit: Optional[int] = None, 
+def run_phase_1(target_date: datetime, orbit: Optional[str] = None, 
                 mode: str = None) -> Tuple[Dict, bool]:
     """
     Step 1: Metadata Acquisition and Temporal Filtering
@@ -213,15 +213,13 @@ def run_phase_1(target_date: datetime, orbit: Optional[int] = None,
             return {}, False
         
         logger.info("[Step 3] Extracting temporal window...")
-        start_time, end_time = retriever.extract_temporal_window(granules, orbit, mode)
-        logger.info(f"✓ Temporal window: {start_time} to {end_time}")
-        logger.info(f"  Duration: {(end_time - start_time).total_seconds() / 60:.1f} minutes")
+        start_time_arr, end_time_arr = retriever.extract_temporal_window(granules, orbit, mode)
         
         metadata = {
             'target_date': target_date,
             'granules': granules,
-            'start_time': start_time,
-            'end_time': end_time,
+            'start_time': start_time_arr,
+            'end_time': end_time_arr,
             'num_granules': len(granules),
         }
         
@@ -236,7 +234,7 @@ def run_phase_1(target_date: datetime, orbit: Optional[int] = None,
 def run_phase_2(target_date: datetime, data_dir: Path,
                 dry_run: bool = False,
                 force_download: bool = False, limit_granules: Optional[int] = None,
-                orbit: Optional[int] = None, granule_suffix: Optional[str] = None,
+                orbit: Optional[str] = None, granule_suffix: Optional[str] = None,
                 mode: Optional[str] = None) -> Tuple[Dict, bool]:
     """
     Step 2: Targeted Data Ingestion
@@ -247,8 +245,7 @@ def run_phase_2(target_date: datetime, data_dir: Path,
         dry_run: Only check file existence without downloading
         force_download: Force re-download even if status file exists
         limit_granules: Limit to first N granules (for testing)
-        orbit: Optional orbit number filter (passed through from --orbit)
-        granule_suffix: Optional granule suffix letter to narrow orbit filter (e.g. 'b')
+        orbit: Optional orbit str filter (passed through from --orbit)
         mode: Optional viewing mode filter (passed through from --mode)
 
     Returns:
@@ -266,15 +263,12 @@ def run_phase_2(target_date: datetime, data_dir: Path,
         logger.info("  OCO-2: L1B Science, L2 Lite, L2 Met, L2 CO2Prior")
         logger.info("  MODIS: MYD35_L2 (cloud mask), MYD03 (geolocation)")
         if orbit:
-            suffix_str = granule_suffix or ''
-            logger.info(f"  Orbit filter: {orbit}{suffix_str}")
+            logger.info(f"  Orbit filter: {orbit}")
         if mode:
             logger.info(f"  Mode filter: {mode}")
-
         result = ingestion_manager.download_all_for_date(
             target_date=target_date,
             orbit_filter=orbit,
-            granule_suffix=granule_suffix,
             mode_filter=mode,
             include_modis=True,
             limit_granules=limit_granules,
@@ -384,18 +378,30 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                                 product_type = ""
                                 if "L1bSc" in file_path.name:
                                     product_type = "L1B_Science"
-                                elif "L2Lite" in file_path.name:
-                                    product_type = "L2_Lite"
                                 
                                 if product_type:
                                     file_size = file_path.stat().st_size / (1024 * 1024)
                                     oco2_files.append(DownloadedFile(
                                         filepath=file_path,
+                                        target_doy=doy,
                                         product_type=product_type,
                                         granule_id=file_path.name,
                                         file_size_mb=file_size,
                                         download_time_seconds=0.0
                                     ))
+                    # get lite file at the parent directory level (e.g. oco2_L2Lite_34145a_201201_20120101T000000Z.nc)
+                    for file_path in oco2_l1b_dir.glob("*.nc4"):
+                        if file_path.is_file() and "Lt" in file_path.name:
+                            product_type = "L2_Lite"
+                            file_size = file_path.stat().st_size / (1024 * 1024)
+                            oco2_files.append(DownloadedFile(
+                                filepath=file_path,
+                                product_type=product_type,
+                                target_doy=doy,
+                                granule_id=file_path.name,
+                                file_size_mb=file_size,
+                                download_time_seconds=0.0
+                            ))
                 
                 # Load all MODIS files
                 modis_files = []
@@ -408,6 +414,7 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                         modis_files.append(DownloadedFile(
                             filepath=modis_file,
                             product_type="MYD35_L2",
+                            target_doy=doy,
                             granule_id=modis_file.name,
                             file_size_mb=file_size,
                             download_time_seconds=0.0
@@ -419,6 +426,7 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                         modis_files.append(DownloadedFile(
                             filepath=modis_file,
                             product_type="MYD03",
+                            target_doy=doy,
                             granule_id=modis_file.name,
                             file_size_mb=file_size,
                             download_time_seconds=0.0
@@ -429,7 +437,7 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                 # Extract footprints for all viewing modes so GL, ND, and TG granules
                 # are all available when the per-granule loop looks them up.
                 logger.info("  Extracting OCO-2 footprints (all viewing modes)...")
-                oco2_footprints = spatial_processor.extract_oco2_footprints(oco2_files, viewing_mode=None)
+                oco2_footprints = spatial_processor.extract_oco2_footprints(oco2_files, target_doy=doy, viewing_mode=None)
                 footprints_by_granule = spatial_processor.group_footprints_by_granule(oco2_footprints)
                 
                 # Calculate time windows for each OCO-2 granule
@@ -442,6 +450,8 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                     start_time = min(times)
                     end_time = max(times)
                     granule_time_ranges[granule_id_full] = (start_time, end_time)
+                    
+                    print(f"    {granule_id_full}: {start_time.isoformat()} to {end_time.isoformat()} ({len(granule_footprints)} footprints)")
                 
                 # Match MODIS files to OCO-2 granules based on temporal proximity
                 logger.info("  Matching MODIS files to OCO-2 granules...")
@@ -528,9 +538,10 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                                         break
                         
                         granule_cloud_masks = spatial_processor.extract_modis_cloud_mask(
-                            matched_modis_files,
+                            target_doy=doy,
+                            modis_files=matched_modis_files,
                             myd03_files=matched_myd03 if matched_myd03 else None,
-                            oco2_orbit_id=granule_id  # Pass orbit_id so files save to correct folder
+                            oco2_orbit_id=granule_id
                         )
                         
                         # Free memory: delete matched file references
@@ -911,8 +922,8 @@ Examples:
                        help='Target date (YYYY-MM-DD, e.g., 2018-10-18)')
     
     # Optional algorithm parameters
-    parser.add_argument('--max-distance', type=float, default=25.0,
-                       help='Maximum cloud distance in km (default: 25.0)')
+    parser.add_argument('--max-distance', type=float, default=50.0,
+                       help='Maximum cloud distance in km (default: 50.0)')
     parser.add_argument('--band-width', type=float, default=2.5,
                        help='Latitude band width in degrees (default: 2.5)')
     parser.add_argument('--band-overlap', type=float, default=0.5,
@@ -970,6 +981,7 @@ Examples:
     if args.orbit:
         try:
             orbit_num, granule_suffix = parse_orbit_arg(args.orbit)
+            orbit_str = f"{orbit_num}{granule_suffix if granule_suffix else ''}"
         except ValueError as e:
             logger.error(str(e))
             return 1
@@ -1002,19 +1014,19 @@ Examples:
     # ========================================================================
     # Phase 1: Metadata
     # ========================================================================
-    if 1 not in skip_phases:
-        metadata, success = run_phase_1(target_date, orbit_num, args.mode)
-        if not success:
-            if not metadata.get('granules'):
-                logger.error("\nPipeline cannot proceed: No OCO-2 data available for this date.")
-                logger.error(f"Date requested: {target_date.date()}")
-                logger.error("Please select a different date with available OCO-2 data.")
-            else:
-                logger.error("Pipeline aborted at Step 1")
-            return 1
-    else:
-        logger.info("[STEP 1] SKIPPED")
-        metadata = {}
+    # if 1 not in skip_phases:
+    #     metadata, success = run_phase_1(target_date, orbit_str, args.mode)
+    #     if not success:
+    #         if not metadata.get('granules'):
+    #             logger.error("\nPipeline cannot proceed: No OCO-2 data available for this date.")
+    #             logger.error(f"Date requested: {target_date.date()}")
+    #             logger.error("Please select a different date with available OCO-2 data.")
+    #         else:
+    #             logger.error("Pipeline aborted at Step 1")
+    #         return 1
+    # else:
+    #     logger.info("[STEP 1] SKIPPED")
+    #     metadata = {}
     
     # ========================================================================
     # Phase 2: Ingestion
@@ -1025,7 +1037,7 @@ Examples:
             dry_run=args.dry_run,
             force_download=args.force_download,
             limit_granules=args.limit_granules,
-            orbit=orbit_num,
+            orbit=orbit_str,
             granule_suffix=granule_suffix,
             mode=args.mode
         )

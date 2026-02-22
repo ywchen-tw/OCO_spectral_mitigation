@@ -1102,8 +1102,10 @@ class GeometryProcessor:
                     fp_lons_band = fp_lons_band % 360
                 
                 
-                
-                scatter = ax.scatter(fp_lons_band, fp_lats_band, c=fp_distances_band, cmap='jet', 
+
+                scatter = ax.scatter(fp_lons_band.flatten(), fp_lats_band.flatten(), 
+                                     c=fp_distances_band.flatten(),
+                                     cmap='jet', 
                                      s=20, edgecolors='black', linewidths=0.2,
                                     vmin=0, vmax=max_distance, zorder=5,
                                     label=f'Footprints ({len(fp_lons_band):,})')

@@ -155,7 +155,11 @@ class SpatialProcessor:
         logger.info(f"   MODIS data: {self.modis_dir}")
         logger.info(f"   Processing cache: {self.processing_dir}")
     
-    def _get_cache_path(self, date: datetime, granule_id: str, cache_name: str) -> Path:
+    def _get_cache_path(self, date: datetime, 
+                        granule_id: str, 
+                        cache_name: str,
+                        target_doy: int,
+                        ) -> Path:
         """
         Get cache file path for a processing step.
         
@@ -169,6 +173,8 @@ class SpatialProcessor:
         """
         year = date.strftime('%Y')
         doy = date.timetuple().tm_yday
+        if target_doy:
+            doy = target_doy
         
         # Extract short orbit ID from granule_id
         # OCO-2 format: oco2_L1bScGL_22845a_181018_B11006r_220921185957.h5 → 22845a
@@ -242,6 +248,7 @@ class SpatialProcessor:
     
     def extract_oco2_footprints(self,
                                oco2_files: List[DownloadedFile],
+                               target_doy: int,
                                viewing_mode: str = 'GL',
                                use_cache: bool = True) -> Dict[int, OCO2Footprint]:
         """
@@ -300,7 +307,7 @@ class SpatialProcessor:
                         month = int(date_str[2:4])
                         day = int(date_str[4:6])
                         file_date = datetime(year, month, day)
-                        cache_path = self._get_cache_path(file_date, granule_id, 'footprints')
+                        cache_path = self._get_cache_path(file_date, granule_id, 'footprints', target_doy=target_doy)
                         cached_data = self._load_cached_result(cache_path)
                         if cached_data is not None:
                             footprints.update(cached_data)
@@ -337,7 +344,7 @@ class SpatialProcessor:
                             month = int(date_str[2:4])
                             day = int(date_str[4:6])
                             file_date = datetime(year, month, day)
-                            cache_path = self._get_cache_path(file_date, granule_id, 'footprints')
+                            cache_path = self._get_cache_path(file_date, granule_id, 'footprints', target_doy=target_doy)
                             self._save_cached_result(cache_path, l1b_footprints)
         
         logger.info(f"✓ Total footprints extracted: {len(footprints)}")
@@ -864,6 +871,7 @@ class SpatialProcessor:
         return footprints
     
     def extract_modis_cloud_mask(self,
+                                 target_doy: int,
                                  modis_files: List[DownloadedFile],
                                  myd03_files: List[DownloadedFile] = None,
                                  use_cache: bool = True,
@@ -959,7 +967,7 @@ class SpatialProcessor:
                         
                         # Use OCO-2 orbit ID for cache folder if provided, otherwise fall back to MODIS time ID
                         cache_folder_id = oco2_orbit_id if oco2_orbit_id else granule_id
-                        cache_path = self._get_cache_path(file_date, cache_folder_id, cache_name)
+                        cache_path = self._get_cache_path(file_date, cache_folder_id, cache_name, target_doy=target_doy)
                         cached_data = self._load_cached_result(cache_path)
                         if cached_data is not None:
                             if hasattr(cached_data, 'lon') and cached_data.lon is not None:
@@ -1024,7 +1032,7 @@ class SpatialProcessor:
                             
                             # Use OCO-2 orbit ID for cache folder if provided, otherwise fall back to MODIS time ID
                             cache_folder_id = oco2_orbit_id if oco2_orbit_id else granule_id
-                            cache_path = self._get_cache_path(file_date, cache_folder_id, cache_name)
+                            cache_path = self._get_cache_path(file_date, cache_folder_id, cache_name, target_doy=target_doy)
                             self._save_cached_result(cache_path, cloud_pixels)
             
             except Exception as e:

@@ -50,6 +50,7 @@ class DownloadedFile:
     """Represents a successfully downloaded file."""
     filepath: Path
     product_type: str  # e.g., "OCO2_L1B", "MYD35_L2"
+    target_doy: int
     granule_id: str
     file_size_mb: float
     download_time_seconds: float
@@ -445,7 +446,8 @@ class DataIngestionManager:
     
     def download_oco2_granule(self,
                               granule: OCO2Granule,
-                              product_types: List[str] = None) -> List[DownloadedFile]:
+                              product_types: List[str] = None,
+                              target_doy: int = None) -> List[DownloadedFile]:
         """
         Download OCO-2 products for a specific granule.
         
@@ -548,8 +550,11 @@ class DataIngestionManager:
                     })
                     continue
                 folder_name = f"{short_orbit_id}_{file_mode}"
-                output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}" / folder_name
-            
+                if not target_doy or doy == target_doy:
+                    output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}" / folder_name
+                else:
+                    output_subdir = self.output_dir / "OCO2" / str(year) / f"{target_doy:03d}" / folder_name
+                                
             if not self.dry_run:
                 output_subdir.mkdir(parents=True, exist_ok=True)
             
@@ -575,6 +580,7 @@ class DataIngestionManager:
                             DownloadedFile(
                                 filepath=output_path,
                                 product_type=f"OCO2_{product_type}",
+                                target_doy=target_doy if target_doy else doy,
                                 granule_id=granule.granule_id,
                                 file_size_mb=file_size_mb,
                                 download_time_seconds=0.0
@@ -589,6 +595,7 @@ class DataIngestionManager:
                         DownloadedFile(
                             filepath=output_path,
                             product_type=f"OCO2_{product_type}",
+                            target_doy=target_doy if target_doy else doy,
                             granule_id=granule.granule_id,
                             file_size_mb=file_size_mb,
                             download_time_seconds=0.0
@@ -610,6 +617,7 @@ class DataIngestionManager:
                     DownloadedFile(
                         filepath=output_path,
                         product_type=f"OCO2_{product_type}",
+                        target_doy=target_doy if target_doy else doy,
                         granule_id=granule.granule_id,
                         file_size_mb=file_size_mb,
                         download_time_seconds=download_time
@@ -655,11 +663,11 @@ class DataIngestionManager:
         
         # Apply adaptive buffer (Aqua drift increased after 2023)
         effective_buffer = buffer_minutes
-        if observation_year < 2023:
+        if observation_year < 2022:
             effective_buffer = 10
-            logger.info(f"Year {observation_year} < 2023: Using reduced temporal buffer of ±{effective_buffer} minutes")
+            logger.info(f"Year {observation_year} < 2022: Using reduced temporal buffer of ±{effective_buffer} minutes")
         else:
-            logger.info(f"Year {observation_year} >= 2023: Using standard buffer of ±{effective_buffer} minutes")
+            logger.info(f"Year {observation_year} >= 2022: Using standard buffer of ±{effective_buffer} minutes")
         
         # Add buffer
         search_start = start_time - timedelta(minutes=effective_buffer)
@@ -911,6 +919,7 @@ class DataIngestionManager:
                               product_type: str,
                               year: int,
                               doy: int,
+                              target_doy: int,
                               skip_night_passes: bool = True) -> Optional[DownloadedFile]:
         """
         Download a single MODIS granule.
@@ -929,7 +938,7 @@ class DataIngestionManager:
         url = f"{self.LAADS_ARCHIVE_URL}/{self.MODIS_VERSION}/{product_type}/{year}/{doy:03d}/{granule_filename}"
         
         # Create output directory: data/MODIS/{PRODUCT}/{YEAR}/{DOY}/
-        output_subdir = self.output_dir / "MODIS" / product_type / str(year) / f"{doy:03d}"
+        output_subdir = self.output_dir / "MODIS" / product_type / str(year) / f"{target_doy:03d}"
         if not self.dry_run:
             output_subdir.mkdir(parents=True, exist_ok=True)
         
@@ -956,6 +965,7 @@ class DataIngestionManager:
             return DownloadedFile(
                 filepath=output_path,
                 product_type=product_type,
+                target_doy=target_doy,
                 granule_id=granule_filename,
                 file_size_mb=file_size_mb,
                 download_time_seconds=0.0
@@ -1001,6 +1011,7 @@ class DataIngestionManager:
             return DownloadedFile(
                 filepath=output_path,
                 product_type=product_type,
+                target_doy=target_doy,
                 granule_id=granule_filename,
                 file_size_mb=file_size_mb,
                 download_time_seconds=download_time
@@ -1098,6 +1109,7 @@ class DataIngestionManager:
                         oco2_files.append(DownloadedFile(
                             filepath=hdf_file,
                             product_type=ptype,
+                            target_doy=doy,
                             granule_id=granule_id,
                             file_size_mb=hdf_file.stat().st_size / (1024 * 1024),
                             download_time_seconds=0
@@ -1111,6 +1123,7 @@ class DataIngestionManager:
                 oco2_files.append(DownloadedFile(
                     filepath=nc4_file,
                     product_type="L2_Lite",
+                    target_doy=doy,
                     granule_id=nc4_file.stem,
                     file_size_mb=nc4_file.stat().st_size / (1024 * 1024),
                     download_time_seconds=0
@@ -1127,6 +1140,7 @@ class DataIngestionManager:
                     modis_files.append(DownloadedFile(
                         filepath=hdf_file,
                         product_type=product_type,
+                        target_doy=doy,
                         granule_id=hdf_file.stem,
                         file_size_mb=hdf_file.stat().st_size / (1024 * 1024),
                         download_time_seconds=0
@@ -1201,8 +1215,7 @@ class DataIngestionManager:
 
     def download_all_for_date(self,
                              target_date: datetime,
-                             orbit_filter: Optional[int] = None,
-                             granule_suffix: Optional[str] = None,
+                             orbit_filter: Optional[str] = None,
                              mode_filter: Optional[str] = None,
                              include_modis: bool = True,
                              limit_granules: Optional[int] = None,
@@ -1238,15 +1251,22 @@ class DataIngestionManager:
 
         # Phase 1: Get metadata
         logger.info("\n[Step 1] Retrieving OCO-2 metadata...")
+        target_date_1d_prior = target_date - timedelta(days=1)
+        xml_contents_1d_prior = self.metadata_retriever.fetch_oco2_xml(target_date_1d_prior)
+        granules_1d_prior = self.metadata_retriever.parse_orbit_info(xml_contents_1d_prior)
         xml_contents = self.metadata_retriever.fetch_oco2_xml(target_date)
         granules = self.metadata_retriever.parse_orbit_info(xml_contents)
 
+        granules = granules_1d_prior + granules  # Combine granules from target date and 1 day prior to catch orbits crossing midnight
+        
+        # Only keep granules that start or end on target date  
+        target_date_only = target_date.date()
+        target_doy = target_date.timetuple().tm_yday
+        granules = [g for g in granules if g.start_time.date() == target_date_only or g.end_time.date() == target_date_only]  
+        
         # Filter granules if requested
         if orbit_filter:
-            granules = [g for g in granules if g.orbit_number == orbit_filter]
-        if granule_suffix and orbit_filter:
-            target_part = f"_{orbit_filter}{granule_suffix}_"
-            granules = [g for g in granules if target_part in g.granule_id]
+            granules = [g for g in granules if g.orbit_str == orbit_filter]
         if mode_filter:
             granules = [g for g in granules if g.viewing_mode == mode_filter]
         
@@ -1259,14 +1279,14 @@ class DataIngestionManager:
         # CMR temporal-overlap queries can return the last orbit of the previous day
         # when it crosses midnight into target_date; that orbit's L1B file and L2 Lite
         # file belong to the previous DOY and should not be downloaded here.
-        target_date_only = target_date.date()
-        off_day = [g for g in granules if g.start_time.date() != target_date_only]
-        if off_day:
-            logger.warning(
-                f"Dropping {len(off_day)} granule(s) whose start_time is not on "
-                f"{target_date_only}: {[g.granule_id for g in off_day]}"
-            )
-            granules = [g for g in granules if g.start_time.date() == target_date_only]
+        # target_date_only = target_date.date()
+        # off_day = [g for g in granules if g.start_time.date() != target_date_only]
+        # if off_day:
+        #     logger.warning(
+        #         f"Dropping {len(off_day)} granule(s) whose start_time is not on "
+        #         f"{target_date_only}: {[g.granule_id for g in off_day]}"
+        #     )
+        #     granules = [g for g in granules if g.start_time.date() == target_date_only]
 
         logger.info(f"✓ Found {len(granules)} granule(s) to download")
 
@@ -1279,7 +1299,7 @@ class DataIngestionManager:
         oco2_files = []
         for i, granule in enumerate(granules, 1):
             logger.info(f"\nGranule {i}/{len(granules)}: {granule.granule_id}")
-            files = self.download_oco2_granule(granule)
+            files = self.download_oco2_granule(granule, target_doy=target_doy)
             oco2_files.extend(files)
         
         # Download MODIS products
@@ -1325,7 +1345,7 @@ class DataIngestionManager:
                     doy = int(match.group(2))
                     time_str = match.group(3)  # HHMM
                     
-                    file_obj = self.download_modis_granule(granule_id, 'MYD35_L2', year, doy, skip_night_passes=False)
+                    file_obj = self.download_modis_granule(granule_id, 'MYD35_L2', year, doy, target_doy=target_doy, skip_night_passes=True)
                     if file_obj:
                         modis_files.append(file_obj)
                         # Track this time stamp for MYD03 matching
@@ -1343,7 +1363,7 @@ class DataIngestionManager:
                     
                     # Only download MYD03 if corresponding MYD35_L2 was kept
                     if time_id in kept_myd35_times:
-                        file_obj = self.download_modis_granule(granule_id, 'MYD03', year, doy)
+                        file_obj = self.download_modis_granule(granule_id, 'MYD03', year, doy, target_doy=target_doy, )
                         if file_obj:
                             modis_files.append(file_obj)
                     else:
