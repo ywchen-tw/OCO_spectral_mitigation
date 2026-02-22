@@ -985,6 +985,8 @@ Examples:
         except ValueError as e:
             logger.error(str(e))
             return 1
+    else:
+        orbit_str = None
     
     storage_dir = get_storage_dir()
     data_dir = storage_dir / "data" if args.data_dir == "./data" else Path(args.data_dir)
