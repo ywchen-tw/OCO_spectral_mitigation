@@ -465,9 +465,9 @@ class SpatialProcessor:
                 - 'footprint_count': Number of OCO-2 footprints
         """
         combined_data = {
-            'lon': [],
-            'lat': [],
-            'cloud_flag': [],
+            'lon': np.array([], dtype=np.float32),
+            'lat': np.array([], dtype=np.float32),
+            'cloud_flag': np.array([], dtype=np.uint8),
             'modis_granules': [],
             'oco2_footprints': None,
             'footprint_count': 0
@@ -477,22 +477,11 @@ class SpatialProcessor:
         for modis_granule_id, cloud_mask in granule_cloud_masks.items():
             if hasattr(cloud_mask, 'lon') and cloud_mask.lon is not None:
                 # New format: numpy arrays
-                combined_data['lon'].append(cloud_mask.lon)
-                combined_data['lat'].append(cloud_mask.lat)
-                combined_data['cloud_flag'].append(cloud_mask.cloud_flag)
+                combined_data['lon'] = np.concatenate([combined_data['lon'], cloud_mask.lon])
+                combined_data['lat'] = np.concatenate([combined_data['lat'], cloud_mask.lat])
+                combined_data['cloud_flag'] = np.concatenate([combined_data['cloud_flag'], cloud_mask.cloud_flag])
                 combined_data['modis_granules'].append(modis_granule_id)
-        
-        # Concatenate arrays if we have data
-        if combined_data['lon']:
-            combined_data['lon'] = np.concatenate(combined_data['lon'])
-            combined_data['lat'] = np.concatenate(combined_data['lat'])
-            combined_data['cloud_flag'] = np.concatenate(combined_data['cloud_flag'])
-        else:
-            # No cloud mask data, set to None
-            combined_data['lon'] = None
-            combined_data['lat'] = None
-            combined_data['cloud_flag'] = None
-        
+                
         # Add OCO-2 footprints
         if granule_footprints:
             fp_lats = np.array([fp.latitude for fp in granule_footprints.values()])
@@ -505,13 +494,12 @@ class SpatialProcessor:
             combined_data['oco2_fp_viewing_modes'] = fp_viewing_modes
             combined_data['footprint_count'] = len(granule_footprints)
             
-            
         # Remove cloud mask data which are for away from the OCO-2 footprints (e.g., > 2 degrees lon and 1 degree lat)
         lat_threshold = 0.5
         lon_threshold_base = 0.5
         # do the filtering every 5 degrees of latitude
         lat_degree_interval = 0.25
-        if combined_data['lon'] is not None and combined_data['lat'] is not None and granule_footprints:
+        if combined_data['lon'].size > 0 and granule_footprints:
             footprint_lats = np.array([fp.latitude for fp in granule_footprints.values()])
             footprint_lons = np.array([fp.longitude for fp in granule_footprints.values()])
             
@@ -520,11 +508,14 @@ class SpatialProcessor:
             for lat in np.arange(min(footprint_lats)-lat_threshold, max(footprint_lats)+lat_threshold, lat_degree_interval):
                 fp_lat_mask = (footprint_lats >= lat) & (footprint_lats < lat + lat_degree_interval)
                 if not np.any(fp_lat_mask):
+                    # If no footprints in this latitude band, skip to next band
                     continue
                 
                 
                 lat_mask = (combined_data['lat'] >= lat - lat_threshold) & (combined_data['lat'] < lat + lat_degree_interval + lat_threshold)
                 if not np.any(lat_mask):
+                    # If no cloud mask pixels in this latitude band, skip to next band even with FPs in this latitude range
+                    # This assumes that at least some cloud mask pixels of 1 modis granule are within the latitude threshold of the footprints, which should be true for most cases. 
                     continue
                 
                 # Adjust longitude threshold by latitude

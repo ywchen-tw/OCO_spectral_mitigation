@@ -667,11 +667,7 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
             fp_lat = combined_data.get('oco2_fp_lats')
             fp_ids = combined_data.get('oco2_fp_sounding_ids')
             fp_modes = combined_data.get('oco2_fp_viewing_modes')
-            print("cloud_lon count:", len(cloud_lon) if cloud_lon is not None else "None")
-            print("fp_ids count:", len(fp_ids) if fp_ids is not None else "None")
-            print("set of fp_modes:", set(fp_modes))
-            print("fp_modes=='ND':", np.sum(fp_modes == 'ND'), "fp_modes=='GL':", np.sum(fp_modes == 'GL'), "fp_modes=='TG':", np.sum(fp_modes == 'TG'))
-            continue
+
             if cloud_lon is None or cloud_lat is None:
                 logger.warning(f"    No cloud data in cache")
                 continue
