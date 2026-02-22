@@ -920,7 +920,7 @@ class DataIngestionManager:
                               year: int,
                               doy: int,
                               target_doy: int,
-                              skip_night_passes: bool = True) -> Optional[DownloadedFile]:
+                              skip_night_passes: bool = False) -> Optional[DownloadedFile]:
         """
         Download a single MODIS granule.
         
@@ -1345,7 +1345,7 @@ class DataIngestionManager:
                     doy = int(match.group(2))
                     time_str = match.group(3)  # HHMM
                     
-                    file_obj = self.download_modis_granule(granule_id, 'MYD35_L2', year, doy, target_doy=target_doy, skip_night_passes=True)
+                    file_obj = self.download_modis_granule(granule_id, 'MYD35_L2', year, doy, target_doy=target_doy, skip_night_passes=False)
                     if file_obj:
                         modis_files.append(file_obj)
                         # Track this time stamp for MYD03 matching
