@@ -56,7 +56,7 @@ for year in $(seq $start_year $end_year); do
                 echo "Failed to process date: $date"
             else
                 echo "Successfully processed: $date"
-                # python src/oco_fp_spec_anal.py --date "$date" --delete-ocofiles
+                python src/oco_fp_spec_anal.py --date "$date" --delete-ocofiles
             fi
             echo ""
         done
