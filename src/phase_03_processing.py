@@ -504,10 +504,10 @@ class SpatialProcessor:
             combined_data['footprint_count'] = len(granule_footprints)
             
         # Remove cloud mask data which are for away from the OCO-2 footprints (e.g., > 2 degrees lon and 1 degree lat)
-        lat_threshold = 0.5
-        lon_threshold_base = 0.5
+        lat_threshold = 1.0
+        lon_threshold_base = 1.0
         # do the filtering every 5 degrees of latitude
-        lat_degree_interval = 0.25
+        lat_degree_interval = 0.5
         if combined_data['lon'].size > 0 and granule_footprints:
             footprint_lats = np.array([fp.latitude for fp in granule_footprints.values()])
             footprint_lons = np.array([fp.longitude for fp in granule_footprints.values()])
