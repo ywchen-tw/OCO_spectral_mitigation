@@ -40,9 +40,7 @@ export OPENBLAS_NUM_THREADS=1
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-# ============================================================================
-# Option 1: Loop with year, month, day (ACTIVE)
-# ============================================================================
+
 # Specify year, month, and day ranges
 start_year=2020
 end_year=2020
@@ -70,25 +68,3 @@ for year in $(seq $start_year $end_year); do
 done
 
 
-
-# ============================================================================
-# Option 2: Hard-coded dates (uncomment to use)
-# ============================================================================
-# Define dates to process (modify as needed)
-# dates=(
-#     "2018-10-18"
-#     "2020-01-04"
-#     "2020-01-08"
-# )
-#
-# # Loop through each date
-# for date in "${dates[@]}"; do
-#     echo "Processing date: $date"
-#     python workspace/demo_combined.py --date "$date" --delete-modis
-#     if [ $? -ne 0 ]; then
-#         echo "Failed to process date: $date"
-#     else
-#         echo "Successfully processed: $date"
-#     fi
-#     echo ""
-# done
