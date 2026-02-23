@@ -335,19 +335,35 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
         # Check if Step 3 cache already exists
         logger.info("\n[Step 2] Checking for Step 3 cache...")
         processing_day_dir = data_dir / "processing" / str(year) / f"{doy:03d}"
-        
+
+        # Find the newest mtime of any MODIS HDF file for this date.
+        # A cache built before that mtime is stale (new/re-downloaded MODIS files
+        # are available) and must be rebuilt so the matching reflects current data.
+        latest_modis_mtime = 0.0
+        for modis_dir in [
+            data_dir / "MODIS" / "MYD35_L2" / str(year) / f"{doy:03d}",
+            data_dir / "MODIS" / "MYD03"    / str(year) / f"{doy:03d}",
+        ]:
+            if modis_dir.exists():
+                for hdf in modis_dir.glob("*.hdf"):
+                    latest_modis_mtime = max(latest_modis_mtime, hdf.stat().st_mtime)
+
         cached_granules = set()
         if processing_day_dir.exists():
             cache_dirs = [d for d in processing_day_dir.glob("*") if d.is_dir()]
             for cache_dir in cache_dirs:
                 combined_files = list(cache_dir.glob("granule_combined_*.pkl"))
                 if combined_files:
-                    cached_granules.add(cache_dir.name)
-                    logger.info(f"  ✓ {cache_dir.name}: {len(combined_files)} combined cache file(s)")
-        
+                    cache_mtime = min(f.stat().st_mtime for f in combined_files)
+                    if latest_modis_mtime > cache_mtime:
+                        logger.info(f"  ↻ {cache_dir.name}: newer MODIS files on disk — cache invalidated, will reprocess")
+                    else:
+                        cached_granules.add(cache_dir.name)
+                        logger.info(f"  ✓ {cache_dir.name}: {len(combined_files)} combined cache file(s) (up-to-date)")
+
         # Check if all granules are cached
         missing_granules = oco2_granules - cached_granules
-        
+
         if not missing_granules and cached_granules:
             logger.info(f"\n✓ All {len(cached_granules)} granule(s) already cached")
             processing_info = {
@@ -459,42 +475,112 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                     
                     print(f"    {granule_id_full}: {start_time.isoformat()} to {end_time.isoformat()} ({len(granule_footprints)} footprints)")
                 
-                # Match MODIS files to OCO-2 granules based on temporal proximity
+                # Match MODIS files to OCO-2 granules based on temporal proximity.
+                # Buffer is adaptive (mirrors the logic in match_temporal_windows):
+                #   year < 2023 → ±10 min  (Aqua drift was small before 2023)
+                #   year ≥ 2023 → ±20 min
+                # Night passes are excluded here so that off-scene MODIS data
+                # (which can fall inside the time window near orbit boundaries)
+                # does not contaminate the cloud pixels.
                 logger.info("  Matching MODIS files to OCO-2 granules...")
                 modis_to_oco2_mapping = {}
-                
+
+                buffer_minutes = 10 if year < 2022 else 20
+                buffer_seconds = buffer_minutes * 60
+                logger.info(f"  Using ±{buffer_minutes} min matching buffer (year={year})")
+
                 # Extract MODIS cloud masks - process per granule with orbit_id
                 logger.info("  Extracting MODIS cloud masks per granule...")
-                
+
                 for modis_file in modis_files:
                     if modis_file.product_type != 'MYD35_L2':
                         continue
-                    
+
                     # Extract MODIS observation time from filename
                     match = re.search(r'A(\d{4})(\d{3})\.(\d{4})', modis_file.filepath.name)
                     if not match:
                         continue
-                    
+
                     year_m = int(match.group(1))
-                    doy_m = int(match.group(2))
-                    hhmm = match.group(3)
-                    hour = int(hhmm[:2])
+                    doy_m  = int(match.group(2))
+                    hhmm   = match.group(3)
+                    hour   = int(hhmm[:2])
                     minute = int(hhmm[2:4])
                     modis_date = datetime(year_m, 1, 1) + timedelta(days=doy_m - 1)
                     modis_time = modis_date.replace(hour=hour, minute=minute)
-                    
-                    # Assign this MODIS file to ALL OCO-2 granules whose ±20-minute
-                    # window it falls in.  A single 5-minute MODIS swath can overlap
-                    # the time windows of two adjacent (or mode-separated) OCO-2 orbits;
-                    # picking only the "closest" would silently drop cloud data for the other.
-                    buffer_seconds = 20 * 60  # ±20 minutes (matches Phase 3 spec)
+
+                    # Skip night passes (bit 3 of byte 0 of the MODIS cloud mask).
+                    # Night MODIS granules observe a completely different scene and
+                    # must not be collocated with daytime OCO-2 soundings.
+                    try:
+                        from pyhdf.SD import SD as _SD
+                        _hdf = _SD(str(modis_file.filepath))
+                        _cm  = _hdf.select('Cloud_Mask')
+                        _b0  = _cm.get()
+                        _cm.endaccess()
+                        _hdf.end()
+                        # Determine byte-0 regardless of storage order
+                        if _b0.ndim == 3 and _b0.shape[0] == 6:
+                            _byte0 = _b0[0, :, :]
+                        elif _b0.ndim == 3 and _b0.shape[2] == 6:
+                            _byte0 = _b0[:, :, 0]
+                        else:
+                            _byte0 = _b0
+                        _day_flag = (_byte0 >> 3) & 0b1
+                        _is_day = int(np.sum(_day_flag == 1)) > int(np.sum(_day_flag == 0))
+                        if not _is_day:
+                            logger.debug(f"    Skipping night pass: {modis_file.filepath.name}")
+                            continue
+                    except Exception as _e:
+                        logger.debug(f"    Could not check day/night for {modis_file.filepath.name}: {_e}")
+                        # Include the file if the check cannot be performed
+
+                    # Assign this MODIS file to ALL OCO-2 granules whose window it
+                    # falls in.  A single 5-minute swath can overlap the time windows
+                    # of two adjacent OCO-2 orbits; picking only the "closest" would
+                    # silently drop cloud data for the other granule.
                     for oco2_granule_id, (start_time, end_time) in granule_time_ranges.items():
                         window_start = start_time - timedelta(seconds=buffer_seconds)
-                        window_end = end_time + timedelta(seconds=buffer_seconds)
+                        window_end   = end_time   + timedelta(seconds=buffer_seconds)
                         if window_start <= modis_time <= window_end:
-                            if oco2_granule_id not in modis_to_oco2_mapping:
-                                modis_to_oco2_mapping[oco2_granule_id] = []
-                            modis_to_oco2_mapping[oco2_granule_id].append(modis_file)
+                            modis_to_oco2_mapping.setdefault(oco2_granule_id, []).append(modis_file)
+
+                # --- Continuity check: warn if any ~5-min slot in an OCO-2 granule
+                # has no corresponding MODIS granule. ---
+                logger.info("  Checking MODIS granule continuity per OCO-2 granule...")
+                for oco2_gid, matched in modis_to_oco2_mapping.items():
+                    g_start, g_end = granule_time_ranges[oco2_gid]
+                    duration_min = (g_end - g_start).total_seconds() / 60.0
+                    expected_n = max(1, int(duration_min / 5) + 1)
+
+                    mtimes = []
+                    for mf in matched:
+                        mm = re.search(r'A(\d{4})(\d{3})\.(\d{4})', mf.filepath.name)
+                        if mm:
+                            mt = (datetime(int(mm.group(1)), 1, 1)
+                                  + timedelta(days=int(mm.group(2)) - 1,
+                                              hours=int(mm.group(3)[:2]),
+                                              minutes=int(mm.group(3)[2:])))
+                            mtimes.append(mt)
+                    mtimes.sort()
+
+                    logger.info(
+                        f"    {oco2_gid[:30]}: {len(mtimes)} MODIS granule(s) matched "
+                        f"(expected ~{expected_n} for {duration_min:.0f}-min orbit)"
+                    )
+                    for i in range(len(mtimes) - 1):
+                        gap = (mtimes[i + 1] - mtimes[i]).total_seconds() / 60.0
+                        if gap > 6.0:  # >6 min gap → at least one 5-min slot missing
+                            logger.warning(
+                                f"    ⚠ MODIS coverage gap: "
+                                f"{mtimes[i].strftime('%H:%M')} → "
+                                f"{mtimes[i+1].strftime('%H:%M')} "
+                                f"({gap:.0f} min) for {oco2_gid}"
+                            )
+                    # Warn about unmatched granules (no MODIS at all)
+                for oco2_gid, _ in granule_time_ranges.items():
+                    if oco2_gid not in modis_to_oco2_mapping:
+                        logger.warning(f"    ⚠ No MODIS granules matched for {oco2_gid}")
                 
                 # Process each missing granule
                 for granule_id in sorted(missing_granules):
@@ -744,7 +830,9 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
             # Create per-granule latitude-band visualizations
             if visualize and viz_dir:
                 logger.info(f"    Creating per-granule latitude-band visualizations...")
-                granule_vis_dir = viz_dir / f"granule_{granule_id}"
+                vis_dir_date_dir = viz_dir / f"{target_date.date()}"
+                vis_dir_date_dir.mkdir(parents=True, exist_ok=True)
+                granule_vis_dir = vis_dir_date_dir / f"granule_{granule_id}"
                 granule_vis_dir.mkdir(parents=True, exist_ok=True)
                 
                 # try:

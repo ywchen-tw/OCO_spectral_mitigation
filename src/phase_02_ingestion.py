@@ -644,37 +644,42 @@ class DataIngestionManager:
                            product: str = 'MYD35_L2') -> List[str]:
         """
         Find MODIS granules within the temporal window.
-        
-        Uses adaptive buffer: ±10 minutes for years < 2023, ±20 minutes for 2023+
-        (Aqua orbital drift increased after 2023).
-        
+
+        Always uses the full buffer_minutes for download so that edge granules are
+        never missed due to drift between Phase-1 nominal times and actual sounding
+        times.  Tighter adaptive matching is left to the Phase-3 match step.
+
         MODIS granules are named with year and day-of-year.
         Each granule is ~5 minutes, so we need to search across the time range.
-        
+
         Args:
-            start_time: Start of temporal window
-            end_time: End of temporal window
-            buffer_minutes: Default temporal buffer (±20 min)
+            start_time: Start of temporal window (naive or timezone-aware UTC)
+            end_time: End of temporal window (naive or timezone-aware UTC)
+            buffer_minutes: Temporal buffer applied symmetrically (±minutes)
             product: Product to search ('MYD35_L2' or 'MYD03')
-        
+
         Returns:
             List of MODIS granule identifiers
         """
-        # Determine observation year for adaptive buffer
-        observation_year = start_time.year
-        
-        # Apply adaptive buffer (Aqua drift increased after 2023)
+        # Normalise both bounds to naive UTC so comparisons with the naive
+        # granule timestamps parsed below always succeed regardless of whether
+        # the caller supplies timezone-aware (e.g. from CMR "+00:00") or naive
+        # (e.g. from GES DISC XML without "Z") datetimes.
+        def _to_naive_utc(dt: datetime) -> datetime:
+            return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
+
+        start_naive = _to_naive_utc(start_time)
+        end_naive   = _to_naive_utc(end_time)
+
+        # Always use the full buffer for downloads – do not reduce for older years.
+        # Phase-3 matching can apply a tighter adaptive window; here we want to
+        # guarantee that every MODIS granule covering the OCO-2 orbit is on disk.
         effective_buffer = buffer_minutes
-        if observation_year < 2022:
-            effective_buffer = 10
-            logger.info(f"Year {observation_year} < 2022: Using reduced temporal buffer of ±{effective_buffer} minutes")
-        else:
-            logger.info(f"Year {observation_year} >= 2022: Using standard buffer of ±{effective_buffer} minutes")
-        
-        # Add buffer
-        search_start = start_time - timedelta(minutes=effective_buffer)
-        search_end = end_time + timedelta(minutes=effective_buffer)
-        
+        logger.info(f"Searching {product} granules with ±{effective_buffer} min buffer")
+
+        search_start = start_naive - timedelta(minutes=effective_buffer)
+        search_end   = end_naive   + timedelta(minutes=effective_buffer)
+
         logger.info(f"Searching {product} granules from {search_start} to {search_end} ({effective_buffer}±min buffer)")
         
         # MODIS granules are organized by date and time
@@ -711,13 +716,11 @@ class DataIngestionManager:
                         # Parse time: HHMM format
                         hour = int(hhmm[:2])
                         minute = int(hhmm[2:4])
-                        
-                        # Create datetime for this granule (UTC timezone, matching MODIS data)
-                        from datetime import timezone
-                        granule_date = datetime(g_year, 1, 1, tzinfo=timezone.utc) + timedelta(days=g_doy-1)
+
+                        # Naive UTC – matches the normalised search_start/search_end
+                        granule_date = datetime(g_year, 1, 1) + timedelta(days=g_doy - 1)
                         granule_time = granule_date.replace(hour=hour, minute=minute)
-                        
-                        # Check if within search window (handle both timezone-aware and naive comparisons)
+
                         if search_start <= granule_time <= search_end:
                             granule_ids.append(filename)  # Store just the filename
                     else:

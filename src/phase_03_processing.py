@@ -1304,14 +1304,42 @@ class SpatialProcessor:
         
         cloud_flags = (byte0 >> 1) & 0b11
         day_night_flag = (byte0 >> 3) & 0b1  # Extract Bit 3
-        
+
         # Calculate day/night granule classification
-        day_pixels = np.sum(day_night_flag == 1)
+        day_pixels   = np.sum(day_night_flag == 1)
         night_pixels = np.sum(day_night_flag == 0)
-        is_day_pass = day_pixels > night_pixels  # Majority vote
-        
+        is_day_pass  = day_pixels > night_pixels  # Majority vote
+
         logger.debug(f"    Day/Night pixels - Day: {day_pixels}, Night: {night_pixels} (Pass: {'Day' if is_day_pass else 'Night'})")
-        
+
+        # Reject night passes immediately: they observe a completely different
+        # geographic scene from the daytime OCO-2 orbit and would introduce
+        # spurious cloud pixels into the collocation.
+        if not is_day_pass:
+            logger.info(f"    Skipping night pass: {granule_id} "
+                        f"(day={day_pixels}, night={night_pixels})")
+            # Derive obs_time from granule_id so the returned object is usable
+            # for diagnostics even though it carries no pixels.
+            try:
+                _m = re.search(r'A(\d{4})(\d{3})\.(\d{4})', granule_id)
+                if _m:
+                    _yr, _dy, _hhmm = int(_m.group(1)), int(_m.group(2)), _m.group(3)
+                    _obs = (datetime(_yr, 1, 1)
+                            + timedelta(days=_dy - 1,
+                                        hours=int(_hhmm[:2]),
+                                        minutes=int(_hhmm[2:])))
+                else:
+                    _obs = datetime.utcnow()
+            except Exception:
+                _obs = datetime.utcnow()
+            return MODISCloudMask(
+                granule_id=granule_id,
+                observation_time=_obs,
+                lon=np.array([], dtype=np.float32),
+                lat=np.array([], dtype=np.float32),
+                cloud_flag=np.array([], dtype=np.uint8),
+            )
+
         # Identify all cloud mask categories
         cloudy_mask = cloud_flags == self.CLOUD_CLOUDY
         uncertain_mask = cloud_flags == self.CLOUD_UNCERTAIN
