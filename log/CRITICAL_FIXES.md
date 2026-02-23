@@ -400,3 +400,51 @@ inside the window, introducing cloud pixels from a completely different scene.
    immediately return an empty `MODISCloudMask` (zero pixels) rather than
    processing all cloud pixels from the wrong scene. This acts as a second safety
    net for any code path that reaches `extract_modis_cloud_mask` directly.
+
+---
+
+## Fix 10 — Cross-date granule: `footprints.pkl` never written; granule never processed (2026-02-23)
+
+**File**: `workspace/demo_combined.py` — `run_phase_3`
+
+### Problem
+
+The first OCO-2 orbit of every target date typically starts on the *previous* calendar
+day (e.g., target date 2020-08-01 but L1B filename contains `200731`). These granules
+are downloaded into the target date's OCO-2 directory and appear in `missing_granules`,
+but they are never processed:
+
+1. OCO-2 L2 Lite files are organised by **orbit date** (the date in the filename), not
+   by individual sounding UTC time. All sounding IDs for orbit `22845a` (starting Jul 31)
+   are in `oco2_LtCO2_200731_...nc4` — stored in the **Jul 31 directory** — not in the
+   Aug 1 Lite file.
+2. `run_phase_3` loads only the Lite file from the target date's directory
+   (`data/OCO2/2020/214/`), so `valid_sounding_ids` contains no IDs from orbit 22845.
+3. All footprints from the cross-date L1B are filtered out → `l1b_footprints` is empty.
+4. `if use_cache and l1b_footprints:` is `False` → `footprints.pkl` is never written.
+5. No footprints → no MODIS matching → no `granule_combined_*.pkl` → granule stays in
+   `missing_granules` on every subsequent run.
+
+### Fix
+
+Added cross-date detection in `run_phase_3` inside the `oco2_files` construction loop.
+When an L1B filename date ≠ `target_date`, the previous day's Lite file is located in
+`data/OCO2/{l1b_year}/{l1b_doy:03d}/` and added to `oco2_files` so
+`extract_oco2_footprints` can find the correct sounding IDs for quality filtering.
+
+A `_lite_dirs_added` set prevents the same directory from being added multiple times if
+several cross-date granules share the same previous date.
+
+If the previous day's directory does not exist (e.g., that date was never downloaded),
+a warning is logged and the granule proceeds without Lite-based quality filtering.
+
+```python
+_m = re.search(r'_(\d{6})_B', file_path.name)
+if _m and _m.group(1) != target_date.strftime("%y%m%d"):
+    _prev_dir = data_dir / "OCO2" / str(_l1b_dt.year) / f"{_l1b_doy:03d}"
+    if _prev_dir.exists() and _prev_dir not in _lite_dirs_added:
+        for _lp in _prev_dir.glob("*.nc4"):
+            if _lp.is_file() and "Lt" in _lp.name:
+                oco2_files.append(DownloadedFile(..., product_type="L2_Lite"))
+        _lite_dirs_added.add(_prev_dir)
+```
