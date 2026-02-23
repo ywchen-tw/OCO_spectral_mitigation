@@ -61,9 +61,7 @@ def rdabsco_species_absco(absco_data, p_species, tk_species, broad_species,
 
         hh = bs.bisect_left(broad_species, h2o_vmr)-1
         # hh = np.searchsorted(broad_species, h2o_vmr, side='left')
-        if hh == 2:
-            warn_h2o_out_of_range()
-            hh = 1
+        hh = max(0, min(hh, len(broad_species)-2))
         # print(f'H2O vmr={h2o_vmr:.2e}, [{broad_species[hh]:.2e}, {broad_species[hh+1]:.2f}]', file=sys.stderr)
 
         dp = (pobs-hpa_species[P_ind])/(hpa_species[P_ind+1]-hpa_species[P_ind])
@@ -97,6 +95,8 @@ def rdabsco_species_absco(absco_data, p_species, tk_species, broad_species,
 
         Q_vec = np.array([1.0, dp, dT, dH2O_vmr, dp*dT, dT*dH2O_vmr, dH2O_vmr*dp, dp*dT*dH2O_vmr], dtype=np.float64).reshape(8, 1)
         absco = trilinear_interpolation(trilinear_matrix, absco_array, Q_vec)
-
+        print("absco_array shape:", absco_array.shape)
+        print("Q_vec:", Q_vec.flatten())
+        print("absco shape:", absco.shape)
 
     return absco
