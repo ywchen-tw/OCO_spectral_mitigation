@@ -386,6 +386,9 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
             try:
                 # Get OCO-2 files for missing granules
                 oco2_files = []
+                # Track Lite directories already added to avoid duplicates when
+                # multiple cross-date granules share the same previous date.
+                _lite_dirs_added: set = {oco2_l1b_dir}
                 for granule_id in sorted(missing_granules):
                     granule_dir = oco2_l1b_dir / granule_id
                     if granule_dir.exists():
@@ -394,7 +397,44 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                                 product_type = ""
                                 if "L1bSc" in file_path.name:
                                     product_type = "L1B_Science"
-                                
+                                    # Cross-date granule detection: OCO-2 Lite files are
+                                    # organised by orbit date, so if the L1B filename date
+                                    # differs from target_date the sounding IDs live in the
+                                    # *previous* day's Lite file, not the target day's.
+                                    # Load that Lite file now so quality filtering works.
+                                    _m = re.search(r'_(\d{6})_B', file_path.name)
+                                    if _m and _m.group(1) != target_date.strftime("%y%m%d"):
+                                        _l1b_ds = _m.group(1)
+                                        _l1b_dt = datetime(2000 + int(_l1b_ds[:2]),
+                                                           int(_l1b_ds[2:4]),
+                                                           int(_l1b_ds[4:6]))
+                                        _prev_dir = (data_dir / "OCO2"
+                                                     / str(_l1b_dt.year)
+                                                     / f"{_l1b_dt.timetuple().tm_yday:03d}")
+                                        if _prev_dir.exists() and _prev_dir not in _lite_dirs_added:
+                                            for _lp in _prev_dir.glob("*.nc4"):
+                                                if _lp.is_file() and "Lt" in _lp.name:
+                                                    oco2_files.append(DownloadedFile(
+                                                        filepath=_lp,
+                                                        product_type="L2_Lite",
+                                                        target_year=year,
+                                                        target_doy=doy,
+                                                        granule_id=_lp.name,
+                                                        file_size_mb=_lp.stat().st_size / (1024 * 1024),
+                                                        download_time_seconds=0.0
+                                                    ))
+                                                    logger.info(
+                                                        f"    Cross-date granule detected: {file_path.name[:45]}"
+                                                        f"\n      Loading Lite from {_l1b_dt.date()}: {_lp.name}"
+                                                    )
+                                            _lite_dirs_added.add(_prev_dir)
+                                        elif _prev_dir not in _lite_dirs_added:
+                                            logger.warning(
+                                                f"    Cross-date granule {file_path.name[:45]}: "
+                                                f"previous-day Lite dir not found ({_prev_dir}). "
+                                                f"Sounding IDs will not be quality-filtered."
+                                            )
+
                                 if product_type:
                                     file_size = file_path.stat().st_size / (1024 * 1024)
                                     oco2_files.append(DownloadedFile(

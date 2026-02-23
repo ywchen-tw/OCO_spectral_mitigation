@@ -250,3 +250,153 @@ Also fixed glob pattern from `*nc4` to `*.nc4`.
 rm /path/to/data/OCO2/YYYY/DOY/oco2_LtCO2_*.nc4
 python workspace/demo_combined.py --date YYYY-MM-DD
 ```
+
+---
+
+## Fix 9 — MODIS granule matching intermittent / coverage gaps (2026-02-23)
+
+**Files**: `src/phase_02_ingestion.py`, `src/phase_03_processing.py`, `workspace/demo_combined.py`
+
+Six separate problems caused MODIS granules to be inconsistently or incompletely
+matched to OCO-2 granules across pipeline runs.
+
+---
+
+### Fix 9-A — Timezone mismatch caused zero MODIS downloads on GES DISC runs
+
+**File**: `src/phase_02_ingestion.py` — `find_modis_granules`
+
+**Root cause**: The MODIS `granule_time` was created with `tzinfo=timezone.utc`
+(timezone-aware), but `search_start`/`search_end` inherited the timezone of the
+OCO-2 `granule.start_time`. The GES DISC XML path produces **naive** datetimes
+(the `.replace('Z', '+00:00')` is a no-op when the time string has no `Z` suffix).
+The resulting `TypeError: can't compare offset-naive and offset-aware datetimes`
+was silently swallowed by the `except Exception` in the LAADS query loop, so
+**zero MODIS granules were found** whenever GES DISC was the Phase 1 source.
+When GES DISC failed and CMR fallback was used, times were `+00:00`-aware and the
+comparison succeeded — explaining the run-to-run intermittency for the same date.
+
+**Fix**: Added `_to_naive_utc()` helper that strips `tzinfo` from both
+`start_time` / `end_time` bounds before computing `search_start`/`search_end`.
+Removed `tzinfo=timezone.utc` from the MODIS `granule_time` construction so both
+sides are always naive UTC.
+
+```python
+def _to_naive_utc(dt: datetime) -> datetime:
+    return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
+
+start_naive = _to_naive_utc(start_time)
+end_naive   = _to_naive_utc(end_time)
+search_start = start_naive - timedelta(minutes=effective_buffer)
+search_end   = end_naive   + timedelta(minutes=effective_buffer)
+
+# Granule time — naive UTC
+granule_date = datetime(g_year, 1, 1) + timedelta(days=g_doy - 1)
+granule_time = granule_date.replace(hour=hour, minute=minute)
+```
+
+---
+
+### Fix 9-B — Phase 2 download buffer reduced unnecessarily, risking coverage gaps
+
+**File**: `src/phase_02_ingestion.py` — `find_modis_granules`
+
+**Root cause**: `find_modis_granules` reduced the download buffer to ±10 min for
+`year < 2022`. Phase 2 uses nominal OCO-2 times from Phase 1 XML metadata, which
+can differ from actual L1B sounding times by several minutes. With only ±10 min of
+margin, MODIS granules at the edge of the actual observation window were not
+downloaded, leaving silent cloud-data gaps at the start and end of each orbit.
+
+**Fix**: Removed the adaptive reduction from the download path entirely. Phase 2
+now always downloads with the full `±buffer_minutes` (default ±20 min). The
+adaptive tighter window is left to the Phase 3 matching step, where it governs
+accuracy of collocation, not completeness of the download.
+
+---
+
+### Fix 9-C — Adaptive buffer cutoff year was 2022 in Phase 2 but the intent was 2022
+
+**File**: `workspace/demo_combined.py` — `run_phase_3`
+
+**Root cause**: The hardcoded `buffer_seconds = 20 * 60` in `run_phase_3` ignored
+the adaptive logic present in `match_temporal_windows` (`year < 2023` → ±10 min).
+This mismatch meant the demo's matching window differed from the module's matching
+window for the same data.
+
+**Fix**: Replaced the hardcoded constant with adaptive logic that mirrors the
+project standard: `year < 2022` → ±10 min, `year ≥ 2022` → ±20 min.
+
+```python
+buffer_minutes = 10 if year < 2022 else 20
+buffer_seconds = buffer_minutes * 60
+```
+
+---
+
+### Fix 9-D — Phase 3 cache never invalidated after Phase 2 re-downloads
+
+**File**: `workspace/demo_combined.py` — `run_phase_3`
+
+**Root cause**: The cache-validity check only tested whether
+`granule_combined_*.pkl` existed on disk. If the cache was created during a
+partial Phase 2 run (some MODIS files missing), it was reused on every subsequent
+run even after Phase 2 downloaded the missing files.
+
+**Fix**: Before the early-return cache hit, the newest mtime across all MODIS HDF
+files on disk is computed. Any cache file older than that mtime is treated as
+stale, the granule is added back to `missing_granules`, and the cache is rebuilt
+with the current complete MODIS file set.
+
+```python
+latest_modis_mtime = 0.0
+for modis_dir in [MYD35_L2_dir, MYD03_dir]:
+    for hdf in modis_dir.glob("*.hdf"):
+        latest_modis_mtime = max(latest_modis_mtime, hdf.stat().st_mtime)
+
+cache_mtime = min(f.stat().st_mtime for f in combined_files)
+if latest_modis_mtime > cache_mtime:
+    # invalidate — granule added to missing_granules for reprocessing
+```
+
+---
+
+### Fix 9-E — No warning when MODIS granule coverage had gaps
+
+**File**: `workspace/demo_combined.py` — `run_phase_3`
+
+**Root cause**: After the MODIS–OCO-2 matching loop there was no check that MODIS
+granules covered every ~5-minute slot in the OCO-2 orbit. A gap (e.g. one missing
+granule between 14:35 and 14:45) caused all soundings in that interval to receive
+no cloud data, silently.
+
+**Fix**: After the matching loop, for each OCO-2 granule the matched MODIS times
+are sorted and consecutive gaps > 6 minutes are logged as warnings. Granules with
+zero MODIS matches are also warned.
+
+```
+⚠ MODIS coverage gap: 14:35 → 14:45 (10 min) for oco2_L1bScGL_22845a_...
+⚠ No MODIS granules matched for oco2_L1bScGL_22846a_...
+```
+
+---
+
+### Fix 9-F — Night-pass MODIS granules included in cloud collocation
+
+**Files**: `workspace/demo_combined.py` — `run_phase_3` matching loop;
+`src/phase_03_processing.py` — `_unpack_cloud_mask`
+
+**Root cause**: The matching code in `run_phase_3` included all MYD35_L2 files
+whose start time fell in the OCO-2 ±buffer window, without checking the day/night
+flag. Near orbit boundaries a MODIS night granule can have a start timestamp
+inside the window, introducing cloud pixels from a completely different scene.
+
+**Fix (two layers)**:
+
+1. `run_phase_3` — before adding a MODIS file to `modis_to_oco2_mapping`, the
+   code reads byte 0 of the cloud mask and checks bit 3 (day/night flag). Files
+   where night pixels outnumber day pixels are skipped.
+
+2. `_unpack_cloud_mask` — after computing `is_day_pass`, night passes now
+   immediately return an empty `MODISCloudMask` (zero pixels) rather than
+   processing all cloud pixels from the wrong scene. This acts as a second safety
+   net for any code path that reaches `extract_modis_cloud_mask` directly.
