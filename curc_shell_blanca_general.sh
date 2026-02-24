@@ -1,8 +1,8 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=16
-#SBATCH --ntasks-per-node=16
+#SBATCH --ntasks=32
+#SBATCH --ntasks-per-node=32
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
@@ -47,7 +47,7 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 start_year=2020
 end_year=2020
 start_month=1
-end_month=1
+end_month=3
 start_day=1
 end_day=1
 
@@ -63,7 +63,7 @@ for year in $(seq $start_year $end_year); do
                 echo "Failed to process date: $date"
             else
                 echo "Successfully processed: $date"
-                python src/oco_fp_spec_anal.py --date "$date" --delete-ocofiles
+                python src/oco_fp_spec_anal.py --date "$date" #--delete-ocofiles
             fi
             echo ""
         done
