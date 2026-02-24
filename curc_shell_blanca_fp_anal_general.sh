@@ -1,8 +1,8 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=32
-#SBATCH --ntasks-per-node=32
+#SBATCH --ntasks=16
+#SBATCH --ntasks-per-node=16
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
@@ -37,12 +37,12 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # Option 1: Loop with year, month, day (ACTIVE)
 # ============================================================================
 # Specify year, month, and day ranges
-start_year=2021
-end_year=2021
-start_month=2
-end_month=2
-start_day=10
-end_day=10
+start_year=2020
+end_year=2020
+start_month=1
+end_month=8
+start_day=1
+end_day=1
 
 # Loop through year, month, day
 for year in $(seq $start_year $end_year); do

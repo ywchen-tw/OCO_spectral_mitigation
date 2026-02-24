@@ -803,6 +803,14 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
             "pol_angle_lt":    _lite("polarization_angle"),
             "saa_lt":          _lite("saa"),
             "vaa_lt":          _lite("vaa"),
+            "s31":          _lite("s31"),
+            "s32":          _lite("s32"),
+            "snow_flag":   _lite("snow_flag"),
+            "t700":        _lite("t700"),
+            "tcwv":        _lite("tcwv"),
+            "operation_mode": _lite("operation_mode"),
+            "water_height": _lite("water_height"),
+            
     }
     
     else:
@@ -810,7 +818,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         logger.info(f"Loading existing data from {output_file}...")
         with h5py.File(output_file, "r") as f:
             output_dict = {key: f[key][()] for key in f.keys()}
-        checking_keys = ["s31", "s32", "snow_flag", "t700", "tcwv", "operation_mode"]
+        checking_keys = ["s31", "s32", "snow_flag", "t700", "tcwv", "operation_mode", "water_height"]
         for check_key in checking_keys:
             if check_key not in output_dict.keys():
                 output_dict[check_key] = _lite(check_key)  # Add any missing keys from the Lite data to the output_dict for consistency
@@ -1084,8 +1092,8 @@ def run_simulation(target_date, data_dir, result_dir,
 
         # k1k2_analysis(sat0, orbit_id)
     #     # k1k2_analysis(sat0, orbit_id, reference_csv='/Users/yuch8913/programming/oco_fp_analysis/results/2018-10-18/22846a/combined_k1_k2_individual_fp.csv')
-    print("sat0:", sat0)
-    k1k2_analysis(sat0)
+    # print("sat0:", sat0)
+    # k1k2_analysis(sat0)
     # k1k2_analysis(sat0, '22849a', reference_csv='/Users/yuch8913/programming/oco_fp_analysis/results/2018-10-18/combined_k1_k2_individual_fp_3granules.csv')
     
 
