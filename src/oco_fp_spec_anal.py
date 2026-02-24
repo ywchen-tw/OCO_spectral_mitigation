@@ -519,12 +519,17 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
     lat_mat  = np.abs(fp_lat[:, None] - fp_lat[None, :])          # [N, N]
     ref_mask = (lat_mat <= lat_thres) & clear_mask[None, :]        # [N, N]
 
-    # Reference statistics per footprint
+    # Reference statistics per footprint — only computed for rows with ≥1 ref
+    # to avoid np.nanmean/nanstd RuntimeWarnings on all-NaN slices.
     xco2_refs = np.where(ref_mask, xco2[None, :], np.nan)          # [N, N]
-    ref_mean  = np.nanmean(xco2_refs, axis=1)                       # [N]
-    ref_std   = np.nanstd(xco2_refs,  axis=1)                       # [N]
+    has_refs  = ref_mask.any(axis=1)                                # [N]
 
-    has_refs = ref_mask.any(axis=1)
+    ref_mean = np.full(N, np.nan)
+    ref_std  = np.full(N, np.nan)
+    if has_refs.any():
+        ref_mean[has_refs] = np.nanmean(xco2_refs[has_refs], axis=1)
+        ref_std[has_refs]  = np.nanstd(xco2_refs[has_refs],  axis=1)
+
     valid    = valid_lat & has_refs & (ref_std <= std_thres)
     anomaly[valid] = xco2[valid] - ref_mean[valid]
     return anomaly
