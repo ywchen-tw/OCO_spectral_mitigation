@@ -1077,9 +1077,9 @@ def run_simulation(target_date, data_dir, result_dir,
         h5_output_dir = f"{sat0['result_dir']}/fitting_details"
         output_file = f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
         
-        if os.path.isfile(output_file):
-            logger.info(f"[{orbit_id}] Output already exists. Skipping orbit.")
-            continue
+        # if os.path.isfile(output_file):
+        #     logger.info(f"[{orbit_id}] Output already exists. Skipping orbit.")
+        #     continue
         
         process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order, overwrite=False)
 
