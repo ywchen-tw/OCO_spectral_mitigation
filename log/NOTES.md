@@ -75,6 +75,7 @@ Legacy object mode still supported for backward compat.
 | 9A | phase_02_ingestion.py | Timezone naive/aware mismatch → zero MODIS downloads on GES DISC runs |
 | 9D | demo_combined.py | Phase 3 cache not invalidated after Phase 2 re-downloads |
 | 9F | demo_combined.py + phase_03 | Night-pass MODIS granules included in cloud collocation |
+| 10 | demo_combined.py `run_phase_3` | Cross-date granule: L2 Lite from target date has no IDs for previous-date orbit → empty footprints → footprints.pkl never written → granule never cached |
 
 ---
 

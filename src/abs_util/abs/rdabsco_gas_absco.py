@@ -95,8 +95,5 @@ def rdabsco_species_absco(absco_data, p_species, tk_species, broad_species,
 
         Q_vec = np.array([1.0, dp, dT, dH2O_vmr, dp*dT, dT*dH2O_vmr, dH2O_vmr*dp, dp*dT*dH2O_vmr], dtype=np.float64).reshape(8, 1)
         absco = trilinear_interpolation(trilinear_matrix, absco_array, Q_vec)
-        print("absco_array shape:", absco_array.shape)
-        print("Q_vec:", Q_vec.flatten())
-        print("absco shape:", absco.shape)
 
     return absco
