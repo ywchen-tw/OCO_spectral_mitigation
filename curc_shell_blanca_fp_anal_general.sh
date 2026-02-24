@@ -37,10 +37,10 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # Option 1: Loop with year, month, day (ACTIVE)
 # ============================================================================
 # Specify year, month, and day ranges
-start_year=2020
-end_year=2020
-start_month=12
-end_month=12
+start_year=2021
+end_year=2021
+start_month=4
+end_month=4
 start_day=24
 end_day=24
 
