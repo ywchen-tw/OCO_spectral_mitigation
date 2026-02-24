@@ -625,6 +625,9 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(h5_output_dir, exist_ok=True)
     
+    logger.info(f"[{orbit_id}] Loading orbit data...")
+    od = load_orbit_data(sat, orbit_id)
+    N  = len(od["sounding_id"])
     def _lite(key):
         """Extract one Lite variable for all soundings; NaN where not matched."""
         out = np.full(N, np.nan)
