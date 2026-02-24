@@ -40,7 +40,7 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 start_year=2020
 end_year=2020
 start_month=1
-end_month=8
+end_month=1
 start_day=1
 end_day=1
 
