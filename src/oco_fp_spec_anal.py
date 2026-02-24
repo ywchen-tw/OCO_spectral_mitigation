@@ -625,29 +625,20 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(h5_output_dir, exist_ok=True)
     
+    # ── 1. Load orbit data ─────────────────────────────────────────────────
     logger.info(f"[{orbit_id}] Loading orbit data...")
     od = load_orbit_data(sat, orbit_id)
     N  = len(od["sounding_id"])
-    def _lite(key):
-        """Extract one Lite variable for all soundings; NaN where not matched."""
-        out = np.full(N, np.nan)
-        if valid_lt.any():
-            out[valid_lt] = lite[key][row_inds[valid_lt]]
-        return out
+    
+    tags       = ["o2a", "wco2", "sco2"]
+    fit_orders = list(fit_order)   # (o2a_order, wco2_order, sco2_order)
+    MAX_KAPPAS = 5                 # store k1..k5; higher kappas are not saved
+
+    kappa_fitting     = np.full((3, N, MAX_KAPPAS), np.nan)
+    intercept_fitting = np.full((3, N), np.nan)
+    
 
     if not os.path.isfile(output_file) or overwrite:
-        # ── 1. Load orbit data ─────────────────────────────────────────────────
-        logger.info(f"[{orbit_id}] Loading orbit data...")
-        od = load_orbit_data(sat, orbit_id)
-        N  = len(od["sounding_id"])
-
-        tags       = ["o2a", "wco2", "sco2"]
-        fit_orders = list(fit_order)   # (o2a_order, wco2_order, sco2_order)
-        MAX_KAPPAS = 5                 # store k1..k5; higher kappas are not saved
-
-        kappa_fitting     = np.full((3, N, MAX_KAPPAS), np.nan)
-        intercept_fitting = np.full((3, N), np.nan)
-
         # ── 2. Transmittance for all soundings and bands at once ───────────────
         logger.info(f"[{orbit_id}] Computing transmittances for {N} soundings...")
         T_all    = compute_transmittance(od["radiances"], od["toa_sol"])  # [3, N, 1016]
@@ -691,141 +682,163 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
                         tau_j[mask], ln_T_j[mask], popt, band_order, output_dir,
                     )
                     plot_done[tag] = True
-
-        # ── 4. Lite variable extraction (vectorised) ───────────────────────────
-        logger.info(f"[{orbit_id}] Extracting Lite variables...")
-        lite_idx = shared_data["lite_index"]
-        lite     = shared_data["lite"]
-        row_inds = np.array([lite_idx.get(int(sid), -1) for sid in od["sounding_id"]])
-        valid_lt = row_inds >= 0
-
-        lt_xco2_bc  = _lite("xco2_corr")
-        lt_xco2_raw = _lite("xco2_raw")
-
-        # ── 5. Cloud distance per sounding (O(1) dict lookup) ─────────────────
-        cld_idx     = shared_data["cld_dist_index"]
-        fp_cld_dist = np.array([cld_idx.get(int(sid), np.nan) for sid in od["sounding_id"]])
-
-        # ── 6. XCO2 anomaly (vectorised lat-window) ────────────────────────────
-        logger.info(f"[{orbit_id}] Computing XCO2 anomalies...")
-        anomaly_args = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
-        xco2_raw_anomaly = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args)
-        xco2_bc_anomaly  = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_bc, **anomaly_args)
-
-        # ── 7. Write output HDF5 ───────────────────────────────────────────────
-        logger.info(f"[{orbit_id}] Writing {output_file}...")
-        output_dict = {
-            # Cumulant coefficients per band
-            "o2a_k1_fitting":         kappa_fitting[0, :, 0],
-            "o2a_k2_fitting":         kappa_fitting[0, :, 1],
-            "o2a_k3_fitting":         kappa_fitting[0, :, 2],
-            "o2a_k4_fitting":         kappa_fitting[0, :, 3],
-            "o2a_k5_fitting":         kappa_fitting[0, :, 4],
-            "o2a_intercept_fitting":  intercept_fitting[0],
-            "wco2_k1_fitting":        kappa_fitting[1, :, 0],
-            "wco2_k2_fitting":        kappa_fitting[1, :, 1],
-            "wco2_k3_fitting":        kappa_fitting[1, :, 2],
-            "wco2_k4_fitting":        kappa_fitting[1, :, 3],
-            "wco2_k5_fitting":        kappa_fitting[1, :, 4],
-            "wco2_intercept_fitting": intercept_fitting[1],
-            "sco2_k1_fitting":        kappa_fitting[2, :, 0],
-            "sco2_k2_fitting":        kappa_fitting[2, :, 1],
-            "sco2_k3_fitting":        kappa_fitting[2, :, 2],
-            "sco2_k4_fitting":        kappa_fitting[2, :, 3],
-            "sco2_k5_fitting":        kappa_fitting[2, :, 4],
-            "sco2_intercept_fitting": intercept_fitting[2],
-            # Geometry
-            "lon":       od["lon"],
-            "lat":       od["lat"],
-            "sza":       od["sza"],
-            "vza":       od["vza"],
-            "mu_sza":     np.cos(np.radians(od["sza"])),
-            "mu_vza":     np.cos(np.radians(od["vza"])),
-            "fp_number": od["fp_number"],
-            "fp_id":     od["sounding_id"],
-            # Cloud proximity
-            "cld_dist_km":      fp_cld_dist,
-            # XCO2
-            "xco2_bc":          lt_xco2_bc,
-            "xco2_raw":         lt_xco2_raw,
-            "xco2_raw_anomaly": xco2_raw_anomaly,
-            "xco2_bc_anomaly":  xco2_bc_anomaly,
-            # Lite retrieval variables
-            "psfc_lt":        _lite("psurf"),
-            "airmass_lt":     _lite("airmass"),
-            "delT_lt":        _lite("deltaT"),
-            "dp_lt":          _lite("dp"),
-            "dp_o2a_lt":      _lite("dp_o2a"),
-            "dp_sco2_lt":     _lite("dp_sco2"),
-            "co2_grad_del_lt": _lite("co2_grad_del"),
-            "alb_o2a_lt":     _lite("albedo_o2a"),
-            "alb_wco2_lt":    _lite("albedo_wco2"),
-            "alb_sco2_lt":    _lite("albedo_sco2"),
-            "aod_total_lt":   _lite("aod_total"),
-            "fs_rel_lt":      _lite("fs_rel"),
-            "alt_lt":         _lite("altitude"),
-            "alt_std_lt":     _lite("altitude_std"),
-            "xco2_qf_lt":     _lite("qf"),
-            "sfc_type_lt":    _lite("sfc_type"),
-            "ws_lt":          _lite("windspeed"),
-            "ws_apriori_lt":  _lite("windspeed_apriori"),
-            # Preprocessor variables
-            "co2_ratio_bc_lt":  _lite("co2_ratio_bc"),
-            "h2o_ratio_bc_lt":  _lite("h2o_ratio_bc"),
-            "csnr_o2a_lt":      _lite("color_slice_noise_ratio_o2a"),
-            "csnr_wco2_lt":     _lite("color_slice_noise_ratio_wco2"),
-            "csnr_sco2_lt":     _lite("color_slice_noise_ratio_sco2"),
-            "dp_abp_lt":        _lite("dp_abp"),
-            "h_cont_o2a_lt":    _lite("h_continuum_o2a"),
-            "h_cont_wco2_lt":   _lite("h_continuum_wco2"),
-            "h_cont_sco2_lt":   _lite("h_continuum_sco2"),
-            "max_declock_o2a_lt":  _lite("max_declocking_o2a"),
-            "max_declock_wco2_lt": _lite("max_declocking_wco2"),
-            "max_declock_sco2_lt": _lite("max_declocking_sco2"),
-            "xco2_strong_idp_lt": _lite("xco2_strong_idp"),
-            "xco2_weak_idp_lt":   _lite("xco2_weak_idp"),
-            # Additional retrieval variables
-            "h2o_scale_lt":    _lite("h2o_scale"),
-            "dpfrac_lt":       _lite("dpfrac"),
-            "aod_bc_lt":       _lite("aod_bc"),
-            "aod_dust_lt":     _lite("aod_dust"),
-            "aod_ice_lt":      _lite("aod_ice"),
-            "aod_water_lt":    _lite("aod_water"),
-            "aod_oc_lt":       _lite("aod_oc"),
-            "aod_seasalt_lt":  _lite("aod_seasalt"),
-            "aod_strataer_lt": _lite("aod_strataer"),
-            "aod_sulfate_lt":  _lite("aod_sulfate"),
-            "dust_height_lt":  _lite("dust_height"),
-            "ice_height_lt":   _lite("ice_height"),
-            "dws_lt":          _lite("dws"),
-            # Additional sounding variables
-            "snr_o2a_lt":      _lite("snr_o2a"),
-            "snr_wco2_lt":     _lite("snr_wco2"),
-            "snr_sco2_lt":     _lite("snr_sco2"),
-            "glint_angle_lt":  _lite("glint_angle"),
-            "pol_angle_lt":    _lite("polarization_angle"),
-            "saa_lt":          _lite("saa"),
-            "vaa_lt":          _lite("vaa"),
-            "s31":          _lite("s31"),
-            "s32":          _lite("s32"),
-            "snow_flag":   _lite("snow_flag"),
-            "t700":        _lite("t700"),
-            "tcwv":        _lite("tcwv"),
-            "operation_mode": _lite("operation_mode"),
-            "water_height": _lite("water_height"),
-            
-    }
-    
+                    
     else:
         logger.info(f"[{orbit_id}] Output file {output_file} already exists and overwrite=False")
         logger.info(f"Loading existing data from {output_file}...")
         with h5py.File(output_file, "r") as f:
-            output_dict = {key: f[key][()] for key in f.keys()}
-        checking_keys = ["s31", "s32", "snow_flag", "t700", "tcwv", "operation_mode", "water_height"]
-        for check_key in checking_keys:
-            if check_key not in output_dict.keys():
-                output_dict[check_key] = _lite(check_key)  # Add any missing keys from the Lite data to the output_dict for consistency
+            kappa_fitting[0, :, 0] = f["o2a_k1_fitting"][...]
+            kappa_fitting[0, :, 1] = f["o2a_k2_fitting"][...]
+            kappa_fitting[0, :, 2] = f["o2a_k3_fitting"][...]
+            kappa_fitting[0, :, 3] = f["o2a_k4_fitting"][...]
+            kappa_fitting[0, :, 4] = f["o2a_k5_fitting"][...]
+            intercept_fitting[0]   = f["o2a_intercept_fitting"][...]
+            kappa_fitting[1, :, 0] = f["wco2_k1_fitting"][...]
+            kappa_fitting[1, :, 1] = f["wco2_k2_fitting"][...]
+            kappa_fitting[1, :, 2] = f["wco2_k3_fitting"][...]
+            kappa_fitting[1, :, 3] = f["wco2_k4_fitting"][...]
+            kappa_fitting[1, :, 4] = f["wco2_k5_fitting"][...]
+            intercept_fitting[1]   = f["wco2_intercept_fitting"][...]
+            kappa_fitting[2, :, 0] = f["sco2_k1_fitting"][...]
+            kappa_fitting[2, :, 1] = f["sco2_k2_fitting"][...]
+            kappa_fitting[2, :, 2] = f["sco2_k3_fitting"][...]
+            kappa_fitting[2, :, 3] = f["sco2_k4_fitting"][...]
+            kappa_fitting[2, :, 4] = f["sco2_k5_fitting"][...]
+            intercept_fitting[2]   = f["sco2_intercept_fitting"][...]
+            logger.info(f"Loaded existing fitting results from {output_file}. Skipping fitting step.")
+        
+    # ── 4. Lite variable extraction (vectorised) ───────────────────────────
+    def _lite(key):
+        """Extract one Lite variable for all soundings; NaN where not matched."""
+        out = np.full(N, np.nan)
+        if valid_lt.any():
+            out[valid_lt] = lite[key][row_inds[valid_lt]]
+        return out
 
+    logger.info(f"[{orbit_id}] Extracting Lite variables...")
+    lite_idx = shared_data["lite_index"]
+    lite     = shared_data["lite"]
+    row_inds = np.array([lite_idx.get(int(sid), -1) for sid in od["sounding_id"]])
+    valid_lt = row_inds >= 0
+
+    lt_xco2_bc  = _lite("xco2_corr")
+    lt_xco2_raw = _lite("xco2_raw")
+
+    # ── 5. Cloud distance per sounding (O(1) dict lookup) ─────────────────
+    cld_idx     = shared_data["cld_dist_index"]
+    fp_cld_dist = np.array([cld_idx.get(int(sid), np.nan) for sid in od["sounding_id"]])
+
+    # ── 6. XCO2 anomaly (vectorised lat-window) ────────────────────────────
+    logger.info(f"[{orbit_id}] Computing XCO2 anomalies...")
+    anomaly_args = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
+    xco2_raw_anomaly = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args)
+    xco2_bc_anomaly  = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_bc, **anomaly_args)
+
+    # ── 7. Write output HDF5 ───────────────────────────────────────────────
+    logger.info(f"[{orbit_id}] Writing {output_file}...")
+    output_dict = {
+        # Cumulant coefficients per band
+        "o2a_k1_fitting":         kappa_fitting[0, :, 0],
+        "o2a_k2_fitting":         kappa_fitting[0, :, 1],
+        "o2a_k3_fitting":         kappa_fitting[0, :, 2],
+        "o2a_k4_fitting":         kappa_fitting[0, :, 3],
+        "o2a_k5_fitting":         kappa_fitting[0, :, 4],
+        "o2a_intercept_fitting":  intercept_fitting[0],
+        "wco2_k1_fitting":        kappa_fitting[1, :, 0],
+        "wco2_k2_fitting":        kappa_fitting[1, :, 1],
+        "wco2_k3_fitting":        kappa_fitting[1, :, 2],
+        "wco2_k4_fitting":        kappa_fitting[1, :, 3],
+        "wco2_k5_fitting":        kappa_fitting[1, :, 4],
+        "wco2_intercept_fitting": intercept_fitting[1],
+        "sco2_k1_fitting":        kappa_fitting[2, :, 0],
+        "sco2_k2_fitting":        kappa_fitting[2, :, 1],
+        "sco2_k3_fitting":        kappa_fitting[2, :, 2],
+        "sco2_k4_fitting":        kappa_fitting[2, :, 3],
+        "sco2_k5_fitting":        kappa_fitting[2, :, 4],
+        "sco2_intercept_fitting": intercept_fitting[2],
+        # Geometry
+        "lon":       od["lon"],
+        "lat":       od["lat"],
+        "sza":       od["sza"],
+        "vza":       od["vza"],
+        "mu_sza":     np.cos(np.radians(od["sza"])),
+        "mu_vza":     np.cos(np.radians(od["vza"])),
+        "fp_number": od["fp_number"],
+        "fp_id":     od["sounding_id"],
+        # Cloud proximity
+        "cld_dist_km":      fp_cld_dist,
+        # XCO2
+        "xco2_bc":          lt_xco2_bc,
+        "xco2_raw":         lt_xco2_raw,
+        "xco2_raw_anomaly": xco2_raw_anomaly,
+        "xco2_bc_anomaly":  xco2_bc_anomaly,
+        # Lite retrieval variables
+        "psfc":        _lite("psurf"),
+        "airmass":     _lite("airmass"),
+        "delT":        _lite("deltaT"),
+        "dp":          _lite("dp"),
+        "dp_o2a":      _lite("dp_o2a"),
+        "dp_sco2":     _lite("dp_sco2"),
+        "co2_grad_del": _lite("co2_grad_del"),
+        "alb_o2a":     _lite("albedo_o2a"),
+        "alb_wco2":    _lite("albedo_wco2"),
+        "alb_sco2":    _lite("albedo_sco2"),
+        "aod_total":   _lite("aod_total"),
+        "fs_rel":      _lite("fs_rel"),
+        "alt":         _lite("altitude"),
+        "alt_std":     _lite("altitude_std"),
+        "xco2_qf":     _lite("qf"),
+        "sfc_type":    _lite("sfc_type"),
+        "ws":          _lite("windspeed"),
+        "ws_apriori":  _lite("windspeed_apriori"),
+        # Preprocessor variables
+        "co2_ratio_bc":  _lite("co2_ratio_bc"),
+        "h2o_ratio_bc":  _lite("h2o_ratio_bc"),
+        "csnr_o2a":      _lite("color_slice_noise_ratio_o2a"),
+        "csnr_wco2":     _lite("color_slice_noise_ratio_wco2"),
+        "csnr_sco2":     _lite("color_slice_noise_ratio_sco2"),
+        "dp_abp":        _lite("dp_abp"),
+        "h_cont_o2a":    _lite("h_continuum_o2a"),
+        "h_cont_wco2":   _lite("h_continuum_wco2"),
+        "h_cont_sco2":   _lite("h_continuum_sco2"),
+        "max_declock_o2a":  _lite("max_declocking_o2a"),
+        "max_declock_wco2": _lite("max_declocking_wco2"),
+        "max_declock_sco2": _lite("max_declocking_sco2"),
+        "xco2_strong_idp": _lite("xco2_strong_idp"),
+        "xco2_weak_idp":   _lite("xco2_weak_idp"),
+        # Additional retrieval variables
+        "h2o_scale":    _lite("h2o_scale"),
+        "dpfrac":       _lite("dpfrac"),
+        "aod_bc":       _lite("aod_bc"),
+        "aod_dust":     _lite("aod_dust"),
+        "aod_ice":      _lite("aod_ice"),
+        "aod_water":    _lite("aod_water"),
+        "aod_oc":       _lite("aod_oc"),
+        "aod_seasalt":  _lite("aod_seasalt"),
+        "aod_strataer": _lite("aod_strataer"),
+        "aod_sulfate":  _lite("aod_sulfate"),
+        "dust_height":  _lite("dust_height"),
+        "ice_height":   _lite("ice_height"),
+        "dws":          _lite("dws"),
+        # Additional sounding variables
+        "snr_o2a":      _lite("snr_o2a"),
+        "snr_wco2":     _lite("snr_wco2"),
+        "snr_sco2":     _lite("snr_sco2"),
+        "glint_angle":  _lite("glint_angle"),
+        "pol_angle":    _lite("polarization_angle"),
+        "saa":          _lite("saa"),
+        "vaa":          _lite("vaa"),
+        "s31":          _lite("s31"),
+        "s32":          _lite("s32"),
+        "snow_flag":   _lite("snow_flag"),
+        "t700":        _lite("t700"),
+        "tcwv":        _lite("tcwv"),
+        "operation_mode": _lite("operation_mode"),
+        "water_height": _lite("water_height"),
+        
+    }
+    
+    
     with h5py.File(output_file, "w") as f_out:
         for key, value in output_dict.items():
             f_out.create_dataset(key, data=np.asarray(value))
