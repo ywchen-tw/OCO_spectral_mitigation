@@ -112,7 +112,7 @@ def main():
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     data_name = 'combined_2020_dates.csv'
-    data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
+    # data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
     output_dir = storage_dir / 'results/model_mlp_lr'
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -133,86 +133,90 @@ def main():
     
     mitigation_test(df, output_dir=output_dir, test_csv=None)
 
-def compute_xco2_anomaly_date_id(fp_date, fp_id, fp_lat, cld_dist_km, xco2,
+def compute_xco2_anomaly_date_id(fp_date, fp_orbit_id, fp_lat, cld_dist_km, xco2,
                          lat_thres=0.5, std_thres=2.0, min_cld_dist=10.0,
-                         chunk_size=32):
-    """XCO2 anomaly relative to nearby clear-sky soundings with the same date and fp_id.
+                         chunk_size=512):
+    """XCO2 anomaly relative to nearby clear-sky soundings within the same orbit.
 
-    For each footprint i, the reference set is footprints that share the same
-    date AND fp_id, are within ±lat_thres° latitude, and are more than
-    min_cld_dist km from a cloud.  The anomaly is defined only when the
-    reference std is below std_thres (stable background).
+    Groups footprints by (date, orbit_id) and processes each group
+    independently, so the pairwise broadcast is O(M²) per orbit rather than
+    O(N²) over the full dataset.  Within each group every footprint already
+    shares the same date and orbit_id, so no cross-group comparisons are made.
 
     Parameters
     ----------
-    fp_date     : [N] footprint date (string or comparable; must be same type)
-    fp_id       : [N] footprint ID (int or float)
-    fp_lat      : [N] footprint latitudes (may contain NaN)
-    cld_dist_km : [N] nearest-cloud distance in km (may contain NaN)
-    xco2        : [N] XCO2 values (may contain NaN)
-    lat_thres   : float, half-width of latitude search window (degrees)
-    std_thres   : float, maximum allowed std of reference XCO2 (ppm)
-    min_cld_dist: float, minimum cloud distance to be considered clear-sky (km)
-    chunk_size  : int, rows processed per iteration (controls peak memory).
-                  Peak memory per chunk ≈ chunk_size × N × 32 bytes.
-                  Default 32 → ~85 MB for N=84 000.
+    fp_date      : [N] footprint date (string or any equality-comparable type)
+    fp_orbit_id  : [N] orbit ID (int, str, or float)
+    fp_lat       : [N] footprint latitudes (may contain NaN)
+    cld_dist_km  : [N] nearest-cloud distance in km (may contain NaN)
+    xco2         : [N] XCO2 values (may contain NaN)
+    lat_thres    : float, half-width of latitude search window (degrees)
+    std_thres    : float, maximum allowed std of reference XCO2 (ppm)
+    min_cld_dist : float, minimum cloud distance for clear-sky reference (km)
+    chunk_size   : int, query rows per iteration within each group.
+                   Each group typically has O(1 000) rows, so the default 512
+                   usually means 1-2 iterations per group with small arrays.
 
     Returns
     -------
     anomaly : [N] float array, NaN where reference is unavailable or noisy
     """
     fp_date     = np.asarray(fp_date)
-    fp_id       = np.asarray(fp_id, dtype=float)   # float so NaN sentinel works
+    fp_orbit_id = np.asarray(fp_orbit_id)
     fp_lat      = np.asarray(fp_lat,      dtype=float)
     xco2        = np.asarray(xco2,        dtype=float)
     cld_dist_km = np.asarray(cld_dist_km, dtype=float)
 
     N          = len(fp_lat)
-    chunk_size = int(chunk_size)   # guard against float passed via **kwargs
-    anomaly  = np.full(N, np.nan)
-    ref_mean = np.full(N, np.nan)
-    ref_std  = np.full(N, np.nan)
+    chunk_size = int(chunk_size)
+    anomaly    = np.full(N, np.nan)
 
-    valid_lat  = ~np.isnan(fp_lat)
-    clear_mask = valid_lat & (cld_dist_km > min_cld_dist)   # [N] bool
+    # Build index groups: {(date, orbit_id): [row indices]}
+    groups: dict = {}
+    for i, key in enumerate(zip(fp_date, fp_orbit_id)):
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(i)
 
-    # Pre-extract reference arrays; non-clear-sky refs get sentinels so they
-    # never satisfy the same-date / same-id / lat-window tests.
-    _DATE_SENTINEL = ''    # empty string never matches a real date
-    _ID_SENTINEL   = np.nan  # NaN != NaN, so masked refs never match
-    ref_lat  = np.where(clear_mask, fp_lat,  np.nan)           # [N] float
-    ref_xco2 = np.where(clear_mask, xco2,    np.nan)           # [N] float
-    ref_date = np.where(clear_mask, fp_date, _DATE_SENTINEL)   # [N] object
-    ref_id   = np.where(clear_mask, fp_id,   _ID_SENTINEL)     # [N] float
+    for key, idx_list in groups.items():
+        idx    = np.array(idx_list)
+        g_lat  = fp_lat[idx]
+        g_dist = cld_dist_km[idx]
+        g_xco2 = xco2[idx]
+        M      = len(idx)
 
-    for start in range(0, N, chunk_size):
-        end    = min(start + chunk_size, N)
-        q_lat  = fp_lat[start:end]    # [chunk]
-        q_date = fp_date[start:end]   # [chunk]
-        q_id   = fp_id[start:end]     # [chunk]
+        valid_lat  = ~np.isnan(g_lat)
+        clear_mask = valid_lat & (g_dist > min_cld_dist)
 
-        lat_diff  = np.abs(q_lat[:, None]  - ref_lat[None, :])   # [chunk, N]
-        same_date = (q_date[:, None] == ref_date[None, :])        # [chunk, N]
-        same_id   = (q_id[:, None]   == ref_id[None, :])          # [chunk, N]; NaN!=NaN masks sentinels
+        # Reference arrays for this group (non-clear-sky → NaN, excluded by lat test)
+        ref_lat  = np.where(clear_mask, g_lat,  np.nan)   # [M]
+        ref_xco2 = np.where(clear_mask, g_xco2, np.nan)   # [M]
 
-        in_window = (lat_diff <= lat_thres) & same_date & same_id  # [chunk, N]
+        g_ref_mean = np.full(M, np.nan)
+        g_ref_std  = np.full(M, np.nan)
 
-        xco2_win  = np.where(in_window, ref_xco2[None, :], np.nan)  # [chunk, N]
-        has_refs  = in_window.any(axis=1)                            # [chunk]
+        for start in range(0, M, chunk_size):
+            end   = min(start + chunk_size, M)
+            q_lat = g_lat[start:end]                              # [c]
 
-        chunk_mean = np.full(end - start, np.nan)
-        chunk_std  = np.full(end - start, np.nan)
-        if has_refs.any():
-            chunk_mean[has_refs] = np.nanmean(xco2_win[has_refs], axis=1)
-            chunk_std[has_refs]  = np.nanstd( xco2_win[has_refs], axis=1)
+            lat_diff  = np.abs(q_lat[:, None] - ref_lat[None, :])  # [c, M]
+            in_window = lat_diff <= lat_thres                       # [c, M]
+            xco2_win  = np.where(in_window, ref_xco2[None, :], np.nan)
+            has_refs  = in_window.any(axis=1)                       # [c]
 
-        ref_mean[start:end] = chunk_mean
-        ref_std[start:end]  = chunk_std
+            c_mean = np.full(end - start, np.nan)
+            c_std  = np.full(end - start, np.nan)
+            if has_refs.any():
+                c_mean[has_refs] = np.nanmean(xco2_win[has_refs], axis=1)
+                c_std[has_refs]  = np.nanstd( xco2_win[has_refs], axis=1)
 
-        del lat_diff, same_date, same_id, in_window, xco2_win
+            g_ref_mean[start:end] = c_mean
+            g_ref_std[start:end]  = c_std
+            del lat_diff, in_window, xco2_win
 
-    valid = valid_lat & ~np.isnan(ref_mean) & (ref_std <= std_thres)
-    anomaly[valid] = xco2[valid] - ref_mean[valid]
+        valid = valid_lat & ~np.isnan(g_ref_mean) & (g_ref_std <= std_thres)
+        anomaly[idx[valid]] = g_xco2[valid] - g_ref_mean[valid]
+
     return anomaly
 
 # ─── LR mitigation test ────────────────────────────────────────────────────────
@@ -623,17 +627,20 @@ def mitigation_test(df, output_dir, test_csv=None):
     # Lazy import avoids circular import (oco_fp_spec_anal ↔ result_ana)
     # Same parameters as used in oco_fp_spec_anal.py
     _anomaly_args = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
-    _date     = df['date'].to_string(index=False)
-    _id       = df['fp_id'].to_numpy()
+    _date     = df['date']
+    _orbit_id = df['orbit_id']
     _lat      = df['lat'].to_numpy()
     _cld_dist = df['cld_dist_km'].to_numpy()
+    
+    print("_date shape", _date.shape)
+    print("_orbit_id shape", _orbit_id.shape)
 
     anomaly_orig    = df['xco2_bc_anomaly'].to_numpy()
     # Use _all variants (shape = full df N=84780) — subset arrays (38987,) mismatched _lat
     _checkpoint("compute_xco2_anomaly: calling LR")
-    anomaly_lr  = compute_xco2_anomaly_date_id(_date, _id, _lat, _cld_dist, xco2_bc_corrected_all,     **_anomaly_args)
+    anomaly_lr  = compute_xco2_anomaly_date_id(_date, _orbit_id, _lat, _cld_dist, xco2_bc_corrected_all,     **_anomaly_args)
     _checkpoint("compute_xco2_anomaly: LR done")
-    anomaly_mlp = compute_xco2_anomaly_date_id(_date, _id, _lat, _cld_dist, xco2_bc_corrected_all_mlp, **_anomaly_args)
+    anomaly_mlp = compute_xco2_anomaly_date_id(_date, _orbit_id, _lat, _cld_dist, xco2_bc_corrected_all_mlp, **_anomaly_args)
     _checkpoint("compute_xco2_anomaly: MLP done")
 
     # Scatter + histogram comparison of anomalies
@@ -705,11 +712,11 @@ def mitigation_test(df, output_dir, test_csv=None):
 
     # Data sources per row: (xco2_orig, xco2_lr, xco2_mlp, mask)
     row_configs = [
-        (np.array(df_xco2_anomaly['xco2_bc_anomaly']), xco2_bc_pred_anomaly, xco2_bc_pred_anomaly_mlp,
+        (np.array(df_xco2_anomaly['xco2_bc_anomaly']), np.array(df_xco2_anomaly['xco2_bc']), xco2_bc_pred_anomaly, xco2_bc_pred_anomaly_mlp,
          mask_r1, 'Clear-sky FPs (cld_dist > 10 km)', True),
-        (np.array(df_xco2_anomaly['xco2_bc_anomaly']), xco2_bc_pred_anomaly, xco2_bc_pred_anomaly_mlp,
+        (np.array(df_xco2_anomaly['xco2_bc_anomaly']), np.array(df_xco2_anomaly['xco2_bc']), xco2_bc_pred_anomaly, xco2_bc_pred_anomaly_mlp,
          mask_r2, 'Cloud-affected FPs from df_orig (cld_dist < 10 km)', True),
-        (np.array(df['xco2_bc']), xco2_bc_corrected_all, xco2_bc_corrected_all_mlp,
+        (np.array(df['xco2_bc']), np.array(df['xco2_bc']), xco2_bc_predict_all_anomaly, xco2_bc_predict_all_anomaly_mlp,
          mask_r3, 'Cloud FPs with NaN anomaly from df (cld_dist < 10 km)', False),
     ]
 
@@ -720,17 +727,18 @@ def mitigation_test(df, output_dir, test_csv=None):
         xco2_bc_corrected, xco2_bc_corrected_mlp,
         xco2_bc_corrected_all, xco2_bc_corrected_all_mlp,
     ])
-    _xco2_lo = np.nanpercentile(_all_xco2, 1)
-    _xco2_hi = np.nanpercentile(_all_xco2, 99)
-    _bins_3x3 = np.linspace(_xco2_lo, _xco2_hi, 100)
+    # _xco2_lo = np.nanpercentile(_all_xco2, 1)
+    # _xco2_hi = np.nanpercentile(_all_xco2, 99)
+    # _bins_3x3 = np.linspace(_xco2_lo, _xco2_hi, 100)
 
     plt.close('all')
-    fig, axes = plt.subplots(3, 3, figsize=(18, 17))
+    fig, axes = plt.subplots(3, 4, figsize=(22, 17))
 
-    for row_i, (xco2_orig, xco2_lr, xco2_mlp, mask, row_label, anomaly_label) in enumerate(row_configs):
-        ax_sc1, ax_sc2, ax_h = axes[row_i]
+    for row_i, (xco2_orig, xco2_orig_bc, xco2_lr, xco2_mlp, mask, row_label, anomaly_label) in enumerate(row_configs):
+        ax_sc1, ax_sc2, ax_h, ax_h2 = axes[row_i]
 
         x_orig = xco2_orig[mask]
+        xco2_orig_bc = xco2_orig_bc[mask]
         x_lr   = xco2_lr[mask]
         x_mlp  = xco2_mlp[mask]
 
@@ -740,45 +748,71 @@ def mitigation_test(df, output_dir, test_csv=None):
         _lo = np.nanpercentile(x_orig[np.isfinite(x_orig)], 1)  if np.isfinite(x_orig).any() else _xco2_lo
         _hi = np.nanpercentile(x_orig[np.isfinite(x_orig)], 99) if np.isfinite(x_orig).any() else _xco2_hi
 
+        
         for ax, x_corr, _color, method in [
                 (ax_sc1, x_lr,  'orange', 'LR'),
                 (ax_sc2, x_mlp, 'green',  'MLP'),
         ]:
-            v = np.isfinite(x_orig) & np.isfinite(x_corr)
-            ax.scatter(x_orig[v], x_corr[v], c=_color, edgecolor=None, s=5, alpha=0.6)
-            ax.set_xlim(_lo, _hi); ax.set_ylim(_lo, _hi)
-            ax.set_aspect('equal', adjustable='box')
-            ax.axline((_lo, _lo), slope=1, color='r', linestyle='--')
-            if anomaly_label:
-                ax.set_xlabel('Original XCO2_bc anomaly(ppm)')
-                ax.set_ylabel(f'{method}-corrected XCO2_bc anomaly (ppm)')
+            if not (x_orig == xco2_orig_bc).all():
+                v = np.isfinite(x_orig) & np.isfinite(x_corr)
+                ax.scatter(x_orig[v], x_corr[v], c=_color, edgecolor=None, s=5, alpha=0.6)
+                ax.set_xlim(_lo, _hi); ax.set_ylim(_lo, _hi)
+                ax.set_aspect('equal', adjustable='box')
+                ax.axline((_lo, _lo), slope=1, color='r', linestyle='--')
+                if anomaly_label:
+                    ax.set_xlabel('Original XCO2_bc anomaly(ppm)')
+                    ax.set_ylabel(f'{method}-corrected XCO2_bc anomaly (ppm)')
+                else:
+                    ax.set_xlabel('Original XCO2_bc (ppm)')
+                    ax.set_ylabel(f'{method}-corrected XCO2_bc (ppm)')
+                ax.set_title(f'{row_label}\n[{method} scatter]')
+                if v.sum() > 1:
+                    r2 = 1 - np.nansum((x_orig[v] - x_corr[v])**2) / \
+                            np.nansum((x_orig[v] - np.nanmean(x_orig[v]))**2)
+                    ax.text(0.05, 0.95, f'R²={r2:.3f}', transform=ax.transAxes, va='top')
             else:
-                ax.set_xlabel('Original XCO2_bc (ppm)')
-                ax.set_ylabel(f'{method}-corrected XCO2_bc (ppm)')
-            ax.set_title(f'{row_label}\n[{method} scatter]')
-            if v.sum() > 1:
-                r2 = 1 - np.nansum((x_orig[v] - x_corr[v])**2) / \
-                         np.nansum((x_orig[v] - np.nanmean(x_orig[v]))**2)
-                ax.text(0.05, 0.95, f'R²={r2:.3f}', transform=ax.transAxes, va='top')
+                ax.set_visible(False)  # hide scatter if original vs original
 
-        for _xco2, _color, _label in [
-                (x_orig, 'blue',   'Original'),
-                (x_lr,   'orange', 'LR-corrected'),
-                (x_mlp,  'green',  'MLP-corrected'),
+        for _xco2, _xco2_bc, _color, _label in [
+                (x_orig, xco2_orig_bc, 'blue',   'Original'),
+                (x_lr, xco2_orig_bc,   'orange', 'LR-corrected'),
+                (x_mlp, xco2_orig_bc,  'green',  'MLP-corrected'),
         ]:
             _v = _xco2[np.isfinite(_xco2)]
+            _v2 = _xco2_bc[np.isfinite(_xco2)]
             if len(_v) == 0:
                 continue
-            _mu, _sigma = _v.mean(), _v.std()
-            ax_h.hist(_v, bins=_bins_3x3, color=_color, alpha=0.6, density=True,
-                      label=f'{_label}\nμ={_mu:.3f}, σ={_sigma:.3f}')
-            ax_h.axvline(_mu,          color=_color, linestyle='-',  linewidth=1.2)
-            ax_h.axvline(_mu - _sigma, color=_color, linestyle=':',  linewidth=0.9)
-            ax_h.axvline(_mu + _sigma, color=_color, linestyle=':',  linewidth=0.9)
+            if len(_v2) > 0 and not (_v == _v2).all():
+                _mu, _sigma = _v.mean(), _v.std()
+                _xco2_lo = np.nanpercentile(_v, 1)
+                _xco2_hi = np.nanpercentile(_v, 99)
+                _bins_3x4 = np.linspace(_xco2_lo, _xco2_hi, 100)
+                ax_h.hist(_v, bins=_bins_3x4, color=_color, alpha=0.6, density=True,
+                        label=f'{_label}\nμ={_mu:.3f}, σ={_sigma:.3f}')
+                ax_h.axvline(_mu,          color=_color, linestyle='-',  linewidth=1.2)
+                ax_h.axvline(_mu - _sigma, color=_color, linestyle=':',  linewidth=0.9)
+                ax_h.axvline(_mu + _sigma, color=_color, linestyle=':',  linewidth=0.9)
+             
+            if _label != 'Original':
+                _v2 = _v2 - _v # bias-corrected distribution (centered on zero mean) for clearer comparison of spread
+            _mu2, _sigma2 = _v2.mean(), _v2.std()
+            _xco2_v2_lo = np.nanpercentile(_v2, 1)
+            _xco2_v2_hi = np.nanpercentile(_v2, 99)
+            _bins_v2_3x4 = np.linspace(_xco2_v2_lo, _xco2_v2_hi, 100)
+            ax_h2.hist(_v2, bins=_bins_v2_3x4, color=_color, alpha=0.3, density=True,
+                        label=f'{_label}  \nμ={_mu2:.3f}, σ={_sigma2:.3f}')
+            ax_h2.axvline(_mu2,          color=_color, linestyle='-',  linewidth=1.0)
+            ax_h2.axvline(_mu2 - _sigma2, color=_color, linestyle=':',  linewidth=0.8)
+            ax_h2.axvline(_mu2 + _sigma2, color=_color, linestyle=':',  linewidth=0.8)
+            
+            ax_h.set_title(f'{row_label}\n[Distribution]')
+            ax_h.set_xlabel('XCO2_bc anomaly (ppm)')
+            ax_h.legend(fontsize=10)
+            ax_h2.set_title(f'{row_label}\n[Distribution]')
+            ax_h2.set_xlabel('XCO2_bc (ppm)')
+            ax_h2.legend(fontsize=10)
 
-        ax_h.set_title(f'{row_label}\n[Distribution]')
-        ax_h.set_xlabel('XCO2_bc (ppm)')
-        ax_h.legend(fontsize=10)
+                
 
     fig.suptitle('XCO2_bc by cloud-distance regime', fontsize=13, y=1.01)
     fig.tight_layout()

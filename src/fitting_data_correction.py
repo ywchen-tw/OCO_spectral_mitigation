@@ -21,6 +21,8 @@ def load_output_dict(filepath):
     Keys that are absent from the file are silently skipped.
     """
     keys = [
+        # basic identifiers
+        'date', 'orbit_id',
         # Cumulant coefficients (per band)
         'o2a_k1_fitting', 'o2a_k2_fitting', 'o2a_k3_fitting',
         'o2a_k4_fitting', 'o2a_k5_fitting', 'o2a_intercept_fitting',
@@ -116,7 +118,8 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     # ── Build combined DataFrame ───────────────────────────────────────────────
     final_dict = {
         # basic identifiers
-        'date': date.replace('-', ''),  # Convert back to YYYYMMDD format for consistency
+        'date': combined['date'],
+        'orbit_id': combined['orbit_id'],
         'lon': combined['lon'],
         'lat': combined['lat'],
         # Per-band kappa coefficients (short names for downstream use)
@@ -270,8 +273,10 @@ def main():
                  '20200501', '20200601', '20200701', '20200801',
                  '20200903', '20201001', '20201101', '20201201']  
     
-    date_list = ['20201005', '20201224', 
-                 '20210210', '20210424', '20211229']  
+    # date_list = ['20201005', '20201224', 
+    #              '20210210', '20210424', '20211229']  
+    
+    # date_list = ['20200101',]  
     
     date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
     
@@ -283,9 +288,9 @@ def main():
         print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
         raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
-    # csv_output_dir = os.path.join(fdir, 'csv_collection')
-    # output_fname = 'combined_2020_dates.csv'
-    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+    csv_output_dir = os.path.join(fdir, 'csv_collection')
+    output_fname = 'combined_2020_dates.csv'
+    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()

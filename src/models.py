@@ -495,25 +495,40 @@ def training_data_load(fdir, data_fname, sfc_type=0):
     # We transform everything to a Normal distribution to help the Transformer converge
     features = ['o2a_k1', 'o2a_k2', 'wco2_k1', 'wco2_k2', 'sco2_k1', 'sco2_k2',
                 'mu_sza', 'mu_vza', 
-                'sin_raa', 'cos_raa', 'cos_theta', 'Phi_cos_theta', 'R_rs_factor', 
-                'cos_glint_angle', 'glint_prox',
+                # 'sin_raa', 'cos_raa', 
+                # 'cos_theta', 
+                'Phi_cos_theta', 
+                # 'R_rs_factor', 
+                'cos_glint_angle', 
+                # 'glint_prox',
                 # 'alt', 'alt_std', 
                 'ws',
-                'log_P', 'airmass', 'dp', 'dp_psfc_ratio', 'dpfrac', 
+                'log_P', 
+                # 'airmass', 
+                'dp', 
+                # 'dp_abp', 
+                # 'dp_psfc_ratio', 
+                'dpfrac', 
                 'h2o_scale', 'delT', 
-                'co2_grad_del', 'alb_o2a', 'alb_wco2',  'alb_sco2', 
-                'fs_rel_0', 
+                'co2_grad_del', 
+                'alb_o2a', 
+                # 'alb_wco2', 'alb_sco2', 
+                # 'fs_rel_0', 
                 'co2_ratio_bc', 'h2o_ratio_bc', 
-                'csnr_o2a', 'csnr_wco2', 'csnr_sco2', 'dp_abp', 
-                'h_cont_o2a', 'h_cont_wco2',  'h_cont_sco2', 
-                'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2', 
+                # 'csnr_o2a', 'csnr_wco2', 'csnr_sco2', 
+                'h_cont_o2a', 
+                # 'h_cont_wco2', 
+                'h_cont_sco2', 
+                # 'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2', 
                 'xco2_strong_idp', 'xco2_weak_idp', 
                 'aod_total', 
                 # 'aod_bc', 'aod_dust', 'aod_ice', 'aod_water', 
                 # 'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate', 'dws', 
                 # 'dust_height', 'ice_height', 'water_height',
-                'snr_o2a', 'snr_wco2', 'snr_sco2', 'pol_ang_rad', 
-                's31', 's32', 't700', 'tcwv',
+                # 'snr_o2a', 'snr_wco2', 'snr_sco2', 
+                'pol_ang_rad', 
+                's31', 's32', 
+                # 't700', 'tcwv',
                 ]
     qt = QuantileTransformer(output_distribution='normal', n_quantiles=1000)
     
@@ -712,6 +727,261 @@ def evaluate_model_X_all(model,
     fig.savefig(os.path.join(fig_dir, "pred_vs_true.png"), dpi=150, bbox_inches='tight')
 
 
+def plot_evaluation_by_regime(model, df, qt, features, output_dir):
+    """3×4 evaluation plot matching mlp_lr_models.py lines 734-822.
+
+    Row structure (mirrors mlp_lr_models.py lines 706-721):
+        0 – Clear-sky FPs (cld_dist > 10 km), valid anomaly   [anomaly_label=True]
+        1 – Cloud-affected FPs (cld_dist ≤ 10 km), valid anomaly [anomaly_label=True]
+        2 – Cloud FPs with NaN anomaly (cld_dist ≤ 10 km)       [anomaly_label=False]
+
+    Column structure (FT-Transformer adaptation):
+        0 – Scatter: xco2_orig vs FT q50 direct prediction  (like LR scatter)
+        1 – Scatter: same, colour-coded by uncertainty q95−q05  (FT adaptation of MLP scatter)
+        2 – Distribution of anomaly values: [Original, FT q50]
+        3 – Distribution of XCO2_bc values: [raw xco2_bc, xco2_bc−q50 corrected]
+            (mirrors mlp col-3: raw vs bias-corrected xco2_bc)
+    """
+    df = df.copy()
+
+    # ── Feature matrix (mirrors training_data_load) ────────────────────────────
+    fp_dummies = pd.concat(
+        {f'fp_{i}': (df['fp'] == i).astype(int) for i in range(8)}, axis=1
+    )
+    df = pd.concat([df.reset_index(drop=True), fp_dummies.reset_index(drop=True)], axis=1)
+
+    qt_features = features[:-8]          # non-fp features the QT was fitted on
+    X_all = qt.transform(df[qt_features].to_numpy(dtype=float))
+    for i in range(8):
+        X_all = np.hstack([X_all, df[f'fp_{i}'].values.reshape(-1, 1)])
+
+    # ── Inference ──────────────────────────────────────────────────────────────
+    model.eval()
+    with torch.no_grad():
+        preds = model(torch.tensor(X_all, dtype=torch.float32))
+        q05 = preds[:, 0].numpy()
+        q50 = preds[:, 1].numpy()
+        q95 = preds[:, 2].numpy()
+    uncertainty  = np.clip(q95 - q05, 0, None)
+    true_anomaly = df['xco2_bc_anomaly'].values.astype(float)
+    xco2_bc      = df['xco2_bc'].values.astype(float)
+
+    # ── Recompute anomaly from FT-corrected XCO2 (mirrors mlp_lr_models.py L641-643) ──
+    from mlp_lr_models import compute_xco2_anomaly_date_id
+    _anomaly_args = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
+    xco2_bc_corrected_ft = xco2_bc - q50
+    _req_cols = {'date', 'orbit_id', 'lat', 'cld_dist_km'}
+    if _req_cols.issubset(df.columns):
+        anomaly_ft = compute_xco2_anomaly_date_id(
+            df['date'], df['orbit_id'], df['lat'].values,
+            df['cld_dist_km'].values, xco2_bc_corrected_ft,
+            **_anomaly_args,
+        )
+    else:
+        anomaly_ft = None
+
+    # ── Row masks (mirrors mlp_lr_models.py lines 706-711) ─────────────────────
+    valid_anom = np.isfinite(true_anomaly)
+    if 'cld_dist_km' in df.columns:
+        cd = df['cld_dist_km'].values.astype(float)
+        mask_r0 = valid_anom & (cd > 10)
+        mask_r1 = valid_anom & (cd <= 10)
+        mask_r2 = ~valid_anom & (cd <= 10)
+    else:
+        mask_r0 = valid_anom
+        mask_r1 = np.zeros(len(df), dtype=bool)
+        mask_r2 = ~valid_anom
+
+    # row_configs tuple: (xco2_orig, xco2_orig_bc, xco2_ft, mask, row_label, anomaly_label)
+    #   xco2_orig    – x-axis of scatter / anomaly distribution (anomaly or xco2_bc)
+    #   xco2_orig_bc – raw xco2_bc reference used to build the col-3 corrected distribution
+    #   xco2_ft      – FT direct prediction (q50)
+    #   anomaly_label – True: use anomaly axis labels; False: use xco2_bc labels
+    row_configs = [
+        (true_anomaly, xco2_bc, q50, mask_r0,
+         'Clear-sky FPs (cld_dist > 10 km)', True),
+        (true_anomaly, xco2_bc, q50, mask_r1,
+         'Cloud-affected FPs (cld_dist ≤ 10 km)', True),
+        (xco2_bc,      xco2_bc, q50, mask_r2,
+         'Cloud FPs with NaN anomaly (cld_dist ≤ 10 km)', False),
+    ]
+
+    # ── Figure ─────────────────────────────────────────────────────────────────
+    plt.close('all')
+    fig, axes = plt.subplots(3, 4, figsize=(22, 17))
+
+    for row_i, (xco2_orig, xco2_orig_bc, xco2_ft, mask, row_label, anomaly_label) in enumerate(row_configs):
+        ax_sc1, ax_sc2, ax_h, ax_h2 = axes[row_i]
+
+        x_orig = xco2_orig[mask]
+        x_bc   = xco2_orig_bc[mask]
+        x_ft   = xco2_ft[mask]
+        unc    = uncertainty[mask]
+
+        _lo = np.nanpercentile(x_orig[np.isfinite(x_orig)], 1)  if np.isfinite(x_orig).any() else -3.0
+        _hi = np.nanpercentile(x_orig[np.isfinite(x_orig)], 99) if np.isfinite(x_orig).any() else  3.0
+
+        # ── Cols 0 & 1: Scatter (hidden for row 2 where x_orig == x_bc) ─────────
+        if not (x_orig == x_bc).all():
+            v = np.isfinite(x_orig) & np.isfinite(x_ft)
+
+            # Col 0: plain scatter — like LR scatter in mlp
+            ax_sc1.scatter(x_orig[v], x_ft[v], c='orange', edgecolor=None, s=5, alpha=0.6)
+            ax_sc1.set_xlim(_lo, _hi); ax_sc1.set_ylim(_lo, _hi)
+            ax_sc1.set_aspect('equal', adjustable='box')
+            ax_sc1.axline((_lo, _lo), slope=1, color='r', linestyle='--')
+            if anomaly_label:
+                ax_sc1.set_xlabel('Original XCO2_bc anomaly (ppm)')
+                ax_sc1.set_ylabel('FT-corrected XCO2_bc anomaly (ppm)')
+            else:
+                ax_sc1.set_xlabel('Original XCO2_bc (ppm)')
+                ax_sc1.set_ylabel('FT-corrected XCO2_bc (ppm)')
+            ax_sc1.set_title(f'{row_label}\n[FT scatter]')
+            if v.sum() > 1:
+                r2 = 1 - np.nansum((x_orig[v] - x_ft[v])**2) / \
+                         np.nansum((x_orig[v] - np.nanmean(x_orig[v]))**2)
+                ax_sc1.text(0.05, 0.95, f'R²={r2:.3f}', transform=ax_sc1.transAxes, va='top')
+
+            # Col 1: scatter coloured by uncertainty — FT adaptation of MLP scatter
+            unc_v    = unc[v]
+            vmin_unc = max(np.nanpercentile(unc_v, 5), 1e-4)
+            vmax_unc = np.nanpercentile(unc_v, 95)
+            sc = ax_sc2.scatter(x_orig[v], x_ft[v], c=unc_v, cmap='plasma',
+                                vmin=vmin_unc, vmax=vmax_unc,
+                                edgecolor=None, s=5, alpha=0.6)
+            ax_sc2.set_xlim(_lo, _hi); ax_sc2.set_ylim(_lo, _hi)
+            ax_sc2.set_aspect('equal', adjustable='box')
+            ax_sc2.axline((_lo, _lo), slope=1, color='r', linestyle='--')
+            if anomaly_label:
+                ax_sc2.set_xlabel('Original XCO2_bc anomaly (ppm)')
+                ax_sc2.set_ylabel('FT-corrected XCO2_bc anomaly (ppm)')
+            else:
+                ax_sc2.set_xlabel('Original XCO2_bc (ppm)')
+                ax_sc2.set_ylabel('FT-corrected XCO2_bc (ppm)')
+            ax_sc2.set_title(f'{row_label}\n[FT scatter, colour = q95−q05]')
+            fig.colorbar(sc, ax=ax_sc2, label='q95−q05 (ppm)', pad=0.02)
+            if v.sum() > 1:
+                ax_sc2.text(0.05, 0.95, f'R²={r2:.3f}', transform=ax_sc2.transAxes, va='top')
+        else:
+            ax_sc1.set_visible(False)
+            ax_sc2.set_visible(False)
+
+        # ── Cols 2 & 3: Distribution histograms (mirrors mlp_lr_models.py L776-813) ──
+        # Items: (prediction_array, xco2_bc_ref, colour, label)
+        #   xco2_bc_ref is used to: (a) detect if col-2 hist should show, and
+        #                           (b) build col-3 corrected xco2_bc = xco2_bc_ref − pred
+        items = [
+            (x_orig, x_bc, 'blue',   'Original'),
+            (x_ft,   x_bc, 'orange', 'FT-corrected'),
+        ]
+
+        for _xco2, _xco2_bc, _color, _label in items:
+            _v  = _xco2[np.isfinite(_xco2)]
+            _v2 = _xco2_bc[np.isfinite(_xco2)]
+            if len(_v) == 0:
+                continue
+
+            # Col 2: anomaly distribution — skip if _v == _v2 (e.g. row-3 Original)
+            if len(_v2) > 0 and not (_v == _v2).all():
+                _mu, _sigma = _v.mean(), _v.std()
+                _bins = np.linspace(np.nanpercentile(_v, 1), np.nanpercentile(_v, 99), 100)
+                ax_h.hist(_v, bins=_bins, color=_color, alpha=0.6, density=True,
+                          label=f'{_label}\nμ={_mu:.3f}, σ={_sigma:.3f}')
+                ax_h.axvline(_mu,          color=_color, linestyle='-',  linewidth=1.2)
+                ax_h.axvline(_mu - _sigma, color=_color, linestyle=':',  linewidth=0.9)
+                ax_h.axvline(_mu + _sigma, color=_color, linestyle=':',  linewidth=0.9)
+
+            # Col 3: xco2_bc distribution — raw for Original, corrected (xco2_bc − pred) for others
+            if _label != 'Original':
+                _v2 = _v2 - _v   # corrected xco2_bc = raw − predicted_anomaly
+            _mu2, _sigma2 = _v2.mean(), _v2.std()
+            _bins2 = np.linspace(np.nanpercentile(_v2, 1), np.nanpercentile(_v2, 99), 100)
+            ax_h2.hist(_v2, bins=_bins2, color=_color, alpha=0.3, density=True,
+                       label=f'{_label}\nμ={_mu2:.3f}, σ={_sigma2:.3f}')
+            ax_h2.axvline(_mu2,           color=_color, linestyle='-',  linewidth=1.0)
+            ax_h2.axvline(_mu2 - _sigma2, color=_color, linestyle=':',  linewidth=0.8)
+            ax_h2.axvline(_mu2 + _sigma2, color=_color, linestyle=':',  linewidth=0.8)
+
+        ax_h.set_title(f'{row_label}\n[Distribution]')
+        ax_h.set_xlabel('XCO2_bc anomaly (ppm)')
+        ax_h.legend(fontsize=10)
+        ax_h2.set_title(f'{row_label}\n[Distribution]')
+        ax_h2.set_xlabel('XCO2_bc (ppm)')
+        ax_h2.legend(fontsize=10)
+
+    fig.suptitle('FT-Transformer XCO2_bc by cloud-distance regime', fontsize=13, y=1.01)
+    fig.tight_layout()
+    fig.savefig(os.path.join(output_dir, 'ft_evaluation_by_regime.png'),
+                dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    logger.info("Saved ft_evaluation_by_regime.png")
+
+    # ── 1×3 recomputed-anomaly comparison (mirrors mlp_lr_models.py L646-701) ──
+    if anomaly_ft is None:
+        return
+
+    anomaly_orig = true_anomaly   # full-dataset original anomaly
+
+    plt.close('all')
+    fig2, (ax_sc1, ax_sc2, ax_hist) = plt.subplots(1, 3, figsize=(18, 6))
+
+    # Panel 0: scatter original vs FT-recomputed anomaly (like LR scatter)
+    valid = np.isfinite(anomaly_orig) & np.isfinite(anomaly_ft)
+    ax_sc1.scatter(anomaly_orig[valid], anomaly_ft[valid],
+                   c='orange', edgecolor=None, s=5, alpha=0.6)
+    _lim = np.nanpercentile(np.abs(anomaly_orig[valid]), 99)
+    ax_sc1.set_xlim(-_lim, _lim); ax_sc1.set_ylim(-_lim, _lim)
+    ax_sc1.set_aspect('equal', adjustable='box')
+    ax_sc1.axline((0, 0), slope=1, color='r', linestyle='--')
+    ax_sc1.set_xlabel('Original XCO2_bc anomaly (ppm)')
+    ax_sc1.set_ylabel('FT-recomputed XCO2_bc anomaly (ppm)')
+    ax_sc1.set_title('Original vs FT-recomputed anomaly')
+    r2_ft = 1 - np.nansum((anomaly_orig[valid] - anomaly_ft[valid])**2) / \
+                np.nansum((anomaly_orig[valid] - np.nanmean(anomaly_orig[valid]))**2)
+    ax_sc1.text(0.05, 0.95, f'R²={r2_ft:.3f}', transform=ax_sc1.transAxes, va='top')
+
+    # Panel 1: scatter coloured by uncertainty (FT adaptation of MLP scatter)
+    unc_valid = uncertainty[valid]
+    vmin_u = max(np.nanpercentile(unc_valid, 5), 1e-4)
+    vmax_u = np.nanpercentile(unc_valid, 95)
+    sc = ax_sc2.scatter(anomaly_orig[valid], anomaly_ft[valid],
+                        c=unc_valid, cmap='plasma', vmin=vmin_u, vmax=vmax_u,
+                        edgecolor=None, s=5, alpha=0.6)
+    ax_sc2.set_xlim(-_lim, _lim); ax_sc2.set_ylim(-_lim, _lim)
+    ax_sc2.set_aspect('equal', adjustable='box')
+    ax_sc2.axline((0, 0), slope=1, color='r', linestyle='--')
+    ax_sc2.set_xlabel('Original XCO2_bc anomaly (ppm)')
+    ax_sc2.set_ylabel('FT-recomputed XCO2_bc anomaly (ppm)')
+    ax_sc2.set_title('Original vs FT-recomputed anomaly\n(colour = q95−q05 uncertainty)')
+    fig2.colorbar(sc, ax=ax_sc2, label='q95−q05 (ppm)', pad=0.02)
+    ax_sc2.text(0.05, 0.95, f'R²={r2_ft:.3f}', transform=ax_sc2.transAxes, va='top')
+
+    # Panel 2: distribution histogram (mirrors mlp L678-695)
+    _bins = np.linspace(-3, 3, 211)
+    for _anom, _color, _label in [
+            (anomaly_orig, 'blue',   'Original'),
+            (anomaly_ft,   'orange', 'FT-recomputed'),
+    ]:
+        _v = _anom[np.isfinite(_anom)]
+        _mu, _sigma = np.nanmean(_v), np.nanstd(_v)
+        ax_hist.hist(_v, bins=_bins, color=_color, alpha=0.6, density=True,
+                     label=f'{_label}\nμ={_mu:.3f}, σ={_sigma:.3f}')
+        ax_hist.axvline(_mu,          color=_color, linestyle='-',  linewidth=1.2)
+        ax_hist.axvline(_mu - _sigma, color=_color, linestyle=':',  linewidth=0.9)
+        ax_hist.axvline(_mu + _sigma, color=_color, linestyle=':',  linewidth=0.9)
+
+    ax_hist.set_xlabel('XCO2_bc anomaly (ppm)')
+    ax_hist.set_title('Anomaly distribution comparison')
+    ax_hist.axvline(0, color='k', linestyle='--', linewidth=0.8)
+    ax_hist.legend(fontsize=10)
+
+    fig2.tight_layout()
+    fig2.savefig(os.path.join(output_dir, 'ft_recomputed_anomaly_comparison.png'),
+                 dpi=150, bbox_inches='tight')
+    plt.close(fig2)
+    logger.info("Saved ft_recomputed_anomaly_comparison.png")
+
+
 # ─── Main analysis entry point ─────────────────────────────────────────────────
 def main():
     storage_dir = get_storage_dir()
@@ -769,8 +1039,14 @@ def main():
     plot_attention_map(model, sample_batch, features, output_dir)
 
     evaluate_model_X_text(model, X_test, y_test, fig_dir=output_dir)
-    
-    
+
+    # ── Evaluate: 3×4 regime comparison plot (mirrors mlp_lr_models.py) ────────
+    df_eval = pd.read_csv(os.path.join(fdir, data_name))
+    df_eval = df_eval[df_eval['sfc_type'] == 0]
+    df_eval = df_eval[df_eval['snow_flag'] == 0]
+    plot_evaluation_by_regime(model, df_eval, qt, features, str(output_dir))
+
+
 
 if __name__ == "__main__":
     main()
