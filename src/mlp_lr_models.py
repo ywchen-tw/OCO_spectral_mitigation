@@ -124,8 +124,8 @@ def main():
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    sfc_type = 0  # Ocean only for now
-    # sfc_type = 1  # Land only for now
+    # sfc_type = 0  # Ocean only for now
+    sfc_type = 1  # Land only for now
     
     # Load and preprocess the entire data set (same as in training_data_load)
     data_path = os.path.join(fdir, data_name)

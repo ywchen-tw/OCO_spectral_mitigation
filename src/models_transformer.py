@@ -1143,7 +1143,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     X_train, X_test, y_train, y_test, features, qt = training_data_load(
-        fdir, data_name, sfc_type=0
+        fdir, data_name, sfc_type=1
     )
     # sys.exit()
     
