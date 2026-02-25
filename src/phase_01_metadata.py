@@ -15,6 +15,7 @@ Key Functions:
 import requests
 import xml.etree.ElementTree as ET
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
@@ -90,7 +91,36 @@ class OCO2MetadataRetriever:
             logger.info("Authentication initialized")
         else:
             logger.warning("No credentials provided. Some features may be unavailable.")
-    
+
+    def _get_with_retry(self, url: str, timeout: int = 30,
+                        max_retries: int = 4, backoff_base: float = 2.0) -> requests.Response:
+        """GET with exponential backoff, retrying on 5xx or connection errors.
+
+        Waits backoff_base^attempt seconds between retries (2, 4, 8, 16 s).
+        Raises the last exception if all retries are exhausted.
+        """
+        last_exc: Optional[Exception] = None
+        for attempt in range(max_retries):
+            try:
+                resp = self.session.get(url, timeout=timeout)
+                if resp.status_code < 500:
+                    resp.raise_for_status()   # let 4xx propagate immediately
+                    return resp
+                # 5xx: log and retry
+                logger.warning("GES DISC returned %d for %s (attempt %d/%d) — retrying in %.0fs",
+                               resp.status_code, url, attempt + 1, max_retries,
+                               backoff_base ** attempt)
+            except requests.RequestException as exc:
+                logger.warning("Request error for %s (attempt %d/%d): %s",
+                               url, attempt + 1, max_retries, exc)
+                last_exc = exc
+            time.sleep(backoff_base ** attempt)
+        # All retries exhausted — raise so the caller can decide what to do
+        if last_exc:
+            raise last_exc
+        resp.raise_for_status()
+        return resp
+
     def _get_collection_version(self, target_date: datetime) -> str:
         """
         Get the appropriate collection version based on the date.
@@ -224,9 +254,12 @@ class OCO2MetadataRetriever:
 
         logger.info(f"Querying CMR for OCO-2 L1B data on {target_date.date()} "
                     f"(short_name=OCO2_L1B_Science, version={version})")
-        
+
         try:
-            response = self.session.get(self.CMR_SEARCH_URL, params=params, timeout=10)
+            # CMR search is a public endpoint — do NOT send Basic Auth credentials
+            # (session.auth is for GES DISC downloads only; CMR rejects Basic Auth
+            # with 401 and requires either no auth or a Bearer token for this endpoint).
+            response = requests.get(self.CMR_SEARCH_URL, params=params, timeout=30)
             response.raise_for_status()
             
             logger.info(f"Successfully retrieved CMR metadata ({len(response.text)} bytes)")
