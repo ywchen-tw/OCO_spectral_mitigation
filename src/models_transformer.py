@@ -1032,13 +1032,13 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
 
 # ─── Permutation importance ────────────────────────────────────────────────────
 def plot_permutation_importance(model, X_test, y_test, features, output_dir,
-                                n_repeats=5, subsample=3000, batch_size=4096):
+                                n_repeats=5, subsample=1000, batch_size=256):
     """Permutation importance for the FT-Transformer (q50 head).
 
-    For each feature in turn, shuffles that column of X_test and records the
-    drop in R² relative to the baseline.  Repeats `n_repeats` times and
-    averages.  A sub-sample of `subsample` rows is used so the O(n_feat ×
-    n_repeats) inference passes stay fast.
+    For each feature in turn, shuffles that column of X_sub **in-place**
+    (restoring it afterward) so no full-array copy is needed per iteration —
+    only a single column (shape [n]) is duplicated.  `batch_size` is kept
+    small to bound the peak attention-tensor memory [batch, n_feat, n_feat].
 
     Outputs
     -------
@@ -1052,37 +1052,43 @@ def plot_permutation_importance(model, X_test, y_test, features, output_dir,
     # ── Sub-sample ──────────────────────────────────────────────────────────────
     n = min(subsample, len(X_test))
     idx = rng.choice(len(X_test), size=n, replace=False)
-    X_sub = X_test[idx].astype(np.float32)
+    # C-contiguous float32 so torch.tensor() gets a zero-copy view later
+    X_sub = np.ascontiguousarray(X_test[idx], dtype=np.float32)
     y_sub = y_test[idx].astype(np.float32)
 
     def _predict_q50(X_np):
-        """Batched inference → q50 predictions (numpy, ppm)."""
+        """Batched inference → q50 predictions (numpy).  Small batch_size
+        keeps intermediate attention tensors [batch, n_feat, n_feat] small."""
         out = []
         for start in range(0, len(X_np), batch_size):
             Xb = torch.tensor(X_np[start:start + batch_size], dtype=torch.float32)
             with torch.no_grad():
-                preds = model(Xb)   # [batch, 3]
-            out.append(preds[:, 1].numpy())   # q50
+                preds = model(Xb)          # [batch, 3]
+            out.append(preds[:, 1].numpy())  # q50
+            del Xb, preds
         return np.concatenate(out)
 
     # ── Baseline R² ─────────────────────────────────────────────────────────────
-    y_base = _predict_q50(X_sub)
-    ss_tot     = ((y_sub - y_sub.mean()) ** 2).sum()
-    baseline_r2 = 1.0 - ((y_sub - y_base) ** 2).sum() / ss_tot
+    y_base      = _predict_q50(X_sub)
+    ss_tot      = float(((y_sub - y_sub.mean()) ** 2).sum())
+    baseline_r2 = 1.0 - float(((y_sub - y_base) ** 2).sum()) / ss_tot
     logger.info("Permutation importance baseline R²: %.4f", baseline_r2)
 
-    # ── Per-feature importance ───────────────────────────────────────────────────
+    # ── Per-feature importance — in-place column swap ───────────────────────────
     importances = np.zeros((len(features), n_repeats))
     rng_inner   = np.random.default_rng(0)
 
     for col, fname in enumerate(tqdm(features, desc="Permutation importance", unit="feat")):
+        orig_col = X_sub[:, col].copy()      # save one column only (n floats)
         for r in range(n_repeats):
-            X_shuf         = X_sub.copy()
-            X_shuf[:, col] = rng_inner.permutation(X_shuf[:, col])
-            y_shuf         = _predict_q50(X_shuf)
-            r2_shuf        = 1.0 - ((y_sub - y_shuf) ** 2).sum() / ss_tot
+            X_sub[:, col] = rng_inner.permutation(orig_col)   # shuffle in-place
+            y_shuf        = _predict_q50(X_sub)
+            r2_shuf       = 1.0 - float(((y_sub - y_shuf) ** 2).sum()) / ss_tot
             importances[col, r] = baseline_r2 - r2_shuf
-            del X_shuf
+            del y_shuf
+        X_sub[:, col] = orig_col             # restore column
+        del orig_col
+        gc.collect()
 
     mean_imp = importances.mean(axis=1)
     std_imp  = importances.std(axis=1)
