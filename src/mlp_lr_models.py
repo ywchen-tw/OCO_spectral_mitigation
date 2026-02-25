@@ -387,141 +387,150 @@ def mitigation_test(df, output_dir, test_csv=None):
                 x = block(x)
             return self.head(x).squeeze(-1)
 
-    train_ds   = torch.utils.data.TensorDataset(
-        torch.tensor(X_train,   dtype=torch.float32),
-        torch.tensor(y_train_n, dtype=torch.float32),
-    )
-    # Larger batch size for full dataset efficiency; 512 is fine for the local subset too
-    train_loader = torch.utils.data.DataLoader(train_ds, batch_size=1024, shuffle=True)
-
-    # Val loss uses batched inference to keep peak memory bounded on the 76K-sample test set
-    def _val_loss(model_):
-        model_.eval()
-        total, n = 0.0, 0
-        with torch.no_grad():
-            for start in range(0, len(X_test), 4096):
-                Xb = torch.tensor(X_test[start:start + 4096], dtype=torch.float32).to(device)
-                yb = torch.tensor(y_test_n[start:start + 4096], dtype=torch.float32).to(device)
-                total += nn.functional.huber_loss(model_(Xb), yb, delta=1.0).item() * len(Xb)
-                n += len(Xb)
-                del Xb, yb
-        return total / n
-
+    # ── Device selection (shared by both checkpoint-load and training paths) ──
     device = torch.device(
         'cuda' if torch.cuda.is_available() else
         'mps'  if torch.backends.mps.is_available() else
         'cpu'
     )
-    print(f"  Training device: {device}", flush=True)
+    print(f"  Device: {device}", flush=True)
 
-    mlp      = _MLP(n_in).to(device)
-    n_params = sum(p.numel() for p in mlp.parameters() if p.requires_grad)
-    print(f"  MLP parameters: {n_params:,}  |  train samples: {len(X_train):,}  "
-          f"|  ratio: {len(X_train)/n_params:.2f}", flush=True)
-
-    optimizer = torch.optim.AdamW(mlp.parameters(), lr=3e-4, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=150, eta_min=1e-6)
-
-    train_losses, val_losses = [], []
-    best_val_loss, best_state, patience, no_improve = float('inf'), None, 30, 0
-    epoch_bar = tqdm(range(500), desc="MLP training", unit="epoch")
-    for epoch in epoch_bar:
-        mlp.train()
-        train_loss = 0.0
-        for bx, by in train_loader:
-            bx, by = bx.to(device), by.to(device)
-            optimizer.zero_grad()
-            loss = nn.functional.huber_loss(mlp(bx), by, delta=1.0)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(mlp.parameters(), max_norm=1.0)
-            optimizer.step()
-            train_loss += loss.item()
-        scheduler.step()
-        train_loss /= len(train_loader)
-
-        val_loss = _val_loss(mlp)
-
-        train_losses.append(train_loss)
-        val_losses.append(val_loss)
-
-        improved = val_loss < best_val_loss
-        if improved:
-            best_val_loss = val_loss
-            best_state    = copy.deepcopy(mlp.state_dict())
-            no_improve    = 0
-        else:
-            no_improve += 1
-
-        epoch_bar.set_postfix(
-            train=f"{train_loss:.4f}",
-            val=f"{val_loss:.4f}",
-            best=f"{best_val_loss:.4f}",
-            patience=f"{no_improve}/{patience}",
-            saved="✓" if improved else "",
-        )
-
-        if no_improve >= patience:
-            tqdm.write(f"  Early stop at epoch {epoch} (best val={best_val_loss:.4f})")
-            break
-
-    # ── Learning curve: train vs val loss ──────────────────────────
-    fig_lc, ax_lc = plt.subplots(figsize=(8, 4))
-    epochs_ran = range(1, len(train_losses) + 1)
-    ax_lc.plot(epochs_ran, train_losses, label='Train (Huber)', color='steelblue')
-    ax_lc.plot(epochs_ran, val_losses,   label='Val   (Huber)', color='tomato')
-    best_ep = int(np.argmin(val_losses)) + 1
-    ax_lc.axvline(best_ep, color='gray', linestyle='--', linewidth=0.8,
-                  label=f'Best val epoch {best_ep}')
-    ax_lc.set_xlabel('Epoch')
-    ax_lc.set_ylabel('Huber loss (normalised target)')
-    ax_lc.set_title('MLP Learning Curve — train vs validation')
-    ax_lc.legend()
-    fig_lc.tight_layout()
-    fig_lc.savefig(os.path.join(output_dir, 'mlp_learning_curve.png'), dpi=150, bbox_inches='tight')
-    plt.close(fig_lc)
-    gap = val_losses[best_ep - 1] - train_losses[best_ep - 1]
-    print(f"  Best epoch {best_ep}: train={train_losses[best_ep-1]:.4f}  "
-          f"val={val_losses[best_ep-1]:.4f}  gap={gap:.4f}", flush=True)
-
-    mlp.load_state_dict(best_state)
-    mlp.eval()
-
-    # ── Save model artifacts ────────────────────────────────────────────────
-    # Everything needed to apply both models to new data:
-    #   model_artifacts.pkl  — Ridge model, QuantileTransformer, feature lists,
-    #                          MLP architecture params, target normalisation stats
-    #   mlp_state_dict.pt    — MLP weights (CPU copy, device-agnostic)
-    artifacts = {
-        # Ridge regression (sklearn): contains coef_, intercept_, alpha, etc.
-        'ridge': model,
-        # Preprocessing
-        'qt': qt,                   # fitted QuantileTransformer (continuous features)
-        'features': features,       # ordered full feature list (qt_features + fp_cols)
-        'qt_features': qt_features, # continuous features passed through qt
-        'fp_cols': fp_cols,         # one-hot footprint columns appended raw
-        # MLP target normalisation  (y_pred_raw * y_std + y_mean → ppm)
-        'y_mean': y_mean,
-        'y_std': y_std,
-        # MLP architecture — must match _MLP.__init__ defaults used at training time
-        'mlp_n_in': n_in,
-        'mlp_d_model': 256,
-        'mlp_n_blocks': 4,
-        'mlp_dropout': 0.2,
-    }
     artifacts_path = os.path.join(output_dir, 'model_artifacts.pkl')
-    with open(artifacts_path, 'wb') as _f:
-        pickle.dump(artifacts, _f)
+    mlp_path       = os.path.join(output_dir, 'mlp_state_dict.pt')
 
-    mlp_path = os.path.join(output_dir, 'mlp_state_dict.pt')
-    torch.save(mlp.cpu().state_dict(), mlp_path)
-    mlp.to(device)   # restore to training device for inference below
+    train_ds = train_loader = best_state = None  # initialised here; set inside else-branch if training runs
 
-    print(f"  Saved artifacts  → {artifacts_path}", flush=True)
-    print(f"  Saved MLP weights → {mlp_path}", flush=True)
-    # ── end save ───────────────────────────────────────────────────────────
+    if os.path.exists(artifacts_path) and os.path.exists(mlp_path):
+        # ── Load from checkpoint, skip training ───────────────────────────
+        print(f"  [checkpoint] Found existing MLP weights → {mlp_path}", flush=True)
+        mlp = _MLP(n_in).to(device)
+        mlp.load_state_dict(torch.load(mlp_path, map_location=device))
+        mlp.eval()
+        print("  [checkpoint] Loaded. Skipping MLP training.", flush=True)
+        _mlp_from_ckpt = True
+    else:
+        _mlp_from_ckpt = False
+        train_ds   = torch.utils.data.TensorDataset(
+            torch.tensor(X_train,   dtype=torch.float32),
+            torch.tensor(y_train_n, dtype=torch.float32),
+        )
+        # Larger batch size for full dataset efficiency; 512 is fine for the local subset too
+        train_loader = torch.utils.data.DataLoader(train_ds, batch_size=1024, shuffle=True)
+
+        # Val loss uses batched inference to keep peak memory bounded on the 76K-sample test set
+        def _val_loss(model_):
+            model_.eval()
+            total, n = 0.0, 0
+            with torch.no_grad():
+                for start in range(0, len(X_test), 4096):
+                    Xb = torch.tensor(X_test[start:start + 4096], dtype=torch.float32).to(device)
+                    yb = torch.tensor(y_test_n[start:start + 4096], dtype=torch.float32).to(device)
+                    total += nn.functional.huber_loss(model_(Xb), yb, delta=1.0).item() * len(Xb)
+                    n += len(Xb)
+                    del Xb, yb
+            return total / n
+
+        mlp      = _MLP(n_in).to(device)
+        n_params = sum(p.numel() for p in mlp.parameters() if p.requires_grad)
+        print(f"  MLP parameters: {n_params:,}  |  train samples: {len(X_train):,}  "
+              f"|  ratio: {len(X_train)/n_params:.2f}", flush=True)
+
+        optimizer = torch.optim.AdamW(mlp.parameters(), lr=3e-4, weight_decay=1e-4)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=150, eta_min=1e-6)
+
+        train_losses, val_losses = [], []
+        best_val_loss, best_state, patience, no_improve = float('inf'), None, 30, 0
+        epoch_bar = tqdm(range(500), desc="MLP training", unit="epoch")
+        for epoch in epoch_bar:
+            mlp.train()
+            train_loss = 0.0
+            for bx, by in train_loader:
+                bx, by = bx.to(device), by.to(device)
+                optimizer.zero_grad()
+                loss = nn.functional.huber_loss(mlp(bx), by, delta=1.0)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(mlp.parameters(), max_norm=1.0)
+                optimizer.step()
+                train_loss += loss.item()
+            scheduler.step()
+            train_loss /= len(train_loader)
+
+            val_loss = _val_loss(mlp)
+
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+
+            improved = val_loss < best_val_loss
+            if improved:
+                best_val_loss = val_loss
+                best_state    = copy.deepcopy(mlp.state_dict())
+                no_improve    = 0
+            else:
+                no_improve += 1
+
+            epoch_bar.set_postfix(
+                train=f"{train_loss:.4f}",
+                val=f"{val_loss:.4f}",
+                best=f"{best_val_loss:.4f}",
+                patience=f"{no_improve}/{patience}",
+                saved="✓" if improved else "",
+            )
+
+            if no_improve >= patience:
+                tqdm.write(f"  Early stop at epoch {epoch} (best val={best_val_loss:.4f})")
+                break
+
+        # ── Learning curve: train vs val loss ──────────────────────────
+        fig_lc, ax_lc = plt.subplots(figsize=(8, 4))
+        epochs_ran = range(1, len(train_losses) + 1)
+        ax_lc.plot(epochs_ran, train_losses, label='Train (Huber)', color='steelblue')
+        ax_lc.plot(epochs_ran, val_losses,   label='Val   (Huber)', color='tomato')
+        best_ep = int(np.argmin(val_losses)) + 1
+        ax_lc.axvline(best_ep, color='gray', linestyle='--', linewidth=0.8,
+                      label=f'Best val epoch {best_ep}')
+        ax_lc.set_xlabel('Epoch')
+        ax_lc.set_ylabel('Huber loss (normalised target)')
+        ax_lc.set_title('MLP Learning Curve — train vs validation')
+        ax_lc.legend()
+        fig_lc.tight_layout()
+        fig_lc.savefig(os.path.join(output_dir, 'mlp_learning_curve.png'), dpi=150, bbox_inches='tight')
+        plt.close(fig_lc)
+        gap = val_losses[best_ep - 1] - train_losses[best_ep - 1]
+        print(f"  Best epoch {best_ep}: train={train_losses[best_ep-1]:.4f}  "
+              f"val={val_losses[best_ep-1]:.4f}  gap={gap:.4f}", flush=True)
+
+        mlp.load_state_dict(best_state)
+        mlp.eval()
+
+        # ── Save model artifacts ──────────────────────────────────────────────
+        # Everything needed to apply both models to new data:
+        #   model_artifacts.pkl  — Ridge model, QuantileTransformer, feature lists,
+        #                          MLP architecture params, target normalisation stats
+        #   mlp_state_dict.pt    — MLP weights (CPU copy, device-agnostic)
+        artifacts = {
+            'ridge': model,
+            'qt': qt,
+            'features': features,
+            'qt_features': qt_features,
+            'fp_cols': fp_cols,
+            'y_mean': y_mean,
+            'y_std': y_std,
+            'mlp_n_in': n_in,
+            'mlp_d_model': 256,
+            'mlp_n_blocks': 4,
+            'mlp_dropout': 0.2,
+        }
+        with open(artifacts_path, 'wb') as _f:
+            pickle.dump(artifacts, _f)
+        torch.save(mlp.cpu().state_dict(), mlp_path)
+        mlp.to(device)   # restore to device for inference below
+        print(f"  Saved artifacts   → {artifacts_path}", flush=True)
+        print(f"  Saved MLP weights → {mlp_path}", flush=True)
+        # ── end save ─────────────────────────────────────────────────────────
 
     # Free training allocations before any full-dataset inference
-    del train_ds, train_loader, best_state
+    if not _mlp_from_ckpt:
+        del train_ds, train_loader, best_state
     gc.collect()
     _checkpoint("after MLP training  (post-gc)")
 
