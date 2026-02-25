@@ -186,29 +186,26 @@ class OCO2MetadataRetriever:
         xml_files = []
         
         try:
-            # Try to list directory contents
-            response = self.session.get(directory_url, timeout=10)
-            response.raise_for_status()
-            
+            # Try to list directory contents (retry on transient 5xx)
+            response = self._get_with_retry(directory_url)
+
             # Parse HTML directory listing to find .xml files
             xml_pattern = r'href=["\']?([^"\'>\s]*\.xml)["\']?'
             matches = re.findall(xml_pattern, response.text, re.IGNORECASE)
             # Remove duplicates and ensure full URLs with sorrting
             matches = list(sorted(set(matches)))
-            
+
             for xml_filename in matches:
                 try:
                     xml_url = directory_url.rstrip('/') + '/' + xml_filename.strip('/')
                     logger.debug(f"Fetching: {xml_url}")
-                    
-                    xml_response = self.session.get(xml_url, timeout=10)
-                    xml_response.raise_for_status()
-                    
+
+                    xml_response = self._get_with_retry(xml_url)
                     xml_files.append(xml_response.text)
                     logger.debug(f"Retrieved {xml_filename} ({len(xml_response.text)} bytes)")
-                    
+
                 except requests.RequestException as e:
-                    logger.warning(f"Failed to fetch {xml_filename}: {e}")
+                    logger.warning(f"Failed to fetch {xml_filename} after retries: {e}")
                     continue
             
             if xml_files:
