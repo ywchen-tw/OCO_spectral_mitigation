@@ -1,3 +1,4 @@
+import argparse
 import h5py
 import numpy as np
 import pandas as pd
@@ -473,6 +474,53 @@ def plot_attention_map(model, sample_batch, feature_names, output_dir, top_k=20)
     plt.close(fig)
     logger.info("Saved attention_per_head.png")
 
+    # ── Plot 4: All-features importance bar chart ────────────────────────────
+    all_idx   = np.argsort(importance)[::-1]
+    all_names = [feature_names[i] for i in all_idx]
+    all_vals  = importance[all_idx]
+    n_feat    = len(feature_names)
+
+    fig_h = max(6, n_feat * 0.28)
+    fig, ax = plt.subplots(figsize=(8, fig_h))
+    bar_colors = plt.cm.viridis(np.linspace(0.2, 0.85, n_feat))
+    ax.barh(range(n_feat), all_vals[::-1], color=bar_colors)
+    ax.set_yticks(range(n_feat))
+    ax.set_yticklabels(all_names[::-1], fontsize=7)
+    ax.set_xlabel("Summed Attention Weight (column sum across all queries)")
+    ax.set_title(
+        f"All {n_feat} Features by Received Attention\n"
+        f"(avg over {n_samples} samples, last layer, heads averaged)"
+    )
+    plt.tight_layout()
+    fig.savefig(os.path.join(output_dir, "attention_all_features_bar.png"), dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    logger.info("Saved attention_all_features_bar.png")
+
+    # ── Plot 5: Full n×n attention heatmap for all features ──────────────────
+    sorted_names = all_names  # already sorted by descending importance
+    sorted_idx   = all_idx
+
+    attn_sorted = attn_mean[np.ix_(sorted_idx, sorted_idx)]
+
+    fig_size = max(8, n_feat * 0.35)
+    fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+    im = ax.imshow(attn_sorted, cmap='viridis', aspect='auto')
+    plt.colorbar(im, ax=ax, label='Mean Attention Weight', fraction=0.03, pad=0.03)
+    ax.set_xticks(range(n_feat))
+    ax.set_xticklabels(sorted_names, rotation=90, ha='right', fontsize=6)
+    ax.set_yticks(range(n_feat))
+    ax.set_yticklabels(sorted_names, fontsize=6)
+    ax.set_xlabel("Key (Attended-to) Features")
+    ax.set_ylabel("Query Features")
+    ax.set_title(
+        f"Full Feature Attention Map ({n_feat}×{n_feat})\n"
+        f"(features sorted by importance, avg over {n_samples} samples, last layer, heads averaged)"
+    )
+    plt.tight_layout()
+    fig.savefig(os.path.join(output_dir, "attention_all_features_heatmap.png"), dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    logger.info("Saved attention_all_features_heatmap.png")
+
 
 
 def training_data_load(fdir, data_fname, sfc_type=0):
@@ -497,7 +545,7 @@ def training_data_load(fdir, data_fname, sfc_type=0):
                 'mu_sza', 'mu_vza', 
                 # 'sin_raa', 'cos_raa', 
                 # 'cos_theta', 
-                'Phi_cos_theta', 
+                # 'Phi_cos_theta', 
                 # 'R_rs_factor', 
                 'cos_glint_angle', 
                 # 'glint_prox',
@@ -508,7 +556,7 @@ def training_data_load(fdir, data_fname, sfc_type=0):
                 'dp', 
                 # 'dp_abp', 
                 # 'dp_psfc_ratio', 
-                'dpfrac', 
+                # 'dpfrac', 
                 'h2o_scale', 'delT', 
                 'co2_grad_del', 
                 'alb_o2a', 
@@ -984,11 +1032,19 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
 
 # ─── Main analysis entry point ─────────────────────────────────────────────────
 def main():
+    parser = argparse.ArgumentParser(description="FT-Transformer XCO2 bias correction")
+    parser.add_argument('--suffix', type=str, default='',
+                        help='Subfolder name appended to the base output directory '
+                             '(e.g. --suffix v2_reduced).  '
+                             'Creates results/model_ft_transformer/<suffix>/.')
+    args = parser.parse_args()
+
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     data_name = 'combined_2020_dates.csv'
     data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
-    output_dir = storage_dir / 'results/model_ft_transformer'
+    base_dir   = storage_dir / 'results/model_ft_transformer'
+    output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     X_train, X_test, y_train, y_test, features, qt = training_data_load(

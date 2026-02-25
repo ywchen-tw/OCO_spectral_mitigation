@@ -34,34 +34,7 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-# ============================================================================
-# Option 1: Loop with year, month, day (ACTIVE)
-# ============================================================================
-# Specify year, month, and day ranges
-start_year=2021
-end_year=2021
-start_month=4
-end_month=4
-start_day=24
-end_day=24
-
-# Loop through year, month, day
-for year in $(seq $start_year $end_year); do
-    for month in $(seq $start_month $end_month); do
-        for day in $(seq $start_day $end_day); do
-            # Format date as YYYY-MM-DD with zero-padding
-            date=$(printf "%04d-%02d-%02d" $year $month $day)
-            echo "Processing date: $date"
-            python src/oco_fp_spec_anal.py --date "$date" #--delete-ocofiles
-            if [ $? -ne 0 ]; then
-                echo "Failed to process date: $date"
-            else
-                echo "Successfully processed: $date"
-            fi
-            echo ""
-        done
-    done
-done
+python src/mlp_lr_models.py --suffix land_202001
 
 
 

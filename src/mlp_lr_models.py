@@ -1,3 +1,4 @@
+import argparse
 import h5py
 import numpy as np
 import pandas as pd
@@ -108,16 +109,23 @@ def get_storage_dir():
 # ─── Main analysis entry point ─────────────────────────────────────────────────
 
 def main():
-    fdir = '.'
+    parser = argparse.ArgumentParser(description="MLP + Ridge XCO2 bias correction")
+    parser.add_argument('--suffix', type=str, default='',
+                        help='Subfolder name appended to the base output directory '
+                             '(e.g. --suffix v2_reduced).  '
+                             'Creates results/model_mlp_lr/<suffix>/.')
+    args = parser.parse_args()
+
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     data_name = 'combined_2020_dates.csv'
     data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
-    output_dir = storage_dir / 'results/model_mlp_lr'
+    base_dir   = storage_dir / 'results/model_mlp_lr'
+    output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # sfc_type = 0  # Ocean only for now
-    sfc_type = 1  # Land only for now
+    sfc_type = 0  # Ocean only for now
+    # sfc_type = 1  # Land only for now
     
     # Load and preprocess the entire data set (same as in training_data_load)
     data_path = os.path.join(fdir, data_name)
