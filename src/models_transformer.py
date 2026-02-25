@@ -696,7 +696,8 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
                                   features,
                                   output_dir: str = ".",
                                   d_token=128, n_heads=8, n_layers=4, d_ff=256,
-                                  batch_size=64, n_epochs=100):
+                                  batch_size=64, n_epochs=100,
+                                  log_every=10, patience=None):
     train_ds = TensorDataset(
         torch.tensor(X_train, dtype=torch.float32),
         torch.tensor(y_train, dtype=torch.float32),
@@ -712,7 +713,6 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
-    print(f"Training on: {device}")
 
     pin = device.type == "cuda"
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
@@ -726,13 +726,31 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
     q_levels  = [0.05, 0.5, 0.95]
 
-    ckpt_path     = os.path.join(output_dir, "model_best.pt")
-    best_val_loss = float("inf")
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    tqdm.write("=" * 60)
+    tqdm.write("  UncertainFTTransformerRefined — training config")
+    tqdm.write("=" * 60)
+    tqdm.write(f"  Device      : {device}")
+    tqdm.write(f"  Features    : {len(features)}")
+    tqdm.write(f"  d_token     : {d_token}  n_heads: {n_heads}  n_layers: {n_layers}  d_ff: {d_ff}")
+    tqdm.write(f"  Params      : {n_params:,}")
+    tqdm.write(f"  Train size  : {len(train_ds):,}  |  Val size: {len(val_ds):,}")
+    tqdm.write(f"  Batch size  : {batch_size}  |  Epochs: {n_epochs}  |  Log every: {log_every}")
+    tqdm.write(f"  Early stop  : {'disabled (patience=None)' if patience is None else f'patience={patience} epochs'}")
+    tqdm.write(f"  Checkpoint  : {ckpt_path := os.path.join(output_dir, 'model_best.pt')}")
+    tqdm.write("=" * 60)
+    logger.info("Starting training: n_params=%d, device=%s, patience=%s",
+                n_params, device, "disabled" if patience is None else patience)
+
+    best_val_loss    = float("inf")
+    epochs_no_improve = 0
+    train_history    = []   # (epoch, avg_train, avg_val)
 
     epoch_bar = tqdm(range(n_epochs), desc="Training", unit="epoch")
     for epoch in epoch_bar:
         model.train()
         train_loss = 0.0
+        grad_norm_sum = 0.0
         batch_bar = tqdm(train_loader, desc=f"  Epoch {epoch:3d} [train]",
                          leave=False, unit="batch")
         for batch_x, batch_y in batch_bar:
@@ -741,41 +759,97 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
             preds = model(batch_x)          # [batch, 3]
             loss  = quantile_loss(preds, batch_y, q_levels)
             loss.backward()
+            grad_norm = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            train_loss += loss.item()
-            batch_bar.set_postfix(loss=f"{loss.item():.5f}")
+            train_loss    += loss.item()
+            grad_norm_sum += grad_norm.item()
+            batch_bar.set_postfix(loss=f"{loss.item():.5f}", gnorm=f"{grad_norm.item():.3f}")
 
         model.eval()
-        val_loss = 0.0
+        val_loss  = 0.0
+        val_preds_q50, val_targets = [], []
         with torch.no_grad():
             for batch_x, batch_y in tqdm(val_loader, desc=f"  Epoch {epoch:3d} [val]  ",
                                           leave=False, unit="batch"):
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                preds    = model(batch_x)
+                preds     = model(batch_x)
                 val_loss += quantile_loss(preds, batch_y, q_levels).item()
+                val_preds_q50.append(preds[:, 1].cpu())
+                val_targets.append(batch_y.cpu())
 
-        avg_train = train_loss / len(train_loader)
-        avg_val   = val_loss   / len(val_loader)
+        avg_train  = train_loss    / len(train_loader)
+        avg_val    = val_loss      / len(val_loader)
+        avg_gnorm  = grad_norm_sum / len(train_loader)
+
+        q50_np  = torch.cat(val_preds_q50).numpy()
+        tgt_np  = torch.cat(val_targets).numpy()
+        val_mae = float(np.abs(q50_np - tgt_np).mean())
+        val_r2  = float(1.0 - np.sum((tgt_np - q50_np) ** 2) /
+                        np.sum((tgt_np - tgt_np.mean()) ** 2))
 
         improved = avg_val < best_val_loss
         if improved:
-            best_val_loss = avg_val
+            best_val_loss    = avg_val
+            epochs_no_improve = 0
             torch.save({"epoch": epoch,
                         "model_state_dict": model.state_dict(),
-                        "val_loss": best_val_loss}, ckpt_path)
+                        "val_loss": best_val_loss,
+                        "val_mae": val_mae,
+                        "val_r2": val_r2}, ckpt_path)
+            tqdm.write(f"  [epoch {epoch:4d}] ✓ checkpoint saved  "
+                       f"val_loss={avg_val:.5f}  MAE={val_mae:.4f}  R²={val_r2:.4f}")
+            logger.info("Epoch %d: new best val_loss=%.5f MAE=%.4f R²=%.4f",
+                        epoch, avg_val, val_mae, val_r2)
+        else:
+            epochs_no_improve += 1
+
+        train_history.append((epoch, avg_train, avg_val))
 
         epoch_bar.set_postfix(
             train=f"{avg_train:.5f}",
             val=f"{avg_val:.5f}",
             best=f"{best_val_loss:.5f}",
+            MAE=f"{val_mae:.4f}",
+            R2=f"{val_r2:.4f}",
+            gnorm=f"{avg_gnorm:.3f}",
             saved="✓" if improved else "",
         )
 
-    # Restore the best weights before returning
+        # Early stopping check
+        if patience is not None and epochs_no_improve >= patience:
+            tqdm.write(f"  [epoch {epoch:4d}] Early stopping triggered — "
+                       f"no improvement for {patience} consecutive epochs.")
+            logger.info("Early stopping at epoch %d (patience=%d)", epoch, patience)
+            break
+
+        # Periodic verbose line — survives log-file redirection on CURC
+        if (epoch + 1) % log_every == 0 or epoch == 0:
+            ts = datetime.now().strftime("%H:%M:%S")
+            tqdm.write(
+                f"  [{ts}] epoch {epoch+1:4d}/{n_epochs}  "
+                f"train={avg_train:.5f}  val={avg_val:.5f}  "
+                f"best={best_val_loss:.5f}  MAE={val_mae:.4f}  R²={val_r2:.4f}  "
+                f"gnorm={avg_gnorm:.3f}"
+            )
+            logger.info(
+                "Epoch %d/%d  train=%.5f  val=%.5f  best=%.5f  MAE=%.4f  R2=%.4f  gnorm=%.3f",
+                epoch + 1, n_epochs, avg_train, avg_val, best_val_loss, val_mae, val_r2, avg_gnorm,
+            )
+
+    # ── Restore best checkpoint ────────────────────────────────────────────────
     best_ckpt = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(best_ckpt["model_state_dict"])
-    tqdm.write(f"Loaded best checkpoint from epoch {best_ckpt['epoch']} "
-               f"(val={best_ckpt['val_loss']:.5f})")
+    tqdm.write("=" * 60)
+    tqdm.write(f"  Training complete.")
+    tqdm.write(f"  Best epoch    : {best_ckpt['epoch']}")
+    tqdm.write(f"  Best val_loss : {best_ckpt['val_loss']:.5f}")
+    tqdm.write(f"  Best val MAE  : {best_ckpt.get('val_mae', float('nan')):.4f}")
+    tqdm.write(f"  Best val R²   : {best_ckpt.get('val_r2', float('nan')):.4f}")
+    tqdm.write("=" * 60)
+    logger.info("Training complete. Best epoch=%d val_loss=%.5f MAE=%.4f R2=%.4f",
+                best_ckpt['epoch'], best_ckpt['val_loss'],
+                best_ckpt.get('val_mae', float('nan')),
+                best_ckpt.get('val_r2', float('nan')))
 
     return model.cpu()  # return on CPU so eval/plot functions work without device awareness
 
@@ -1167,6 +1241,8 @@ def plot_permutation_importance(model, X_test, y_test, features, output_dir,
     rng_inner   = np.random.default_rng(0)
 
     for col, fname in enumerate(tqdm(features, desc="Permutation importance", unit="feat")):
+        if fname.startswith('fp_') and fname[3:].isdigit():
+            continue  # skip one-hot footprint columns
         orig_col = X_sub[:, col].copy()      # save one column only (n floats)
         for r in range(n_repeats):
             X_sub[:, col] = rng_inner.permutation(orig_col)   # shuffle in-place
@@ -1235,9 +1311,12 @@ def main():
     base_dir   = storage_dir / 'results/model_ft_transformer'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # surface_type = 0  # land only (mirrors mlp_lr_models.py)
+    surface_type = 1  # ocean only (mirrors mlp_lr_models.py)
 
     X_train, X_test, y_train, y_test, features, qt = training_data_load(
-        fdir, data_name, sfc_type=0
+        fdir, data_name, sfc_type=surface_type
     )
     # sys.exit()
     
@@ -1256,7 +1335,7 @@ def main():
         if platform.system() == "Darwin":
             epochs = 50  # Fewer epochs for local testing
         else:
-            epochs = 200  # More epochs for CURC training
+            epochs = 500  # More epochs for CURC training
         
         model = train_uncertainty_transformer(
             X_train, y_train, X_test, y_test,
@@ -1264,6 +1343,7 @@ def main():
             output_dir=str(output_dir),
             d_token=256, n_heads=8, n_layers=4, d_ff=256,
             batch_size=1024, n_epochs=epochs,
+            patience=50,   # None = run all epochs; int = early-stop after N epochs with no improvement
         )
 
         # ── Persist model + fitted transformer for inference ──────────────────────
@@ -1290,7 +1370,7 @@ def main():
 
     # ── Evaluate: 3×4 regime comparison plot (mirrors mlp_lr_models.py) ────────
     df_eval = pd.read_csv(os.path.join(fdir, data_name))
-    df_eval = df_eval[df_eval['sfc_type'] == 0]
+    df_eval = df_eval[df_eval['sfc_type'] == surface_type]
     df_eval = df_eval[df_eval['snow_flag'] == 0]
     plot_evaluation_by_regime(model, df_eval, qt, features, str(output_dir))
 

@@ -570,13 +570,17 @@ def mitigation_test(df, output_dir, test_csv=None):
     X_pi     = X_test[pi_idx]
     y_pi     = y_test[pi_idx]
 
-    def _permutation_importance(predict_fn, X_eval, y_eval, n_repeats=5):
-        """Return mean R² drop per feature when that feature is shuffled."""
+    def _permutation_importance(predict_fn, X_eval, y_eval, n_repeats=5, skip_cols=frozenset()):
+        """Return mean R² drop per feature when that feature is shuffled.
+        Columns in ``skip_cols`` (by index) are left at 0.0 importance.
+        """
         ss_tot      = ((y_eval - y_eval.mean()) ** 2).sum()
         baseline_r2 = 1.0 - ((y_eval - predict_fn(X_eval)) ** 2).sum() / ss_tot
         importances = np.zeros(X_eval.shape[1])
         rng_inner   = np.random.default_rng(0)
         for col in range(X_eval.shape[1]):
+            if col in skip_cols:
+                continue  # skip one-hot footprint columns
             drops = np.zeros(n_repeats)
             for r in range(n_repeats):
                 X_shuf = X_eval.copy()
@@ -587,10 +591,14 @@ def mitigation_test(df, output_dir, test_csv=None):
             importances[col] = drops.mean()
         return importances
 
+    fp_skip_cols = frozenset(
+        i for i, f in enumerate(features)
+        if f.startswith('fp_') and f[3:].isdigit()
+    )
     _checkpoint("permutation importance: LR")
-    perm_imp_lr = _permutation_importance(model.predict, X_pi, y_pi)
+    perm_imp_lr = _permutation_importance(model.predict, X_pi, y_pi, skip_cols=fp_skip_cols)
     _checkpoint("permutation importance: MLP")
-    perm_imp_mlp = _permutation_importance(_mlp_infer, X_pi, y_pi)
+    perm_imp_mlp = _permutation_importance(_mlp_infer, X_pi, y_pi, skip_cols=fp_skip_cols)
     _checkpoint("permutation importance: complete")
 
     # Save importance to CSV
