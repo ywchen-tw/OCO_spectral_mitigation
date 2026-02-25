@@ -1030,6 +1030,101 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
     logger.info("Saved ft_recomputed_anomaly_comparison.png")
 
 
+# ─── Permutation importance ────────────────────────────────────────────────────
+def plot_permutation_importance(model, X_test, y_test, features, output_dir,
+                                n_repeats=5, subsample=3000, batch_size=4096):
+    """Permutation importance for the FT-Transformer (q50 head).
+
+    For each feature in turn, shuffles that column of X_test and records the
+    drop in R² relative to the baseline.  Repeats `n_repeats` times and
+    averages.  A sub-sample of `subsample` rows is used so the O(n_feat ×
+    n_repeats) inference passes stay fast.
+
+    Outputs
+    -------
+    ft_permutation_importance.csv   – feature, mean_importance, std_importance
+    ft_permutation_importance.png   – horizontal bar chart (all features)
+    """
+    model.eval()
+    features = list(features)
+    rng = np.random.default_rng(42)
+
+    # ── Sub-sample ──────────────────────────────────────────────────────────────
+    n = min(subsample, len(X_test))
+    idx = rng.choice(len(X_test), size=n, replace=False)
+    X_sub = X_test[idx].astype(np.float32)
+    y_sub = y_test[idx].astype(np.float32)
+
+    def _predict_q50(X_np):
+        """Batched inference → q50 predictions (numpy, ppm)."""
+        out = []
+        for start in range(0, len(X_np), batch_size):
+            Xb = torch.tensor(X_np[start:start + batch_size], dtype=torch.float32)
+            with torch.no_grad():
+                preds = model(Xb)   # [batch, 3]
+            out.append(preds[:, 1].numpy())   # q50
+        return np.concatenate(out)
+
+    # ── Baseline R² ─────────────────────────────────────────────────────────────
+    y_base = _predict_q50(X_sub)
+    ss_tot     = ((y_sub - y_sub.mean()) ** 2).sum()
+    baseline_r2 = 1.0 - ((y_sub - y_base) ** 2).sum() / ss_tot
+    logger.info("Permutation importance baseline R²: %.4f", baseline_r2)
+
+    # ── Per-feature importance ───────────────────────────────────────────────────
+    importances = np.zeros((len(features), n_repeats))
+    rng_inner   = np.random.default_rng(0)
+
+    for col, fname in enumerate(tqdm(features, desc="Permutation importance", unit="feat")):
+        for r in range(n_repeats):
+            X_shuf         = X_sub.copy()
+            X_shuf[:, col] = rng_inner.permutation(X_shuf[:, col])
+            y_shuf         = _predict_q50(X_shuf)
+            r2_shuf        = 1.0 - ((y_sub - y_shuf) ** 2).sum() / ss_tot
+            importances[col, r] = baseline_r2 - r2_shuf
+            del X_shuf
+
+    mean_imp = importances.mean(axis=1)
+    std_imp  = importances.std(axis=1)
+
+    # ── Save CSV ─────────────────────────────────────────────────────────────────
+    imp_df = pd.DataFrame({
+        'feature':          features,
+        'mean_importance':  mean_imp,
+        'std_importance':   std_imp,
+    }).sort_values('mean_importance', ascending=False)
+    csv_path = os.path.join(output_dir, 'ft_permutation_importance.csv')
+    imp_df.to_csv(csv_path, index=False)
+    logger.info("Saved ft_permutation_importance.csv")
+
+    # ── Bar chart ────────────────────────────────────────────────────────────────
+    n_feat   = len(features)
+    fig_h    = max(6, n_feat * 0.28)
+    fig, ax  = plt.subplots(figsize=(8, fig_h))
+
+    sorted_names = imp_df['feature'].tolist()
+    sorted_mean  = imp_df['mean_importance'].tolist()
+    sorted_std   = imp_df['std_importance'].tolist()
+
+    bar_colors = plt.cm.viridis(np.linspace(0.2, 0.85, n_feat))
+    ax.barh(range(n_feat), sorted_mean[::-1],
+            xerr=sorted_std[::-1], error_kw=dict(ecolor='gray', capsize=3),
+            color=bar_colors)
+    ax.set_yticks(range(n_feat))
+    ax.set_yticklabels(sorted_names[::-1], fontsize=7)
+    ax.axvline(0, color='k', linewidth=0.8, linestyle='--')
+    ax.set_xlabel('Mean R² drop when feature is permuted')
+    ax.set_title(
+        f'FT-Transformer Permutation Importance ({n_feat} features)\n'
+        f'(baseline R²={baseline_r2:.3f}, {n_repeats} repeats, n={n} samples)'
+    )
+    plt.tight_layout()
+    fig.savefig(os.path.join(output_dir, 'ft_permutation_importance.png'),
+                dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    logger.info("Saved ft_permutation_importance.png")
+
+
 # ─── Main analysis entry point ─────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="FT-Transformer XCO2 bias correction")
@@ -1042,7 +1137,7 @@ def main():
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     data_name = 'combined_2020_dates.csv'
-    data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
+    # data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_ft_transformer'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1093,6 +1188,9 @@ def main():
     n_viz        = min(200, len(X_test))
     sample_batch = torch.tensor(X_test[:n_viz], dtype=torch.float32)
     plot_attention_map(model, sample_batch, features, output_dir)
+
+    # ── Evaluate: permutation importance ───────────────────────────────────────
+    plot_permutation_importance(model, X_test, y_test, features, str(output_dir))
 
     evaluate_model_X_text(model, X_test, y_test, fig_dir=output_dir)
 
