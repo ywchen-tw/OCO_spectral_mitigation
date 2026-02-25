@@ -46,7 +46,7 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # Specify year, month, and day ranges
 start_year=2019
 end_year=2019
-start_month=10
+start_month=9
 end_month=10
 start_day=1
 end_day=1
