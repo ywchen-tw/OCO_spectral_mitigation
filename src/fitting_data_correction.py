@@ -5,6 +5,7 @@ import os
 import sys
 import matplotlib.pyplot as plt
 from matplotlib import colors
+from datetime import datetime
 import copy
 import glob
 import pathlib
@@ -34,26 +35,26 @@ def load_output_dict(filepath):
         # XCO2
         'xco2_bc', 'xco2_raw', 'xco2_bc_anomaly', 'xco2_raw_anomaly',
         # Lite retrieval variables
-        'psfc_lt', 'airmass_lt', 'delT_lt', 'dp_lt', 'dp_o2a_lt', 'dp_sco2_lt', 'co2_grad_del_lt',
-        'alb_o2a_lt', 'alb_wco2_lt', 'alb_sco2_lt', 'aod_total_lt', 'fs_rel_lt',
-        'alt_lt', 'alt_std_lt', 'xco2_qf_lt', 'sfc_type_lt', 'ws_lt', 'ws_apriori_lt',
+        'psfc', 'airmass', 'delT', 'dp', 'dp_o2a', 'dp_sco2', 'co2_grad_del',
+        'alb_o2a', 'alb_wco2', 'alb_sco2', 'aod_total', 'fs_rel',
+        'alt', 'alt_std', 'xco2_qf', 'sfc_type', 'ws', 'ws_apriori',
         # Preprocessor variables
-        'co2_ratio_bc_lt', 'h2o_ratio_bc_lt',
-        'csnr_o2a_lt', 'csnr_wco2_lt', 'csnr_sco2_lt',
-        'dp_abp_lt',
-        'h_cont_o2a_lt', 'h_cont_wco2_lt', 'h_cont_sco2_lt',
-        'max_declock_o2a_lt', 'max_declock_wco2_lt', 'max_declock_sco2_lt',
-        'xco2_strong_idp_lt', 'xco2_weak_idp_lt',
+        'co2_ratio_bc', 'h2o_ratio_bc',
+        'csnr_o2a', 'csnr_wco2', 'csnr_sco2',
+        'dp_abp',
+        'h_cont_o2a', 'h_cont_wco2', 'h_cont_sco2',
+        'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2',
+        'xco2_strong_idp', 'xco2_weak_idp',
         # Additional retrieval variables
-        'h2o_scale_lt', 'dpfrac_lt',
-        'aod_bc_lt', 'aod_dust_lt', 'aod_ice_lt', 'aod_water_lt',
-        'aod_oc_lt', 'aod_seasalt_lt', 'aod_strataer_lt', 'aod_sulfate_lt',
-        'dust_height_lt', 'ice_height_lt', 'dws_lt',
+        'h2o_scale', 'dpfrac',
+        'aod_bc', 'aod_dust', 'aod_ice', 'aod_water',
+        'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate',
+        'dust_height', 'ice_height', 'dws',
         # Additional sounding variables
-        'snr_o2a_lt', 'snr_wco2_lt', 'snr_sco2_lt',
-        'glint_angle_lt', 'pol_angle_lt', 'saa_lt', 'vaa_lt',
+        'snr_o2a', 'snr_wco2', 'snr_sco2',
+        'glint_angle', 'pol_angle', 'saa', 'vaa',
         # additional Lite variables that may be missing from older output files but are needed for consistency in the combined DataFrame
-        "s31", "s32", "snow_flag", "t700", "tcwv", "operation_mode", "water_height_lt"
+        "s31", "s32", "snow_flag", "t700", "tcwv", "operation_mode", "water_height"
     ]
     with h5py.File(filepath, 'r') as f:
         return {key: f[key][()] for key in keys if key in f}
@@ -63,7 +64,7 @@ def load_output_dict(filepath):
 def main():
     fdir = '.'
     
-def raw_processing_single_date(sat, orbit_id=None, reference_csv=None):
+def raw_processing_single_date(result_dir, date, orbit_id=None):
     """Load fitting results for all orbits, build combined DataFrame, run analysis.
 
     Parameters
@@ -73,31 +74,30 @@ def raw_processing_single_date(sat, orbit_id=None, reference_csv=None):
     reference_csv : str or None
         Optional path to a CSV from a reference scene for cross-scene mitigation.
     """
-    date       = sat['date'].strftime("%Y-%m-%d")
-    result_dir = sat['result_dir']
-    orbit_list = sat['orbit_list']
+    
     output_dir = f"{result_dir}/csv_collection"
-    if orbit_id is not None:
-        output_dir = f"{output_dir}/{orbit_id}"
     os.makedirs(output_dir, exist_ok=True)
 
     # ── Collect and concatenate data across all orbits ─────────────────────────
     all_data = []
-    if orbit_id is None:
-        for orbit_id in orbit_list:
-            h5_output_dir = f"{sat['result_dir']}/fitting_details"
-            filepath = f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
+    if date is not None and orbit_id is None:
+        h5_output_dir = f"{result_dir}/fitting_details"
+        h5_files = glob.glob(os.path.join(h5_output_dir, f"fitting_details_{date}_*.h5"))
+        for filepath in h5_files:
             if os.path.exists(filepath):
                 all_data.append(load_output_dict(filepath))
             else:
                 print(f"File not found: {filepath}")
-    else:
-        h5_output_dir = f"{sat['result_dir']}/fitting_details"
+    elif date is not None and orbit_id is not None:
+        h5_output_dir = f"{result_dir}/fitting_details"
         filepath = f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
         if os.path.exists(filepath):
             all_data.append(load_output_dict(filepath))
         else:
             print(f"File not found: {filepath}")
+    else:
+        print("Invalid input: Please provide either both date and orbit_id, or neither.")
+        raise ValueError("Invalid input: Please provide either both date and orbit_id, or neither.")
 
     if not all_data:
         print("No orbit data found — k1k2_analysis cannot proceed.")
@@ -115,6 +115,8 @@ def raw_processing_single_date(sat, orbit_id=None, reference_csv=None):
 
     # ── Build combined DataFrame ───────────────────────────────────────────────
     final_dict = {
+        # basic identifiers
+        'date': date.replace('-', ''),  # Convert back to YYYYMMDD format for consistency
         'lon': combined['lon'],
         'lat': combined['lat'],
         # Per-band kappa coefficients (short names for downstream use)
@@ -139,68 +141,66 @@ def raw_processing_single_date(sat, orbit_id=None, reference_csv=None):
         'xco2_bc_anomaly':  xco2_bc_anomaly,   # per-footprint, pre-computed
         'xco2_raw_anomaly': xco2_raw_anomaly,  # per-footprint, pre-computed
         # Geometry
-        'lon': combined['lon'],
-        'lat': combined['lat'],
         'mu_sza': combined['mu_sza'],
         'mu_vza': combined['mu_vza'],
         # Cloud distance
         'cld_dist_km': cld_dist_km,
         # Lite retrieval variables
-        'psfc':    combined.get('psfc_lt'),
-        'airmass': combined.get('airmass_lt'),
-        'delT':    combined.get('delT_lt'),
-        'dp':      combined.get('dp_lt'),
-        'dp_o2a':  combined.get('dp_o2a_lt'),
-        'dp_sco2': combined.get('dp_sco2_lt'),
-        'co2_grad_del': combined.get('co2_grad_del_lt'),
-        'alb_o2a': combined.get('alb_o2a_lt'),
-        'alb_wco2': combined.get('alb_wco2_lt'),
-        'alb_sco2': combined.get('alb_sco2_lt'),
-        'aod_total': combined.get('aod_total_lt'),
-        'fs_rel': combined.get('fs_rel_lt'),
-        'alt':     combined.get('alt_lt'),
-        'alt_std': combined.get('alt_std_lt'),
-        'xco2_qf': combined.get('xco2_qf_lt'),
-        'sfc_type': combined.get('sfc_type_lt'),
-        'ws': combined.get('ws_lt'),
-        'ws_apriori': combined.get('ws_apriori_lt'),
+        'psfc':    combined.get('psfc'),
+        'airmass': combined.get('airmass'),
+        'delT':    combined.get('delT'),
+        'dp':      combined.get('dp'),
+        'dp_o2a':  combined.get('dp_o2a'),
+        'dp_sco2': combined.get('dp_sco2'),
+        'co2_grad_del': combined.get('co2_grad_del'),
+        'alb_o2a': combined.get('alb_o2a'),
+        'alb_wco2': combined.get('alb_wco2'),
+        'alb_sco2': combined.get('alb_sco2'),
+        'aod_total': combined.get('aod_total'),
+        'fs_rel': combined.get('fs_rel'),
+        'alt':     combined.get('alt'),
+        'alt_std': combined.get('alt_std'),
+        'xco2_qf': combined.get('xco2_qf'),
+        'sfc_type': combined.get('sfc_type'),
+        'ws': combined.get('ws'),
+        'ws_apriori': combined.get('ws_apriori'),
         # Preprocessor variables
-        'co2_ratio_bc': combined.get('co2_ratio_bc_lt'),
-        'h2o_ratio_bc': combined.get('h2o_ratio_bc_lt'),
-        'csnr_o2a': combined.get('csnr_o2a_lt'),
-        'csnr_wco2': combined.get('csnr_wco2_lt'),
-        'csnr_sco2': combined.get('csnr_sco2_lt'),
-        'dp_abp': combined.get('dp_abp_lt'),
-        'h_cont_o2a': combined.get('h_cont_o2a_lt'),
-        'h_cont_wco2': combined.get('h_cont_wco2_lt'),
-        'h_cont_sco2': combined.get('h_cont_sco2_lt'),
-        'max_declock_o2a': combined.get('max_declock_o2a_lt'),
-        'max_declock_wco2': combined.get('max_declock_wco2_lt'),
-        'max_declock_sco2': combined.get('max_declock_sco2_lt'),
-        'xco2_strong_idp': combined.get('xco2_strong_idp_lt'),
-        'xco2_weak_idp': combined.get('xco2_weak_idp_lt'),
+        'co2_ratio_bc': combined.get('co2_ratio_bc'),
+        'h2o_ratio_bc': combined.get('h2o_ratio_bc'),
+        'csnr_o2a': combined.get('csnr_o2a'),
+        'csnr_wco2': combined.get('csnr_wco2'),
+        'csnr_sco2': combined.get('csnr_sco2'),
+        'dp_abp': combined.get('dp_abp'),
+        'h_cont_o2a': combined.get('h_cont_o2a'),
+        'h_cont_wco2': combined.get('h_cont_wco2'),
+        'h_cont_sco2': combined.get('h_cont_sco2'),
+        'max_declock_o2a': combined.get('max_declock_o2a'),
+        'max_declock_wco2': combined.get('max_declock_wco2'),
+        'max_declock_sco2': combined.get('max_declock_sco2'),
+        'xco2_strong_idp': combined.get('xco2_strong_idp'),
+        'xco2_weak_idp': combined.get('xco2_weak_idp'),
         # Additional retrieval variables
-        'h2o_scale': combined.get('h2o_scale_lt'),
-        'dpfrac': combined.get('dpfrac_lt'),
-        'aod_bc': combined.get('aod_bc_lt'),
-        'aod_dust': combined.get('aod_dust_lt'),
-        'aod_ice': combined.get('aod_ice_lt'),
-        'aod_water': combined.get('aod_water_lt'),
-        'aod_oc': combined.get('aod_oc_lt'),
-        'aod_seasalt': combined.get('aod_seasalt_lt'),
-        'aod_strataer': combined.get('aod_strataer_lt'),
-        'aod_sulfate': combined.get('aod_sulfate_lt'),
-        'dust_height': combined.get('dust_height_lt'),
-        'ice_height': combined.get('ice_height_lt'),
-        'dws': combined.get('dws_lt'),
+        'h2o_scale': combined.get('h2o_scale'),
+        'dpfrac': combined.get('dpfrac'),
+        'aod_bc': combined.get('aod_bc'),
+        'aod_dust': combined.get('aod_dust'),
+        'aod_ice': combined.get('aod_ice'),
+        'aod_water': combined.get('aod_water'),
+        'aod_oc': combined.get('aod_oc'),
+        'aod_seasalt': combined.get('aod_seasalt'),
+        'aod_strataer': combined.get('aod_strataer'),
+        'aod_sulfate': combined.get('aod_sulfate'),
+        'dust_height': combined.get('dust_height'),
+        'ice_height': combined.get('ice_height'),
+        'dws': combined.get('dws'),
         # Additional sounding variables
-        'snr_o2a': combined.get('snr_o2a_lt'),
-        'snr_wco2': combined.get('snr_wco2_lt'),
-        'snr_sco2': combined.get('snr_sco2_lt'),
-        'glint_angle': combined.get('glint_angle_lt'),
-        'pol_angle': combined.get('pol_angle_lt'),
-        'saa': combined.get('saa_lt'),
-        'vaa': combined.get('vaa_lt'),
+        'snr_o2a': combined.get('snr_o2a'),
+        'snr_wco2': combined.get('snr_wco2'),
+        'snr_sco2': combined.get('snr_sco2'),
+        'glint_angle': combined.get('glint_angle'),
+        'pol_angle': combined.get('pol_angle'),
+        'saa': combined.get('saa'),
+        'vaa': combined.get('vaa'),
         'fp':         combined['fp_number'],
         'fp_id':      combined['fp_id'],
         # additional Lite variables that may be missing from older output files but are needed for consistency in the combined DataFrame
@@ -210,10 +210,10 @@ def raw_processing_single_date(sat, orbit_id=None, reference_csv=None):
         "t700": combined.get("t700"),
         "tcwv": combined.get("tcwv"),       
         "operation_mode": combined.get("operation_mode"),
-        "water_height": combined.get("water_height_lt"),
+        "water_height": combined.get("water_height"),
     }
     
-    raa = 180 - np.abs((combined.get('saa_lt') - combined.get('vaa_lt')) % 360 - 180)
+    raa = 180 - np.abs((combined.get('saa') - combined.get('vaa')) % 360 - 180)
     cos_sza = np.cos(np.radians(combined.get('sza')))
     cos_vza = np.cos(np.radians(combined.get('vza')))
     sin_sza = np.sin(np.radians(combined.get('sza')))
@@ -228,28 +228,31 @@ def raw_processing_single_date(sat, orbit_id=None, reference_csv=None):
     final_dict['Phi_cos_theta'] = Phi_cos_theta
     final_dict['R_rs_factor'] = R_rs_factor
     
-    final_dict['log_P'] = np.log10(combined.get('psfc_lt'))  # Logarithm of surface pressure
-    final_dict['dp_psfc_ratio'] = combined.get('dp_lt') / combined.get('psfc_lt')  # Ratio of dp to surface pressure
-    fs_rel_0 = combined.get('fs_rel_lt')
+    final_dict['log_P'] = np.log10(combined.get('psfc'))  # Logarithm of surface pressure
+    final_dict['dp_psfc_ratio'] = combined.get('dp') / combined.get('psfc')  # Ratio of dp to surface pressure
+    fs_rel_0 = combined.get('fs_rel')
     fs_rel_0[fs_rel_0 < 0] = 0  # Set any negative relative humidity values to 0
     fs_rel_0[np.isnan(fs_rel_0)] = 0  # Set any NaN relative humidity values to 0
-    final_dict['fs_rel_0'] = fs_rel_0  # Relative humidity at surface (assuming fs_rel_lt is at surface)
-    final_dict['pol_ang_rad'] = np.radians(combined.get('pol_angle_lt'))  # Convert polarization angle to radians
+    final_dict['fs_rel_0'] = fs_rel_0  # Relative humidity at surface (assuming fs_rel is at surface)
+    final_dict['pol_ang_rad'] = np.radians(combined.get('pol_angle'))  # Convert polarization angle to radians
     
     
-    final_dict['cos_glint_angle'] = np.cos(np.radians(combined.get('glint_angle_lt')))
-    final_dict['glint_prox'] = np.exp(-1 * combined.get('glint_angle_lt') / 10.0) # Decay constant of 10 degrees
+    final_dict['cos_glint_angle'] = np.cos(np.radians(combined.get('glint_angle')))
+    final_dict['glint_prox'] = np.exp(-1 * combined.get('glint_angle') / 10.0) # Decay constant of 10 degrees
 
     df = pd.DataFrame(final_dict)
-    df.to_csv(os.path.join(output_dir, f'combined_orbits_{date}.csv'), index=False)
+    if orbit_id is not None:
+        df.to_csv(os.path.join(output_dir, f'combined_{date}_orbit_{orbit_id}.csv'), index=False)
+    else:
+        df.to_csv(os.path.join(output_dir, f'combined_{date}_all_orbits.csv'), index=False)
 
 
 def raw_processing_multipe_dates(fdir, date_list, output_fname):
     """
     Collect single dates' data in the date_list and concatenate into one DataFrame for analysis.
     """
-    files_list = glob.glob(os.path.join(fdir, 'combined_orbits_*.csv'))
-    dates = [os.path.basename(f).split('_')[2].split('.')[0] for f in files_list]
+    files_list = glob.glob(os.path.join(fdir, 'combined_*_all_orbits.csv'))
+    dates = [os.path.basename(f).split('_')[1] for f in files_list]
     selected_files = [f for f, d in zip(files_list, dates) if d in date_list]
     if not selected_files:
         print("No files found for the specified dates.")
@@ -259,7 +262,30 @@ def raw_processing_multipe_dates(fdir, date_list, output_fname):
     combined_df.to_csv(os.path.join(fdir, output_fname), index=False)
     
     return os.path.join(fdir, output_fname)
+
+def main():
+    fdir = '/Users/yuch8913/programming/oco_fp_analysis/results'  # Directory where the fitting_details HDF5 files are located
+    # List of dates to process
+    date_list = ['20200101', '20200201', '20200301', '20200401',
+                 '20200501', '20200601', '20200701', '20200801',
+                 '20200903', '20201001', '20201101', '20201201']  
     
+    date_list = ['20201005', '20201224', 
+                 '20210210', '20210424', '20211229']  
+    
+    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    
+    csv_output_dir = os.path.join(fdir, 'csv_collection')
+    output_fname = 'combined_2020_dates.csv'
+    
+    for date in date_list:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+
+    # csv_output_dir = os.path.join(fdir, 'csv_collection')
+    # output_fname = 'combined_2020_dates.csv'
+    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()

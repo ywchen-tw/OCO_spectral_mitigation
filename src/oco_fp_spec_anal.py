@@ -483,8 +483,9 @@ def fit_spectral_model(tau, ln_T, fit_order):
 
 
 def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
-                         lat_thres=0.5, std_thres=2.0, min_cld_dist=10.0):
-    """Vectorised XCO2 anomaly relative to nearby clear-sky soundings.
+                         lat_thres=0.5, std_thres=2.0, min_cld_dist=10.0,
+                         chunk_size=32):
+    """XCO2 anomaly relative to nearby clear-sky soundings.
 
     For each footprint i, the reference set is all footprints within ±lat_thres°
     latitude that are more than min_cld_dist km from a cloud.  The anomaly is
@@ -498,39 +499,53 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
     lat_thres   : float, half-width of latitude search window (degrees)
     std_thres   : float, maximum allowed std of reference XCO2 (ppm)
     min_cld_dist: float, minimum cloud distance to be considered clear-sky (km)
+    chunk_size  : int, rows processed per iteration (controls peak memory).
+                  Peak memory per chunk ≈ chunk_size × N × 24 bytes (three
+                  [chunk, N] arrays).  Default 32 → ~65 MB for N=84 000.
 
     Returns
     -------
     anomaly : [N] float array, NaN where reference is unavailable or noisy
-
-    Notes
-    -----
-    Builds an [N, N] pairwise latitude-difference matrix.  For N > ~5 000 this
-    can use significant memory (~N²×8 bytes).  Consider chunking if needed.
     """
-    N = len(fp_lat)
-    anomaly = np.full(N, np.nan)
-
-    valid_lat  = ~np.isnan(fp_lat)
-    clear_mask = valid_lat & (cld_dist_km > min_cld_dist)  # [N]
-
-    # Pairwise lat-difference matrix: ref_mask[i, j] = True if j is a valid
-    # clear-sky reference for footprint i
-    lat_mat  = np.abs(fp_lat[:, None] - fp_lat[None, :])          # [N, N]
-    ref_mask = (lat_mat <= lat_thres) & clear_mask[None, :]        # [N, N]
-
-    # Reference statistics per footprint — only computed for rows with ≥1 ref
-    # to avoid np.nanmean/nanstd RuntimeWarnings on all-NaN slices.
-    xco2_refs = np.where(ref_mask, xco2[None, :], np.nan)          # [N, N]
-    has_refs  = ref_mask.any(axis=1)                                # [N]
-
+    N          = len(fp_lat)
+    chunk_size = int(chunk_size)   # guard against float passed via **kwargs
+    anomaly  = np.full(N, np.nan)
     ref_mean = np.full(N, np.nan)
     ref_std  = np.full(N, np.nan)
-    if has_refs.any():
-        ref_mean[has_refs] = np.nanmean(xco2_refs[has_refs], axis=1)
-        ref_std[has_refs]  = np.nanstd(xco2_refs[has_refs],  axis=1)
 
-    valid    = valid_lat & has_refs & (ref_std <= std_thres)
+    valid_lat  = ~np.isnan(fp_lat)
+    clear_mask = valid_lat & (cld_dist_km > min_cld_dist)   # [N] bool
+
+    # Pre-extract clear-sky reference latitudes and xco2 values to avoid
+    # broadcasting the full array on every chunk.
+    ref_lat  = np.where(clear_mask, fp_lat, np.nan)          # [N]
+    ref_xco2 = np.where(clear_mask, xco2,   np.nan)          # [N]
+
+    for start in range(0, N, chunk_size):
+        end   = min(start + chunk_size, N)
+        q_lat = fp_lat[start:end]                             # [chunk]
+
+        # [chunk, N] pairwise latitude difference for this row block only
+        lat_diff  = np.abs(q_lat[:, None] - ref_lat[None, :])   # [chunk, N]
+        in_window = lat_diff <= lat_thres                        # [chunk, N] bool
+
+        # xco2 of clear-sky refs within window; NaN elsewhere
+        xco2_win  = np.where(in_window, ref_xco2[None, :], np.nan)  # [chunk, N]
+
+        has_refs = in_window.any(axis=1)                         # [chunk]
+
+        chunk_mean = np.full(end - start, np.nan)
+        chunk_std  = np.full(end - start, np.nan)
+        if has_refs.any():
+            chunk_mean[has_refs] = np.nanmean(xco2_win[has_refs], axis=1)
+            chunk_std[has_refs]  = np.nanstd( xco2_win[has_refs], axis=1)
+
+        ref_mean[start:end] = chunk_mean
+        ref_std[start:end]  = chunk_std
+
+        del lat_diff, in_window, xco2_win
+
+    valid = valid_lat & ~np.isnan(ref_mean) & (ref_std <= std_thres)
     anomaly[valid] = xco2[valid] - ref_mean[valid]
     return anomaly
 
@@ -762,6 +777,8 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "sco2_k5_fitting":        kappa_fitting[2, :, 4],
         "sco2_intercept_fitting": intercept_fitting[2],
         # Geometry
+        "date":      np.array([date]*N, dtype='S'),
+        "orbit_id":  np.array([orbit_id]*N, dtype='S'),
         "lon":       od["lon"],
         "lat":       od["lat"],
         "sza":       od["sza"],
