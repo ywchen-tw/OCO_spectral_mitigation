@@ -723,7 +723,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
     model     = UncertainFTTransformerRefined(n_features=len(features),
                                               d_token=d_token, n_heads=n_heads,
                                               n_layers=n_layers, d_ff=d_ff).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
     q_levels  = [0.05, 0.5, 0.95]
 
     ckpt_path     = os.path.join(output_dir, "model_best.pt")
@@ -1237,7 +1237,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     X_train, X_test, y_train, y_test, features, qt = training_data_load(
-        fdir, data_name, sfc_type=1
+        fdir, data_name, sfc_type=0
     )
     # sys.exit()
     
@@ -1262,8 +1262,8 @@ def main():
             X_train, y_train, X_test, y_test,
             features=features,
             output_dir=str(output_dir),
-            d_token=128, n_heads=8, n_layers=4, d_ff=256,
-            batch_size=256, n_epochs=epochs,
+            d_token=256, n_heads=8, n_layers=4, d_ff=256,
+            batch_size=1024, n_epochs=epochs,
         )
 
         # ── Persist model + fitted transformer for inference ──────────────────────
