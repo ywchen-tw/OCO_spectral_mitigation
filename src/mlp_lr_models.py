@@ -31,7 +31,7 @@ def training_data_load_preselect(df):
                 'mu_sza', 'mu_vza', 
                 # 'sin_raa', 'cos_raa', 
                 # 'cos_theta', 
-                'Phi_cos_theta', 
+                # 'Phi_cos_theta', 
                 # 'R_rs_factor', 
                 'cos_glint_angle', 
                 # 'glint_prox',
@@ -42,7 +42,7 @@ def training_data_load_preselect(df):
                 'dp', 
                 # 'dp_abp', 
                 # 'dp_psfc_ratio', 
-                'dpfrac', 
+                # 'dpfrac', 
                 'h2o_scale', 'delT', 
                 'co2_grad_del', 
                 'alb_o2a', 
@@ -112,11 +112,12 @@ def main():
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     data_name = 'combined_2020_dates.csv'
-    # data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
+    data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
     output_dir = storage_dir / 'results/model_mlp_lr'
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    sfc_type = 0  # Ocean only for now
+    # sfc_type = 0  # Ocean only for now
+    sfc_type = 1  # Land only for now
     
     # Load and preprocess the entire data set (same as in training_data_load)
     data_path = os.path.join(fdir, data_name)

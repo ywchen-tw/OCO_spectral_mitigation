@@ -10,6 +10,25 @@ import copy
 import glob
 import pathlib
 import gc
+import platform
+import logging
+from pathlib import Path
+from datetime import datetime
+from config import Config
+import pickle
+
+logger = logging.getLogger(__name__)
+
+def get_storage_dir():
+    if platform.system() == "Darwin":
+        logger.info("Detected macOS - using local data directory")
+        return Path(Config.get_data_path('local'))
+    elif platform.system() == "Linux":
+        logger.info("Detected Linux - using CURC storage directory")
+        return Path(Config.get_data_path('curc'))
+    else:
+        logger.warning(f"Unknown platform: {platform.system()}. Using default.")
+        return Path(Config.get_data_path('default'))
 
 
 # ─── HDF5 loader ──────────────────────────────────────────────────────────────
@@ -267,7 +286,8 @@ def raw_processing_multipe_dates(fdir, date_list, output_fname):
     return os.path.join(fdir, output_fname)
 
 def main():
-    fdir = '/Users/yuch8913/programming/oco_fp_analysis/results'  # Directory where the fitting_details HDF5 files are located
+    storage_dir = get_storage_dir()
+    fdir      = storage_dir / 'results'
     # List of dates to process
     date_list = ['20200101', '20200201', '20200301', '20200401',
                  '20200501', '20200601', '20200701', '20200801',
