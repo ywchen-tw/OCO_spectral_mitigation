@@ -160,6 +160,86 @@ class FeatureTokenizer(nn.Module):
         return x.unsqueeze(-1) * self.weight + self.bias
 
 
+class PreNormResidual(nn.Module):
+    def __init__(self, dim, fn):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim)
+        self.fn = fn
+
+    def forward(self, x, **kwargs):
+        return x + self.fn(self.norm(x), **kwargs)
+
+
+class AdvancedTransformerBlock(nn.Module):
+    def __init__(self, d_token, n_heads, d_ff, dropout=0.2):
+        super().__init__()
+        self.attn = PreNormResidual(
+            d_token,
+            nn.MultiheadAttention(d_token, n_heads, dropout=dropout, batch_first=True),
+        )
+        self.ff = PreNormResidual(
+            d_token,
+            nn.Sequential(
+                nn.Linear(d_token, d_ff),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(d_ff, d_token),
+                nn.Dropout(dropout),
+            ),
+        )
+
+    def forward(self, x):
+        # Pre-norm + self-attention + residual
+        x_norm = self.attn.norm(x)
+        attn_out, _ = self.attn.fn(x_norm, x_norm, x_norm)
+        x = x + attn_out
+        # Pre-norm + feed-forward + residual (via PreNormResidual.forward)
+        x = self.ff(x)
+        return x
+
+
+class UncertainFTTransformerRefined(nn.Module):
+    """FT-Transformer with Pre-Norm residuals and a learnable feature-weighting head.
+
+    Outputs 3 quantiles [q05, q50, q95] compatible with ``quantile_loss``.
+    Supports ``return_attn=True`` for compatibility with ``plot_attention_map``.
+    """
+
+    def __init__(self, n_features, d_token=128, n_heads=8, n_layers=4, d_ff=256):
+        super().__init__()
+        self.n_features = n_features
+        self.tokenizer = FeatureTokenizer(n_features, d_token)
+        self.layers = nn.ModuleList([
+            AdvancedTransformerBlock(d_token, n_heads, d_ff) for _ in range(n_layers)
+        ])
+        # Learnable per-feature importance weight applied before flattening
+        self.feature_weight = nn.Parameter(torch.ones(n_features))
+        self.head = nn.Sequential(
+            nn.Linear(d_token * n_features, d_ff),
+            nn.LayerNorm(d_ff),
+            nn.GELU(),
+            nn.Dropout(0.2),
+            nn.Linear(d_ff, 3),  # [q05, q50, q95]
+        )
+
+    def forward(self, x, return_attn: bool = False):
+        x = self.tokenizer(x)
+        last_attn = None
+        for layer in self.layers:
+            if return_attn:
+                x_norm = layer.attn.norm(x)
+                attn_out, last_attn = layer.attn.fn(x_norm, x_norm, x_norm)
+                x = x + attn_out
+                x = layer.ff(x)
+            else:
+                x = layer(x)
+        x = x * self.feature_weight.view(1, -1, 1)
+        out = self.head(x.flatten(1))
+        if return_attn:
+            return out, last_attn
+        return out
+
+
 class TransformerBlock(nn.Module):
     def __init__(self, d_token, n_heads, d_ff, dropout=0.1):
         super().__init__()
@@ -436,8 +516,16 @@ def plot_attention_map(model, sample_batch, feature_names, output_dir, top_k=20)
         x_tok = model.tokenizer(sample_batch)
         for layer in model.layers[:-1]:
             x_tok = layer(x_tok)
-        _, per_head_attn = model.layers[-1].attention(
-            x_tok, x_tok, x_tok,
+        last_layer = model.layers[-1]
+        if isinstance(last_layer, AdvancedTransformerBlock):
+            # Pre-norm must be applied before calling MHA directly
+            x_tok_in = last_layer.attn.norm(x_tok)
+            mha      = last_layer.attn.fn
+        else:
+            x_tok_in = x_tok
+            mha      = last_layer.attention
+        _, per_head_attn = mha(
+            x_tok_in, x_tok_in, x_tok_in,
             need_weights=True, average_attn_weights=False,
         )   # [N, n_heads, n_feat, n_feat]
     per_head_mean = per_head_attn.cpu().numpy().mean(axis=0)   # [n_heads, n_feat, n_feat]
@@ -604,11 +692,11 @@ def training_data_load(fdir, data_fname, sfc_type=0):
     
     return X_train, X_test, y_train, y_test, features, qt
 
-def train_transformer(X_train, y_train, X_test, y_test,
-                      features,
-                      output_dir: str = ".",
-                      d_token=64, n_heads=8, n_layers=3, d_ff=128,
-                      batch_size=64, n_epochs=100):
+def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
+                                  features,
+                                  output_dir: str = ".",
+                                  d_token=128, n_heads=8, n_layers=4, d_ff=256,
+                                  batch_size=64, n_epochs=100):
     train_ds = TensorDataset(
         torch.tensor(X_train, dtype=torch.float32),
         torch.tensor(y_train, dtype=torch.float32),
@@ -632,9 +720,9 @@ def train_transformer(X_train, y_train, X_test, y_test,
     val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False,
                               pin_memory=pin, num_workers=0)
 
-    model     = UncertainBiasPredictorFT(n_features=len(features),
-                                         d_token=d_token, n_heads=n_heads,
-                                         n_layers=n_layers, d_ff=d_ff).to(device)
+    model     = UncertainFTTransformerRefined(n_features=len(features),
+                                              d_token=d_token, n_heads=n_heads,
+                                              n_layers=n_layers, d_ff=d_ff).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
     q_levels  = [0.05, 0.5, 0.95]
 
@@ -1156,7 +1244,7 @@ def main():
     if os.path.exists(os.path.join(output_dir, "model_best.pt")):
         print("Found existing checkpoint. Loading model...")
         device = torch.device("cpu")
-        model = UncertainBiasPredictorFT(n_features=len(features)).to(device)
+        model = UncertainFTTransformerRefined(n_features=len(features)).to(device)
         ckpt = torch.load(os.path.join(output_dir, "model_best.pt"), map_location=device)
         model.load_state_dict(ckpt["model_state_dict"])
         print(f"Loaded checkpoint from epoch {ckpt['epoch']} with val_loss={ckpt['val_loss']:.5f}")
@@ -1170,11 +1258,11 @@ def main():
         else:
             epochs = 200  # More epochs for CURC training
         
-        model = train_transformer(
+        model = train_uncertainty_transformer(
             X_train, y_train, X_test, y_test,
             features=features,
             output_dir=str(output_dir),
-            d_token=64, n_heads=8, n_layers=3, d_ff=128,
+            d_token=128, n_heads=8, n_layers=4, d_ff=256,
             batch_size=256, n_epochs=epochs,
         )
 

@@ -92,6 +92,24 @@ class OCO2MetadataRetriever:
         else:
             logger.warning("No credentials provided. Some features may be unavailable.")
 
+        # Mimic a regular browser so GES DISC CDN doesn't rate-limit or 503
+        # script-like User-Agent strings more aggressively than browser traffic.
+        self.session.headers.update({
+            'User-Agent': (
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/124.0.0.0 Safari/537.36'
+            ),
+            'Accept': (
+                'text/html,application/xhtml+xml,application/xml;q=0.9,'
+                'image/avif,image/webp,*/*;q=0.8'
+            ),
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        })
+
     def _get_with_retry(self, url: str, timeout: int = 30,
                         max_retries: int = 4, backoff_base: float = 2.0) -> requests.Response:
         """GET with exponential backoff, retrying on 5xx or connection errors.
@@ -224,47 +242,83 @@ class OCO2MetadataRetriever:
     def fetch_oco2_xml_from_cmr(self, target_date: datetime) -> Optional[str]:
         """
         Fetch OCO-2 L1B Science XML metadata from CMR API (fallback method).
-        
+
+        Tries three progressively looser queries until one returns ≥1 granule:
+          1. short_name + version + provider=GES_DISC   (most specific)
+          2. short_name + provider=GES_DISC             (any version at GES DISC)
+          3. short_name only                            (widest net)
+
+        CMR search is a public endpoint — Basic Auth credentials must NOT be
+        sent (GES DISC session.auth causes 401 on CMR).
+
         Args:
             target_date: The observation date to query
-        
+
         Returns:
-            XML string containing granule metadata, or None if failed
+            XML string containing granule metadata, or None if all queries failed
         """
-        # CMR requires short_name and version as separate parameters.
-        # The collection short name is always "OCO2_L1B_Science"; the version
-        # ("11r" or "11.2r") selects the correct dataset vintage.
         version = self._get_collection_version(target_date)
 
-        # Set up temporal bounds (full day)
         start_time = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_time = start_time + timedelta(days=1)
+        end_time   = start_time + timedelta(days=1)
+        temporal   = f"{start_time.isoformat()}Z,{end_time.isoformat()}Z"
 
-        # Build CMR search parameters
-        params = {
-            'short_name': 'OCO2_L1B_Science',
-            'version': version,
-            'temporal': f"{start_time.isoformat()}Z,{end_time.isoformat()}Z",
-            'page_size': 100,
-            'sort_key': '-start_date'
-        }
+        # Candidate parameter sets — tried in order until granules are found
+        candidate_params = [
+            {   # Most specific: version + provider
+                'short_name': 'OCO2_L1B_Science',
+                'version':    version,
+                'provider':   'GES_DISC',
+                'temporal':   temporal,
+                'page_size':  100,
+                'sort_key':   '-start_date',
+            },
+            {   # Fallback: any version at GES DISC
+                'short_name': 'OCO2_L1B_Science',
+                'provider':   'GES_DISC',
+                'temporal':   temporal,
+                'page_size':  100,
+                'sort_key':   '-start_date',
+            },
+            {   # Last resort: no provider or version filter
+                'short_name': 'OCO2_L1B_Science',
+                'temporal':   temporal,
+                'page_size':  100,
+                'sort_key':   '-start_date',
+            },
+        ]
 
-        logger.info(f"Querying CMR for OCO-2 L1B data on {target_date.date()} "
-                    f"(short_name=OCO2_L1B_Science, version={version})")
+        for params in candidate_params:
+            desc = (f"short_name=OCO2_L1B_Science"
+                    + (f", version={params['version']}" if 'version' in params else '')
+                    + (f", provider={params['provider']}" if 'provider' in params else ''))
+            logger.info("Querying CMR for OCO-2 L1B on %s (%s)", target_date.date(), desc)
+            try:
+                response = requests.get(self.CMR_SEARCH_URL, params=params, timeout=30)
+                response.raise_for_status()
+            except requests.RequestException as e:
+                logger.error("CMR request failed (%s): %s", desc, e)
+                continue
 
-        try:
-            # CMR search is a public endpoint — do NOT send Basic Auth credentials
-            # (session.auth is for GES DISC downloads only; CMR rejects Basic Auth
-            # with 401 and requires either no auth or a Bearer token for this endpoint).
-            response = requests.get(self.CMR_SEARCH_URL, params=params, timeout=30)
-            response.raise_for_status()
-            
-            logger.info(f"Successfully retrieved CMR metadata ({len(response.text)} bytes)")
-            return response.text
-            
-        except requests.RequestException as e:
-            logger.error(f"Failed to retrieve metadata from CMR: {e}")
-            return None
+            # Quick check: does this response actually contain granule entries?
+            # Parse minimally to count <entry> elements before returning.
+            try:
+                root = ET.fromstring(response.text)
+                namespaces = {'atom': 'http://www.w3.org/2005/Atom'}
+                n_entries = len(root.findall('.//atom:entry', namespaces))
+            except ET.ParseError:
+                n_entries = 0
+
+            logger.info("CMR returned %d bytes, %d granule entries (%s)",
+                        len(response.text), n_entries, desc)
+
+            if n_entries > 0:
+                return response.text
+
+            logger.warning("CMR returned 0 entries for (%s) — trying next query variant", desc)
+
+        logger.error("All CMR query variants returned 0 granules for %s", target_date.date())
+        return None
     
     def fetch_oco2_xml(self, target_date: datetime, 
                        orbit_str: Optional[str] = None,
