@@ -288,11 +288,14 @@ def raw_processing_multipe_dates(fdir, date_list, output_fname):
 def main():
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results'
-    # List of dates to process
-    date_list = ['20200101', '20200201', '20200301', '20200401',
-                 '20200501', '20200601', '20200701', '20200801',
-                 '20200903', '20201001', '20201101', '20201201']  
+    # # List of dates to process
+    # date_list = ['20200101', '20200201', '20200301', '20200401',
+    #              '20200501', '20200601', '20200701', '20200801',
+    #              '20200903', '20201001', '20201101', '20201201']  
     
+    date_list = ['20190101', '20190201', '20190301', '20190401',
+                '20190501', '20190601', '20190701', '20190801',
+                '20190901', '20191001', '20191101', '20191201',]
     # date_list = ['20190101', '20190201', '20190301', '20190401',
     #              '20190501', '20190601', '20190701', '20190801',
     #              '20190901', '20191001', '20191101', '20191201',
@@ -305,19 +308,16 @@ def main():
     
     # date_list = ['20200101',]  
     
-    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
-    
-    csv_output_dir = os.path.join(fdir, 'csv_collection')
-    output_fname = 'combined_2020_dates.csv'
-    
+        
     for date in date_list:
         date_dt = datetime.strptime(date, '%Y%m%d')
         print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
         raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
-    csv_output_dir = os.path.join(fdir, 'csv_collection')
-    output_fname = 'combined_2020_dates.csv'
-    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+    # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    # csv_output_dir = os.path.join(fdir, 'csv_collection')
+    # output_fname = 'combined_2020_dates.csv'
+    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()
