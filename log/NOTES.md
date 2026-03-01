@@ -128,6 +128,28 @@ Uniform `predict(X)` / `predict_quantiles(X)` / `save(dir)` / `load(dir)` / `can
 
 `_ResBlock` and `_MLP` are defined at module level here (not nested in training scripts).
 
+### Model Architecture Improvements (2026-03-01)
+
+Four targeted fixes applied to address poor clear-sky R² (≈0.048) and cloud-regime spread:
+
+#### MLP (`src/model_adapters.py`, `src/mlp_lr_models.py`)
+
+| Change | Before | After | Reason |
+|--------|--------|-------|--------|
+| Norm in `_ResBlock` | `BatchNorm1d` | `LayerNorm` | BN uses running stats at eval → misscales OOD cloud-affected samples |
+| Norm in `_MLP.input_proj` | `BatchNorm1d` | `LayerNorm` | Same issue at the input projection |
+| y-normalization | `mean / std` | `median / (IQR / 1.3490)` | Robust to heavy left tail; `1.3490 = IQR of N(0,1) = 2 × Φ⁻¹(0.75)`, so `IQR/1.3490 ≈ σ` |
+
+#### FT-Transformer (`src/models_transformer.py`)
+
+| Change | Before | After | Reason |
+|--------|--------|-------|--------|
+| Head aggregation | `x.flatten(1)` → `Linear(n_feat×d_token, d_ff)` | `x.mean(dim=1)` → `Linear(d_token, d_token//2)` → `Linear(d_token//2, 3)` | Flatten head had 2.4M params for a single projection; mean-pool drops this to 32K and is more stable |
+| FFN width `d_ff` | 256 (= d_token) | 512 (= 2 × d_token) | Standard FT-Transformer recommendation; equal sizes give FFN no capacity over attention residual |
+| LR schedule | None (fixed 1e-4) | `CosineAnnealingLR(T_max=n_epochs, eta_min=1e-6)` | Prevents lr from staying high late in training |
+
+Existing checkpoints (`model_best.pt`) are **incompatible** with the new FT architecture — retrain required.
+
 ### Training Scripts
 - **`mlp_lr_models.py`**: `--pipeline <path>` optional; loads or fits+saves pipeline; trains Ridge + `_MLP`; saves via adapters; paths via `get_storage_dir()`
 - **`models_transformer.py`**: `--pipeline <path>` optional; auto-fits if absent; trains FT-Transformer; saves `ft_meta.pkl` via `FTAdapter.save()` (`model_best.pt` written by training loop); paths via `get_storage_dir()`

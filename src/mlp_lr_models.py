@@ -271,9 +271,11 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     _checkpoint("before MLP init + training")
     n_in = X_train.shape[1]
 
-    # Normalise target to zero-mean unit-variance so Huber loss is scale-invariant
-    y_mean = float(y_train.mean())
-    y_std  = float(y_train.std()) + 1e-8
+    # Normalise target: median-centre + IQR-scale (robust to heavy left tail
+    # from cloud-affected anomalies; IQR/1.349 ≈ σ for a Gaussian distribution)
+    # 1.3490 = IQR of N(0,1) = 2 × Φ⁻¹(0.75) ≈ 2 × 0.6745, so IQR/1.3490 ≈ σ
+    y_mean = float(np.median(y_train))
+    y_std  = float(np.percentile(y_train, 75) - np.percentile(y_train, 25)) / 1.3490 + 1e-8
     y_train_n = (y_train - y_mean) / y_std
     y_test_n  = (y_test  - y_mean) / y_std
 

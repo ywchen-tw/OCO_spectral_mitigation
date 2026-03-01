@@ -192,23 +192,26 @@ class UncertainFTTransformerRefined(nn.Module):
 
     Outputs 3 quantiles [q05, q50, q95] compatible with ``quantile_loss``.
     Supports ``return_attn=True`` for compatibility with ``plot_attention_map``.
+
+    Aggregation: learnable per-feature gate → mean-pool over tokens → 2-layer head.
+    This replaces the previous flatten (n_features × d_token → d_ff) which created
+    a single over-parameterised projection prone to poor generalisation.
     """
 
-    def __init__(self, n_features, d_token=128, n_heads=8, n_layers=4, d_ff=256):
+    def __init__(self, n_features, d_token=128, n_heads=8, n_layers=4, d_ff=512):
         super().__init__()
         self.n_features = n_features
         self.tokenizer = FeatureTokenizer(n_features, d_token)
         self.layers = nn.ModuleList([
             AdvancedTransformerBlock(d_token, n_heads, d_ff) for _ in range(n_layers)
         ])
-        # Learnable per-feature importance weight applied before flattening
+        # Learnable per-feature importance weight applied before mean-pooling
         self.feature_weight = nn.Parameter(torch.ones(n_features))
         self.head = nn.Sequential(
-            nn.Linear(d_token * n_features, d_ff),
-            nn.LayerNorm(d_ff),
+            nn.Linear(d_token, d_token // 2),   # 256 → 128
             nn.GELU(),
             nn.Dropout(0.2),
-            nn.Linear(d_ff, 3),  # [q05, q50, q95]
+            nn.Linear(d_token // 2, 3),          # 128 → [q05, q50, q95]
         )
 
     def forward(self, x, return_attn: bool = False):
@@ -222,8 +225,10 @@ class UncertainFTTransformerRefined(nn.Module):
                 x = layer.ff(x)
             else:
                 x = layer(x)
+        # Gate tokens then mean-pool: [batch, n_features, d_token] → [batch, d_token]
         x = x * self.feature_weight.view(1, -1, 1)
-        out = self.head(x.flatten(1))
+        x = x.mean(dim=1)
+        out = self.head(x)
         if return_attn:
             return out, last_attn
         return out
@@ -336,7 +341,8 @@ class UncertainBiasPredictorFT(nn.Module):
         return out
     
 def quantile_loss(preds, targets, quantiles):
-    """
+    """Pinball / quantile loss for all three outputs.
+
     preds: [batch, 3]
     targets: [batch]
     quantiles: [0.05, 0.5, 0.95]
@@ -347,8 +353,42 @@ def quantile_loss(preds, targets, quantiles):
         # Pinball loss formula
         loss = torch.max((q - 1) * errors, q * errors)
         losses.append(loss.unsqueeze(-1))
-    
+
     return torch.mean(torch.cat(losses, dim=-1))
+
+
+def huber_pinball_loss(preds, targets, quantiles, delta: float = 1.0):
+    """Combined loss: Huber for q50 (index 1), pinball for q05/q95 (indices 0, 2).
+
+    Using Huber for the median makes the point-prediction robust to the heavy
+    left tail of cloud-affected XCO2 anomalies (which can reach −3 ppm) while
+    still behaving like MSE for typical clear-sky anomalies near 0.  The q05/q95
+    outputs retain their pinball loss so the uncertainty intervals stay calibrated.
+
+    preds      : [batch, 3]
+    targets    : [batch]
+    quantiles  : [0.05, 0.5, 0.95]
+    delta      : Huber transition point (ppm).  Errors with |e| ≤ delta are
+                 penalised quadratically; larger errors linearly.
+                 Recommended range for xco2_bc_anomaly: 0.5–1.0 ppm.
+    """
+    losses = []
+    for i, q in enumerate(quantiles):
+        errors = targets - preds[:, i]
+        if q == 0.5:
+            # Huber loss: quadratic for |e| ≤ delta, linear beyond
+            loss = torch.where(
+                errors.abs() <= delta,
+                0.5 * errors ** 2,
+                delta * (errors.abs() - 0.5 * delta),
+            )
+        else:
+            # Pinball loss for q05 / q95 — unchanged
+            loss = torch.max((q - 1) * errors, q * errors)
+        losses.append(loss.unsqueeze(-1))
+
+    return torch.mean(torch.cat(losses, dim=-1))
+
 
 # Training setup
 quantiles = [0.05, 0.5, 0.95]
@@ -626,7 +666,9 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
                                   output_dir: str = ".",
                                   d_token=128, n_heads=8, n_layers=4, d_ff=256,
                                   batch_size=64, n_epochs=100,
-                                  log_every=10, patience=None):
+                                  log_every=10, patience=None,
+                                  loss_fn: str = 'quantile',
+                                  huber_delta: float = 1.0):
     train_ds = TensorDataset(
         torch.tensor(X_train, dtype=torch.float32),
         torch.tensor(y_train, dtype=torch.float32),
@@ -653,7 +695,17 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
                                               d_token=d_token, n_heads=n_heads,
                                               n_layers=n_layers, d_ff=d_ff).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=n_epochs, eta_min=1e-6
+    )
     q_levels  = [0.05, 0.5, 0.95]
+
+    if loss_fn == 'huber':
+        def _loss(preds, targets):
+            return huber_pinball_loss(preds, targets, q_levels, delta=huber_delta)
+    else:
+        def _loss(preds, targets):
+            return quantile_loss(preds, targets, q_levels)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     tqdm.write("=" * 60)
@@ -666,6 +718,8 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
     tqdm.write(f"  Train size  : {len(train_ds):,}  |  Val size: {len(val_ds):,}")
     tqdm.write(f"  Batch size  : {batch_size}  |  Epochs: {n_epochs}  |  Log every: {log_every}")
     tqdm.write(f"  Early stop  : {'disabled (patience=None)' if patience is None else f'patience={patience} epochs'}")
+    tqdm.write(f"  LR schedule : CosineAnnealingLR(T_max={n_epochs}, eta_min=1e-6)")
+    tqdm.write(f"  Loss        : {loss_fn}" + (f"  (huber_delta={huber_delta})" if loss_fn == 'huber' else ""))
     ckpt_path = os.path.join(output_dir, 'model_best.pt')
     tqdm.write(f"  Checkpoint  : {ckpt_path}")
     tqdm.write("=" * 60)
@@ -687,7 +741,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
             optimizer.zero_grad()
             preds = model(batch_x)          # [batch, 3]
-            loss  = quantile_loss(preds, batch_y, q_levels)
+            loss  = _loss(preds, batch_y)
             loss.backward()
             grad_norm = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -703,7 +757,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
                                           leave=False, unit="batch"):
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
                 preds     = model(batch_x)
-                val_loss += quantile_loss(preds, batch_y, q_levels).item()
+                val_loss += _loss(preds, batch_y).item()
                 val_preds_q50.append(preds[:, 1].cpu())
                 val_targets.append(batch_y.cpu())
 
@@ -733,6 +787,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
         else:
             epochs_no_improve += 1
 
+        scheduler.step()
         train_history.append((epoch, avg_train, avg_val))
 
         epoch_bar.set_postfix(
@@ -742,6 +797,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
             MAE=f"{val_mae:.4f}",
             R2=f"{val_r2:.4f}",
             gnorm=f"{avg_gnorm:.3f}",
+            lr=f"{scheduler.get_last_lr()[0]:.2e}",
             saved="✓" if improved else "",
         )
 
@@ -1264,6 +1320,15 @@ def main():
                         help='Path to a pre-fitted FeaturePipeline (.pkl).  '
                              'If not supplied, a new pipeline is fitted from the training data '
                              'and saved to <output_dir>/pipeline.pkl.')
+    parser.add_argument('--loss', type=str, default='huber',
+                        choices=['quantile', 'huber'],
+                        help='Loss function for q50: "huber" = Huber for q50 + pinball for q05/q95 (default), '
+                             '"quantile" = pinball for all outputs.  '
+                             'Huber is robust to the heavy left tail of cloud-affected anomalies.')
+    parser.add_argument('--huber-delta', type=float, default=1.0,
+                        help='Huber transition point δ (ppm).  Errors with |e| ≤ δ are '
+                             'penalised quadratically, larger errors linearly.  '
+                             'Only used when --loss huber.  Default: 1.0.')
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()
@@ -1347,14 +1412,16 @@ def main():
             X_train, y_train, X_test, y_test,
             features=features,
             output_dir=str(output_dir),
-            d_token=256, n_heads=8, n_layers=4, d_ff=256,
+            d_token=256, n_heads=8, n_layers=4, d_ff=512,
             batch_size=1024, n_epochs=epochs,
             patience=50,   # None = run all epochs; int = early-stop after N epochs with no improvement
+            loss_fn=args.loss,
+            huber_delta=args.huber_delta,
         )
 
         # ── Persist adapter metadata (model_best.pt already written by training loop) ──
         FTAdapter(model, n_features=pipeline.n_features,
-                  d_token=256, n_heads=8, n_layers=4, d_ff=256).save(output_dir)
+                  d_token=256, n_heads=8, n_layers=4, d_ff=512).save(output_dir)
 
     # ── Evaluate: quantile width vs selected features ─────────────────────────
     uncertainty_features = ['glint_prox', 'aod_total', 'mu_sza', 'tcwv', 'csnr_o2a']

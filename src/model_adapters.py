@@ -40,14 +40,14 @@ logger = logging.getLogger(__name__)
 # ─── MLP architecture (module-level — previously nested in mitigation_test()) ──
 
 class _ResBlock(nn.Module):
-    """Pre-activation residual block: BN→GELU→Linear→BN→GELU→Dropout→Linear + skip."""
+    """Pre-activation residual block: LN→GELU→Linear→LN→GELU→Dropout→Linear + skip."""
 
     def __init__(self, dim: int, dropout: float):
         super().__init__()
         self.block = nn.Sequential(
-            nn.BatchNorm1d(dim), nn.GELU(),
+            nn.LayerNorm(dim), nn.GELU(),
             nn.Linear(dim, dim),
-            nn.BatchNorm1d(dim), nn.GELU(),
+            nn.LayerNorm(dim), nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(dim, dim),
         )
@@ -60,7 +60,7 @@ class _MLP(nn.Module):
     """Residual MLP for XCO2 anomaly regression.
 
     Architecture: Linear projection → N × ResBlock → Linear head.
-    Target is assumed to be normalised (zero-mean, unit-variance) during
+    Target is assumed to be normalised (median-centred, IQR-scaled) during
     training; MLPAdapter handles denormalisation at inference time.
     """
 
@@ -69,7 +69,7 @@ class _MLP(nn.Module):
         super().__init__()
         self.input_proj = nn.Sequential(
             nn.Linear(n, d_model),
-            nn.BatchNorm1d(d_model),
+            nn.LayerNorm(d_model),
             nn.GELU(),
             nn.Dropout(0.1),
         )
