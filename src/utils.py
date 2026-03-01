@@ -6,6 +6,7 @@ Common helper functions used across different phases.
 """
 
 import os
+import platform
 import logging
 from pathlib import Path
 from typing import Union, Optional
@@ -13,8 +14,27 @@ from datetime import datetime, timezone
 import h5py
 
 import numpy as np
+from config import Config
 
 logger = logging.getLogger(__name__)
+
+
+def get_storage_dir() -> Path:
+    """Return the platform-appropriate root data/results directory.
+
+    - macOS  → Config.get_data_path('local')
+    - Linux  → Config.get_data_path('curc')
+    - Other  → Config.get_data_path('default')
+    """
+    if platform.system() == "Darwin":
+        logger.info("Detected macOS - using local data directory")
+        return Path(Config.get_data_path('local'))
+    elif platform.system() == "Linux":
+        logger.info("Detected Linux - using CURC storage directory")
+        return Path(Config.get_data_path('curc'))
+    else:
+        logger.warning(f"Unknown platform: {platform.system()}. Using default.")
+        return Path(Config.get_data_path('default'))
 
 
 def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None):

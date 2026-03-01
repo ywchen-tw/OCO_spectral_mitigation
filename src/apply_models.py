@@ -1,0 +1,490 @@
+"""apply_models.py — apply trained Ridge/MLP/FT models to new data.
+
+Loads a shared FeaturePipeline and whichever model adapters are available,
+applies all of them to an input CSV, and writes an output CSV with the
+predicted correction columns appended.
+
+Optionally:
+  - recomputes XCO2 anomaly on corrected fields (when orbit metadata present)
+  - generates cross-model comparison plots (when ground-truth anomaly present)
+
+Usage:
+    python src/apply_models.py \\
+        --pipeline   results/exp_v1/pipeline.pkl \\
+        --ridge-dir  results/model_mlp_lr/exp_v1/ \\
+        --mlp-dir    results/model_mlp_lr/exp_v1/ \\
+        --ft-dir     results/model_ft_transformer/exp_v1/ \\
+        --input      new_data.csv \\
+        --output     corrected.csv \\
+        --plot-dir   results/exp_v1/comparison/   # optional
+
+Output CSV columns added:
+    ridge_pred, mlp_pred, ft_q05, ft_q50, ft_q95, ft_uncertainty
+    (+ ridge_anomaly, mlp_anomaly, ft_anomaly when orbit metadata present)
+"""
+
+import argparse
+import logging
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from pipeline import FeaturePipeline
+from model_adapters import RidgeAdapter, MLPAdapter, FTAdapter
+from utils import get_storage_dir
+
+logger = logging.getLogger(__name__)
+
+_ANOMALY_ARGS = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
+_ORBIT_COLS   = {'date', 'orbit_id', 'lat', 'cld_dist_km'}
+
+
+# ─── Helpers ───────────────────────────────────────────────────────────────────
+
+def _try_load(adapter_cls, adapter_dir, label: str):
+    """Load adapter if files exist, else return None with a warning."""
+    if adapter_dir is None:
+        return None
+    if not adapter_cls.can_load(adapter_dir):
+        logger.warning("%s: adapter files not found in %s — skipping.", label, adapter_dir)
+        return None
+    try:
+        adapter = adapter_cls.load(adapter_dir)
+        print(f"  [loaded] {label} ← {adapter_dir}", flush=True)
+        return adapter
+    except Exception as exc:
+        logger.warning("%s: load failed (%s) — skipping.", label, exc)
+        return None
+
+
+def _recompute_anomaly(df: pd.DataFrame,
+                       xco2_corrected: np.ndarray,
+                       label: str) -> np.ndarray:
+    """Call compute_xco2_anomaly_date_id on a corrected XCO2 field."""
+    from mlp_lr_models import compute_xco2_anomaly_date_id
+    print(f"  Computing anomaly for {label} corrected XCO2 …", flush=True)
+    return compute_xco2_anomaly_date_id(
+        df['date'], df['orbit_id'],
+        df['lat'].to_numpy(), df['cld_dist_km'].to_numpy(),
+        xco2_corrected,
+        **_ANOMALY_ARGS,
+    )
+
+
+def _plot_regime_comparison(df_out: pd.DataFrame, active: list,
+                            plot_dir: Path) -> None:
+    """3-row × (n_models+3)-col regime comparison plot.
+
+    Replicates mlp_lr_models.py lines 599-743, adapted for apply_models.py.
+
+    Rows
+    ----
+    1. Clear-sky FPs (cld_dist > 10 km)  — from rows with finite xco2_bc_anomaly
+    2. Cloud-affected FPs (cld_dist ≤ 10 km) — same subset
+    3. Cloud FPs with NaN anomaly (cld_dist ≤ 10 km) — full df, anomaly absent
+
+    Columns (per row)
+    -----------------
+    0..n_models-1 : scatter  original vs model prediction
+    n_models      : distribution histogram  (original + each model)
+    n_models+1    : corrected-XCO2 histogram
+    n_models+2    : ideal corrected-XCO2 histogram
+    """
+    required = {'xco2_bc', 'xco2_bc_anomaly', 'cld_dist_km'}
+    if not required.issubset(df_out.columns):
+        logger.info("_plot_regime_comparison: missing %s — skipping.",
+                    required - set(df_out.columns))
+        return
+
+    xco2_bc_all  = df_out['xco2_bc'].to_numpy(dtype=float)
+    anom_all     = df_out['xco2_bc_anomaly'].to_numpy(dtype=float)
+    cld_dist_all = df_out['cld_dist_km'].to_numpy(dtype=float)
+
+    # Rows with valid anomaly (mirrors df_xco2_anomaly in mlp_lr_models.py)
+    sub_mask = np.isfinite(anom_all)
+    anom_sub = anom_all[sub_mask]
+    xco2_sub = xco2_bc_all[sub_mask]
+    cld_sub  = cld_dist_all[sub_mask]
+
+    mask_r1 = cld_sub > 10
+    mask_r2 = cld_sub <= 10
+    mask_r3 = (cld_dist_all <= 10) & ~np.isfinite(anom_all)
+
+    # Per-model arrays (sub = anomaly-valid rows, all = full df)
+    model_cfgs = []   # (name, color, pred_sub, pred_all)
+    for name, pred_col, color in active:
+        if pred_col not in df_out.columns:
+            continue
+        pred_all = df_out[pred_col].to_numpy(dtype=float)
+        model_cfgs.append((name, color, pred_all[sub_mask], pred_all))
+
+    if not model_cfgs:
+        return
+
+    n_models = len(model_cfgs)
+    n_cols   = n_models + 3
+
+    # row_configs: (xco2_orig, xco2_orig_bc, mask, label, is_anomaly)
+    row_configs = [
+        (anom_sub,    xco2_sub,    mask_r1,
+         'Clear-sky FPs (cld_dist > 10 km)',               True),
+        (anom_sub,    xco2_sub,    mask_r2,
+         'Cloud-affected FPs (cld_dist \u2264 10 km)',     True),
+        (xco2_bc_all, xco2_bc_all, mask_r3,
+         'Cloud FPs with NaN anomaly (cld_dist \u2264 10 km)', False),
+    ]
+
+    plt.close('all')
+    fig, axes = plt.subplots(3, n_cols, figsize=(5 * n_cols + 2, 17))
+
+    for row_i, (xco2_orig, xco2_orig_bc, mask, row_label, is_anomaly) in enumerate(row_configs):
+        scatter_axes = [axes[row_i, j] for j in range(n_models)]
+        ax_h  = axes[row_i, n_models]
+        ax_h2 = axes[row_i, n_models + 1]
+        ax_h3 = axes[row_i, n_models + 2]
+
+        x_orig   = xco2_orig[mask]
+        x_orig_bc = xco2_orig_bc[mask]
+
+        if np.isfinite(x_orig).sum() < 2:
+            for ax in scatter_axes + [ax_h, ax_h2, ax_h3]:
+                ax.set_visible(False)
+            continue
+
+        _lo = np.nanpercentile(x_orig[np.isfinite(x_orig)], 1)
+        _hi = np.nanpercentile(x_orig[np.isfinite(x_orig)], 99)
+
+        preds_row = []
+        for (name, color, pred_sub, pred_all), ax in zip(model_cfgs, scatter_axes):
+            x_pred = (pred_sub if row_i < 2 else pred_all)[mask]
+            preds_row.append((name, color, x_pred))
+
+            if not (x_orig == x_orig_bc).all():
+                v = np.isfinite(x_orig) & np.isfinite(x_pred)
+                ax.scatter(x_orig[v], x_pred[v], c=color, edgecolor=None, s=5, alpha=0.6)
+                ax.set_xlim(_lo, _hi); ax.set_ylim(_lo, _hi)
+                ax.set_aspect('equal', adjustable='box')
+                ax.axline((_lo, _lo), slope=1, color='r', linestyle='--')
+                ax.set_xlabel('Original XCO2_bc anomaly (ppm)' if is_anomaly
+                              else 'Original XCO2_bc (ppm)')
+                ax.set_ylabel(f'{name}-corrected XCO2_bc anomaly (ppm)' if is_anomaly
+                              else f'{name}-corrected XCO2_bc (ppm)')
+                ax.set_title(f'{row_label}\n[{name} scatter]')
+                if v.sum() > 1:
+                    r2 = 1 - np.nansum((x_orig[v] - x_pred[v])**2) / \
+                             np.nansum((x_orig[v] - np.nanmean(x_orig[v]))**2)
+                    ax.text(0.05, 0.95, f'R\u00b2={r2:.3f}', transform=ax.transAxes, va='top')
+            else:
+                ax.set_visible(False)
+
+        # Histogram columns — mirrors mlp_lr_models.py lines 672-733
+        hist_series = [('Original', 'blue', x_orig, x_orig_bc)] + \
+                      [(nm, clr, x_pred, x_orig_bc) for nm, clr, x_pred in preds_row]
+
+        for _label, _color, _xco2, _xco2_bc in hist_series:
+            _v  = _xco2[np.isfinite(_xco2)]
+            _v2 = _xco2_bc[np.isfinite(_xco2)]
+            if len(_v) == 0:
+                continue
+            # Col: distribution of xco2 values
+            if len(_v2) > 0 and not (_v == _v2).all():
+                _mu, _sigma = _v.mean(), _v.std()
+                _bins = np.linspace(np.nanpercentile(_v, 1), np.nanpercentile(_v, 99), 100)
+                ax_h.hist(_v, bins=_bins, color=_color, alpha=0.6, density=True,
+                          label=f'{_label}\n\u03bc={_mu:.3f}, \u03c3={_sigma:.3f}')
+                ax_h.axvline(_mu,           color=_color, linestyle='-',  linewidth=1.2)
+                ax_h.axvline(_mu - _sigma,  color=_color, linestyle=':',  linewidth=0.9)
+                ax_h.axvline(_mu + _sigma,  color=_color, linestyle=':',  linewidth=0.9)
+
+            # Col: corrected XCO2_bc distribution
+            if _label != 'Original':
+                _v2 = _v2 - _v
+            _mu2, _sigma2 = _v2.mean(), _v2.std()
+            _bins2 = np.linspace(np.nanpercentile(_v2, 1), np.nanpercentile(_v2, 99), 100)
+            ax_h2.hist(_v2, bins=_bins2, color=_color, alpha=0.3, density=True,
+                       label=f'{_label}\n\u03bc={_mu2:.3f}, \u03c3={_sigma2:.3f}')
+            ax_h2.axvline(_mu2,           color=_color, linestyle='-',  linewidth=1.0)
+            ax_h2.axvline(_mu2 - _sigma2, color=_color, linestyle=':',  linewidth=0.8)
+            ax_h2.axvline(_mu2 + _sigma2, color=_color, linestyle=':',  linewidth=0.8)
+
+            # Col: ideal corrected XCO2 distribution
+            if _label == 'Original' and not (_v == _v2).all():
+                _v2_h3 = _v2 - _v
+                _mu3, _sigma3 = _v2_h3.mean(), _v2_h3.std()
+                bins3 = np.linspace(np.nanpercentile(_v2_h3, 1), np.nanpercentile(_v2_h3, 99), 100)
+                ax_h3.hist(_v2_h3, bins=bins3, color=_color, alpha=0.2, density=True,
+                           label=f'Ideal {_label}-corrected\n\u03bc={_mu3:.3f}, \u03c3={_sigma3:.3f}')
+                ax_h3.axvline(_mu3,           color=_color, linestyle='-',  linewidth=0.8)
+                ax_h3.axvline(_mu3 - _sigma3, color=_color, linestyle=':',  linewidth=0.6)
+                ax_h3.axvline(_mu3 + _sigma3, color=_color, linestyle=':',  linewidth=0.6)
+            elif (_v == _v2).all():
+                ax_h3.set_visible(False)
+            else:
+                _mu3, _sigma3 = _v2.mean(), _v2.std()
+                bins3 = np.linspace(np.nanpercentile(_v2, 1), np.nanpercentile(_v2, 99), 100)
+                ax_h3.hist(_v2, bins=bins3, color=_color, alpha=0.2, density=True,
+                           label=f'{_label}\n\u03bc={_mu3:.3f}, \u03c3={_sigma3:.3f}')
+                ax_h3.axvline(_mu3,           color=_color, linestyle='-',  linewidth=0.8)
+                ax_h3.axvline(_mu3 - _sigma3, color=_color, linestyle=':',  linewidth=0.6)
+                ax_h3.axvline(_mu3 + _sigma3, color=_color, linestyle=':',  linewidth=0.6)
+
+        ax_h.set_title(f'{row_label}\n[Distribution]')
+        ax_h.set_xlabel('XCO2_bc anomaly (ppm)' if is_anomaly else 'XCO2_bc (ppm)')
+        ax_h.legend(fontsize=9)
+        ax_h2.set_title(f'{row_label}\n[Corrected distribution]')
+        ax_h2.set_xlabel('Corrected XCO2_bc (ppm)')
+        ax_h2.legend(fontsize=9)
+        ax_h3.set_title(f'{row_label}\n[Ideal corrected XCO2 distribution]')
+        ax_h3.legend(fontsize=9)
+
+    fig.suptitle('XCO2_bc by cloud-distance regime', fontsize=13, y=1.01)
+    fig.tight_layout()
+    fig.savefig(plot_dir / 'xco2bc_comparison_regime.png', dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    logger.info("Saved xco2bc_comparison_regime.png")
+
+
+def _comparison_plots(df_out: pd.DataFrame, available: dict,
+                      plot_dir: Path) -> None:
+    """Scatter + histogram comparison plots when ground-truth anomaly exists."""
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    true_anom = df_out['xco2_bc_anomaly'].to_numpy(dtype=float)
+    valid     = np.isfinite(true_anom)
+    if valid.sum() < 10:
+        logger.warning("Too few labelled samples for comparison plots — skipping.")
+        return
+
+    # ── Scatter panels ─────────────────────────────────────────────────────
+    pred_cols = {
+        'RidgeLR': ('ridge_pred',  'orange'),
+        'MLP':   ('mlp_pred',    'green'),
+        'FT':    ('ft_q50',      'steelblue'),
+    }
+    active = [(name, col, color)
+              for name, (col, color) in pred_cols.items()
+              if name.lower() in available and col in df_out.columns]
+
+    if active:
+        n  = len(active)
+        fig, axes = plt.subplots(1, n, figsize=(6 * n, 5))
+        if n == 1:
+            axes = [axes]
+        _lim = np.nanpercentile(np.abs(true_anom[valid]), 99)
+        metrics_rows = []
+
+        for ax, (name, col, color) in zip(axes, active):
+            pred = df_out[col].to_numpy(dtype=float)
+            v    = valid & np.isfinite(pred)
+            ax.scatter(true_anom[v], pred[v], c=color, edgecolor=None, s=5, alpha=0.5)
+            ax.set_xlim(-_lim, _lim);  ax.set_ylim(-_lim, _lim)
+            ax.set_aspect('equal', adjustable='box')
+            ax.axline((0, 0), slope=1, color='r', linestyle='--', linewidth=0.8)
+            ax.set_xlabel('True XCO2_bc anomaly (ppm)')
+            ax.set_ylabel(f'{name} predicted anomaly (ppm)')
+            ax.set_title(name)
+            if v.sum() > 1:
+                r2  = 1 - np.nansum((true_anom[v] - pred[v])**2) / \
+                          np.nansum((true_anom[v] - np.nanmean(true_anom[v]))**2)
+                mae = float(np.abs(true_anom[v] - pred[v]).mean())
+                ax.text(0.05, 0.95, f'R²={r2:.3f}\nMAE={mae:.4f}',
+                        transform=ax.transAxes, va='top',
+                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+                metrics_rows.append({'model': name, 'R2': r2, 'MAE': mae,
+                                     'sigma': float(pred[v].std()), 'n': int(v.sum())})
+
+        fig.suptitle('Cross-model comparison — anomaly scatter', fontsize=12)
+        fig.tight_layout()
+        fig.savefig(plot_dir / 'comparison_scatter.png', dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        logger.info("Saved comparison_scatter.png")
+
+        # ── Histogram ──────────────────────────────────────────────────────
+        fig, ax = plt.subplots(figsize=(8, 5))
+        _bins = np.linspace(-3, 3, 211)
+        for anom, color, label in [
+                (true_anom, 'blue', 'Original'),
+                *[(df_out[col].to_numpy(dtype=float), clr, nm)
+                  for nm, col, clr in active],
+        ]:
+            _v = anom[np.isfinite(anom)]
+            _mu, _sigma = np.nanmean(_v), np.nanstd(_v)
+            ax.hist(_v, bins=_bins, color=color, alpha=0.5, density=True,
+                    label=f'{label}  μ={_mu:.3f} σ={_sigma:.3f}')
+            ax.axvline(_mu, color=color, linewidth=1.0)
+        ax.set_xlabel('XCO2_bc anomaly (ppm)')
+        ax.set_title('Anomaly distribution comparison')
+        ax.axvline(0, color='k', linestyle='--', linewidth=0.7)
+        ax.legend(fontsize=9)
+        fig.tight_layout()
+        fig.savefig(plot_dir / 'comparison_hist.png', dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        logger.info("Saved comparison_hist.png")
+
+        # ── Metrics CSV ────────────────────────────────────────────────────
+        if metrics_rows:
+            pd.DataFrame(metrics_rows).to_csv(plot_dir / 'metrics.csv', index=False)
+            logger.info("Saved metrics.csv")
+            print("\n  ── Metrics ──────────────────────────", flush=True)
+            for row in metrics_rows:
+                print(f"  {row['model']:8s}  R²={row['R2']:.4f}  MAE={row['MAE']:.4f}  "
+                      f"σ={row['sigma']:.4f}  n={row['n']:,}", flush=True)
+
+        # ── Regime comparison (3-row × n_models+3 grid) ────────────────────
+        _plot_regime_comparison(df_out, active, plot_dir)
+
+
+# ─── Main ──────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Apply trained Ridge/MLP/FT models to a new CSV."
+    )
+    parser.add_argument('--suffix',    type=str, default='',
+                        help='Experiment subfolder used to derive default model dirs and output paths '
+                             '(e.g. --suffix exp_v1).  Ignored when the corresponding explicit '
+                             'path arg is supplied.')
+    parser.add_argument('--pipeline',  default=None,
+                        help='Path to pipeline.pkl.  '
+                             'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/pipeline.pkl')
+    parser.add_argument('--ridge-dir', default=None,
+                        help='Dir containing ridge_model.pkl.  '
+                             'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/')
+    parser.add_argument('--mlp-dir',   default=None,
+                        help='Dir containing mlp_meta.pkl + mlp_weights.pt.  '
+                             'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/')
+    parser.add_argument('--ft-dir',    default=None,
+                        help='Dir containing ft_meta.pkl + model_best.pt.  '
+                             'Defaults to <storage_dir>/results/model_ft_transformer/<suffix>/')
+    parser.add_argument('--input',     default=None,
+                        help='Input CSV path.  '
+                             'Defaults to <storage_dir>/results/csv_collection/combined_2020_dates.csv')
+    parser.add_argument('--output',    default=None,
+                        help='Output CSV path.  '
+                             'Defaults to <storage_dir>/results/corrected<suffix>.csv')
+    parser.add_argument('--plot-dir',  default=None,
+                        help='Output directory for comparison plots.  '
+                             'Defaults to <storage_dir>/results/comparison/<suffix>/')
+    parser.add_argument('--sfc-type',  type=int, default=None,
+                        help='Filter input by sfc_type (0=ocean, 1=land). '
+                             'Defaults to the pipeline\'s sfc_type.')
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+    storage_dir  = get_storage_dir()
+    suffix       = args.suffix
+    lr_dir       = storage_dir / 'results/model_mlp_lr'    / suffix if suffix else storage_dir / 'results/model_mlp_lr'
+    ft_dir_def   = storage_dir / 'results/model_ft_transformer' / suffix if suffix else storage_dir / 'results/model_ft_transformer'
+    suffix_tag   = f'_{suffix}' if suffix else ''
+
+    pipeline_path = args.pipeline  or str(lr_dir / 'pipeline.pkl')
+    ridge_dir     = args.ridge_dir or str(lr_dir)
+    mlp_dir       = args.mlp_dir   or str(lr_dir)
+    ft_dir        = args.ft_dir    or str(ft_dir_def)
+    input_path    = args.input     or str(storage_dir / 'results/csv_collection/combined_2020_dates.csv')
+    output_path   = args.output    or str(storage_dir / f'results/corrected{suffix_tag}.csv')
+    plot_dir      = args.plot_dir  or str(storage_dir / 'results/comparison' / suffix if suffix else storage_dir / 'results/comparison')
+
+    # ── Load pipeline ──────────────────────────────────────────────────────
+    print(f"Loading pipeline: {pipeline_path}", flush=True)
+    pipeline = FeaturePipeline.load(pipeline_path)
+    print(f"  {pipeline}", flush=True)
+
+    sfc_type = args.sfc_type if args.sfc_type is not None else pipeline.sfc_type
+
+    # ── Load adapters ──────────────────────────────────────────────────────
+    ridge = _try_load(RidgeAdapter, ridge_dir, 'Ridge')
+    mlp   = _try_load(MLPAdapter,   mlp_dir,   'MLP')
+    ft    = _try_load(FTAdapter,    ft_dir,    'FT')
+
+    available = {name for name, adapter in [('ridge', ridge), ('mlp', mlp), ('ft', ft)]
+                 if adapter is not None}
+    if not available:
+        print("ERROR: No adapter files found. Supply at least one of "
+              "--ridge-dir, --mlp-dir, --ft-dir.", file=sys.stderr)
+        sys.exit(1)
+
+    # ── Load + filter input CSV ────────────────────────────────────────────
+    print(f"\nLoading input: {input_path}", flush=True)
+    df = pd.read_csv(input_path)
+    print(f"  Rows loaded: {len(df):,}", flush=True)
+
+    df = df[df['sfc_type'] == sfc_type]
+    if 'snow_flag' in df.columns:
+        df = df[df['snow_flag'] == 0]
+    df = df.reset_index(drop=True)
+    print(f"  Rows after sfc_type={sfc_type} + snow_flag==0: {len(df):,}", flush=True)
+
+    # ── Transform features ─────────────────────────────────────────────────
+    print("Transforming features …", flush=True)
+    X = pipeline.transform(df)
+    print(f"  X shape: {X.shape}", flush=True)
+
+    # ── Predict ────────────────────────────────────────────────────────────
+    df_out = df.copy()
+
+    if ridge is not None:
+        print("Predicting with Ridge …", flush=True)
+        df_out['ridge_pred'] = ridge.predict(X)
+
+    if mlp is not None:
+        print("Predicting with MLP …", flush=True)
+        df_out['mlp_pred'] = mlp.predict(X)
+
+    if ft is not None:
+        print("Predicting with FT-Transformer …", flush=True)
+        q05, q50, q95         = ft.predict_quantiles(X)
+        df_out['ft_q05']      = q05
+        df_out['ft_q50']      = q50
+        df_out['ft_q95']      = q95
+        df_out['ft_uncertainty'] = np.clip(q95 - q05, 0, None)
+
+    # ── Anomaly re-computation ─────────────────────────────────────────────
+    has_orbit_cols = _ORBIT_COLS.issubset(df_out.columns)
+    has_xco2_bc    = 'xco2_bc' in df_out.columns
+
+    if has_orbit_cols and has_xco2_bc:
+        print("\nRecomputing XCO2 anomaly on corrected fields …", flush=True)
+        xco2_bc = df_out['xco2_bc'].to_numpy(dtype=float)
+
+        if ridge is not None:
+            corrected = xco2_bc - df_out['ridge_pred'].to_numpy()
+            df_out['ridge_anomaly'] = _recompute_anomaly(df_out, corrected, 'Ridge')
+
+        if mlp is not None:
+            corrected = xco2_bc - df_out['mlp_pred'].to_numpy()
+            df_out['mlp_anomaly'] = _recompute_anomaly(df_out, corrected, 'MLP')
+
+        if ft is not None:
+            corrected = xco2_bc - df_out['ft_q50'].to_numpy()
+            df_out['ft_anomaly'] = _recompute_anomaly(df_out, corrected, 'FT')
+    else:
+        if not has_orbit_cols:
+            logger.info("Orbit metadata columns not present — skipping anomaly re-computation.")
+        if not has_xco2_bc:
+            logger.info("'xco2_bc' column not present — skipping anomaly re-computation.")
+
+    # ── Save output CSV ────────────────────────────────────────────────────
+    out_path = Path(output_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df_out.to_csv(out_path, index=False)
+    print(f"\nOutput saved → {out_path}  ({len(df_out):,} rows)", flush=True)
+
+    added = [c for c in df_out.columns if c not in df.columns]
+    print(f"  New columns: {added}", flush=True)
+
+    # ── Comparison plots ───────────────────────────────────────────────────
+    if plot_dir and 'xco2_bc_anomaly' in df_out.columns:
+        print(f"\nGenerating comparison plots → {plot_dir}", flush=True)
+        _comparison_plots(df_out, available, Path(plot_dir))
+    elif plot_dir:
+        logger.info("'xco2_bc_anomaly' column not present — comparison plots skipped.")
+
+
+if __name__ == '__main__':
+    main()

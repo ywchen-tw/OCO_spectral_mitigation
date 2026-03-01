@@ -12,98 +12,18 @@ import torch
 import torch.nn as nn
 import copy
 import gc
-from sklearn.preprocessing import QuantileTransformer
 from sklearn.model_selection import train_test_split
+from pipeline import FeaturePipeline
+from model_adapters import _ResBlock, _MLP, RidgeAdapter, MLPAdapter
 import platform
 import logging
-from pathlib import Path
 from datetime import datetime
-from config import Config
-import pickle
 from tqdm import tqdm
+from utils import get_storage_dir
 
-
-def training_data_load_preselect(df):
-    # (Trig transforms already applied in fitting_data_correction.py when the CSV was built)
-
-    # 2. Statistical Quantile Transform
-    # We transform everything to a Normal distribution to help the Transformer converge
-    features = ['o2a_k1', 'o2a_k2', 'wco2_k1', 'wco2_k2', 'sco2_k1', 'sco2_k2',
-                'mu_sza', 'mu_vza', 
-                # 'sin_raa', 'cos_raa', 
-                # 'cos_theta', 
-                # 'Phi_cos_theta', 
-                # 'R_rs_factor', 
-                'cos_glint_angle', 
-                # 'glint_prox',
-                # 'alt', 'alt_std', 
-                'ws',
-                'log_P', 
-                # 'airmass', 
-                'dp', 
-                # 'dp_abp', 
-                # 'dp_psfc_ratio', 
-                # 'dpfrac', 
-                'h2o_scale', 'delT', 
-                'co2_grad_del', 
-                'alb_o2a', 
-                # 'alb_wco2', 'alb_sco2', 
-                # 'fs_rel_0', 
-                'co2_ratio_bc', 'h2o_ratio_bc', 
-                # 'csnr_o2a', 'csnr_wco2', 'csnr_sco2', 
-                'h_cont_o2a', 
-                # 'h_cont_wco2', 
-                'h_cont_sco2', 
-                # 'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2', 
-                'xco2_strong_idp', 'xco2_weak_idp', 
-                'aod_total', 
-                # 'aod_bc', 'aod_dust', 'aod_ice', 'aod_water', 
-                # 'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate', 'dws', 
-                # 'dust_height', 'ice_height', 'water_height',
-                # 'snr_o2a', 'snr_wco2', 'snr_sco2', 
-                'pol_ang_rad', 
-                's31', 's32', 
-                # 't700', 'tcwv',
-                ]
-    qt = QuantileTransformer(output_distribution='normal', n_quantiles=1000)
-    
-    X_all = qt.fit_transform(df[features])
-    # X = pd.concat([pd.DataFrame(X1, columns=features), df[[f'fp_{i}' for i in range(8)]]], axis=1)
-    for i in range(8):
-        # add new one-hot columns to the end of the feature list and to the transformed X
-        fp_col = f'fp_{i}'
-        features.append(fp_col)
-        fp_values = df[fp_col].values.reshape(-1, 1)  # reshape to 2D for concatenation
-        X_all = np.hstack([X_all, fp_values])  # add one-hot columns to the end of X
-        
-    # remove rows if 'xco2_bc_anomaly' is NaN (missing target variable)
-    valid_rows = ~df['xco2_bc_anomaly'].isna()
-    X = X_all[valid_rows]
-    y = df['xco2_bc_anomaly'][valid_rows].values
-    
-    
-    print("X shape:", X.shape)
-    print("y shape:", y.shape)
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    print("X_train shape", X_train.shape)
-    
-    return X_train, X_test, y_train, y_test, features, qt
 
 
 logger = logging.getLogger(__name__)
-
-def get_storage_dir():
-    if platform.system() == "Darwin":
-        logger.info("Detected macOS - using local data directory")
-        return Path(Config.get_data_path('local'))
-    elif platform.system() == "Linux":
-        logger.info("Detected Linux - using CURC storage directory")
-        return Path(Config.get_data_path('curc'))
-    else:
-        logger.warning(f"Unknown platform: {platform.system()}. Using default.")
-        return Path(Config.get_data_path('default'))
 
 
 # ─── Main analysis entry point ─────────────────────────────────────────────────
@@ -114,33 +34,37 @@ def main():
                         help='Subfolder name appended to the base output directory '
                              '(e.g. --suffix v2_reduced).  '
                              'Creates results/model_mlp_lr/<suffix>/.')
+    parser.add_argument('--pipeline', type=str, default=None,
+                        help='Path to a saved FeaturePipeline (.pkl).  '
+                             'If omitted, a new pipeline is fitted on the training data '
+                             'and saved to <output_dir>/pipeline.pkl.')
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     data_name = 'combined_2020_dates.csv'
-    # data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
+    data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_mlp_lr'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # sfc_type = 0  # Ocean only for now
-    sfc_type = 1  # Land only for now
-    
-    # Load and preprocess the entire data set (same as in training_data_load)
+
+    sfc_type = 0  # Ocean only for now
+    # sfc_type = 1  # Land only for now
+
     data_path = os.path.join(fdir, data_name)
     df = pd.read_csv(data_path)
     df = df[df['sfc_type'] == sfc_type]
     df = df[df['snow_flag'] == 0]
-    # df = df[df['xco2_bc_anomaly'].notna()]  # Drop rows with missing target variable
 
-    # One-hot encode footprint number into 8 binary columns (fp_0 … fp_7)
-    fp_dummies = pd.concat(
-        {f'fp_{i}': (df['fp'] == i).astype(int) for i in range(8)}, axis=1
-    )
-    df = pd.concat([df, fp_dummies], axis=1)
-    
-    mitigation_test(df, output_dir=output_dir, test_csv=None)
+    if args.pipeline:
+        pipeline = FeaturePipeline.load(args.pipeline)
+    else:
+        pipeline = FeaturePipeline.fit(df, sfc_type=sfc_type)
+        pipeline_path = output_dir / 'pipeline.pkl'
+        pipeline.save(pipeline_path)
+        print(f"  Fitted and saved pipeline → {pipeline_path}", flush=True)
+
+    mitigation_test(df, output_dir=output_dir, pipeline=pipeline, test_csv=None)
 
 def compute_xco2_anomaly_date_id(fp_date, fp_orbit_id, fp_lat, cld_dist_km, xco2,
                          lat_thres=0.5, std_thres=2.0, min_cld_dist=10.0,
@@ -230,7 +154,8 @@ def compute_xco2_anomaly_date_id(fp_date, fp_orbit_id, fp_lat, cld_dist_km, xco2
 
 # ─── LR mitigation test ────────────────────────────────────────────────────────
 
-def mitigation_test(df, output_dir, test_csv=None):
+def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
+                    perm_max_rows: int = 5000):
     """Train a per-footprint linear regression to predict XCO2 bias from kappas.
 
     Parameters
@@ -253,9 +178,17 @@ def mitigation_test(df, output_dir, test_csv=None):
     df_xco2_anomaly = df[df['xco2_bc_anomaly'].notna()]
     # df_orig was a full deepcopy used only to read 4 columns — replaced with df[col] directly.
 
-    _checkpoint("before training_data_load_preselect")
-    X_train, X_test, y_train, y_test, features, qt = training_data_load_preselect(df)
-    _checkpoint("after  training_data_load_preselect")
+    _checkpoint("before pipeline.transform + train_test_split")
+    features = pipeline.features
+    X_all    = pipeline.transform(df)
+    valid_rows  = ~df['xco2_bc_anomaly'].isna()
+    X           = X_all[valid_rows.values]
+    y           = df['xco2_bc_anomaly'][valid_rows].values
+    print("X shape:", X.shape)
+    print("y shape:", y.shape)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    print("X_train shape", X_train.shape)
+    _checkpoint("after  pipeline.transform + train_test_split")
 
     # ── Feature correlation matrix ─────────────────────────────────────────
     corr = np.corrcoef(X_train, rowvar=False)
@@ -274,19 +207,10 @@ def mitigation_test(df, output_dir, test_csv=None):
     plt.close(fig_corr)
     # ── end correlation matrix ─────────────────────────────────────────────
 
-    # qt was fitted on continuous features only; fp_0…fp_7 were appended raw afterward.
-    fp_cols      = [f'fp_{i}' for i in range(8)]
-    qt_features  = [f for f in features if f not in fp_cols]
-
-    def _transform(subset_df):
-        X_qt = qt.transform(subset_df[qt_features])
-        X_fp = subset_df[fp_cols].values
-        return np.hstack([X_qt, X_fp])
-
-    _checkpoint("before _transform (df_X / df_all_X)")
-    df_X     = _transform(df_xco2_anomaly)
-    df_all_X = _transform(df)
-    _checkpoint("after  _transform")
+    _checkpoint("before pipeline.transform (df_X / df_all_X)")
+    df_X     = X_all[valid_rows.values]
+    df_all_X = X_all
+    _checkpoint("after  pipeline.transform")
 
     # Convert to numpy immediately so pandas doesn't keep the full DataFrame columns pinned
     df_xco2_bc             = df_xco2_anomaly['xco2_bc'].to_numpy()
@@ -350,43 +274,6 @@ def mitigation_test(df, output_dir, test_csv=None):
     y_train_n = (y_train - y_mean) / y_std
     y_test_n  = (y_test  - y_mean) / y_std
 
-    class _ResBlock(nn.Module):
-        """Pre-activation residual block: BN→GELU→Linear→BN→GELU→Dropout→Linear + skip."""
-        def __init__(self, dim, dropout):
-            super().__init__()
-            self.block = nn.Sequential(
-                nn.BatchNorm1d(dim), nn.GELU(),
-                nn.Linear(dim, dim),
-                nn.BatchNorm1d(dim), nn.GELU(),
-                nn.Dropout(dropout),
-                nn.Linear(dim, dim),
-            )
-        def forward(self, x):
-            return x + self.block(x)
-
-    class _MLP(nn.Module):
-        # Full dataset: ~380K samples → d_model=256, n_blocks=4 (~548K params, ratio ≈ 0.7).
-        # Local test subset (~31K samples) will show a gap but real validation is on full data.
-        # Dropout=0.2 is moderate; heavier regularisation hurts when data is abundant.
-        def __init__(self, n, d_model=256, n_blocks=4, dropout=0.2):
-            super().__init__()
-            self.input_proj = nn.Sequential(
-                nn.Linear(n, d_model),
-                nn.BatchNorm1d(d_model),
-                nn.GELU(),
-                nn.Dropout(0.1),   # mild feature-level dropout; stable across data sizes
-            )
-            self.blocks = nn.ModuleList(
-                [_ResBlock(d_model, dropout) for _ in range(n_blocks)]
-            )
-            self.head = nn.Linear(d_model, 1)
-
-        def forward(self, x):
-            x = self.input_proj(x)
-            for block in self.blocks:
-                x = block(x)
-            return self.head(x).squeeze(-1)
-
     # ── Device selection (shared by both checkpoint-load and training paths) ──
     device = torch.device(
         'cuda' if torch.cuda.is_available() else
@@ -395,18 +282,18 @@ def mitigation_test(df, output_dir, test_csv=None):
     )
     print(f"  Device: {device}", flush=True)
 
-    artifacts_path = os.path.join(output_dir, 'model_artifacts.pkl')
-    mlp_path       = os.path.join(output_dir, 'mlp_state_dict.pt')
-
     train_ds = train_loader = best_state = None  # initialised here; set inside else-branch if training runs
 
-    if os.path.exists(artifacts_path) and os.path.exists(mlp_path):
+    if RidgeAdapter.can_load(output_dir) and MLPAdapter.can_load(output_dir):
         # ── Load from checkpoint, skip training ───────────────────────────
-        print(f"  [checkpoint] Found existing MLP weights → {mlp_path}", flush=True)
-        mlp = _MLP(n_in).to(device)
-        mlp.load_state_dict(torch.load(mlp_path, map_location=device))
-        mlp.eval()
-        print("  [checkpoint] Loaded. Skipping MLP training.", flush=True)
+        print(f"  [checkpoint] Found existing adapter checkpoints → {output_dir}", flush=True)
+        ridge_adapter = RidgeAdapter.load(output_dir)
+        model         = ridge_adapter.model
+        mlp_adapter   = MLPAdapter.load(output_dir, device=device)
+        mlp    = mlp_adapter.model
+        y_mean = mlp_adapter.y_mean
+        y_std  = mlp_adapter.y_std
+        print("  [checkpoint] Loaded. Skipping training.", flush=True)
         _mlp_from_ckpt = True
     else:
         _mlp_from_ckpt = False
@@ -502,30 +389,11 @@ def mitigation_test(df, output_dir, test_csv=None):
         mlp.load_state_dict(best_state)
         mlp.eval()
 
-        # ── Save model artifacts ──────────────────────────────────────────────
-        # Everything needed to apply both models to new data:
-        #   model_artifacts.pkl  — Ridge model, QuantileTransformer, feature lists,
-        #                          MLP architecture params, target normalisation stats
-        #   mlp_state_dict.pt    — MLP weights (CPU copy, device-agnostic)
-        artifacts = {
-            'ridge': model,
-            'qt': qt,
-            'features': features,
-            'qt_features': qt_features,
-            'fp_cols': fp_cols,
-            'y_mean': y_mean,
-            'y_std': y_std,
-            'mlp_n_in': n_in,
-            'mlp_d_model': 256,
-            'mlp_n_blocks': 4,
-            'mlp_dropout': 0.2,
-        }
-        with open(artifacts_path, 'wb') as _f:
-            pickle.dump(artifacts, _f)
-        torch.save(mlp.cpu().state_dict(), mlp_path)
-        mlp.to(device)   # restore to device for inference below
-        print(f"  Saved artifacts   → {artifacts_path}", flush=True)
-        print(f"  Saved MLP weights → {mlp_path}", flush=True)
+        # ── Save model adapters ──────────────────────────────────────────────
+        RidgeAdapter(model).save(output_dir)
+        MLPAdapter(mlp, y_mean, y_std, device=device).save(output_dir)
+        mlp.to(device)   # restore to device for inference below (MLPAdapter.save() moves to CPU)
+        print(f"  Saved adapters → {output_dir}", flush=True)
         # ── end save ─────────────────────────────────────────────────────────
 
     # Free training allocations before any full-dataset inference
@@ -572,9 +440,9 @@ def mitigation_test(df, output_dir, test_csv=None):
     # LR: standardised absolute coefficients  |coef_i * std(X_train_i)|
     lr_std_importance = np.abs(model.coef_) * X_train.std(axis=0)
 
-    # Permutation importance — subsample to cap memory use (3000 rows is enough for stable estimates)
+    # Permutation importance — subsample to cap memory/compute (perm_max_rows rows is enough for stable estimates)
     rng_pi   = np.random.default_rng(42)
-    pi_n     = min(3000, X_test.shape[0])
+    pi_n     = min(perm_max_rows, X_test.shape[0])
     pi_idx   = rng_pi.choice(X_test.shape[0], size=pi_n, replace=False)
     X_pi     = X_test[pi_idx]
     y_pi     = y_test[pi_idx]
@@ -642,8 +510,10 @@ def mitigation_test(df, output_dir, test_csv=None):
     plt.close(fig)
     # ── end feature importance ────────────────────────────────────
 
-    # _val_loss closure holds X_test/y_test_n — delete it first so del X_test actually frees
-    del _val_loss, _mlp_infer, mlp
+    # _val_loss is only defined in the training branch; guard before deletion
+    if not _mlp_from_ckpt:
+        del _val_loss
+    del _mlp_infer, mlp
     del X_pi, y_pi
     del y_train, y_test, X_train, X_test
     gc.collect()
@@ -758,10 +628,10 @@ def mitigation_test(df, output_dir, test_csv=None):
     # _bins_3x3 = np.linspace(_xco2_lo, _xco2_hi, 100)
 
     plt.close('all')
-    fig, axes = plt.subplots(3, 4, figsize=(22, 17))
+    fig, axes = plt.subplots(3, 5, figsize=(27, 17))
 
     for row_i, (xco2_orig, xco2_orig_bc, xco2_lr, xco2_mlp, mask, row_label, anomaly_label) in enumerate(row_configs):
-        ax_sc1, ax_sc2, ax_h, ax_h2 = axes[row_i]
+        ax_sc1, ax_sc2, ax_h, ax_h2, ax_h3 = axes[row_i]
 
         x_orig = xco2_orig[mask]
         xco2_orig_bc = xco2_orig_bc[mask]
@@ -831,12 +701,37 @@ def mitigation_test(df, output_dir, test_csv=None):
             ax_h2.axvline(_mu2 - _sigma2, color=_color, linestyle=':',  linewidth=0.8)
             ax_h2.axvline(_mu2 + _sigma2, color=_color, linestyle=':',  linewidth=0.8)
             
+            
+            # Col 4: ideal distribution of xco2_bc values — only for Original, and only if _v != _v2 (e.g. row-3 Original)
+            if _label == 'Original' and not (_v == _v2).all():
+                _v2 = _v2 - _v   # corrected xco2_bc = raw − predicted_anomaly
+                _mu2, _sigma2 = _v2.mean(), _v2.std()
+                bins3 = np.linspace(np.nanpercentile(_v2, 1), np.nanpercentile(_v2, 99), 100)
+                ax_h3.hist(_v2, bins=bins3, color=_color, alpha=0.2, density=True,
+                        label=f'Idael {_label}-corrected \nμ={_mu2:.3f}, σ={_sigma2:.3f}')
+            elif (_v == _v2).all():
+                ax_h3.set_visible(False)
+            else:
+                _mu2, _sigma2 = _v2.mean(), _v2.std()
+                bins3 = np.linspace(np.nanpercentile(_v2, 1), np.nanpercentile(_v2, 99), 100)
+                ax_h3.hist(_v2, bins=bins3, color=_color, alpha=0.2, density=True,
+                        label=f' {_label}\nμ={_mu2:.3f}, σ={_sigma2:.3f}')
+            ax_h3.axvline(_mu2,           color=_color, linestyle='-',  linewidth=0.8)
+            ax_h3.axvline(_mu2 - _sigma2, color=_color, linestyle=':',  linewidth=0.6)
+            ax_h3.axvline(_mu2 + _sigma2, color=_color, linestyle=':',  linewidth=0.6)
+
             ax_h.set_title(f'{row_label}\n[Distribution]')
             ax_h.set_xlabel('XCO2_bc anomaly (ppm)')
             ax_h.legend(fontsize=10)
             ax_h2.set_title(f'{row_label}\n[Distribution]')
-            ax_h2.set_xlabel('XCO2_bc (ppm)')
             ax_h2.legend(fontsize=10)
+            if not (_v == _v2).all():
+                ax_h2.set_xlabel('Corrected XCO2 (ppm)')
+            else:
+                ax_h2.set_xlabel('XCO2 (ppm)')
+            ax_h3.set_title(f'{row_label}\n[Ideal corrected XCO2 distribution]')
+            ax_h3.legend(fontsize=10)
+
 
                 
 

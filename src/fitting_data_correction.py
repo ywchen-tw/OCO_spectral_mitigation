@@ -142,6 +142,9 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
         'lon': combined['lon'],
         'lat': combined['lat'],
         # Per-band kappa coefficients (short names for downstream use)
+        'o2a_intercept': combined['o2a_intercept_fitting'],
+        'wco2_intercept': combined['wco2_intercept_fitting'],
+        'sco2_intercept': combined['sco2_intercept_fitting'],
         'o2a_k1': combined['o2a_k1_fitting'],
         'o2a_k2': combined['o2a_k2_fitting'],
         'o2a_k3': combined['o2a_k3_fitting'],
@@ -289,35 +292,42 @@ def main():
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results'
     # # List of dates to process
-    # date_list = ['20200101', '20200201', '20200301', '20200401',
+    # date_list = ['20190101', '20190201', '20190301', '20190401',
+    #             '20190501', '20190601', '20190701', '20190801',
+    #             '20190901', '20191001', '20191101', '20191201',
+    #             '20200101', '20200201', '20200301', '20200401',
     #              '20200501', '20200601', '20200701', '20200801',
     #              '20200903', '20201001', '20201101', '20201201']  
     
-    # date_list = ['20190101', '20190201', '20190301', '20190401',
-    #             '20190501', '20190601', '20190701', '20190801',
-    #             '20190901', '20191001', '20191101', '20191201',]
-    
-    date_list = ['20190101', '20190201', '20190301', '20190401',
+    date_list = ['20170101', '20170201', '20170301', '20170401',
+                 '20170501', '20170601', '20170701', 
+                             '20171001', '20171105', '20171201',
+                 '20180101', '20180201', '20180301', '20180401',
+                 '20180501', '20180601', '20180701', '20180801',
+                 '20180901', '20181001', '20181101', '20181201',
+                 '20190101', '20190201', '20190301', '20190401',
                  '20190501', '20190601', '20190701', '20190801',
                  '20190901', '20191001', '20191101', '20191201',
                  '20200101', '20200201', '20200301', '20200401',
                  '20200501', '20200601', '20200701', '20200801',
                  '20200903', '20201001', '20201101', '20201201']  
     
-    # date_list = ['20201005', '20201224', 
+    # date_list = ['20180221', '20181024', '20181229',
+    #              '20200115', '20200211', '20200415', '20200517'
+    #              '20201005', '20201224', 
     #              '20210210', '20210424', '20211229']  
     
     # date_list = ['20200101',]  
     
         
-    # for date in date_list:
-    #     date_dt = datetime.strptime(date, '%Y%m%d')
-    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    for date in date_list:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
     date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
     csv_output_dir = os.path.join(fdir, 'csv_collection')
-    output_fname = 'combined_2020_2021_dates.csv'
+    output_fname = 'combined_2017_2021_dates.csv'
     raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":

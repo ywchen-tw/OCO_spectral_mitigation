@@ -1,4 +1,4 @@
-# OCO-FP Analysis Project Memory
+# OCO-FP Analysis Project Notes
 
 ## Project Overview
 OCO-2 glint-mode footprint cloud-proximity pipeline. Collocates OCO-2 soundings with Aqua-MODIS cloud masks; calculates nearest-cloud distance (km) per sounding_id. Five phases: Metadata → Ingestion → Processing → Geometry → Synthesis.
@@ -11,15 +11,23 @@ OCO-2 glint-mode footprint cloud-proximity pipeline. Collocates OCO-2 soundings 
 
 ## Architecture
 
-### Source Files
+### Source Files — Pipeline (Phases 1–4)
 - `src/phase_01_metadata.py` — OCO2MetadataRetriever; CMR + GES DISC XML fetch
 - `src/phase_02_ingestion.py` — DataIngestionManager; OCO-2 + MODIS download
 - `src/phase_03_processing.py` — SpatialProcessor; footprint + cloud mask extraction
 - `src/phase_04_geometry.py` — GeometryProcessor; ECEF, KD-tree, distances
 - `src/oco_fp_spec_anal.py` — Spectral analysis / transmittance fitting
-- `src/result_ana.py` — k1k2 analysis + MLP vs LinearRegression comparison
 - `src/abs_util/fp_abs_coeff.py` — Absorption coefficient calc (Doppler, solar H5)
 - `workspace/demo_combined.py` — End-to-end pipeline runner
+
+### Source Files — Bias Correction (ML)
+- `src/utils.py` — shared utilities incl. `get_storage_dir()` (single canonical definition)
+- `src/pipeline.py` — `FeaturePipeline`: shared QT fitting + fp one-hot; CLI to fit/save
+- `src/model_adapters.py` — `ModelAdapter` ABC; `RidgeAdapter`, `MLPAdapter`, `FTAdapter`; `_ResBlock`, `_MLP` at module level
+- `src/mlp_lr_models.py` — trains Ridge + residual MLP; uses `FeaturePipeline` + adapters
+- `src/models_transformer.py` — trains FT-Transformer (`UncertainFTTransformerRefined`); uses `FeaturePipeline` + `FTAdapter`
+- `src/apply_models.py` — inference + cross-model comparison CLI
+- `src/result_ana.py` — k1k2 analysis + legacy LR/MLP comparison
 
 ### Data Layout
 ```
@@ -28,6 +36,9 @@ data/MODIS/{year}/{doy:03d}/               ← MYD35_L2 + MYD03 HDF files
 data/processing/{year}/{doy:03d}/{granule_id}/  ← footprints.pkl, clouds.pkl, phase4_results.pkl
 data/processing/{year}/{doy:03d}/lite_sounding_ids.pkl  ← day-level cache
 results_{date}.h5 / results_{date}.csv     ← Phase 4/5 output
+results/csv_collection/combined_*.csv      ← training data for ML models
+results/model_mlp_lr/<suffix>/             ← Ridge + MLP artifacts
+results/model_ft_transformer/<suffix>/     ← FT-Transformer artifacts
 ```
 
 ---
@@ -60,6 +71,109 @@ MODISCloudMask(granule_id, observation_time,
 ### Phase 4: Array-Based Processing
 Pass numpy arrays directly to `build_kdtree(cloud_lons=, cloud_lats=, cloud_flags=)`.
 Legacy object mode still supported for backward compat.
+
+---
+
+## Bias Correction ML Architecture
+
+### Platform-Aware Path Resolution (`src/utils.py`)
+`get_storage_dir()` is the **single canonical definition** of the storage root.
+All ML scripts import it from here — no local copies.
+
+```python
+from utils import get_storage_dir
+storage_dir = get_storage_dir()   # Path; macOS→local, Linux→CURC, else→default
+```
+
+Every script derives its data/results paths from `storage_dir`:
+```
+storage_dir / 'results/csv_collection/combined_2020_dates.csv'  ← training CSV
+storage_dir / 'results/model_mlp_lr/<suffix>/'                  ← Ridge+MLP artifacts
+storage_dir / 'results/model_ft_transformer/<suffix>/'          ← FT artifacts
+storage_dir / 'results/comparison/<suffix>/'                    ← comparison plots
+```
+
+### FeaturePipeline (`src/pipeline.py`)
+Single source of truth for feature selection and QT fitting. Replaces duplicated
+`training_data_load_preselect()` / `training_data_load()` that previously lived in
+both training files.
+
+```python
+pipeline = FeaturePipeline.fit(df, sfc_type=1)   # fit once on training data
+pipeline.save(path)
+
+X = pipeline.transform(df)                        # apply to any DataFrame
+```
+
+- `sfc_type=0` → ocean feature set; `sfc_type=1` → glint/land feature set
+- QT features + `fp_{0..7}` one-hots appended raw = `pipeline.n_features` total
+- All path args are **optional** — defaults derived from `get_storage_dir()`:
+
+```bash
+# Minimal: all paths resolved from storage_dir
+python src/pipeline.py --sfc-type 1 --suffix exp_v1
+
+# Full explicit override
+python src/pipeline.py --data /path/to/data.csv --sfc-type 1 --out /path/to/pipeline.pkl
+```
+
+### Model Adapters (`src/model_adapters.py`)
+Uniform `predict(X)` / `predict_quantiles(X)` / `save(dir)` / `load(dir)` / `can_load(dir)` interface.
+
+| Adapter | Wraps | Artifact files |
+|---------|-------|---------------|
+| `RidgeAdapter` | sklearn `Ridge` | `ridge_model.pkl` |
+| `MLPAdapter` | `_MLP` (residual) | `mlp_weights.pt`, `mlp_meta.pkl` |
+| `FTAdapter` | `UncertainFTTransformerRefined` | `model_best.pt`, `ft_meta.pkl` |
+
+`_ResBlock` and `_MLP` are defined at module level here (not nested in training scripts).
+
+### Training Scripts
+- **`mlp_lr_models.py`**: `--pipeline <path>` optional; loads or fits+saves pipeline; trains Ridge + `_MLP`; saves via adapters; paths via `get_storage_dir()`
+- **`models_transformer.py`**: `--pipeline <path>` optional; auto-fits if absent; trains FT-Transformer; saves `ft_meta.pkl` via `FTAdapter.save()` (`model_best.pt` written by training loop); paths via `get_storage_dir()`
+- Training remains **independent** — Ridge/MLP and FT can be trained on different machines
+
+### Inference CLI (`src/apply_models.py`)
+All path args are **optional** — defaults derived from `get_storage_dir()` + `--suffix`.
+
+```bash
+# Minimal: all paths resolved from storage_dir + suffix
+python src/apply_models.py --suffix exp_v1
+
+# Full explicit override
+python src/apply_models.py \
+  --suffix     exp_v1 \
+  --pipeline   /custom/pipeline.pkl \
+  --ridge-dir  /custom/ridge/ \
+  --mlp-dir    /custom/mlp/ \
+  --ft-dir     /custom/ft/ \
+  --input      new_data.csv \
+  --output     corrected.csv \
+  --plot-dir   results/comparison/
+```
+
+Output CSV adds: `ridge_pred`, `mlp_pred`, `ft_q05`, `ft_q50`, `ft_q95`, `ft_uncertainty`
+(+ `ridge_anomaly`, `mlp_anomaly`, `ft_anomaly` when orbit metadata columns present)
+
+Comparison plots (require ground-truth `xco2_bc_anomaly` in input CSV):
+- `comparison_scatter.png` — 1×N scatter per active model, R²/MAE annotated
+- `comparison_hist.png` — overlaid anomaly distributions
+- `metrics.csv` — R², MAE, σ, n per model
+
+### Standard Workflow
+```bash
+# 1. Fit pipeline once (--suffix controls output location)
+python src/pipeline.py --sfc-type 1 --suffix exp_v1
+
+# 2a. Train Ridge + MLP  (uses same suffix to find data + pipeline)
+python src/mlp_lr_models.py --suffix exp_v1
+
+# 2b. Train FT-Transformer (independently, e.g. on HPC)
+python src/models_transformer.py --suffix exp_v1
+
+# 3. Inference + comparison on new/held-out data
+python src/apply_models.py --suffix exp_v1
+```
 
 ---
 

@@ -7,7 +7,8 @@ import sys
 import platform
 import matplotlib.pyplot as plt
 from matplotlib import colors
-from sklearn.preprocessing import QuantileTransformer
+from pipeline import FeaturePipeline
+from model_adapters import FTAdapter
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import Lasso
@@ -22,21 +23,9 @@ import glob
 import logging
 from pathlib import Path
 from datetime import datetime
-from config import Config
-import pickle
+from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
-
-def get_storage_dir():
-    if platform.system() == "Darwin":
-        logger.info("Detected macOS - using local data directory")
-        return Path(Config.get_data_path('local'))
-    elif platform.system() == "Linux":
-        logger.info("Detected Linux - using CURC storage directory")
-        return Path(Config.get_data_path('curc'))
-    else:
-        logger.warning(f"Unknown platform: {platform.system()}. Using default.")
-        return Path(Config.get_data_path('default'))
 
 def apply_trig_transforms(df: pd.DataFrame) -> pd.DataFrame:
     """Compute trigonometric and log-space features from raw OCO-2 angle columns.
@@ -611,87 +600,6 @@ def plot_attention_map(model, sample_batch, feature_names, output_dir, top_k=20)
 
 
 
-def training_data_load(fdir, data_fname, sfc_type=0):
-    # 1. Load and filter
-    data_path = os.path.join(fdir, data_fname)
-    df = pd.read_csv(data_path)
-    df = df[df['sfc_type'] == sfc_type]
-    df = df[df['snow_flag'] == 0]
-    # df = df[df['xco2_bc_anomaly'].notna()]  # Drop rows with missing target variable
-
-    # One-hot encode footprint number into 8 binary columns (fp_0 … fp_7)
-    fp_dummies = pd.concat(
-        {f'fp_{i}': (df['fp'] == i).astype(int) for i in range(8)}, axis=1
-    )
-    df = pd.concat([df, fp_dummies], axis=1)
-
-    # (Trig transforms already applied in fitting_data_correction.py when the CSV was built)
-
-    # 2. Statistical Quantile Transform
-    # We transform everything to a Normal distribution to help the Transformer converge
-    features = ['o2a_k1', 'o2a_k2', 'wco2_k1', 'wco2_k2', 'sco2_k1', 'sco2_k2',
-                'mu_sza', 'mu_vza', 
-                # 'sin_raa', 'cos_raa', 
-                # 'cos_theta', 
-                # 'Phi_cos_theta', 
-                # 'R_rs_factor', 
-                'cos_glint_angle', 
-                # 'glint_prox',
-                # 'alt', 'alt_std', 
-                'ws',
-                'log_P', 
-                # 'airmass', 
-                'dp', 
-                # 'dp_abp', 
-                # 'dp_psfc_ratio', 
-                # 'dpfrac', 
-                'h2o_scale', 'delT', 
-                'co2_grad_del', 
-                'alb_o2a', 
-                # 'alb_wco2', 'alb_sco2', 
-                # 'fs_rel_0', 
-                'co2_ratio_bc', 'h2o_ratio_bc', 
-                # 'csnr_o2a', 'csnr_wco2', 'csnr_sco2', 
-                'h_cont_o2a', 
-                # 'h_cont_wco2', 
-                'h_cont_sco2', 
-                # 'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2', 
-                'xco2_strong_idp', 'xco2_weak_idp', 
-                'aod_total', 
-                # 'aod_bc', 'aod_dust', 'aod_ice', 'aod_water', 
-                # 'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate', 'dws', 
-                # 'dust_height', 'ice_height', 'water_height',
-                # 'snr_o2a', 'snr_wco2', 'snr_sco2', 
-                'pol_ang_rad', 
-                's31', 's32', 
-                # 't700', 'tcwv',
-                ]
-    qt = QuantileTransformer(output_distribution='normal', n_quantiles=1000)
-    
-    X_all = qt.fit_transform(df[features])
-    # X = pd.concat([pd.DataFrame(X1, columns=features), df[[f'fp_{i}' for i in range(8)]]], axis=1)
-    for i in range(8):
-        # add new one-hot columns to the end of the feature list and to the transformed X
-        fp_col = f'fp_{i}'
-        features.append(fp_col)
-        fp_values = df[fp_col].values.reshape(-1, 1)  # reshape to 2D for concatenation
-        X_all = np.hstack([X_all, fp_values])  # add one-hot columns to the end of X
-        
-    # remove rows if 'xco2_bc_anomaly' is NaN (missing target variable)
-    valid_rows = ~df['xco2_bc_anomaly'].isna()
-    X = X_all[valid_rows]
-    y = df['xco2_bc_anomaly'][valid_rows].values
-    
-    
-    print("X shape:", X.shape)
-    print("y shape:", y.shape)
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    print("X_train shape", X_train.shape)
-    
-    return X_train, X_test, y_train, y_test, features, qt
-
 def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
                                   features,
                                   output_dir: str = ".",
@@ -737,7 +645,8 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
     tqdm.write(f"  Train size  : {len(train_ds):,}  |  Val size: {len(val_ds):,}")
     tqdm.write(f"  Batch size  : {batch_size}  |  Epochs: {n_epochs}  |  Log every: {log_every}")
     tqdm.write(f"  Early stop  : {'disabled (patience=None)' if patience is None else f'patience={patience} epochs'}")
-    tqdm.write(f"  Checkpoint  : {ckpt_path := os.path.join(output_dir, 'model_best.pt')}")
+    ckpt_path = os.path.join(output_dir, 'model_best.pt')
+    tqdm.write(f"  Checkpoint  : {ckpt_path}")
     tqdm.write("=" * 60)
     logger.info("Starting training: n_params=%d, device=%s, patience=%s",
                 n_params, device, "disabled" if patience is None else patience)
@@ -1018,10 +927,10 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
 
     # ── Figure ─────────────────────────────────────────────────────────────────
     plt.close('all')
-    fig, axes = plt.subplots(3, 4, figsize=(22, 17))
+    fig, axes = plt.subplots(3, 5, figsize=(27, 17))
 
     for row_i, (xco2_orig, xco2_orig_bc, xco2_ft, mask, row_label, anomaly_label) in enumerate(row_configs):
-        ax_sc1, ax_sc2, ax_h, ax_h2 = axes[row_i]
+        ax_sc1, ax_sc2, ax_h, ax_h2, ax_h3 = axes[row_i]
 
         x_orig = xco2_orig[mask]
         x_bc   = xco2_orig_bc[mask]
@@ -1111,13 +1020,38 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
             ax_h2.axvline(_mu2,           color=_color, linestyle='-',  linewidth=1.0)
             ax_h2.axvline(_mu2 - _sigma2, color=_color, linestyle=':',  linewidth=0.8)
             ax_h2.axvline(_mu2 + _sigma2, color=_color, linestyle=':',  linewidth=0.8)
+            
+            # Col 4: ideal distribution of xco2_bc values — only for Original, and only if _v != _v2 (e.g. row-3 Original)
+            if _label == 'Original' and not (_v == _v2).all():
+                _v2 = _v2 - _v   # corrected xco2_bc = raw − predicted_anomaly
+                _mu2, _sigma2 = _v2.mean(), _v2.std()
+                bins3 = np.linspace(np.nanpercentile(_v2, 1), np.nanpercentile(_v2, 99), 100)
+                ax_h3.hist(_v2, bins=bins3, color=_color, alpha=0.2, density=True,
+                        label=f'Idael {_label}-corrected \nμ={_mu2:.3f}, σ={_sigma2:.3f}')
+            elif (_v == _v2).all():
+                ax_h3.set_visible(False)
+            else:
+                _mu2, _sigma2 = _v2.mean(), _v2.std()
+                bins3 = np.linspace(np.nanpercentile(_v2, 1), np.nanpercentile(_v2, 99), 100)
+                ax_h3.hist(_v2, bins=bins3, color=_color, alpha=0.2, density=True,
+                        label=f' {_label}\nμ={_mu2:.3f}, σ={_sigma2:.3f}')
+            ax_h3.axvline(_mu2,           color=_color, linestyle='-',  linewidth=0.8)
+            ax_h3.axvline(_mu2 - _sigma2, color=_color, linestyle=':',  linewidth=0.6)
+            ax_h3.axvline(_mu2 + _sigma2, color=_color, linestyle=':',  linewidth=0.6)
 
         ax_h.set_title(f'{row_label}\n[Distribution]')
         ax_h.set_xlabel('XCO2_bc anomaly (ppm)')
         ax_h.legend(fontsize=10)
         ax_h2.set_title(f'{row_label}\n[Distribution]')
-        ax_h2.set_xlabel('XCO2_bc (ppm)')
         ax_h2.legend(fontsize=10)
+        if not (_v == _v2).all():
+            ax_h2.set_xlabel('Corrected XCO2 (ppm)')
+        else:
+            ax_h2.set_xlabel('XCO2 (ppm)')
+        ax_h3.set_title(f'{row_label}\n[Ideal corrected XCO2 distribution]')
+        ax_h3.legend(fontsize=10)
+        
+        
 
     fig.suptitle('FT-Transformer XCO2_bc by cloud-distance regime', fontsize=13, y=1.01)
     fig.tight_layout()
@@ -1194,7 +1128,7 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
 
 # ─── Permutation importance ────────────────────────────────────────────────────
 def plot_permutation_importance(model, X_test, y_test, features, output_dir,
-                                n_repeats=5, subsample=1000, batch_size=256):
+                                n_repeats=5, subsample=5000, batch_size=1024):
     """Permutation importance for the FT-Transformer (q50 head).
 
     For each feature in turn, shuffles that column of X_sub **in-place**
@@ -1302,41 +1236,61 @@ def main():
                         help='Subfolder name appended to the base output directory '
                              '(e.g. --suffix v2_reduced).  '
                              'Creates results/model_ft_transformer/<suffix>/.')
+    parser.add_argument('--pipeline', type=str, default=None,
+                        help='Path to a pre-fitted FeaturePipeline (.pkl).  '
+                             'If not supplied, a new pipeline is fitted from the training data '
+                             'and saved to <output_dir>/pipeline.pkl.')
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     data_name = 'combined_2020_dates.csv'
-    # data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
+    data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_ft_transformer'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # surface_type = 0  # land only (mirrors mlp_lr_models.py)
-    surface_type = 1  # ocean only (mirrors mlp_lr_models.py)
 
-    X_train, X_test, y_train, y_test, features, qt = training_data_load(
-        fdir, data_name, sfc_type=surface_type
-    )
-    # sys.exit()
-    
-    if os.path.exists(os.path.join(output_dir, "model_best.pt")):
-        print("Found existing checkpoint. Loading model...")
-        device = torch.device("cpu")
-        model = UncertainFTTransformerRefined(n_features=len(features)).to(device)
-        ckpt = torch.load(os.path.join(output_dir, "model_best.pt"), map_location=device)
-        model.load_state_dict(ckpt["model_state_dict"])
-        print(f"Loaded checkpoint from epoch {ckpt['epoch']} with val_loss={ckpt['val_loss']:.5f}")
-        
-        with open(os.path.join(output_dir, "qt_transformer.pkl"), "rb") as fh:
-            qt = pickle.load(fh)
-        
+    surface_type = 0  # ocean only (mirrors mlp_lr_models.py)
+
+    # ── Load data ──────────────────────────────────────────────────────────────
+    df = pd.read_csv(os.path.join(fdir, data_name))
+    df = df[df['sfc_type'] == surface_type]
+    df = df[df['snow_flag'] == 0]
+
+    # ── Pipeline: load or fit ──────────────────────────────────────────────────
+    pipeline_path = output_dir / 'pipeline.pkl'
+    if args.pipeline:
+        pipeline = FeaturePipeline.load(args.pipeline)
+    elif pipeline_path.exists():
+        pipeline = FeaturePipeline.load(pipeline_path)
+    else:
+        pipeline = FeaturePipeline.fit(df, sfc_type=surface_type)
+        pipeline.save(pipeline_path)
+
+    features = pipeline.features
+
+    # ── Transform + split ──────────────────────────────────────────────────────
+    X_all      = pipeline.transform(df)
+    valid_rows = ~df['xco2_bc_anomaly'].isna()
+    X = X_all[valid_rows.values]
+    y = df['xco2_bc_anomaly'][valid_rows].values
+
+    print("X shape:", X.shape)
+    print("y shape:", y.shape)
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    print("X_train shape", X_train.shape)
+
+    # ── Load or train model ────────────────────────────────────────────────────
+    if FTAdapter.can_load(output_dir):
+        adapter = FTAdapter.load(output_dir)
+        model   = adapter.model
     else:
         if platform.system() == "Darwin":
             epochs = 50  # Fewer epochs for local testing
         else:
             epochs = 500  # More epochs for CURC training
-        
+
         model = train_uncertainty_transformer(
             X_train, y_train, X_test, y_test,
             features=features,
@@ -1346,11 +1300,10 @@ def main():
             patience=50,   # None = run all epochs; int = early-stop after N epochs with no improvement
         )
 
-        # ── Persist model + fitted transformer for inference ──────────────────────
-        torch.save(model.state_dict(), os.path.join(output_dir, f"model_fianl_epochs_{epochs}.pt"))
-        with open(os.path.join(output_dir, "qt_transformer.pkl"), "wb") as fh:
-            pickle.dump(qt, fh)
- 
+        # ── Persist adapter metadata (model_best.pt already written by training loop) ──
+        FTAdapter(model, n_features=pipeline.n_features,
+                  d_token=256, n_heads=8, n_layers=4, d_ff=256).save(output_dir)
+
     # ── Evaluate: quantile width vs selected features ─────────────────────────
     uncertainty_features = ['glint_prox', 'aod_total', 'mu_sza', 'tcwv', 'csnr_o2a']
     for feat_name in uncertainty_features:
@@ -1372,7 +1325,7 @@ def main():
     df_eval = pd.read_csv(os.path.join(fdir, data_name))
     df_eval = df_eval[df_eval['sfc_type'] == surface_type]
     df_eval = df_eval[df_eval['snow_flag'] == 0]
-    plot_evaluation_by_regime(model, df_eval, qt, features, str(output_dir))
+    plot_evaluation_by_regime(model, df_eval, pipeline.qt, pipeline.features, str(output_dir))
 
 
 
