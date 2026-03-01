@@ -396,6 +396,9 @@ def _comparison_plots(df_out: pd.DataFrame, available: dict,
                 print(f"  {row['model']:8s}  R²={row['R2']:.4f}  MAE={row['MAE']:.4f}  "
                       f"σ={row['sigma']:.4f}  n={row['n']:,}", flush=True)
 
+        # ── Combined scatter+hist (mirrors mlp_lr_models.py lines 545-600) ──
+        _plot_anomaly_scatter_hist(df_out, active, true_anom, plot_dir)
+
         # ── Regime comparison (3-row × n_models+3 grid) ────────────────────
         _plot_regime_comparison(df_out, active, plot_dir)
 
