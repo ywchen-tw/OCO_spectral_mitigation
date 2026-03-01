@@ -43,7 +43,8 @@ def main():
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     data_name = 'combined_2020_dates.csv'
-    data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
+    data_name = 'combined_2017_2021_dates.csv'  # for full 2-year dataset
+    # data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_mlp_lr'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
