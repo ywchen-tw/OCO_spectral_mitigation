@@ -1232,6 +1232,8 @@ def plot_permutation_importance(model, X_test, y_test, features, output_dir,
 # ─── Main analysis entry point ─────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="FT-Transformer XCO2 bias correction")
+    parser.add_argument('--sfc_type', type=int, default=0,
+                        help="Surface type filter for training and evaluation (default: 0 = ocean only).")
     parser.add_argument('--suffix', type=str, default='',
                         help='Subfolder name appended to the base output directory '
                              '(e.g. --suffix v2_reduced).  '
@@ -1251,7 +1253,8 @@ def main():
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    surface_type = 0  # ocean only (mirrors mlp_lr_models.py)
+    surface_type = args.sfc_type
+    logger.info(f"Surface type filter: {surface_type} (0=ocean only, 1=land only, 2=sea-ice only)")
 
     # ── Load data ──────────────────────────────────────────────────────────────
     df = pd.read_csv(os.path.join(fdir, data_name))

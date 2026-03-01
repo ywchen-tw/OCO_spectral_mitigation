@@ -115,23 +115,23 @@ Both `mlp_lr_models.py` and `models_transformer.py` have identical feature lists
 
 ```bash
 # 1. Fit pipeline once
-python src/pipeline.py --data results/csv_collection/combined_2017_2021_dates.csv --sfc-type 0 --out results/train_data/exp_v1/pipeline_ocean_2017_2020.pkl
+python src/pipeline.py --data results/csv_collection/combined_2017_2021_dates.csv --sfc-type 0 --out results/train_data/pipeline_ocean_2017_2020.pkl
 
 # 2a. Train Ridge + MLP
-python src/mlp_lr_models.py --pipeline results/train_data/exp_v1/pipeline_202001.pkl --suffix exp_v1
+python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2017_2020.pkl --sfc_type 0 --suffix ocean_2017_2020
 
 # 2b. Train FT-Transformer (independently, e.g. on HPC)
-python src/models_transformer.py --pipeline results/train_data/exp_v1/pipeline_202001.pkl --suffix exp_v1
+python src/models_transformer.py --pipeline results/train_data/exp_v1/pipeline_202001.pkl --sfc_type 0 --suffix ocean_2017_2020
 
 # 3. Inference + comparison on new data
 python src/apply_models.py \
-  --pipeline  results/train_data/exp_v1/pipeline_202001.pkl \
-  --ridge-dir results/model_mlp_lr/exp_v1/ \
-  --mlp-dir   results/model_mlp_lr/exp_v1/ \
-  --ft-dir    results/model_ft_transformer/exp_v1/ \
+  --pipeline  results/train_data/pipeline_202001.pkl \
+  --ridge-dir results/model_mlp_lr/ocean_2017_2020/ \
+  --mlp-dir   results/model_mlp_lr/ocean_2017_2020/ \
+  --ft-dir    results/model_ft_transformer/ocean_2017_2020/ \
   --input     results/csv_collection/combined_2019-01-01_all_orbits.csv  \
   --output    corrected.csv \
-  --plot-dir  results/exp_v1/comparison/
+  --plot-dir  results/ocean_2017_2020
 ```
 
 ---

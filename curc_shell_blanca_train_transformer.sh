@@ -34,7 +34,7 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-python src/models_transformer.py --suffix ocean_2020_test2
+python src/models_transformer.py --pipeline results/train_data/exp_v1/pipeline_202001.pkl --sfc_type 0 --suffix ocean_2017_2020
 
 
 
