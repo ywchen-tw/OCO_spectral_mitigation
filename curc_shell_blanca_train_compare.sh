@@ -39,7 +39,7 @@ python src/apply_models.py \
   --ridge-dir results/model_mlp_lr/ocean_2017_2020/ \
   --mlp-dir   results/model_mlp_lr/ocean_2017_2020/ \
   --ft-dir    results/model_ft_transformer/ocean_2017_2020/ \
-  --input     results/csv_collection/combined_2017_2021_dates.csv  \
+  --input     results/csv_collection/combined_2020-05-17_all_orbits.csv  \
   --output    corrected.csv \
   --plot-dir  results/ocean_2017_2020
 
