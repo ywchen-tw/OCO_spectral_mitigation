@@ -266,7 +266,7 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['glint_prox'] = np.exp(-1 * combined.get('glint_angle') / 10.0) # Decay constant of 10 degrees
 
     df = pd.DataFrame(final_dict)
-    df = df[df.xco2_bc > 0]  # Filter out invalid XCO2 values
+    df = df[df.xco2_bc > 0]  # Filter out invalid XCO2 value
     
     if orbit_id is not None:
         df.to_csv(os.path.join(output_dir, f'combined_{date}_orbit_{orbit_id}.csv'), index=False)
@@ -314,18 +314,20 @@ def main():
                  '20200501', '20200601', '20200701', '20200801',
                  '20200903', '20201001', '20201101', '20201201']  
     
-    # date_list = ['20180221', '20181024', '20181229',
-    #              '20200115', '20200211', '20200415', '20200517'
+    # date_list = ['20180221', '20180313', '20180710', '20180902',
+    #              '20181024', '20181129', '20181130',
+    #              '20200115', '20200211', '20200330', '20200415', 
+    #              '20200517', '20200906',
     #              '20201005', '20201224', 
     #              '20210210', '20210424', '20211229']  
     
     # date_list = ['20200101',]  
     
         
-    # for date in date_list:
-    #     date_dt = datetime.strptime(date, '%Y%m%d')
-    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    for date in date_list:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
     date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
     csv_output_dir = os.path.join(fdir, 'csv_collection')
