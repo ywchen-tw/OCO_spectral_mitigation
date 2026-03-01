@@ -121,7 +121,7 @@ python src/pipeline.py --data results/csv_collection/combined_2017_2021_dates.cs
 python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2017_2020.pkl --sfc_type 0 --suffix ocean_2017_2020
 
 # 2b. Train FT-Transformer (independently, e.g. on HPC)
-python src/models_transformer.py --pipeline results/train_data/exp_v1/pipeline_202001.pkl --sfc_type 0 --suffix ocean_2017_2020
+python src/models_transformer.py --pipeline results/train_data//pipeline_ocean_2017_2020.pkl --sfc_type 0 --suffix ocean_2017_2020
 
 # 3. Inference + comparison on new data
 python src/apply_models.py \
