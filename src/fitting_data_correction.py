@@ -266,6 +266,8 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['glint_prox'] = np.exp(-1 * combined.get('glint_angle') / 10.0) # Decay constant of 10 degrees
 
     df = pd.DataFrame(final_dict)
+    df = df[df.xco2_bc > 0]  # Filter out invalid XCO2 values
+    
     if orbit_id is not None:
         df.to_csv(os.path.join(output_dir, f'combined_{date}_orbit_{orbit_id}.csv'), index=False)
     else:

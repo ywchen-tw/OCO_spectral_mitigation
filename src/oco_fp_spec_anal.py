@@ -743,6 +743,8 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
 
     lt_xco2_bc  = _lite("xco2_corr")
     lt_xco2_raw = _lite("xco2_raw")
+    lt_xco2_raw[lt_xco2_raw <= 0] = np.nan  # Mask unphysical raw XCO2 values (zero or negative)
+    lt_xco2_bc[lt_xco2_bc <= 0] = np.nan    # Mask unphysical corrected XCO2 values (zero or negative)
 
     # ── 5. Cloud distance per sounding (O(1) dict lookup) ─────────────────
     cld_idx     = shared_data["cld_dist_index"]

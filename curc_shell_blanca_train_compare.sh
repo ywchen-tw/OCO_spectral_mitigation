@@ -1,8 +1,8 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=16
-#SBATCH --ntasks-per-node=16
+#SBATCH --ntasks=32
+#SBATCH --ntasks-per-node=32
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
@@ -11,9 +11,10 @@
 #SBATCH --account=blanca-airs
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
+#SBATCH --gres=gpu:a100:1
 
 
-module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
+module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8 cuda/12.1.1
 conda activate data
 
 # Prepend conda's libs so Python's netCDF4/h5py loads the conda-compiled
@@ -33,34 +34,14 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-# ============================================================================
-# Option 1: Loop with year, month, day (ACTIVE)
-# ============================================================================
-# Specify year, month, and day ranges
-start_year=2017
-end_year=2017
-start_month=1
-end_month=3
-start_day=1
-end_day=1
-
-# Loop through year, month, day
-for year in $(seq $start_year $end_year); do
-    for month in $(seq $start_month $end_month); do
-        for day in $(seq $start_day $end_day); do
-            # Format date as YYYY-MM-DD with zero-padding
-            date=$(printf "%04d-%02d-%02d" $year $month $day)
-            echo "Processing date: $date"
-            python src/oco_fp_spec_anal.py --date "$date" #--delete-ocofiles
-            if [ $? -ne 0 ]; then
-                echo "Failed to process date: $date"
-            else
-                echo "Successfully processed: $date"
-            fi
-            echo ""
-        done
-    done
-done
+python src/apply_models.py \
+  --pipeline  results/train_data/pipeline_ocean_2017_2020.pkl \
+  --ridge-dir results/model_mlp_lr/ocean_2017_2020/ \
+  --mlp-dir   results/model_mlp_lr/ocean_2017_2020/ \
+  --ft-dir    results/model_ft_transformer/ocean_2017_2020/ \
+  --input     results/csv_collection/combined_2017_2021_dates.csv  \
+  --output    corrected.csv \
+  --plot-dir  results/ocean_2017_2020
 
 
 
