@@ -1,7 +1,79 @@
-# Refactoring Tracker: Shared Pipeline + Model Adapters + Inference CLI
+# Pipeline & Model Infrastructure Changelog
 
-**Status**: ✅ Complete — all steps done
-**Last updated**: 2026-02-27
+**Last updated**: 2026-03-01
+
+---
+
+## 2026-03-01 — Output Organisation, Plot-Data Export, TCCON Comparison Script
+
+### `src/apply_models.py` — output sub-folder + plot-data CSV
+
+**Sub-folder per input file** (avoids collision between runs on different CSVs):
+- After resolving `input_path`, derive `_input_stem = Path(input_path).stem`
+  (e.g. `combined_2020_dates`).
+- Default `output_path` → `results/<input_stem>[/<suffix>]/corrected[_<suffix>].csv`
+- Default `plot_dir`   → `results/<input_stem>[/<suffix>]/plots/`
+- Explicit `--output` / `--plot-dir` arguments override the defaults as before.
+
+**`plot_data.csv`** — slim file for downstream plotting, saved alongside the main output CSV:
+
+| Column | Source |
+|---|---|
+| `sounding_id` | pass-through (if present) |
+| `lon`, `lat` | pass-through |
+| `cld_dist_km` | pass-through |
+| `xco2_bc` | pass-through |
+| `xco2_bc_anomaly` | pass-through (if present) |
+| `{model}_pred` | raw model prediction (bias to subtract) |
+| `{model}_corrected_xco2` | `xco2_bc − {model}_pred` |
+| `ft_uncertainty` | `ft_q95 − ft_q05` (if FT was run) |
+| `ridge/mlp/ft_anomaly` | recomputed anomaly on corrected field (if orbit cols present) |
+
+### `src/plot_corrected_xco2.py` — new comparison script
+
+Three-row figure comparing OCO-2 corrected XCO₂ with a TCCON ground station:
+
+| Row | Panels |
+|---|---|
+| 1 | lon/lat scatter maps — Ridge-corrected · MLP-corrected · FT-corrected |
+| 2 | lon/lat scatter — original `xco2_bc` · ideal-corrected (`xco2_bc − anomaly`) · TCCON time series |
+| 3 | Full-width histogram — all corrected sources + TCCON, density-normalised with μ/σ |
+
+- Shared `plasma` colorbar across all six lon/lat map panels (1st–99th percentile of all XCO₂ sources).
+- TCCON station marked as red ★ on every map panel.
+- TCCON time series panel: raw measurements + ±1σ shading + monthly mean line.
+- `netCDF4` reader handles TCCON NC4 HDF5 format; reads `long` (not `lon`) variable name.
+- Optional CLI filters: `--lon-range`, `--lat-range`, `--date-range`, `--vmin`/`--vmax`.
+
+```bash
+python src/plot_corrected_xco2.py \
+    --plot-data  results/combined_2020_dates/plot_data.csv \
+    --tccon      /path/to/ra20150301_20200718.public.qc.nc \
+    --output-dir results/combined_2020_dates/plots/
+```
+
+### `src/models_transformer.py` — DataFrame fragmentation fix
+
+fp one-hot columns (`fp_0`…`fp_7`) were previously assigned one at a time inside a loop,
+causing a `PerformanceWarning: DataFrame is highly fragmented`.
+
+Fixed in two locations (around lines 944 and 1367) by building all missing columns at once:
+```python
+# Before (fragmented):
+for i in range(8):
+    df[f'fp_{i}'] = (df['fp'] == i).astype(np.float32)
+
+# After (single concat):
+missing_fp = [i for i in range(8) if f'fp_{i}' not in df.columns]
+if missing_fp:
+    df = pd.concat([df, pd.DataFrame(
+        {f'fp_{i}': (df['fp'] == i).astype(np.float32) for i in missing_fp},
+        index=df.index)], axis=1)
+```
+
+---
+
+## 2026-02-27 — Shared Pipeline + Model Adapters + Inference CLI (Refactoring)
 
 ### Current state
 - `src/pipeline.py` ✅ written and complete

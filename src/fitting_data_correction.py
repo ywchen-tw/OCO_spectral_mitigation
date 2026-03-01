@@ -41,7 +41,7 @@ def load_output_dict(filepath):
     """
     keys = [
         # basic identifiers
-        'date', 'orbit_id',
+        'date', 'time', 'orbit_id',
         # Cumulant coefficients (per band)
         'o2a_k1_fitting', 'o2a_k2_fitting', 'o2a_k3_fitting',
         'o2a_k4_fitting', 'o2a_k5_fitting', 'o2a_intercept_fitting',
@@ -138,6 +138,7 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict = {
         # basic identifiers
         'date': combined['date'],
+        'time': combined['time'],
         'orbit_id': combined['orbit_id'],
         'lon': combined['lon'],
         'lat': combined['lat'],
@@ -326,15 +327,15 @@ def main():
     # date_list = ['20200101',]  
     
         
-    # for date in date_list:
-    #     date_dt = datetime.strptime(date, '%Y%m%d')
-    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    for date in date_list:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
-    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
-    csv_output_dir = os.path.join(fdir, 'csv_collection')
-    output_fname = 'combined_2019_2020_dates.csv'
-    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+    # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    # csv_output_dir = os.path.join(fdir, 'csv_collection')
+    # output_fname = 'combined_2019_2020_dates.csv'
+    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()

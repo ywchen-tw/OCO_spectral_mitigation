@@ -940,11 +940,17 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
     qt_features = list(features[:-8])    # non-fp continuous features
     fp_cols     = list(features[-8:])    # fp_0 … fp_7
 
-    # Ensure fp one-hot columns exist in df (without copying the whole frame)
-    for i in range(8):
-        col = f'fp_{i}'
-        if col not in df.columns:
-            df[col] = (df['fp'] == i).astype(np.float32)
+    # Ensure fp one-hot columns exist in df — build all missing cols at once to
+    # avoid DataFrame fragmentation from repeated single-column assignments.
+    missing_fp = [i for i in range(8) if f'fp_{i}' not in df.columns]
+    if missing_fp:
+        df = pd.concat(
+            [df, pd.DataFrame(
+                {f'fp_{i}': (df['fp'] == i).astype(np.float32) for i in missing_fp},
+                index=df.index,
+            )],
+            axis=1,
+        )
 
     X_qt  = qt.transform(df[qt_features].to_numpy(dtype=float)).astype(np.float32)
     X_fp  = df[fp_cols].to_numpy(dtype=np.float32)
@@ -1364,10 +1370,16 @@ def main():
     # Strategy: extract needed columns from df as float32 first, then free df
     # BEFORE calling QT.transform() so df is never alive at the same time as
     # the QT float64 intermediates (which would otherwise push peak to ~25 GB).
-    for i in range(8):                           # ensure fp one-hot cols present
-        col = f'fp_{i}'
-        if col not in df.columns:
-            df[col] = (df['fp'] == i).astype(np.float32)
+    # Ensure fp one-hot cols exist — build all missing at once to avoid fragmentation.
+    missing_fp = [i for i in range(8) if f'fp_{i}' not in df.columns]
+    if missing_fp:
+        df = pd.concat(
+            [df, pd.DataFrame(
+                {f'fp_{i}': (df['fp'] == i).astype(np.float32) for i in missing_fp},
+                index=df.index,
+            )],
+            axis=1,
+        )
 
     valid_rows = ~df['xco2_bc_anomaly'].isna()
     y_all    = df['xco2_bc_anomaly'].values.astype(np.float32)

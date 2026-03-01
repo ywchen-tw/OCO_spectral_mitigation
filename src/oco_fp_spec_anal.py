@@ -161,6 +161,7 @@ def load_shared_data(sat):
 
         lite = {
             "xco2_corr":         _load("xco2"),
+            "time":             _load("time"),
             "co2_ratio_bc":      _load_grp("Preprocessors", "co2_ratio_bc"),
             "h2o_ratio_bc":      _load_grp("Preprocessors", "h2o_ratio_bc"),
             "color_slice_noise_ratio_o2a": _load_grp("Preprocessors", "color_slice_noise_ratio_o2a"),
@@ -781,6 +782,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         # Geometry
         "date":      np.array([date]*N, dtype='S'),
         "orbit_id":  np.array([orbit_id]*N, dtype='S'),
+        "time":      _lite("time"),
         "lon":       od["lon"],
         "lat":       od["lat"],
         "sza":       od["sza"],
