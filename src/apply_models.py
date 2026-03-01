@@ -382,13 +382,20 @@ def main():
     ft_dir_def   = storage_dir / 'results/model_ft_transformer' / suffix if suffix else storage_dir / 'results/model_ft_transformer'
     suffix_tag   = f'_{suffix}' if suffix else ''
 
-    pipeline_path = args.pipeline  or str(lr_dir / 'pipeline.pkl')
-    ridge_dir     = args.ridge_dir or str(lr_dir)
-    mlp_dir       = args.mlp_dir   or str(lr_dir)
-    ft_dir        = args.ft_dir    or str(ft_dir_def)
-    input_path    = args.input     or str(storage_dir / 'results/csv_collection/combined_2020_dates.csv')
-    output_path   = args.output    or str(storage_dir / f'results/corrected{suffix_tag}.csv')
-    plot_dir      = args.plot_dir  or str(storage_dir / 'results/comparison' / suffix if suffix else storage_dir / 'results/comparison')
+    def _abs(p):
+        """Resolve a relative path against storage_dir; leave absolute paths unchanged."""
+        if p is None:
+            return None
+        pp = Path(p)
+        return str(storage_dir / pp) if not pp.is_absolute() else p
+
+    pipeline_path = _abs(args.pipeline) or str(lr_dir / 'pipeline.pkl')
+    ridge_dir     = _abs(args.ridge_dir) or str(lr_dir)
+    mlp_dir       = _abs(args.mlp_dir)   or str(lr_dir)
+    ft_dir        = _abs(args.ft_dir)    or str(ft_dir_def)
+    input_path    = _abs(args.input)     or str(storage_dir / 'results/csv_collection/combined_2020_dates.csv')
+    output_path   = _abs(args.output)    or str(storage_dir / f'results/corrected{suffix_tag}.csv')
+    plot_dir      = _abs(args.plot_dir)  or str(storage_dir / 'results/comparison' / suffix if suffix else storage_dir / 'results/comparison')
 
     # ── Load pipeline ──────────────────────────────────────────────────────
     print(f"Loading pipeline: {pipeline_path}", flush=True)
