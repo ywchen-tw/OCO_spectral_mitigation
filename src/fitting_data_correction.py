@@ -333,7 +333,7 @@ def main():
 
     date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
     csv_output_dir = os.path.join(fdir, 'csv_collection')
-    output_fname = 'combined_2019_2021_dates.csv'
+    output_fname = 'combined_2019_2020_dates.csv'
     raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":

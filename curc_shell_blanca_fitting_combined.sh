@@ -9,14 +9,12 @@
 #SBATCH --output=sbatch-output_%x_%j.txt
 #SBATCH --job-name=oco_spectral_anal
 #SBATCH --account=blanca-airs
-###SBATCH --partition=blanca-airs
-#SBATCH --qos=preemptable
-#SBATCH --gres=gpu:a100:1
+#SBATCH --partition=blanca-airs
+#SBATCH --qos=blanca-airs
 
 
-module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8 cuda/12.1.1
+module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
 conda activate data
-
 # Prepend conda's libs so Python's netCDF4/h5py loads the conda-compiled
 # libhdf5 rather than the system one injected by `module load hdf5/...`.
 # Without this, an ABI mismatch causes NC_EHDF (-101) at H5Fopen() time.
@@ -32,31 +30,7 @@ fi
 # Without this, HDF5 ≥ 1.10 raises NC_EHDF (-101) on any open() call.
 export HDF5_USE_FILE_LOCKING=FALSE
 
+
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2019_2020.pkl \
- --sfc_type 0 --suffix ocean_2019_2020
-
-
-
-# ============================================================================
-# Option 2: Hard-coded dates (uncomment to use)
-# ============================================================================
-# Define dates to process (modify as needed)
-# dates=(
-#     "2018-10-18"
-#     "2020-01-04"
-#     "2020-01-08"
-# )
-#
-# # Loop through each date
-# for date in "${dates[@]}"; do
-#     echo "Processing date: $date"
-#     python workspace/demo_combined.py --date "$date" --delete-modis
-#     if [ $? -ne 0 ]; then
-#         echo "Failed to process date: $date"
-#     else
-#         echo "Successfully processed: $date"
-#     fi
-#     echo ""
-# done
+python src/fitting_data_correction.py

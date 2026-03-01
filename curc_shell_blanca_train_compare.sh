@@ -35,13 +35,13 @@ export HDF5_USE_FILE_LOCKING=FALSE
 cd /projects/yuch8913/OCO_spectral_mitigation
 
 python src/apply_models.py \
-  --pipeline  results/train_data/pipeline_ocean_2017_2020.pkl \
-  --ridge-dir results/model_mlp_lr/ocean_2017_2020/ \
-  --mlp-dir   results/model_mlp_lr/ocean_2017_2020/ \
-  --ft-dir    results/model_ft_transformer/ocean_2017_2020/ \
+  --pipeline  results/train_data/pipeline_ocean_2019_2020.pkl \
+  --ridge-dir results/model_mlp_lr/ocean_2019_2020/ \
+  --mlp-dir   results/model_mlp_lr/ocean_2019_2020/ \
+  --ft-dir    results/model_ft_transformer/ocean_2019_2020/ \
   --input     results/csv_collection/combined_2020-05-17_all_orbits.csv  \
   --output    corrected.csv \
-  --plot-dir  results/ocean_2017_2020
+  --plot-dir  results/model_comparison/ocean_2019_2020
 
 
 
