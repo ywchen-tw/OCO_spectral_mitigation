@@ -309,12 +309,13 @@ class DataIngestionManager:
             return match.group(1)
         return '/'
     
-    def _query_ges_disc_directory(self, 
+    def _query_ges_disc_directory(self,
                                   product_url: str,
-                                  year: int, 
+                                  year: int,
                                   doy: int,
                                   filename_pattern: str = None,
-                                  granule_id: str = None) -> Optional[str]:
+                                  granule_id: str = None,
+                                  target_date_str: str = None) -> Optional[str]:
         """
         Query GES DISC directory to find the actual filename for a product.
         
@@ -373,7 +374,10 @@ class DataIngestionManager:
                     # Date is YYMMDD in the granule ID
                     parts = granule_id.split('_')
                     if len(parts) >= 4:
-                        date_str = parts[3]  # e.g., "181018"
+                        # Use target_date_str if provided so cross-midnight granules
+                        # (whose granule_id encodes the previous day) still resolve
+                        # to the correct target date's Lite file.
+                        date_str = target_date_str if target_date_str is not None else parts[3]
                         # Look for files with this date - match only valid filename characters
                         pattern = rf'href=["\']+(oco2_LtCO2[\w._-]*{date_str}[\w._-]*\.nc4)["\']+'
                     else:
@@ -397,7 +401,8 @@ class DataIngestionManager:
                     # Check if we found a date-specific file
                     parts = granule_id.split('_')
                     if len(parts) >= 4:
-                        date_str = parts[3]
+                        # Consistent with the pattern built above: prefer target_date_str
+                        date_str = target_date_str if target_date_str is not None else parts[3]
                         date_matches = [m for m in matches if date_str in m]
                         if date_matches:
                             filename = date_matches[0]
@@ -494,6 +499,12 @@ class DataIngestionManager:
         doy = granule.start_time.timetuple().tm_yday
         orbit_str = granule.orbit_str  # e.g., "22845a"
         viewing_mode = granule.viewing_mode  # "GL", "ND", or "TG"
+
+        # YYMMDD string for the target date — used for L2_Lite lookups so that
+        # cross-midnight granules (start_time on the previous day) still resolve
+        # to the correct target date's Lite file instead of the prior day's.
+        target_date_obj = datetime(target_year, 1, 1) + timedelta(days=target_doy - 1)
+        target_date_str_yymmdd = target_date_obj.strftime('%y%m%d')  # e.g., "181018"
         
         for product_type in product_types:
             if product_type not in product_configs:
@@ -509,12 +520,18 @@ class DataIngestionManager:
                 # Extract filename from URL
                 filename = url.split('/')[-1]
             else:
-                # Query directory to find actual filename
+                # Query directory to find actual filename.
+                # For L2_Lite: always query using the target date's year/date-string
+                # so cross-midnight granules (whose start_time is the previous day)
+                # don't cause the prior day's Lite file to be fetched.
+                query_year = target_year if product_type == 'L2_Lite' else year
+                query_doy  = target_doy  if product_type == 'L2_Lite' else doy
                 url = self._query_ges_disc_directory(
                     config['base_url'],
-                    year,
-                    doy,
-                    granule_id=granule.granule_id
+                    query_year,
+                    query_doy,
+                    granule_id=granule.granule_id,
+                    target_date_str=target_date_str_yymmdd if product_type == 'L2_Lite' else None
                 )
                 
                 if not url:
@@ -530,8 +547,10 @@ class DataIngestionManager:
             
             # Determine output path based on product type
             if product_type == 'L2_Lite':
-                # L2_Lite: data/OCO2/{YYYY}/{DOY}/
-                output_subdir = self.output_dir / "OCO2" / str(year) / f"{doy:03d}"
+                # L2_Lite: data/OCO2/{YYYY}/{DOY}/ — always under the target date
+                # directory so cross-midnight granules don't scatter Lite files into
+                # the previous day's folder.
+                output_subdir = self.output_dir / "OCO2" / str(target_year) / f"{target_doy:03d}"
             else:
                 # L1B, Met, CO2Prior: data/OCO2/{YYYY}/{DOY}/{orbit_id}_{mode}/
                 # Parse orbit_id and viewing_mode directly from the downloaded filename.

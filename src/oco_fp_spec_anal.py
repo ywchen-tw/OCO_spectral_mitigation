@@ -594,6 +594,7 @@ def plot_fitting_example(tag, fp, sounding_ind, wvl, rad, transmittance, tau, ln
         f"{output_dir}/{tag}_log_T_fit_fp{fp}_snd{sounding_ind}.png",
         dpi=150, bbox_inches="tight"
     )
+    plt.close(fig)
 
     # # Plot 2: T vs tau using the gamma-distribution model
     # try:

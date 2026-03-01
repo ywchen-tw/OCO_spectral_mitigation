@@ -149,6 +149,45 @@ class FeatureTokenizer(nn.Module):
         return x.unsqueeze(-1) * self.weight + self.bias
 
 
+class GatedResidualNetwork(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, dropout=0.1):
+        super().__init__()
+        self.skip_connection = nn.Linear(input_size, output_size)
+        self.dense = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.GELU(),
+            nn.Linear(hidden_size, output_size),
+            nn.Dropout(dropout),
+        )
+        self.gate = nn.Sequential(
+            nn.Linear(input_size, output_size),
+            nn.Sigmoid()
+        )
+        self.norm = nn.LayerNorm(output_size)
+
+    def forward(self, x):
+        residual = self.skip_connection(x)
+        gated_output = self.gate(x) * self.dense(x)
+        return self.norm(residual + gated_output)
+
+
+class MLPTokenizer(nn.Module):
+    def __init__(self, n_features, d_token):
+        super().__init__()
+        self.tokenizers = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(1, d_token // 2),
+                nn.GELU(),
+                nn.Linear(d_token // 2, d_token)
+            ) for _ in range(n_features)
+        ])
+
+    def forward(self, x):
+        # x: [batch, n_features]
+        tokens = [self.tokenizers[i](x[:, i:i+1]) for i in range(len(self.tokenizers))]
+        return torch.stack(tokens, dim=1)   # [batch, n_features, d_token]
+
+
 class PreNormResidual(nn.Module):
     def __init__(self, dim, fn):
         super().__init__()
@@ -188,34 +227,53 @@ class AdvancedTransformerBlock(nn.Module):
 
 
 class UncertainFTTransformerRefined(nn.Module):
-    """FT-Transformer with Pre-Norm residuals and a learnable feature-weighting head.
+    """FT-Transformer with [CLS] token aggregation and a GRN regression head.
+
+    A learnable [CLS] token is prepended to the feature token sequence and
+    interacts with all feature tokens via self-attention.  After the last
+    Transformer block, only the [CLS] token representation is passed to the
+    head — it has learned to collect the bias-relevant global atmospheric state.
 
     Outputs 3 quantiles [q05, q50, q95] compatible with ``quantile_loss``.
     Supports ``return_attn=True`` for compatibility with ``plot_attention_map``.
-
-    Aggregation: learnable per-feature gate → mean-pool over tokens → 2-layer head.
-    This replaces the previous flatten (n_features × d_token → d_ff) which created
-    a single over-parameterised projection prone to poor generalisation.
     """
 
-    def __init__(self, n_features, d_token=128, n_heads=8, n_layers=4, d_ff=512):
+    def __init__(self, n_features, d_token=128, n_heads=8, n_layers=4, d_ff=512,
+                 tokenizer_type: str = 'mlp'):
         super().__init__()
         self.n_features = n_features
-        self.tokenizer = FeatureTokenizer(n_features, d_token)
+        self.tokenizer_type = tokenizer_type
+        if tokenizer_type == 'mlp':
+            self.tokenizer = MLPTokenizer(n_features, d_token)
+        else:
+            self.tokenizer = FeatureTokenizer(n_features, d_token)
+
+        # Learnable [CLS] token — aggregates global atmospheric state
+        self.cls_token = nn.Parameter(torch.randn(1, 1, d_token))
+
         self.layers = nn.ModuleList([
             AdvancedTransformerBlock(d_token, n_heads, d_ff) for _ in range(n_layers)
         ])
-        # Learnable per-feature importance weight applied before mean-pooling
-        self.feature_weight = nn.Parameter(torch.ones(n_features))
+
+        # GRN on the [CLS] representation, then a plain linear to 3 quantile outputs.
+        # The final nn.Linear has no normalisation so the regression scale is unbounded.
         self.head = nn.Sequential(
-            nn.Linear(d_token, d_token // 2),   # 256 → 128
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(d_token // 2, 3),          # 128 → [q05, q50, q95]
+            GatedResidualNetwork(
+                input_size=d_token, hidden_size=d_token,
+                output_size=d_token // 2, dropout=0.1,
+            ),
+            nn.Linear(d_token // 2, 3),
         )
 
     def forward(self, x, return_attn: bool = False):
-        x = self.tokenizer(x)
+        # x: [batch, n_features]
+        x = self.tokenizer(x)                          # [batch, n_features, d_token]
+
+        # Prepend [CLS] token
+        b = x.shape[0]
+        cls_tokens = self.cls_token.expand(b, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)          # [batch, n_features+1, d_token]
+
         last_attn = None
         for layer in self.layers:
             if return_attn:
@@ -225,10 +283,10 @@ class UncertainFTTransformerRefined(nn.Module):
                 x = layer.ff(x)
             else:
                 x = layer(x)
-        # Gate tokens then mean-pool: [batch, n_features, d_token] → [batch, d_token]
-        x = x * self.feature_weight.view(1, -1, 1)
-        x = x.mean(dim=1)
-        out = self.head(x)
+
+        # Extract the [CLS] token (index 0) as the global representation
+        x_global = x[:, 0]                             # [batch, d_token]
+        out = self.head(x_global)
         if return_attn:
             return out, last_attn
         return out
@@ -475,7 +533,9 @@ def plot_attention_map(model, sample_batch, feature_names, output_dir, top_k=20)
     # ── Collect averaged attention over sample_batch (last layer, heads averaged) ─
     with torch.no_grad():
         _, attn_all = model(sample_batch, return_attn=True)
-        # attn_all: [N, n_feat, n_feat]  (PyTorch averages across heads by default)
+        # attn_all: [N, n_feat+1, n_feat+1] (index 0 = [CLS] token)
+        # Slice off CLS row and column to get feature-feature attention.
+        attn_all = attn_all[:, 1:, 1:]
     attn_mean = attn_all.cpu().numpy().mean(axis=0)   # [n_feat, n_feat]
 
     # Column sum → "how much total attention does each feature receive?"
@@ -561,9 +621,13 @@ def plot_attention_map(model, sample_batch, feature_names, output_dir, top_k=20)
 
     # ── Plot 3: Per-head attention panels (top-10 features by global importance) ─
     # Call the last layer's MHA module directly with average_attn_weights=False
-    # to bypass head-averaging and get [N, n_heads, n_feat, n_feat].
+    # to bypass head-averaging and get [N, n_heads, n_feat+1, n_feat+1].
     with torch.no_grad():
         x_tok = model.tokenizer(sample_batch)
+        # Prepend [CLS] token to match the training forward pass
+        b_viz = sample_batch.shape[0]
+        cls_viz = model.cls_token.expand(b_viz, -1, -1)
+        x_tok = torch.cat((cls_viz, x_tok), dim=1)
         for layer in model.layers[:-1]:
             x_tok = layer(x_tok)
         last_layer = model.layers[-1]
@@ -577,7 +641,9 @@ def plot_attention_map(model, sample_batch, feature_names, output_dir, top_k=20)
         _, per_head_attn = mha(
             x_tok_in, x_tok_in, x_tok_in,
             need_weights=True, average_attn_weights=False,
-        )   # [N, n_heads, n_feat, n_feat]
+        )   # [N, n_heads, n_feat+1, n_feat+1]
+        # Slice off the CLS token (index 0) to keep only feature-feature attention
+        per_head_attn = per_head_attn[:, :, 1:, 1:]
     per_head_mean = per_head_attn.cpu().numpy().mean(axis=0)   # [n_heads, n_feat, n_feat]
 
     n_heads    = per_head_mean.shape[0]
@@ -1340,8 +1406,10 @@ def main():
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     data_name = 'combined_2020_dates.csv'
-    data_name = 'combined_2017_2021_dates.csv'  # for quick testing with one date's data
-    # data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
+    if platform.system() == "Linux":
+        data_name = 'combined_2017_2021_dates.csv'  # for quick testing with one date's data
+    elif platform.system() == "Darwin":
+        data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_ft_transformer'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1416,7 +1484,7 @@ def main():
         model   = adapter.model
     else:
         if platform.system() == "Darwin":
-            epochs = 50  # Fewer epochs for local testing
+            epochs = 100  # Fewer epochs for local testing
         else:
             epochs = 500  # More epochs for CURC training
 
@@ -1433,7 +1501,8 @@ def main():
 
         # ── Persist adapter metadata (model_best.pt already written by training loop) ──
         FTAdapter(model, n_features=pipeline.n_features,
-                  d_token=256, n_heads=8, n_layers=4, d_ff=512).save(output_dir)
+                  d_token=256, n_heads=8, n_layers=4, d_ff=512,
+                  tokenizer_type='mlp').save(output_dir)
 
     # ── Evaluate: quantile width vs selected features ─────────────────────────
     uncertainty_features = ['glint_prox', 'aod_total', 'mu_sza', 'tcwv', 'csnr_o2a']

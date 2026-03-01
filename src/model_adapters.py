@@ -251,13 +251,15 @@ class FTAdapter(ModelAdapter):
     META_FILE       = 'ft_meta.pkl'
 
     def __init__(self, model, n_features: int, d_token: int = 128,
-                 n_heads: int = 8, n_layers: int = 4, d_ff: int = 256):
-        self.model      = model
-        self.n_features = n_features
-        self.d_token    = d_token
-        self.n_heads    = n_heads
-        self.n_layers   = n_layers
-        self.d_ff       = d_ff
+                 n_heads: int = 8, n_layers: int = 4, d_ff: int = 256,
+                 tokenizer_type: str = 'mlp'):
+        self.model          = model
+        self.n_features     = n_features
+        self.d_token        = d_token
+        self.n_heads        = n_heads
+        self.n_layers       = n_layers
+        self.d_ff           = d_ff
+        self.tokenizer_type = tokenizer_type
 
     def predict(self, X: np.ndarray, batch_size: int = 512) -> np.ndarray:
         """Return q50 predictions [N]."""
@@ -285,11 +287,12 @@ class FTAdapter(ModelAdapter):
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
         meta = {
-            'n_features': self.n_features,
-            'd_token':    self.d_token,
-            'n_heads':    self.n_heads,
-            'n_layers':   self.n_layers,
-            'd_ff':       self.d_ff,
+            'n_features':     self.n_features,
+            'd_token':        self.d_token,
+            'n_heads':        self.n_heads,
+            'n_layers':       self.n_layers,
+            'd_ff':           self.d_ff,
+            'tokenizer_type': self.tokenizer_type,
         }
         with open(out / self.META_FILE, 'wb') as f:
             pickle.dump(meta, f)
@@ -327,6 +330,7 @@ class FTAdapter(ModelAdapter):
             n_heads=meta['n_heads'],
             n_layers=meta['n_layers'],
             d_ff=meta['d_ff'],
+            tokenizer_type=meta.get('tokenizer_type', 'linear'),  # 'linear' for old checkpoints
         ).to(device)
 
         ckpt = torch.load(ckpt_path, map_location=device)
