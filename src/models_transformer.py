@@ -1274,15 +1274,24 @@ def main():
     features = pipeline.features
 
     # ── Transform + split ──────────────────────────────────────────────────────
-    X_all      = pipeline.transform(df)
+    # Extract target before transforming so we can free df early
     valid_rows = ~df['xco2_bc_anomaly'].isna()
-    X = X_all[valid_rows.values]
-    y = df['xco2_bc_anomaly'][valid_rows].values
+    y_all = df['xco2_bc_anomaly'].values.astype(np.float32)
+    X_all = pipeline.transform(df).astype(np.float32)  # float32 halves RAM vs float64
+    del df
+    gc.collect()
+
+    X = X_all[valid_rows]
+    y = y_all[valid_rows]
+    del X_all, y_all
+    gc.collect()
 
     print("X shape:", X.shape)
     print("y shape:", y.shape)
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    del X, y
+    gc.collect()
     print("X_train shape", X_train.shape)
 
     # ── Load or train model ────────────────────────────────────────────────────
@@ -1330,6 +1339,8 @@ def main():
     df_eval = df_eval[df_eval['sfc_type'] == surface_type]
     df_eval = df_eval[df_eval['snow_flag'] == 0]
     plot_evaluation_by_regime(model, df_eval, pipeline.qt, pipeline.features, str(output_dir))
+    del df_eval
+    gc.collect()
 
 
 
