@@ -249,6 +249,68 @@ def _plot_regime_comparison(df_out: pd.DataFrame, active: list,
     logger.info("Saved xco2bc_comparison_regime.png")
 
 
+def _plot_anomaly_scatter_hist(df_out: pd.DataFrame, active: list,
+                               true_anom: np.ndarray, plot_dir: Path) -> None:
+    """Combined scatter + histogram figure — mirrors mlp_lr_models.py lines 545-600.
+
+    Layout: 1 row × (n_models + 1) columns
+      cols 0..n_models-1 : scatter  original vs model-corrected anomaly (with R²/MAE)
+      col  n_models       : histogram of original + each model's anomaly distribution
+    """
+    valid = np.isfinite(true_anom)
+    if valid.sum() < 2:
+        return
+
+    n_models = len(active)
+    n_cols   = n_models + 1
+    fig, axes = plt.subplots(1, n_cols, figsize=(6 * n_cols, 5))
+    if n_cols == 1:
+        axes = [axes]
+
+    _lim = np.nanpercentile(np.abs(true_anom[valid]), 99)
+
+    for ax, (name, col, color) in zip(axes[:n_models], active):
+        pred = df_out[col].to_numpy(dtype=float)
+        v    = valid & np.isfinite(pred)
+        ax.scatter(true_anom[v], pred[v], c=color, edgecolor=None, s=5, alpha=0.6)
+        ax.set_xlim(-_lim, _lim);  ax.set_ylim(-_lim, _lim)
+        ax.set_aspect('equal', adjustable='box')
+        ax.axline((0, 0), slope=1, color='r', linestyle='--')
+        ax.set_xlabel('Original XCO2_bc anomaly (ppm)')
+        ax.set_ylabel(f'{name}-corrected XCO2_bc anomaly (ppm)')
+        ax.set_title(f'Original vs {name}-corrected anomaly')
+        if v.sum() > 1:
+            r2  = 1 - np.nansum((true_anom[v] - pred[v])**2) / \
+                      np.nansum((true_anom[v] - np.nanmean(true_anom[v]))**2)
+            mae = float(np.abs(true_anom[v] - pred[v]).mean())
+            ax.text(0.05, 0.95, f'R²={r2:.3f}\nMAE={mae:.4f}',
+                    transform=ax.transAxes, va='top')
+
+    # Histogram panel
+    ax_hist = axes[n_models]
+    _bins = np.linspace(-3, 3, 211)
+    for anom, color, label in [
+            (true_anom, 'blue', 'Original'),
+            *[(df_out[col].to_numpy(dtype=float), clr, nm) for nm, col, clr in active],
+    ]:
+        _v = anom[np.isfinite(anom)]
+        _mu, _sigma = np.nanmean(_v), np.nanstd(_v)
+        ax_hist.hist(_v, bins=_bins, color=color, alpha=0.6, density=True,
+                     label=f'{label}\nμ={_mu:.3f}, σ={_sigma:.3f}')
+        ax_hist.axvline(_mu,          color=color, linestyle='-',  linewidth=1.2)
+        ax_hist.axvline(_mu - _sigma, color=color, linestyle=':', linewidth=0.9)
+        ax_hist.axvline(_mu + _sigma, color=color, linestyle=':', linewidth=0.9)
+    ax_hist.set_xlabel('XCO2_bc anomaly (ppm)')
+    ax_hist.set_title('Anomaly distribution comparison')
+    ax_hist.axvline(0, color='k', linestyle='--', linewidth=0.8)
+    ax_hist.legend(fontsize=10)
+
+    fig.tight_layout()
+    fig.savefig(plot_dir / 'anomaly_comparison.png', dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    logger.info("Saved anomaly_comparison.png")
+
+
 def _comparison_plots(df_out: pd.DataFrame, available: dict,
                       plot_dir: Path) -> None:
     """Scatter + histogram comparison plots when ground-truth anomaly exists."""
@@ -261,7 +323,7 @@ def _comparison_plots(df_out: pd.DataFrame, available: dict,
 
     # ── Scatter panels ─────────────────────────────────────────────────────
     pred_cols = {
-        'RidgeLR': ('ridge_pred',  'orange'),
+        'Ridge': ('ridge_pred',  'orange'),
         'MLP':   ('mlp_pred',    'green'),
         'FT':    ('ft_q50',      'steelblue'),
     }
