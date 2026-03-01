@@ -254,14 +254,30 @@ def _plot_anomaly_scatter_hist(df_out: pd.DataFrame, active: list,
     """Combined scatter + histogram figure — mirrors mlp_lr_models.py lines 545-600.
 
     Layout: 1 row × (n_models + 1) columns
-      cols 0..n_models-1 : scatter  original vs model-corrected anomaly (with R²/MAE)
-      col  n_models       : histogram of original + each model's anomaly distribution
+      cols 0..n_models-1 : scatter  original anomaly vs recomputed anomaly after
+                           correction (uses {name.lower()}_anomaly col; falls back
+                           to raw prediction col if the anomaly col is absent)
+      col  n_models       : histogram of original + each model's corrected anomaly
+
+    The recomputed anomaly columns (ridge_anomaly, mlp_anomaly, ft_anomaly) are
+    written by main() when orbit metadata is present, matching the mlp_lr_models.py
+    compute_xco2_anomaly_date_id step.
     """
+    # Map model name → recomputed anomaly column
+    _ANOM_COL = {'Ridge': 'ridge_anomaly', 'MLP': 'mlp_anomaly', 'FT': 'ft_anomaly'}
+
+    # Prefer recomputed anomaly col; fall back to raw prediction col
+    active_anom = []
+    for name, pred_col, color in active:
+        anom_col = _ANOM_COL.get(name)
+        col = anom_col if (anom_col and anom_col in df_out.columns) else pred_col
+        active_anom.append((name, col, color))
+
     valid = np.isfinite(true_anom)
     if valid.sum() < 2:
         return
 
-    n_models = len(active)
+    n_models = len(active_anom)
     n_cols   = n_models + 1
     fig, axes = plt.subplots(1, n_cols, figsize=(6 * n_cols, 5))
     if n_cols == 1:
@@ -269,10 +285,10 @@ def _plot_anomaly_scatter_hist(df_out: pd.DataFrame, active: list,
 
     _lim = np.nanpercentile(np.abs(true_anom[valid]), 99)
 
-    for ax, (name, col, color) in zip(axes[:n_models], active):
-        pred = df_out[col].to_numpy(dtype=float)
-        v    = valid & np.isfinite(pred)
-        ax.scatter(true_anom[v], pred[v], c=color, edgecolor=None, s=5, alpha=0.6)
+    for ax, (name, col, color) in zip(axes[:n_models], active_anom):
+        corr_anom = df_out[col].to_numpy(dtype=float)
+        v         = valid & np.isfinite(corr_anom)
+        ax.scatter(true_anom[v], corr_anom[v], c=color, edgecolor=None, s=5, alpha=0.6)
         ax.set_xlim(-_lim, _lim);  ax.set_ylim(-_lim, _lim)
         ax.set_aspect('equal', adjustable='box')
         ax.axline((0, 0), slope=1, color='r', linestyle='--')
@@ -280,9 +296,9 @@ def _plot_anomaly_scatter_hist(df_out: pd.DataFrame, active: list,
         ax.set_ylabel(f'{name}-corrected XCO2_bc anomaly (ppm)')
         ax.set_title(f'Original vs {name}-corrected anomaly')
         if v.sum() > 1:
-            r2  = 1 - np.nansum((true_anom[v] - pred[v])**2) / \
+            r2  = 1 - np.nansum((true_anom[v] - corr_anom[v])**2) / \
                       np.nansum((true_anom[v] - np.nanmean(true_anom[v]))**2)
-            mae = float(np.abs(true_anom[v] - pred[v]).mean())
+            mae = float(np.abs(true_anom[v] - corr_anom[v]).mean())
             ax.text(0.05, 0.95, f'R²={r2:.3f}\nMAE={mae:.4f}',
                     transform=ax.transAxes, va='top')
 
@@ -291,7 +307,7 @@ def _plot_anomaly_scatter_hist(df_out: pd.DataFrame, active: list,
     _bins = np.linspace(-3, 3, 211)
     for anom, color, label in [
             (true_anom, 'blue', 'Original'),
-            *[(df_out[col].to_numpy(dtype=float), clr, nm) for nm, col, clr in active],
+            *[(df_out[col].to_numpy(dtype=float), clr, nm) for nm, col, clr in active_anom],
     ]:
         _v = anom[np.isfinite(anom)]
         _mu, _sigma = np.nanmean(_v), np.nanstd(_v)
