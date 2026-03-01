@@ -217,7 +217,14 @@ class FeaturePipeline:
 
     @classmethod
     def load(cls, path) -> 'FeaturePipeline':
-        """Load a previously saved pipeline."""
+        """Load a previously saved pipeline.
+
+        Relative paths are resolved against ``get_storage_dir()`` so that
+        callers on CURC (where storage_dir ≠ CWD) find the correct file.
+        """
+        path = Path(path)
+        if not path.is_absolute():
+            path = get_storage_dir() / path
         with open(path, 'rb') as f:
             obj = pickle.load(f)
         if not isinstance(obj, cls):
