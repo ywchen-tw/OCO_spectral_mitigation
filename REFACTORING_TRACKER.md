@@ -115,7 +115,7 @@ Both `mlp_lr_models.py` and `models_transformer.py` have identical feature lists
 
 ```bash
 # 1. Fit pipeline once
-python src/pipeline.py --data results/csv_collection/combined_2017_2021_dates.csv --sfc-type 0 --out results/train_data/exp_v1/pipeline_2017_2020.pkl
+python src/pipeline.py --data results/csv_collection/combined_2017_2021_dates.csv --sfc-type 0 --out results/train_data/exp_v1/pipeline_ocean_2017_2020.pkl
 
 # 2a. Train Ridge + MLP
 python src/mlp_lr_models.py --pipeline results/train_data/exp_v1/pipeline_202001.pkl --suffix exp_v1

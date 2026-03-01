@@ -255,12 +255,19 @@ def main():
                         format='%(asctime)s %(levelname)s %(message)s')
 
     storage_dir = get_storage_dir()
-    data_path = args.data or str(
-        storage_dir / 'results/csv_collection/combined_2020_dates.csv'
-    )
+
+    def _resolve(arg, default):
+        """Return arg resolved against storage_dir if relative, else default."""
+        if arg is None:
+            return str(default)
+        p = Path(arg)
+        return str(p if p.is_absolute() else storage_dir / p)
+
+    data_path = _resolve(args.data,
+                         storage_dir / 'results/csv_collection/combined_2020_dates.csv')
     base_dir  = storage_dir / 'results/model_mlp_lr'
     out_dir   = base_dir / args.suffix if args.suffix else base_dir
-    out_path  = args.out or str(out_dir / 'pipeline.pkl')
+    out_path  = _resolve(args.out, out_dir / 'pipeline.pkl')
 
     print(f"Loading data: {data_path}", flush=True)
     df = pd.read_csv(data_path)
