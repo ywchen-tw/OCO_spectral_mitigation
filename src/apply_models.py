@@ -324,8 +324,8 @@ def _comparison_plots(df_out: pd.DataFrame, available: dict,
     # ── Scatter panels ─────────────────────────────────────────────────────
     pred_cols = {
         'Ridge': ('ridge_pred',  'orange'),
-        'MLP':   ('mlp_pred',    'green'),
-        'FT':    ('ft_q50',      'steelblue'),
+        'MLP':   ('mlp_pred',    'limegreen'),
+        'FT':    ('ft_q50',      'purple'),
     }
     active = [(name, col, color)
               for name, (col, color) in pred_cols.items()
