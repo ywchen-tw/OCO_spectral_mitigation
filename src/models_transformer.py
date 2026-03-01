@@ -353,6 +353,30 @@ def quantile_loss(preds, targets, quantiles):
 # Training setup
 quantiles = [0.05, 0.5, 0.95]
 
+
+def _batched_predict(model, X_np, batch_size=2048):
+    """Run model inference in batches to avoid OOM from the [N, n_feat*d_token] flatten.
+
+    Parameters
+    ----------
+    model : nn.Module  (on CPU after training)
+    X_np  : np.ndarray  [N, n_features]  float32
+    batch_size : int  rows per forward pass
+
+    Returns
+    -------
+    preds : np.ndarray  [N, 3]  (q05, q50, q95) as float32
+    """
+    model.eval()
+    parts = []
+    with torch.no_grad():
+        for start in range(0, len(X_np), batch_size):
+            Xb = torch.tensor(X_np[start:start + batch_size], dtype=torch.float32)
+            parts.append(model(Xb).numpy())
+            del Xb
+    return np.concatenate(parts, axis=0)
+
+
 def plot_uncertainty_by_feature(model, X_val, feature_values, feature_name, output_dir):
     """Scatter uncertainty (q95-q05 width) against any feature.
 
@@ -367,16 +391,13 @@ def plot_uncertainty_by_feature(model, X_val, feature_values, feature_name, outp
         Human-readable name used for axis label and output filename.
     output_dir : str
     """
-    model.eval()
-    with torch.no_grad():
-        preds = model(torch.tensor(X_val).float())
-        q05, q50, q95 = preds[:, 0], preds[:, 1], preds[:, 2]
-        uncertainty = (q95 - q05).numpy()
+    preds = _batched_predict(model, np.asarray(X_val, dtype=np.float32))
+    q05, q50, q95 = preds[:, 0], preds[:, 1], preds[:, 2]
+    uncertainty = q95 - q05
 
-    q50_np = q50.numpy()
-    # Clip to non-negative: independent quantile heads can cross (q05 > q50 or q50 > q95)
-    lower_err = np.clip(q50_np - q05.numpy(), 0, None)
-    upper_err = np.clip(q95.numpy() - q50_np, 0, None)
+    q50_np = q50
+    lower_err = np.clip(q50_np - q05, 0, None)
+    upper_err = np.clip(q95 - q50_np, 0, None)
 
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.errorbar(feature_values, q50_np, yerr=[lower_err, upper_err],
@@ -764,16 +785,14 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
 
 
 def evaluate_model_X_text(model, X_test, y_test, fig_dir):
-    model.eval()
-    with torch.no_grad():
-        preds = model(torch.tensor(X_test).float())
-        q05, q50, q95 = preds[:, 0], preds[:, 1], preds[:, 2]
-        uncertainty = (q95 - q05).numpy()
-        residuals = (y_test - q50.numpy())
-    
-    q50_np = q50.numpy()
-    lower_err = np.clip(q50_np - q05.numpy(), 0, None)
-    upper_err = np.clip(q95.numpy() - q50_np, 0, None)
+    preds = _batched_predict(model, np.asarray(X_test, dtype=np.float32))
+    q05, q50, q95 = preds[:, 0], preds[:, 1], preds[:, 2]
+    uncertainty = q95 - q05
+    residuals = y_test - q50
+
+    q50_np = q50
+    lower_err = np.clip(q50_np - q05, 0, None)
+    upper_err = np.clip(q95 - q50_np, 0, None)
     
     # import metrics here to avoid circular import issues
     from sklearn.metrics import mean_absolute_error, r2_score
@@ -861,26 +880,29 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
         3 – Distribution of XCO2_bc values: [raw xco2_bc, xco2_bc−q50 corrected]
             (mirrors mlp col-3: raw vs bias-corrected xco2_bc)
     """
-    df = df.copy()
+    # ── Feature matrix — avoid df.copy() + hstack loop to keep peak RAM low ─────
+    qt_features = list(features[:-8])    # non-fp continuous features
+    fp_cols     = list(features[-8:])    # fp_0 … fp_7
 
-    # ── Feature matrix (mirrors training_data_load) ────────────────────────────
-    fp_dummies = pd.concat(
-        {f'fp_{i}': (df['fp'] == i).astype(int) for i in range(8)}, axis=1
-    )
-    df = pd.concat([df.reset_index(drop=True), fp_dummies.reset_index(drop=True)], axis=1)
-
-    qt_features = features[:-8]          # non-fp features the QT was fitted on
-    X_all = qt.transform(df[qt_features].to_numpy(dtype=float))
+    # Ensure fp one-hot columns exist in df (without copying the whole frame)
     for i in range(8):
-        X_all = np.hstack([X_all, df[f'fp_{i}'].values.reshape(-1, 1)])
+        col = f'fp_{i}'
+        if col not in df.columns:
+            df[col] = (df['fp'] == i).astype(np.float32)
 
-    # ── Inference ──────────────────────────────────────────────────────────────
-    model.eval()
-    with torch.no_grad():
-        preds = model(torch.tensor(X_all, dtype=torch.float32))
-        q05 = preds[:, 0].numpy()
-        q50 = preds[:, 1].numpy()
-        q95 = preds[:, 2].numpy()
+    X_qt  = qt.transform(df[qt_features].to_numpy(dtype=float)).astype(np.float32)
+    X_fp  = df[fp_cols].to_numpy(dtype=np.float32)
+    X_all = np.concatenate([X_qt, X_fp], axis=1)
+    del X_qt, X_fp
+    gc.collect()
+
+    # ── Batched inference — avoids [N, n_feat*d_token] OOM tensor ─────────────
+    preds = _batched_predict(model, X_all)
+    del X_all
+    gc.collect()
+    q05 = preds[:, 0]
+    q50 = preds[:, 1]
+    q95 = preds[:, 2]
     uncertainty  = np.clip(q95 - q05, 0, None)
     true_anomaly = df['xco2_bc_anomaly'].values.astype(float)
     xco2_bc      = df['xco2_bc'].values.astype(float)
@@ -1274,11 +1296,28 @@ def main():
     features = pipeline.features
 
     # ── Transform + split ──────────────────────────────────────────────────────
-    # Extract target before transforming so we can free df early
+    # Strategy: extract needed columns from df as float32 first, then free df
+    # BEFORE calling QT.transform() so df is never alive at the same time as
+    # the QT float64 intermediates (which would otherwise push peak to ~25 GB).
+    for i in range(8):                           # ensure fp one-hot cols present
+        col = f'fp_{i}'
+        if col not in df.columns:
+            df[col] = (df['fp'] == i).astype(np.float32)
+
     valid_rows = ~df['xco2_bc_anomaly'].isna()
-    y_all = df['xco2_bc_anomaly'].values.astype(np.float32)
-    X_all = pipeline.transform(df).astype(np.float32)  # float32 halves RAM vs float64
+    y_all    = df['xco2_bc_anomaly'].values.astype(np.float32)
+    X_qt_raw = df[pipeline.qt_features].to_numpy(dtype=np.float32)   # (N, n_qt)
+    X_fp_raw = df[pipeline.fp_cols].to_numpy(dtype=np.float32)       # (N, 8)
     del df
+    gc.collect()
+
+    # QT.transform() uses float64 internally; cast result back to float32
+    X_qt_out = pipeline.qt.transform(X_qt_raw).astype(np.float32)
+    del X_qt_raw
+    gc.collect()
+
+    X_all = np.concatenate([X_qt_out, X_fp_raw], axis=1)
+    del X_qt_out, X_fp_raw
     gc.collect()
 
     X = X_all[valid_rows]
