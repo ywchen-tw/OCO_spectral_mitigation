@@ -254,11 +254,12 @@ class FTAdapter(ModelAdapter):
 
     CHECKPOINT_FILE = 'model_best.pt'
     META_FILE       = 'ft_meta.pkl'
-    _ARCH_VERSION   = 2   # bumped: PreNormResidual → explicit norm1/norm2 + DropPath
+    _ARCH_VERSION   = 3   # bumped: added segment embeddings (group_emb + feature_to_group buffer)
 
     def __init__(self, model, n_features: int, d_token: int = 128,
                  n_heads: int = 8, n_layers: int = 4, d_ff: int = 256,
-                 tokenizer_type: str = 'mlp'):
+                 tokenizer_type: str = 'mlp',
+                 feature_names: list | None = None):
         self.model          = model
         self.n_features     = n_features
         self.d_token        = d_token
@@ -266,6 +267,7 @@ class FTAdapter(ModelAdapter):
         self.n_layers       = n_layers
         self.d_ff           = d_ff
         self.tokenizer_type = tokenizer_type
+        self.feature_names  = feature_names
 
     def predict(self, X: np.ndarray, batch_size: int = 512) -> np.ndarray:
         """Return q50 predictions [N]."""
@@ -299,6 +301,7 @@ class FTAdapter(ModelAdapter):
             'n_layers':       self.n_layers,
             'd_ff':           self.d_ff,
             'tokenizer_type': self.tokenizer_type,
+            'feature_names':  self.feature_names,
             'arch_version':   self._ARCH_VERSION,
         }
         with open(out / self.META_FILE, 'wb') as f:
@@ -346,6 +349,7 @@ class FTAdapter(ModelAdapter):
             n_layers=meta['n_layers'],
             d_ff=meta['d_ff'],
             tokenizer_type=meta.get('tokenizer_type', 'linear'),  # 'linear' for old checkpoints
+            feature_names=meta.get('feature_names'),
         ).to(device)
 
         ckpt = torch.load(ckpt_path, map_location=device)

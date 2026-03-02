@@ -28,7 +28,7 @@ import sys
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import QuantileTransformer
+from sklearn.preprocessing import QuantileTransformer, RobustScaler, StandardScaler
 from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
@@ -118,10 +118,46 @@ class ClipFreeQuantileTransformer:
     def __repr__(self) -> str:
         return f"ClipFreeQuantileTransformer(inner={self._qt!r})"
 
+
+class RobustStandardScaler:
+    """Two-stage scaler: RobustScaler (median/IQR) then StandardScaler.
+
+    RobustScaler never clips OOD values — features outside the training IQR
+    are scaled linearly rather than clamped, avoiding the attention-blindness
+    caused by QuantileTransformer boundary saturation.
+
+    StandardScaler (fitted on RobustScaler output) re-equalises feature
+    variances so that high-IQR features do not dominate attention dot-products.
+
+    Fully picklable; exposes the same fit / transform interface as
+    QuantileTransformer so it can be stored in FeaturePipeline.qt unchanged.
+    """
+
+    __module__ = 'pipeline'
+
+    def __init__(self):
+        self._robust = RobustScaler()
+        self._std    = StandardScaler()
+
+    def fit(self, X: np.ndarray) -> 'RobustStandardScaler':
+        X = np.asarray(X, dtype=float)
+        self._std.fit(self._robust.fit_transform(X))
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        return self._std.transform(self._robust.transform(np.asarray(X, dtype=float)))
+
+    def fit_transform(self, X: np.ndarray) -> np.ndarray:
+        return self.fit(X).transform(X)
+
+    def __repr__(self) -> str:
+        return 'RobustStandardScaler()'
+
+
 # ── Feature definitions (identical in both training files — single source of truth) ──
 
 _FEATURES_SFC0 = [
-    'xco2_bc',
+    'xco2_raw_minus_apriori',
     'airmass_sq',
     'alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza',
     'o2a_intercept', 'wco2_intercept', 'sco2_intercept',
@@ -164,7 +200,7 @@ _FEATURES_SFC0 = [
 ]
 
 _FEATURES_SFC1 = [
-    'xco2_bc',
+    'xco2_raw_minus_apriori',
     'airmass_sq',
     'alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza',
     'o2a_intercept', 'wco2_intercept', 'sco2_intercept',
@@ -234,7 +270,7 @@ class FeaturePipeline:
 
     def __init__(self,
                  sfc_type: int,
-                 qt: 'QuantileTransformer | ClipFreeQuantileTransformer',
+                 qt: 'QuantileTransformer | ClipFreeQuantileTransformer | RobustStandardScaler',
                  qt_features: list,
                  fp_cols: list,
                  features: list):
@@ -262,7 +298,7 @@ class FeaturePipeline:
 
         df = _ensure_fp_columns(df)
 
-        qt = ClipFreeQuantileTransformer(output_distribution='normal', n_quantiles=1000)
+        qt = RobustStandardScaler()
         qt.fit(df[qt_features].to_numpy(dtype=float))
 
         logger.info(

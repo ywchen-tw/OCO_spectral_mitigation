@@ -27,6 +27,63 @@ from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
 
+# ── Feature group definitions ─────────────────────────────────────────────────
+# Single source of truth for both segment embeddings (UncertainFTTransformerRefined)
+# and the attention heatmap (plot_attention_map).  Keys are display-formatted strings
+# (with \n for the heatmap axis labels).  Features absent from the active feature set
+# are silently ignored wherever this dict is consumed.
+_FEATURE_GROUPS: dict = {
+    'Spectral\nk-coeff':  ['o2a_k1', 'o2a_k2', 'wco2_k1', 'wco2_k2', 'sco2_k1', 'sco2_k2',
+                           'o2a_intercept', 'wco2_intercept', 'sco2_intercept'],
+    'Geometry':           ['mu_sza', 'mu_vza', 'cos_glint_angle', 'pol_ang_rad',
+                           'sin_raa', 'cos_raa'],   # sin_raa/cos_raa: sfc_type=1 only
+    'Pressure\n& Meteo':  ['log_P', 'dp', 'h2o_scale', 'delT', 'co2_grad_del',
+                           'ws', 's31', 's32', 'airmass_sq'],
+    'Surface\nAlbedo':    ['alb_o2a', 'alb_wco2', 'alb_sco2',
+                           'alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza'],
+    'CO\u2082\nRetrieval': ['xco2_raw_minus_apriori', 'co2_ratio_bc', 'h2o_ratio_bc',
+                           'xco2_strong_idp', 'xco2_weak_idp'],
+    'SNR &\nDetector':    ['csnr_o2a', 'csnr_wco2', 'csnr_sco2',
+                           'snr_o2a', 'snr_wco2', 'snr_sco2',
+                           'h_cont_o2a', 'h_cont_wco2', 'h_cont_sco2',
+                           'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2'],
+    'AOD &\nAerosol':     ['aod_total'],
+    'Footprint':          [f'fp_{i}' for i in range(8)],
+}
+
+
+def _build_feature_to_group(feature_names: list,
+                             groups: dict | None = None) -> torch.Tensor:
+    """Map each feature name to an integer group index (0-based, insertion order).
+
+    Features not found in any group are assigned index 0 with a warning — this
+    should not occur for any feature set defined in pipeline.py.
+
+    Parameters
+    ----------
+    feature_names : list[str]  ordered list of all model input features
+    groups        : dict  feature-group mapping (defaults to _FEATURE_GROUPS)
+
+    Returns
+    -------
+    torch.Tensor  shape [n_features]  dtype long
+    """
+    if groups is None:
+        groups = _FEATURE_GROUPS
+    feat_to_group: dict = {}
+    for g_idx, feat_list in enumerate(groups.values()):
+        for f in feat_list:
+            feat_to_group[f] = g_idx
+    ids = []
+    for f in feature_names:
+        if f in feat_to_group:
+            ids.append(feat_to_group[f])
+        else:
+            logger.warning("_build_feature_to_group: feature '%s' not in any group; assigned to group 0.", f)
+            ids.append(0)
+    return torch.tensor(ids, dtype=torch.long)
+
+
 def apply_trig_transforms(df: pd.DataFrame) -> pd.DataFrame:
     """Compute trigonometric and log-space features from raw OCO-2 angle columns.
 
@@ -217,12 +274,11 @@ class AdvancedTransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(d_token)
         self.drop_path_rate = drop_path_rate
 
-        self.ff = nn.Sequential(
-            nn.Linear(d_token, d_ff),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_ff, d_token),
-            nn.Dropout(dropout),
+        # GRN replaces the plain FFN: per-sample gating suppresses uninformative
+        # tokens (e.g. saturated O2-A band under heavy aerosol) while the skip
+        # connection preserves gradient flow through the residual stream.
+        self.ff = GatedResidualNetwork(
+            input_size=d_token, hidden_size=d_ff, output_size=d_token, dropout=dropout,
         )
 
     def forward(self, x, training=False):
@@ -249,7 +305,8 @@ class UncertainFTTransformerRefined(nn.Module):
     """
 
     def __init__(self, n_features, d_token=128, n_heads=8, n_layers=4, d_ff=512,
-                 tokenizer_type: str = 'mlp', drop_path_rate: float = 0.1):
+                 tokenizer_type: str = 'mlp', drop_path_rate: float = 0.1,
+                 feature_names: list | None = None):
         super().__init__()
         self.n_features = n_features
         self.tokenizer_type = tokenizer_type
@@ -257,6 +314,23 @@ class UncertainFTTransformerRefined(nn.Module):
             self.tokenizer = MLPTokenizer(n_features, d_token)
         else:
             self.tokenizer = FeatureTokenizer(n_features, d_token)
+
+        # Segment embeddings — one learnable d_token vector per domain group,
+        # summed into each feature token after tokenisation (BERT segment-embedding
+        # analogue).  Provides a hierarchical inductive bias: features sharing a
+        # physical context (e.g. o2a_k1/o2a_k2/wco2_k1 all in Spectral k-coeff)
+        # receive a common additive shift, encouraging the model to treat them as
+        # a coherent group rather than independent scalar tokens.
+        if feature_names is not None:
+            n_groups = len(_FEATURE_GROUPS)
+            self.group_emb = nn.Embedding(n_groups, d_token)
+            nn.init.trunc_normal_(self.group_emb.weight, std=0.02)
+            self.register_buffer(
+                'feature_to_group',
+                _build_feature_to_group(list(feature_names)),
+            )
+        else:
+            self.group_emb = None
 
         # Learnable [CLS] token — aggregates global atmospheric state
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_token))
@@ -281,6 +355,12 @@ class UncertainFTTransformerRefined(nn.Module):
     def forward(self, x, return_attn: bool = False):
         # x: [batch, n_features]
         x = self.tokenizer(x)                          # [batch, n_features, d_token]
+
+        # Add group embedding: shifts each feature token by a learnable group-context
+        # vector.  group_emb(feature_to_group) is [n_features, d_token]; the unsqueeze
+        # makes it [1, n_features, d_token] so it broadcasts across the batch dimension.
+        if self.group_emb is not None:
+            x = x + self.group_emb(self.feature_to_group).unsqueeze(0)
 
         # Prepend [CLS] token
         b = x.shape[0]
@@ -575,26 +655,10 @@ def plot_attention_map(model, sample_batch, feature_names, output_dir, top_k=20)
     logger.info("Saved attention_top_features.png")
 
     # ── Plot 2: Domain-group block heatmap ──────────────────────────────────────
-    groups = {
-        'Spectral\nk-coeff':  ['o2a_k1', 'o2a_k2', 'wco2_k1', 'wco2_k2', 'sco2_k1', 'sco2_k2'],
-        'Geometry':           ['mu_sza', 'mu_vza', 'sin_raa', 'cos_raa', 'cos_theta',
-                               'Phi_cos_theta', 'R_rs_factor', 'cos_glint_angle',
-                               'glint_prox', 'pol_ang_rad'],
-        'Pressure\n& Meteo':  ['log_P', 'airmass', 'dp', 'dp_psfc_ratio', 'dpfrac',
-                               'h2o_scale', 'delT', 'co2_grad_del',
-                               'ws', 'dws', 's31', 's32', 't700', 'tcwv'],
-        'Surface\nAlbedo':    ['alb_o2a', 'alb_wco2', 'alb_sco2'],
-        'CO\u2082\nRetrieval': ['fs_rel_0', 'co2_ratio_bc', 'h2o_ratio_bc',
-                               'xco2_strong_idp', 'xco2_weak_idp'],
-        'SNR &\nDetector':    ['csnr_o2a', 'csnr_wco2', 'csnr_sco2',
-                               'snr_o2a', 'snr_wco2', 'snr_sco2',
-                               'dp_abp', 'h_cont_o2a', 'h_cont_wco2', 'h_cont_sco2',
-                               'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2'],
-        'AOD &\nAerosol':     ['aod_total', 'aod_bc', 'aod_dust', 'aod_ice', 'aod_water',
-                               'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate',
-                               'dust_height', 'ice_height', 'water_height'],
-        'Footprint':          [f'fp_{i}' for i in range(8)],
-    }
+    # Use the module-level _FEATURE_GROUPS — single source of truth shared with
+    # the segment embeddings in UncertainFTTransformerRefined.  Features absent
+    # from feature_names are silently ignored via the `if f in feat_idx_map` guard.
+    groups = _FEATURE_GROUPS
 
     feat_idx_map = {name: i for i, name in enumerate(feature_names)}
     group_names  = list(groups.keys())
@@ -772,7 +836,8 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
 
     model     = UncertainFTTransformerRefined(n_features=len(features),
                                               d_token=d_token, n_heads=n_heads,
-                                              n_layers=n_layers, d_ff=d_ff).to(device)
+                                              n_layers=n_layers, d_ff=d_ff,
+                                              feature_names=features).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=n_epochs, eta_min=1e-6
@@ -1518,7 +1583,7 @@ def main():
         # ── Persist adapter metadata (model_best.pt already written by training loop) ──
         FTAdapter(model, n_features=pipeline.n_features,
                   d_token=256, n_heads=8, n_layers=4, d_ff=512,
-                  tokenizer_type='mlp').save(output_dir)
+                  tokenizer_type='mlp', feature_names=features).save(output_dir)
 
     # ── Evaluate: quantile width vs selected features ─────────────────────────
     uncertainty_features = ['glint_prox', 'aod_total', 'mu_sza', 'tcwv', 'csnr_o2a']

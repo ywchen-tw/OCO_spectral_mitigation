@@ -194,12 +194,12 @@ python src/pipeline.py --data results/csv_collection/combined_2020-01-01_all_orb
 # 2a. Train Ridge + MLP
 python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2017_2020.pkl --sfc_type 0 --suffix ocean_2017_2020
 
-python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_20200101.pkl --sfc_type 0 --suffix ocean_20200101
+python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_20200101.pkl --sfc_type 0 --suffix ocean_20200101_2
 
 # 2b. Train FT-Transformer (independently, e.g. on HPC)
 python src/models_transformer.py --pipeline results/train_data/pipeline_ocean_2017_2020.pkl --sfc_type 0 --suffix ocean_2017_2020
 
-python src/models_transformer.py --pipeline results/train_data/pipeline_ocean_20200101.pkl --sfc_type 0 --suffix ocean_20200101
+python src/models_transformer.py --pipeline results/train_data/pipeline_ocean_20200101.pkl --sfc_type 0 --suffix ocean_20200101_2
 
 # 3. Inference + comparison on new data
 python src/apply_models.py \
@@ -213,12 +213,12 @@ python src/apply_models.py \
 
 python src/apply_models.py \
   --pipeline  results/train_data/pipeline_ocean_20200101.pkl \
-  --ridge-dir results/model_mlp_lr/ocean_20200101/ \
-  --mlp-dir   results/model_mlp_lr/ocean_20200101/ \
-  --ft-dir    results/model_ft_transformer/ocean_20200101/ \
+  --ridge-dir results/model_mlp_lr/ocean_20200101_2/ \
+  --mlp-dir   results/model_mlp_lr/ocean_20200101_2/ \
+  --ft-dir    results/model_ft_transformer/ocean_20200101_2/ \
   --input     results/csv_collection/combined_2019-01-01_all_orbits.csv  \
   --output    corrected.csv \
-  --plot-dir  results/model_comparison/ocean_20200101
+  --plot-dir  results/model_comparison/ocean_20200101_2_2019-01-01
 
 ```
 
