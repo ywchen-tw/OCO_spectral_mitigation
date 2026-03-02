@@ -51,7 +51,7 @@ python src/apply_models.py \
   --ft-dir    results/model_ft_transformer/land_2017_2020/ \
   --input     results/csv_collection/combined_2018-10-24_all_orbits.csv  \
   --output    corrected.csv \
-  --plot-dir  results/model_comparison/land_2017_2020
+  --plot-dir  results/model_comparison/land_2017_2020_2018-10-24
 
 
 # ============================================================================

@@ -483,7 +483,9 @@ def main():
         _base_dir = _base_dir / suffix
 
     plot_dir      = _abs(args.plot_dir)  or str(_base_dir / 'plots')
-    output_path   = _abs(args.output)    or str(Path(plot_dir) / f'corrected{suffix_tag}.csv')
+    # CSV always lands in plot_dir; --output controls only the filename, not the directory.
+    _out_name   = Path(args.output).name if args.output else f'corrected{suffix_tag}.csv'
+    output_path = str(Path(plot_dir) / _out_name)
 
     # ── Load pipeline ──────────────────────────────────────────────────────
     print(f"Loading pipeline: {pipeline_path}", flush=True)
