@@ -114,6 +114,21 @@ class DataIngestionManager:
         
         # LAADS session (uses token in headers)
         self.laads_session = requests.Session()
+        self.laads_session.headers.update({
+            'User-Agent': (
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/124.0.0.0 Safari/537.36'
+            ),
+            'Accept': (
+                'text/html,application/xhtml+xml,application/xml;q=0.9,'
+                'image/avif,image/webp,*/*;q=0.8'
+            ),
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        })
         if self.laads_token:
             self.laads_session.headers.update({'Authorization': f'Bearer {self.laads_token}'})
             logger.info("LAADS DAAC authentication configured")
@@ -145,7 +160,25 @@ class DataIngestionManager:
             Authenticated requests.Session
         """
         session = requests.Session()
-        
+
+        # Mimic a regular browser so GES DISC CDN doesn't treat the request
+        # as a script and rate-limit or 503 it more aggressively.
+        session.headers.update({
+            'User-Agent': (
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/124.0.0.0 Safari/537.36'
+            ),
+            'Accept': (
+                'text/html,application/xhtml+xml,application/xml;q=0.9,'
+                'image/avif,image/webp,*/*;q=0.8'
+            ),
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        })
+
         if self.username and self.password:
             # Set up authentication
             session.auth = (self.username, self.password)
@@ -170,6 +203,37 @@ class DataIngestionManager:
         
         return session
     
+    def _get_with_retry(self, url: str, session: requests.Session,
+                        timeout: int = 30, max_retries: int = 4,
+                        backoff_base: float = 2.0, **kwargs) -> requests.Response:
+        """GET with exponential backoff on 5xx or connection errors.
+
+        Waits backoff_base^attempt seconds between retries (1, 2, 4, 8 s).
+        Raises the last exception if all retries are exhausted.
+        """
+        last_exc: Optional[Exception] = None
+        resp = None
+        for attempt in range(max_retries):
+            try:
+                resp = session.get(url, timeout=timeout, **kwargs)
+                if resp.status_code < 500:
+                    resp.raise_for_status()   # let 4xx propagate immediately
+                    return resp
+                # 5xx: log, close, and retry
+                logger.warning("Server returned %d for %s (attempt %d/%d) — retrying in %.0fs",
+                               resp.status_code, url, attempt + 1, max_retries,
+                               backoff_base ** attempt)
+                resp.close()
+            except requests.RequestException as exc:
+                logger.warning("Request error for %s (attempt %d/%d): %s",
+                               url, attempt + 1, max_retries, exc)
+                last_exc = exc
+            time.sleep(backoff_base ** attempt)
+        if last_exc:
+            raise last_exc
+        resp.raise_for_status()
+        return resp
+
     def _check_file_exists_remote(self,
                                    url: str,
                                    session: requests.Session) -> Tuple[bool, float]:
@@ -249,9 +313,8 @@ class DataIngestionManager:
         try:
             start_time = time.time()
             
-            # Make request with stream=True for large files
-            response = session.get(url, stream=True, timeout=30)
-            response.raise_for_status()
+            # Make request with stream=True for large files; retry on transient 5xx
+            response = self._get_with_retry(url, session, timeout=30, stream=True)
 
             # Detect HTML auth redirect: GES DISC returns 200 + HTML login page
             # when the session cookie has expired instead of a proper 401/403.
@@ -358,9 +421,8 @@ class DataIngestionManager:
         logger.debug(f"Querying directory: {dir_url}")
         
         try:
-            response = self.gesdisc_session.get(dir_url, timeout=30)
-            response.raise_for_status()
-            
+            response = self._get_with_retry(dir_url, self.gesdisc_session, timeout=30)
+
             # Parse HTML directory listing for .hdf or .nc4 files
             import re
             from datetime import datetime, timedelta
@@ -773,9 +835,8 @@ class DataIngestionManager:
         logger.debug(f"Querying LAADS directory: {url}")
         
         try:
-            response = self.laads_session.get(url, timeout=30)
-            response.raise_for_status()
-            
+            response = self._get_with_retry(url, self.laads_session, timeout=30)
+
             # Parse HTML directory listing for .hdf files
             import re
             pattern = r'href=["\']?([^"\'>\s]*\.hdf)["\']?'
