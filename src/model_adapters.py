@@ -245,10 +245,16 @@ class FTAdapter(ModelAdapter):
     script.  FTAdapter additionally saves ft_meta.pkl with the architecture
     hyperparameters so the model can be reconstructed without re-specifying
     them at load time.
+
+    ``_ARCH_VERSION`` must be incremented whenever the model's state_dict key
+    structure changes (e.g. after refactoring AdvancedTransformerBlock).
+    Stale checkpoints are detected by ``can_load()`` via the saved version tag,
+    causing the caller to fall through to a fresh training run automatically.
     """
 
     CHECKPOINT_FILE = 'model_best.pt'
     META_FILE       = 'ft_meta.pkl'
+    _ARCH_VERSION   = 2   # bumped: PreNormResidual → explicit norm1/norm2 + DropPath
 
     def __init__(self, model, n_features: int, d_token: int = 128,
                  n_heads: int = 8, n_layers: int = 4, d_ff: int = 256,
@@ -293,6 +299,7 @@ class FTAdapter(ModelAdapter):
             'n_layers':       self.n_layers,
             'd_ff':           self.d_ff,
             'tokenizer_type': self.tokenizer_type,
+            'arch_version':   self._ARCH_VERSION,
         }
         with open(out / self.META_FILE, 'wb') as f:
             pickle.dump(meta, f)
@@ -311,6 +318,14 @@ class FTAdapter(ModelAdapter):
 
         with open(meta_path, 'rb') as f:
             meta = pickle.load(f)
+
+        saved_ver = meta.get('arch_version', 1)
+        if saved_ver != cls._ARCH_VERSION:
+            raise RuntimeError(
+                f"FTAdapter checkpoint arch_version={saved_ver} does not match "
+                f"current version={cls._ARCH_VERSION}.  "
+                f"Delete {out} and retrain to generate a compatible checkpoint."
+            )
 
         device = device or torch.device('cpu')
 
@@ -341,9 +356,24 @@ class FTAdapter(ModelAdapter):
             "FTAdapter loaded ← %s  (epoch=%s, val_loss=%s)",
             out, ckpt.get('epoch', '?'), ckpt.get('val_loss', '?')
         )
+        meta.pop('arch_version', None)   # not a constructor arg
         return cls(model=model, **meta)
 
     @classmethod
     def can_load(cls, output_dir) -> bool:
         out = Path(output_dir)
-        return (out / cls.META_FILE).exists() and (out / cls.CHECKPOINT_FILE).exists()
+        if not ((out / cls.META_FILE).exists() and (out / cls.CHECKPOINT_FILE).exists()):
+            return False
+        try:
+            with open(out / cls.META_FILE, 'rb') as f:
+                meta = pickle.load(f)
+            if meta.get('arch_version', 1) != cls._ARCH_VERSION:
+                logger.warning(
+                    "FTAdapter checkpoint at %s has arch_version=%s (current=%s) — "
+                    "will retrain from scratch.",
+                    out, meta.get('arch_version', 1), cls._ARCH_VERSION,
+                )
+                return False
+        except Exception:
+            return False
+        return True

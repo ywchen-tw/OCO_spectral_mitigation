@@ -210,6 +210,16 @@ python src/apply_models.py \
   --input     results/csv_collection/combined_2019-01-01_all_orbits.csv  \
   --output    corrected.csv \
   --plot-dir  results/ocean_2017_2020
+
+python src/apply_models.py \
+  --pipeline  results/train_data/pipeline_ocean_20200101.pkl \
+  --ridge-dir results/model_mlp_lr/ocean_20200101/ \
+  --mlp-dir   results/model_mlp_lr/ocean_20200101/ \
+  --ft-dir    results/model_ft_transformer/ocean_20200101/ \
+  --input     results/csv_collection/combined_2019-01-01_all_orbits.csv  \
+  --output    corrected.csv \
+  --plot-dir  results/model_comparison/ocean_20200101
+
 ```
 
 ---

@@ -198,31 +198,41 @@ class PreNormResidual(nn.Module):
         return x + self.fn(self.norm(x), **kwargs)
 
 
+def drop_path(x, drop_prob: float = 0.0, training: bool = False):
+    """Stochastic Depth / DropPath per sample."""
+    if drop_prob == 0. or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+    random_tensor.floor_()
+    return x.div(keep_prob) * random_tensor
+
+
 class AdvancedTransformerBlock(nn.Module):
-    def __init__(self, d_token, n_heads, d_ff, dropout=0.2):
+    def __init__(self, d_token, n_heads, d_ff, dropout=0.2, drop_path_rate=0.1):
         super().__init__()
-        self.attn = PreNormResidual(
-            d_token,
-            nn.MultiheadAttention(d_token, n_heads, dropout=dropout, batch_first=True),
-        )
-        self.ff = PreNormResidual(
-            d_token,
-            nn.Sequential(
-                nn.Linear(d_token, d_ff),
-                nn.GELU(),
-                nn.Dropout(dropout),
-                nn.Linear(d_ff, d_token),
-                nn.Dropout(dropout),
-            ),
+        self.attn = nn.MultiheadAttention(d_token, n_heads, dropout=dropout, batch_first=True)
+        self.norm1 = nn.LayerNorm(d_token)
+        self.norm2 = nn.LayerNorm(d_token)
+        self.drop_path_rate = drop_path_rate
+
+        self.ff = nn.Sequential(
+            nn.Linear(d_token, d_ff),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_ff, d_token),
+            nn.Dropout(dropout),
         )
 
-    def forward(self, x):
-        # Pre-norm + self-attention + residual
-        x_norm = self.attn.norm(x)
-        attn_out, _ = self.attn.fn(x_norm, x_norm, x_norm)
-        x = x + attn_out
-        # Pre-norm + feed-forward + residual (via PreNormResidual.forward)
-        x = self.ff(x)
+    def forward(self, x, training=False):
+        # Pre-Norm + Attention + DropPath
+        x_norm = self.norm1(x)
+        attn_out, _ = self.attn(x_norm, x_norm, x_norm)
+        x = x + drop_path(attn_out, self.drop_path_rate, training)
+
+        # Pre-Norm + Feed-Forward + DropPath
+        x = x + drop_path(self.ff(self.norm2(x)), self.drop_path_rate, training)
         return x
 
 
@@ -239,7 +249,7 @@ class UncertainFTTransformerRefined(nn.Module):
     """
 
     def __init__(self, n_features, d_token=128, n_heads=8, n_layers=4, d_ff=512,
-                 tokenizer_type: str = 'mlp'):
+                 tokenizer_type: str = 'mlp', drop_path_rate: float = 0.1):
         super().__init__()
         self.n_features = n_features
         self.tokenizer_type = tokenizer_type
@@ -249,10 +259,13 @@ class UncertainFTTransformerRefined(nn.Module):
             self.tokenizer = FeatureTokenizer(n_features, d_token)
 
         # Learnable [CLS] token — aggregates global atmospheric state
-        self.cls_token = nn.Parameter(torch.randn(1, 1, d_token))
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, d_token))
 
+        # Stochastic depth: scale drop rate linearly across layers
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, n_layers)]
         self.layers = nn.ModuleList([
-            AdvancedTransformerBlock(d_token, n_heads, d_ff) for _ in range(n_layers)
+            AdvancedTransformerBlock(d_token, n_heads, d_ff, drop_path_rate=dpr[i])
+            for i in range(n_layers)
         ])
 
         # GRN on the [CLS] representation, then a plain linear to 3 quantile outputs.
@@ -277,12 +290,12 @@ class UncertainFTTransformerRefined(nn.Module):
         last_attn = None
         for layer in self.layers:
             if return_attn:
-                x_norm = layer.attn.norm(x)
-                attn_out, last_attn = layer.attn.fn(x_norm, x_norm, x_norm)
+                x_norm = layer.norm1(x)
+                attn_out, last_attn = layer.attn(x_norm, x_norm, x_norm)
                 x = x + attn_out
-                x = layer.ff(x)
+                x = x + layer.ff(layer.norm2(x))
             else:
-                x = layer(x)
+                x = layer(x, training=self.training)
 
         # Extract the [CLS] token (index 0) as the global representation
         x_global = x[:, 0]                             # [batch, d_token]
@@ -633,8 +646,8 @@ def plot_attention_map(model, sample_batch, feature_names, output_dir, top_k=20)
         last_layer = model.layers[-1]
         if isinstance(last_layer, AdvancedTransformerBlock):
             # Pre-norm must be applied before calling MHA directly
-            x_tok_in = last_layer.attn.norm(x_tok)
-            mha      = last_layer.attn.fn
+            x_tok_in = last_layer.norm1(x_tok)
+            mha      = last_layer.attn
         else:
             x_tok_in = x_tok
             mha      = last_layer.attention
