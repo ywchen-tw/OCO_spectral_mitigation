@@ -1334,29 +1334,32 @@ def plot_permutation_importance(model, X_test, y_test, features, output_dir,
     logger.info("Permutation importance baseline R²: %.4f", baseline_r2)
 
     # ── Per-feature importance — in-place column swap ───────────────────────────
-    importances = np.zeros((len(features), n_repeats))
+    # Exclude footprint one-hot columns (fp_0 … fp_7) from both calculation and plot.
+    non_fp = [(col, fname) for col, fname in enumerate(features)
+              if not (fname.startswith('fp_') and fname[3:].isdigit())]
+
+    importances = np.zeros((len(non_fp), n_repeats))
     rng_inner   = np.random.default_rng(0)
 
-    for col, fname in enumerate(tqdm(features, desc="Permutation importance", unit="feat")):
-        if fname.startswith('fp_') and fname[3:].isdigit():
-            continue  # skip one-hot footprint columns
+    for i, (col, fname) in enumerate(tqdm(non_fp, desc="Permutation importance", unit="feat")):
         orig_col = X_sub[:, col].copy()      # save one column only (n floats)
         for r in range(n_repeats):
             X_sub[:, col] = rng_inner.permutation(orig_col)   # shuffle in-place
             y_shuf        = _predict_q50(X_sub)
             r2_shuf       = 1.0 - float(((y_sub - y_shuf) ** 2).sum()) / ss_tot
-            importances[col, r] = baseline_r2 - r2_shuf
+            importances[i, r] = baseline_r2 - r2_shuf
             del y_shuf
         X_sub[:, col] = orig_col             # restore column
         del orig_col
         gc.collect()
 
+    non_fp_names = [fname for _, fname in non_fp]
     mean_imp = importances.mean(axis=1)
     std_imp  = importances.std(axis=1)
 
     # ── Save CSV ─────────────────────────────────────────────────────────────────
     imp_df = pd.DataFrame({
-        'feature':          features,
+        'feature':          non_fp_names,
         'mean_importance':  mean_imp,
         'std_importance':   std_imp,
     }).sort_values('mean_importance', ascending=False)
@@ -1365,7 +1368,7 @@ def plot_permutation_importance(model, X_test, y_test, features, output_dir,
     logger.info("Saved ft_permutation_importance.csv")
 
     # ── Bar chart ────────────────────────────────────────────────────────────────
-    n_feat   = len(features)
+    n_feat   = len(non_fp_names)
     fig_h    = max(6, n_feat * 0.28)
     fig, ax  = plt.subplots(figsize=(8, fig_h))
 
