@@ -34,7 +34,7 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2017_2020.pkl \
+python src/mlp_lr_models.py --pipeline results/train_data/pipeline_land_2017_2020.pkl \
  --sfc_type 1 --suffix land_2017_2020
 
 
