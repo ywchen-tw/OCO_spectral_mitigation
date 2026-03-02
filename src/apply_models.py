@@ -482,8 +482,8 @@ def main():
     if suffix:
         _base_dir = _base_dir / suffix
 
-    output_path   = _abs(args.output)    or str(_base_dir / f'corrected{suffix_tag}.csv')
     plot_dir      = _abs(args.plot_dir)  or str(_base_dir / 'plots')
+    output_path   = _abs(args.output)    or str(Path(plot_dir) / f'corrected{suffix_tag}.csv')
 
     # ── Load pipeline ──────────────────────────────────────────────────────
     print(f"Loading pipeline: {pipeline_path}", flush=True)
