@@ -54,6 +54,7 @@ def load_output_dict(filepath):
         # Cloud proximity
         'cld_dist_km',
         # XCO2
+        'xco2_apriori',
         'xco2_bc', 'xco2_raw', 'xco2_bc_anomaly', 'xco2_raw_anomaly',
         # Lite retrieval variables
         'psfc', 'airmass', 'delT', 'dp', 'dp_o2a', 'dp_sco2', 'co2_grad_del',
@@ -162,6 +163,7 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
         'sco2_k4': combined['sco2_k4_fitting'],
         'sco2_k5': combined['sco2_k5_fitting'],
         # XCO2
+        'xco2_apriori':     combined.get('xco2_apriori'),
         'xco2_bc':          xco2_bc,
         'xco2_raw':         xco2_raw,
         'xco2_bc_anomaly':  xco2_bc_anomaly,   # per-footprint, pre-computed

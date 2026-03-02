@@ -1291,7 +1291,7 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
 
 # ─── Permutation importance ────────────────────────────────────────────────────
 def plot_permutation_importance(model, X_test, y_test, features, output_dir,
-                                n_repeats=5, subsample=5000, batch_size=1024):
+                                n_repeats=5, subsample=3000, batch_size=1024):
     """Permutation importance for the FT-Transformer (q50 head).
 
     For each feature in turn, shuffles that column of X_sub **in-place**

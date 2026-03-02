@@ -160,6 +160,7 @@ def load_shared_data(sat):
             return np.array(nc.groups[grp].variables[var][:])
 
         lite = {
+            "xco2_apriori":      _load("xco2_apriori"),
             "xco2_corr":         _load("xco2"),
             "time":             _load("time"),
             "co2_ratio_bc":      _load_grp("Preprocessors", "co2_ratio_bc"),
@@ -795,6 +796,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         # Cloud proximity
         "cld_dist_km":      fp_cld_dist,
         # XCO2
+        "xco2_apriori":     _lite("xco2_apriori"),
         "xco2_bc":          lt_xco2_bc,
         "xco2_raw":         lt_xco2_raw,
         "xco2_raw_anomaly": xco2_raw_anomaly,

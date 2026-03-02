@@ -266,12 +266,20 @@ def _plot_anomaly_scatter_hist(df_out: pd.DataFrame, active: list,
     # Map model name → recomputed anomaly column
     _ANOM_COL = {'Ridge': 'ridge_anomaly', 'MLP': 'mlp_anomaly', 'FT': 'ft_anomaly'}
 
-    # Prefer recomputed anomaly col; fall back to raw prediction col
+    # Only include models that have a proper recomputed anomaly column.
+    # The raw prediction col (ridge_pred / mlp_pred / ft_q50) is the model's
+    # estimate of the original anomaly — correlated with true_anom by design —
+    # so it must NOT be used in the histogram or scatter as a recomputed anomaly.
     active_anom = []
     for name, pred_col, color in active:
         anom_col = _ANOM_COL.get(name)
-        col = anom_col if (anom_col and anom_col in df_out.columns) else pred_col
-        active_anom.append((name, col, color))
+        if anom_col and anom_col in df_out.columns:
+            active_anom.append((name, anom_col, color))
+        else:
+            logger.debug(
+                "%s recomputed anomaly column '%s' not found — skipping in anomaly histogram",
+                name, anom_col,
+            )
 
     valid = np.isfinite(true_anom)
     if valid.sum() < 2:

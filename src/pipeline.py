@@ -24,6 +24,8 @@ import pickle
 import logging
 from pathlib import Path
 
+import sys
+
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import QuantileTransformer
@@ -31,9 +33,97 @@ from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
 
+# When pipeline.py is executed directly (as __main__), register it under the
+# canonical module name so pickle can resolve ClipFreeQuantileTransformer via
+# 'pipeline.ClipFreeQuantileTransformer' on both save and load.
+if __name__ == '__main__':
+    sys.modules.setdefault('pipeline', sys.modules['__main__'])
+
+
+class ClipFreeQuantileTransformer:
+    """QuantileTransformer with linear extrapolation beyond training support.
+
+    sklearn 1.x removed the ``clip`` parameter.  This wrapper replicates the
+    old ``clip=False`` behaviour: values outside the fitted quantile boundaries
+    are extrapolated linearly using the local slope at the nearest boundary,
+    rather than being clamped to the boundary value.
+
+    All ``**qt_kwargs`` are forwarded to ``QuantileTransformer``.
+    The wrapper is fully picklable and exposes the same ``fit`` / ``transform``
+    interface so it can be stored in ``FeaturePipeline.qt`` unchanged.
+    """
+
+    # Force pickle to always record this as 'pipeline.ClipFreeQuantileTransformer'
+    # so that loading works regardless of whether pipeline.py was run as __main__.
+    __module__ = 'pipeline'
+
+    def __init__(self, **qt_kwargs):
+        self._qt = QuantileTransformer(**qt_kwargs)
+
+    def fit(self, X: np.ndarray) -> 'ClipFreeQuantileTransformer':
+        X = np.asarray(X, dtype=float)
+        self._qt.fit(X)
+
+        # quantiles_ shape: [n_quantiles, n_features]
+        quants = self._qt.quantiles_
+
+        # Transformed boundary values (these ARE clipped by the inner QT,
+        # but they are the correct boundary output values).
+        self._x_lo = quants[0].copy()     # [n_features] — training min quantile
+        self._x_hi = quants[-1].copy()    # [n_features] — training max quantile
+        self._y_lo = self._qt.transform(quants[0:1])[0].copy()   # [n_features]
+        self._y_hi = self._qt.transform(quants[-1:])[0].copy()   # [n_features]
+
+        # Local slope at each boundary estimated from the adjacent quantile pair.
+        eps = 1e-10
+        dx_lo = quants[1] - quants[0]
+        dy_lo = self._qt.transform(quants[1:2])[0] - self._y_lo
+        self._slope_lo = np.where(np.abs(dx_lo) > eps, dy_lo / dx_lo, 0.0)
+
+        dx_hi = quants[-1] - quants[-2]
+        dy_hi = self._y_hi - self._qt.transform(quants[-2:-1])[0]
+        self._slope_hi = np.where(np.abs(dx_hi) > eps, dy_hi / dx_hi, 0.0)
+
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        X  = np.asarray(X, dtype=float)
+        Xt = self._qt.transform(X)   # inner QT clips OOD values to boundary
+
+        # Overwrite clipped boundary values with linear extrapolation per feature.
+        for j in range(X.shape[1]):
+            lo_mask = X[:, j] < self._x_lo[j]
+            if lo_mask.any():
+                Xt[lo_mask, j] = (self._y_lo[j]
+                                  + self._slope_lo[j] * (X[lo_mask, j] - self._x_lo[j]))
+
+            hi_mask = X[:, j] > self._x_hi[j]
+            if hi_mask.any():
+                Xt[hi_mask, j] = (self._y_hi[j]
+                                  + self._slope_hi[j] * (X[hi_mask, j] - self._x_hi[j]))
+        return Xt
+
+    def fit_transform(self, X: np.ndarray) -> np.ndarray:
+        return self.fit(X).transform(X)
+
+    # Delegate attribute look-ups to the inner QT so callers that access
+    # qt.quantiles_, qt.references_, etc. still work transparently.
+    # Guard against _qt itself to avoid infinite recursion during unpickling
+    # (pickle uses __new__ without __init__, so _qt may not exist yet).
+    def __getattr__(self, name):
+        if name == '_qt':
+            raise AttributeError('_qt')
+        return getattr(self._qt, name)
+
+    def __repr__(self) -> str:
+        return f"ClipFreeQuantileTransformer(inner={self._qt!r})"
+
 # ── Feature definitions (identical in both training files — single source of truth) ──
 
 _FEATURES_SFC0 = [
+    'xco2_bc',
+    'airmass_sq',
+    'alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza',
     'o2a_intercept', 'wco2_intercept', 'sco2_intercept',
     'o2a_k1', 'o2a_k2', 'wco2_k1', 'wco2_k2', 'sco2_k1', 'sco2_k2',
     'mu_sza', 'mu_vza',
@@ -57,23 +147,26 @@ _FEATURES_SFC0 = [
     'alb_wco2', 'alb_sco2',
     # 'fs_rel_0',
     'co2_ratio_bc', 'h2o_ratio_bc',
-    # 'csnr_o2a', 'csnr_wco2', 'csnr_sco2',
+    'csnr_o2a', 'csnr_wco2', 'csnr_sco2',
     'h_cont_o2a',
-    # 'h_cont_wco2',
+    'h_cont_wco2',
     'h_cont_sco2',
-    # 'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2',
+    'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2',
     'xco2_strong_idp', 'xco2_weak_idp',
     'aod_total',
     # 'aod_bc', 'aod_dust', 'aod_ice', 'aod_water',
     # 'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate', 'dws',
     # 'dust_height', 'ice_height', 'water_height',
-    # 'snr_o2a', 'snr_wco2', 'snr_sco2',
+    'snr_o2a', 'snr_wco2', 'snr_sco2',
     'pol_ang_rad',
     's31', 's32',
     # 't700', 'tcwv',
 ]
 
 _FEATURES_SFC1 = [
+    'xco2_bc',
+    'airmass_sq',
+    'alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza',
     'o2a_intercept', 'wco2_intercept', 'sco2_intercept',
     'o2a_k1', 'o2a_k2', 'wco2_k1', 'wco2_k2', 'sco2_k1', 'sco2_k2',
     'mu_sza', 'mu_vza',
@@ -97,17 +190,17 @@ _FEATURES_SFC1 = [
     'alb_wco2', 'alb_sco2',
     # 'fs_rel_0',
     'co2_ratio_bc', 'h2o_ratio_bc',
-    # 'csnr_o2a', 'csnr_wco2', 'csnr_sco2',
+    'csnr_o2a', 'csnr_wco2', 'csnr_sco2',
     'h_cont_o2a',
-    # 'h_cont_wco2',
+    'h_cont_wco2',
     'h_cont_sco2',
-    # 'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2',
+    'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2',
     'xco2_strong_idp', 'xco2_weak_idp',
     'aod_total',
     # 'aod_bc', 'aod_dust', 'aod_ice', 'aod_water',
     # 'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate', 'dws',
     # 'dust_height', 'ice_height', 'water_height',
-    # 'snr_o2a', 'snr_wco2', 'snr_sco2',
+    'snr_o2a', 'snr_wco2', 'snr_sco2',
     'pol_ang_rad',
     's31', 's32',
     # 't700', 'tcwv',
@@ -141,7 +234,7 @@ class FeaturePipeline:
 
     def __init__(self,
                  sfc_type: int,
-                 qt: QuantileTransformer,
+                 qt: 'QuantileTransformer | ClipFreeQuantileTransformer',
                  qt_features: list,
                  fp_cols: list,
                  features: list):
@@ -169,7 +262,7 @@ class FeaturePipeline:
 
         df = _ensure_fp_columns(df)
 
-        qt = QuantileTransformer(output_distribution='normal', n_quantiles=1000)
+        qt = ClipFreeQuantileTransformer(output_distribution='normal', n_quantiles=1000)
         qt.fit(df[qt_features].to_numpy(dtype=float))
 
         logger.info(

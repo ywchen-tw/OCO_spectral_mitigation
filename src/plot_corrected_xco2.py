@@ -84,11 +84,93 @@ def load_plot_data(csv_path: str) -> pd.DataFrame:
     return df
 
 
+# ── MODIS RGB background ────────────────────────────────────────────────────────
+
+def download_modis_rgb(
+        date,
+        extent,
+        which='terra',
+        wmts_cgi='https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi',
+        fdir='.',
+        proj=None,
+        coastline=False,
+        run=True,
+        ):
+    """Download a MODIS true-colour RGB tile from NASA GIBS and save as PNG.
+
+    Parameters
+    ----------
+    date    : datetime.date or pandas.Timestamp
+    extent  : [lon_min, lon_max, lat_min, lat_max]  (degrees, PlateCarree)
+    which   : 'terra' or 'aqua'
+    fdir    : directory to save the PNG
+    run     : if False, skip the download and just return the expected filename
+    Returns the PNG file path.
+    """
+    which  = which.lower()
+    date_s = date.strftime('%Y-%m-%d')
+    fname  = '%s/%s_rgb_%s_%s.png' % (
+        fdir, which, date_s,
+        '-'.join(['%.2f' % e for e in extent]),
+    )
+
+    if run:
+        try:
+            from owslib.wmts import WebMapTileService
+        except ImportError:
+            raise ImportError(
+                "download_modis_rgb requires 'owslib'. Install with: pip install owslib"
+            )
+        try:
+            import cartopy.crs as ccrs
+            import cartopy.io.ogc_clients as ogcc
+        except ImportError:
+            raise ImportError(
+                "download_modis_rgb requires 'cartopy'. Install with: pip install cartopy"
+            )
+
+        if which == 'terra':
+            layer_name = 'MODIS_Terra_CorrectedReflectance_TrueColor'
+        elif which == 'aqua':
+            layer_name = 'MODIS_Aqua_CorrectedReflectance_TrueColor'
+        else:
+            raise ValueError(f"which must be 'terra' or 'aqua', got {which!r}")
+
+        if proj is None:
+            proj = ccrs.PlateCarree()
+
+        # Register the Mercator CRS used by the GIBS WMTS endpoint
+        ogcc._URN_TO_CRS['urn:ogc:def:crs:EPSG:6.18:3:3857'] = ccrs.GOOGLE_MERCATOR
+        ogcc.METERS_PER_UNIT['urn:ogc:def:crs:EPSG:6.18:3:3857'] = 1
+
+        wmts = WebMapTileService(wmts_cgi)
+
+        fig = plt.figure(figsize=(12, 6))
+        ax1 = fig.add_subplot(111, projection=proj)
+        ax1.add_wmts(wmts, layer_name, wmts_kwargs={'time': date_s})
+        if coastline:
+            ax1.coastlines(resolution='10m', color='black', linewidth=0.5, alpha=0.8)
+        ax1.set_extent(extent, crs=ccrs.PlateCarree())
+        ax1.patch.set_visible(False)
+        ax1.axis('off')
+        plt.savefig(fname, bbox_inches='tight', pad_inches=0, dpi=300)
+        plt.close(fig)
+        print(f"  MODIS RGB saved → {fname}", flush=True)
+
+    return fname
+
+
 # ── Plot helpers ───────────────────────────────────────────────────────────────
 
 def _scatter_map(ax, lon, lat, values, title, norm, cmap,
-                 tccon_lon=None, tccon_lat=None):
+                 tccon_lon=None, tccon_lat=None,
+                 bg_img=None, bg_extent=None):
     """lon/lat scatter map coloured by *values*; optionally mark TCCON station."""
+    if bg_img is not None and bg_extent is not None:
+        # extent=[lon_min, lon_max, lat_min, lat_max] → imshow wants [left, right, bottom, top]
+        ax.imshow(bg_img,
+                  extent=[bg_extent[0], bg_extent[1], bg_extent[2], bg_extent[3]],
+                  aspect='auto', origin='upper', zorder=0)
     valid = np.isfinite(values)
     ax.scatter(lon[valid], lat[valid], c=values[valid],
                norm=norm, cmap=cmap, s=1, alpha=0.5, rasterized=True)
@@ -202,6 +284,13 @@ def main():
                         help='Force colorbar/histogram lower bound (ppm)')
     parser.add_argument('--vmax', type=float, default=None,
                         help='Force colorbar/histogram upper bound (ppm)')
+    parser.add_argument('--modis-rgb', action='store_true',
+                        help='Download and overlay a MODIS true-colour RGB background on scatter maps')
+    parser.add_argument('--modis-which', default='aqua', choices=['terra', 'aqua'],
+                        help='MODIS instrument for RGB download (default: aqua)')
+    parser.add_argument('--modis-date', default=None,
+                        help='Date for MODIS RGB (YYYY-MM-DD). '
+                             'If omitted, derived from the median time column of plot_data.csv')
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()
@@ -270,6 +359,53 @@ def main():
     lon_arr = oco['lon'].values if 'lon' in oco.columns else np.full(len(oco), np.nan)
     lat_arr = oco['lat'].values if 'lat' in oco.columns else np.full(len(oco), np.nan)
 
+    # ── MODIS RGB background ───────────────────────────────────────────────────
+    bg_img    = None
+    bg_extent = None
+    if args.modis_rgb:
+        fin_lon = lon_arr[np.isfinite(lon_arr)]
+        fin_lat = lat_arr[np.isfinite(lat_arr)]
+        if len(fin_lon) == 0 or len(fin_lat) == 0:
+            print("  Warning: no valid lon/lat for MODIS RGB extent — skipping download.", flush=True)
+        else:
+            pad = 2.0  # degrees of padding around the data
+            rgb_extent = [
+                float(fin_lon.min()) - pad,
+                float(fin_lon.max()) + pad,
+                float(fin_lat.min()) - pad,
+                float(fin_lat.max()) + pad,
+            ]
+            # Resolve the date for the MODIS tile
+            if args.modis_date:
+                modis_date = pd.Timestamp(args.modis_date)
+            elif 'time' in oco.columns:
+                modis_date = pd.Timestamp(pd.to_datetime(oco['time']).median())
+            elif 'date' in oco.columns:
+                modis_date = pd.Timestamp(pd.to_datetime(oco['date']).median())
+            else:
+                print("  Warning: --modis-date not provided and no time/date column found "
+                      "in plot_data.csv — skipping MODIS RGB.", flush=True)
+                modis_date = None
+
+            if modis_date is not None:
+                print(f"  Downloading MODIS {args.modis_which.upper()} RGB for "
+                      f"{modis_date.date()} extent={rgb_extent} …", flush=True)
+                out_dir_pre = (Path(str(output_dir)) if output_dir
+                               else Path(plot_data_path).parent)
+                out_dir_pre.mkdir(parents=True, exist_ok=True)
+                try:
+                    rgb_path = download_modis_rgb(
+                        modis_date, rgb_extent,
+                        which=args.modis_which,
+                        fdir=str(out_dir_pre),
+                        coastline=True,
+                    )
+                    bg_img    = plt.imread(rgb_path)
+                    bg_extent = rgb_extent
+                except Exception as exc:
+                    print(f"  Warning: MODIS RGB download failed ({exc}) — "
+                          "scatter maps will have no background.", flush=True)
+
     # ── Figure ────────────────────────────────────────────────────────────────
     fig = plt.figure(figsize=(18, 16))
     gs  = fig.add_gridspec(3, 3, hspace=0.50, wspace=0.30,
@@ -283,7 +419,8 @@ def main():
         vals = oco[col].values
         _scatter_map(ax, lon_arr, lat_arr, vals,
                      f'{name}-corrected XCO₂ (ppm)',
-                     norm, _CMAP, tccon_lon, tccon_lat)
+                     norm, _CMAP, tccon_lon, tccon_lat,
+                     bg_img=bg_img, bg_extent=bg_extent)
         map_axes.append(ax)
     for j in range(len(active), 3):          # hide unused slots
         fig.add_subplot(gs[0, j]).set_visible(False)
@@ -293,7 +430,8 @@ def main():
     if 'xco2_bc' in oco.columns:
         _scatter_map(ax20, lon_arr, lat_arr, oco['xco2_bc'].values,
                      'Original XCO₂_bc (ppm)',
-                     norm, _CMAP, tccon_lon, tccon_lat)
+                     norm, _CMAP, tccon_lon, tccon_lat,
+                     bg_img=bg_img, bg_extent=bg_extent)
         map_axes.append(ax20)
     else:
         ax20.text(0.5, 0.5, 'xco2_bc not in plot_data.csv',
@@ -305,7 +443,8 @@ def main():
     if 'ideal_corrected_xco2' in oco.columns:
         _scatter_map(ax21, lon_arr, lat_arr, oco['ideal_corrected_xco2'].values,
                      'Ideal-corrected XCO₂ (ppm)\n(xco2_bc − anomaly)',
-                     norm, _CMAP, tccon_lon, tccon_lat)
+                     norm, _CMAP, tccon_lon, tccon_lat,
+                     bg_img=bg_img, bg_extent=bg_extent)
         map_axes.append(ax21)
     else:
         ax21.text(0.5, 0.5, 'xco2_bc_anomaly not available\n(ideal-corrected cannot be computed)',
