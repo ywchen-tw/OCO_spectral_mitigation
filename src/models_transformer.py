@@ -1035,7 +1035,7 @@ def evaluate_model_X_all(model,
     
     # Load and preprocess the entire data set (same as in training_data_load)
     data_path = os.path.join(fdir, data_fname)
-    df = pd.read_csv(data_path)
+    df = pd.read_parquet(data_path) if data_path.endswith('.parquet') else pd.read_csv(data_path)
     df = df[df['sfc_type'] == sfc_type]
     df = df[df['snow_flag'] == 0]
     # df = df[df['xco2_bc_anomaly'].notna()]  # Drop rows with missing target variable
@@ -1499,11 +1499,11 @@ def main():
 
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
-    data_name = 'combined_2020_dates.csv'
+    data_name = 'combined_2020_dates.parquet'
     if platform.system() == "Linux":
-        data_name = 'combined_2019_2020_dates.csv'  # for quick testing with one date's data
+        data_name = 'combined_2019_2020_dates.parquet'  # for full 2-year dataset
     elif platform.system() == "Darwin":
-        data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
+        data_name = 'combined_2020-01-01_all_orbits.parquet'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_ft_transformer'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1512,7 +1512,8 @@ def main():
     logger.info(f"Surface type filter: {surface_type} (0=ocean only, 1=land only, 2=sea-ice only)")
 
     # ── Load data ──────────────────────────────────────────────────────────────
-    df = pd.read_csv(os.path.join(fdir, data_name))
+    _dp = os.path.join(fdir, data_name)
+    df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
     df = df[df['sfc_type'] == surface_type]
     df = df[df['snow_flag'] == 0]
 
@@ -1618,7 +1619,8 @@ def main():
     evaluate_model_X_text(model, X_test, y_test, fig_dir=output_dir)
 
     # ── Evaluate: 3×4 regime comparison plot (mirrors mlp_lr_models.py) ────────
-    df_eval = pd.read_csv(os.path.join(fdir, data_name))
+    _dp2 = os.path.join(fdir, data_name)
+    df_eval = pd.read_parquet(_dp2) if _dp2.endswith('.parquet') else pd.read_csv(_dp2)
     df_eval = df_eval[df_eval['sfc_type'] == surface_type]
     df_eval = df_eval[df_eval['snow_flag'] == 0]
     plot_evaluation_by_regime(model, df_eval, pipeline.qt, pipeline.features, str(output_dir))
