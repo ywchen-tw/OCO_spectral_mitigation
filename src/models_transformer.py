@@ -841,20 +841,25 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
     else:
         device = torch.device("cpu")
 
-    pin = device.type == "cuda"
+    pin       = device.type in ("cuda", "mps")
+    n_workers = min(4, os.cpu_count() or 1)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                              pin_memory=pin, num_workers=0)
+                              pin_memory=pin, num_workers=n_workers,
+                              persistent_workers=n_workers > 0, prefetch_factor=2)
     val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False,
-                              pin_memory=pin, num_workers=0)
+                              pin_memory=pin, num_workers=n_workers,
+                              persistent_workers=n_workers > 0)
 
     model     = UncertainFTTransformerRefined(n_features=len(features),
                                               d_token=d_token, n_heads=n_heads,
                                               n_layers=n_layers, d_ff=d_ff,
                                               feature_names=features).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    _t_max    = patience if patience is not None else n_epochs
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=n_epochs, eta_min=1e-6
+        optimizer, T_max=_t_max, eta_min=1e-6
     )
+    scaler    = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
     q_levels  = [0.05, 0.5, 0.95]
 
     if loss_fn == 'huber':
@@ -875,7 +880,8 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
     tqdm.write(f"  Train size  : {len(train_ds):,}  |  Val size: {len(val_ds):,}")
     tqdm.write(f"  Batch size  : {batch_size}  |  Epochs: {n_epochs}  |  Log every: {log_every}")
     tqdm.write(f"  Early stop  : {'disabled (patience=None)' if patience is None else f'patience={patience} epochs'}")
-    tqdm.write(f"  LR schedule : CosineAnnealingLR(T_max={n_epochs}, eta_min=1e-6)")
+    tqdm.write(f"  LR schedule : CosineAnnealingLR(T_max={_t_max}, eta_min=1e-6)")
+    tqdm.write(f"  Mixed prec. : {'GradScaler+autocast (CUDA)' if device.type == 'cuda' else 'autocast only (MPS)' if device.type == 'mps' else 'disabled (CPU)'}")
     tqdm.write(f"  Loss        : {loss_fn}" + (f"  (huber_delta={huber_delta})" if loss_fn == 'huber' else ""))
     ckpt_path = os.path.join(output_dir, 'model_best.pt')
     tqdm.write(f"  Checkpoint  : {ckpt_path}")
@@ -897,11 +903,14 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
         for batch_x, batch_y in batch_bar:
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
             optimizer.zero_grad()
-            preds = model(batch_x)          # [batch, 3]
-            loss  = _loss(preds, batch_y)
-            loss.backward()
+            with torch.autocast(device_type=device.type, enabled=(device.type in ("cuda", "mps"))):
+                preds = model(batch_x)          # [batch, 3]
+                loss  = _loss(preds, batch_y)
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
             grad_norm = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             train_loss    += loss.item()
             grad_norm_sum += grad_norm.item()
             batch_bar.set_postfix(loss=f"{loss.item():.5f}", gnorm=f"{grad_norm.item():.3f}")
@@ -1058,21 +1067,24 @@ def evaluate_model_X_all(model,
     xco2_bc_anomaly = df['xco2_bc_anomaly'].values
     
     
-    model.eval()
-    with torch.no_grad():
-        preds = model(torch.tensor(X_all).float())
-        q05, q50, q95 = preds[:, 0], preds[:, 1], preds[:, 2]
-        uncertainty = (q95 - q05).numpy()
-        residuals = (xco2_bc_anomaly - q50.numpy())
-    
-    upper_err = np.clip(q95.numpy() - q50.numpy(), 0, None)
-    lower_err = np.clip(q50.numpy() - q05.numpy(), 0, None)
-    
+    preds_np  = _batched_predict(model, np.asarray(X_all, dtype=np.float32))
+    del X_all
+    q05, q50, q95 = preds_np[:, 0], preds_np[:, 1], preds_np[:, 2]
+    uncertainty = np.clip(q95 - q05, 0, None)
+    residuals   = xco2_bc_anomaly - q50
+
+    upper_err = np.clip(q95 - q50, 0, None)
+    lower_err = np.clip(q50 - q05, 0, None)
+
+    _valid = np.isfinite(xco2_bc_anomaly)
+    _lo    = np.nanmin(xco2_bc_anomaly[_valid])
+    _hi    = np.nanmax(xco2_bc_anomaly[_valid])
+
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.errorbar(xco2_bc_anomaly, q50.numpy(), 
+    ax.errorbar(xco2_bc_anomaly, q50,
                 yerr=np.array([lower_err, upper_err]),
                 fmt='o', alpha=0.5)
-    ax.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
+    ax.plot([_lo, _hi], [_lo, _hi], 'r--')
     ax.set_xlabel("True XCO2 bc anomaly")
     ax.set_ylabel("Predicted XCO2 bc anomaly")
     fig.savefig(os.path.join(fig_dir, "pred_vs_true.png"), dpi=150, bbox_inches='tight')
