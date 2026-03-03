@@ -42,7 +42,7 @@ _FEATURE_GROUPS: dict = {
     'Surface\nAlbedo':    ['alb_o2a', 'alb_wco2', 'alb_sco2',
                            'alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza'],
     'CO\u2082\nRetrieval': ['xco2_raw_minus_apriori', 
-                            # 'xco2_bc_minus_raw', 
+                            'xco2_bc_minus_raw', 
                             'co2_ratio_bc', 'h2o_ratio_bc',
                            'xco2_strong_idp', 'xco2_weak_idp'],
     'SNR &\nDetector':    ['csnr_o2a', 'csnr_wco2', 'csnr_sco2',
@@ -1499,9 +1499,8 @@ def main():
 
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
-    data_name = 'combined_2020_dates.parquet'
     if platform.system() == "Linux":
-        data_name = 'combined_2019_2020_dates.parquet'  # for full 2-year dataset
+        data_name = 'combined_2016_2020_dates.parquet'  # for full 2-year dataset
     elif platform.system() == "Darwin":
         data_name = 'combined_2020-01-01_all_orbits.parquet'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_ft_transformer'

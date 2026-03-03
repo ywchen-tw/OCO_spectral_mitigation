@@ -35,8 +35,8 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-python src/models_transformer.py --pipeline results/train_data/pipeline_land_2019_2020.pkl \
---sfc_type 1 --suffix land_2019_2020
+python src/models_transformer.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
+--sfc_type 1 --suffix land_2016_2020
 
 
 

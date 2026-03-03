@@ -44,9 +44,8 @@ def main():
 
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
-    data_name = 'combined_2020_dates.parquet'
     if platform.system() == "Linux":
-        data_name = 'combined_2019_2020_dates.parquet'  # for full 2-year dataset
+        data_name = 'combined_2016_2020_dates.parquet'  # for full 2-year dataset
     elif platform.system() == "Darwin":
         data_name = 'combined_2020-01-01_all_orbits.parquet'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_mlp_lr'
