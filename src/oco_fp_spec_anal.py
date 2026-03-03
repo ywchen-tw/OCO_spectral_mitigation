@@ -1076,7 +1076,7 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
     }
 
     # randomize oco2_orbit_list for multiple runs to avoid always processing orbits in the same order (which may bias results if some orbits are more likely to fail or have issues)
-    oco2_orbit_list = np.random.RandomState().permutation(oco2_orbit_list)
+    # oco2_orbit_list = np.random.RandomState().permutation(oco2_orbit_list)
     for orbit_id in oco2_orbit_list:
         sat0[orbit_id] = {}
         for file in glob.glob(f"{OCO2_data_dir}/{orbit_id}/*"):
