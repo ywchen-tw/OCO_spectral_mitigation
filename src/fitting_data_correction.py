@@ -338,10 +338,10 @@ def main():
     # date_list = ['20200101', '20190101']  
     
         
-    # for date in date_list:
-    #     date_dt = datetime.strptime(date, '%Y%m%d')
-    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    for date in date_list:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
     date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
     csv_output_dir = os.path.join(fdir, 'csv_collection')
