@@ -57,26 +57,24 @@ python src/plot_corrected_xco2.py \
 python src/plot_corrected_xco2.py \
     --plot-data   results/model_comparison/ocean_2017_2020_2020-05-17/plot_data.csv \
     --tccon       data/TCCON/ra20150301_20200718.public.qc.nc \
+    --results-h5 results/results_2020-01-01.h5 \
     --output-dir  results/model_comparison/ocean_2017_2020_2020-05-17/ \
+    --modis-auto \
     --lon-range   53.67 56.35 \
     --lat-range   -24.44 -14.98 \
-    --date-range  2020-05-17 2020-05-17 \
-    --vmin 400 --vmax 415 \
-    --modis-rgb \
-    --modis-which aqua \
-    --modis-date  2020-05-17
+    --date-plot  2020-05-17 \
+    --vmin 400 --vmax 415
 
 python src/plot_corrected_xco2.py \
     --plot-data   results/model_comparison/land_2017_2020_2018-10-24/plot_data.csv \
     --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
+    --results-h5 results/results_2018-10-24.h5 \
     --output-dir  results/model_comparison/land_2017_2020_2018-10-24/ \
-    --lon-range   120.48 120.87 \
-    --lat-range   18.21 18.61 \
-    --date-range  2018-10-18 2018-10-19 \
-    --vmin 400 --vmax 415 \
-    --modis-rgb \
-    --modis-which aqua \
-    --modis-date  2018-10-18
+    --modis-auto \
+    --lon-range   120.48  120.87 \
+    --lat-range   18.27 18.61 \
+    --date-plot  2018-10-24 \
+    --vmin 405 --vmax 410
 ```
 
 **Argument reference:**

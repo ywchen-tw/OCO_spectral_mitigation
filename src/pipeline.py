@@ -158,6 +158,7 @@ class RobustStandardScaler:
 
 _FEATURES_SFC0 = [
     'xco2_raw_minus_apriori',
+    'xco2_bc_minus_raw',
     'airmass_sq',
     'alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza',
     'o2a_intercept', 'wco2_intercept', 'sco2_intercept',
@@ -201,6 +202,7 @@ _FEATURES_SFC0 = [
 
 _FEATURES_SFC1 = [
     'xco2_raw_minus_apriori',
+    'xco2_bc_minus_raw',
     'airmass_sq',
     'alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza',
     'o2a_intercept', 'wco2_intercept', 'sco2_intercept',
