@@ -448,8 +448,8 @@ def main():
         description="Fit and save a FeaturePipeline from a labelled CSV."
     )
     parser.add_argument('--data',     default=None,
-                        help='Path to input CSV.  '
-                             'Defaults to <storage_dir>/results/csv_collection/combined_2020_dates.csv')
+                        help='Path to input file (.parquet or .csv).  '
+                             'Defaults to <storage_dir>/results/csv_collection/combined_2020_dates.parquet')
     parser.add_argument('--sfc-type', type=int, default=1, choices=[0, 1],
                         help='Surface type filter: 0=ocean, 1=land (default: 1)')
     parser.add_argument('--suffix',   type=str, default='',
@@ -473,13 +473,13 @@ def main():
         return str(p if p.is_absolute() else storage_dir / p)
 
     data_path = _resolve(args.data,
-                         storage_dir / 'results/csv_collection/combined_2020_dates.csv')
+                         storage_dir / 'results/csv_collection/combined_2020_dates.parquet')
     base_dir  = storage_dir / 'results/model_mlp_lr'
     out_dir   = base_dir / args.suffix if args.suffix else base_dir
     out_path  = _resolve(args.out, out_dir / 'pipeline.pkl')
 
     print(f"Loading data: {data_path}", flush=True)
-    df = pd.read_csv(data_path)
+    df = pd.read_parquet(data_path) if str(data_path).endswith('.parquet') else pd.read_csv(data_path)
     print(f"  Rows before filtering: {len(df):,}", flush=True)
 
     df = df[df['sfc_type'] == args.sfc_type]

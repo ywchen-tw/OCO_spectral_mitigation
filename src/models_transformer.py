@@ -157,12 +157,18 @@ class MultiDateAtmosphericDataset(Dataset):
         self.qt = qt_transformer  # Pre-fitted QuantileTransformer
         self.features = features
         
-        # We pre-calculate the cumulative size to map index -> file
+        # We pre-calculate the cumulative size to map index -> file.
+        # Parquet files store row count in metadata (O(1)); CSV needs a column read.
         self.file_sizes = []
-        for f in self.file_paths:
-            # We assume a quick count of rows (e.g., using a metadata header or fast read)
-            self.file_sizes.append(len(pd.read_csv(f, usecols=[features[0]])))
-        
+        self._is_parquet = [str(f).endswith('.parquet') for f in self.file_paths]
+        self._cache: dict = {}   # {file_idx: pd.DataFrame} for parquet files
+        for f, is_pq in zip(self.file_paths, self._is_parquet):
+            if is_pq:
+                import pyarrow.parquet as pq
+                self.file_sizes.append(pq.read_metadata(f).num_rows)
+            else:
+                self.file_sizes.append(len(pd.read_csv(f, usecols=[features[0]])))
+
         self.cumulative_sizes = np.cumsum(self.file_sizes)
         self.total_size = self.cumulative_sizes[-1]
 
@@ -175,12 +181,17 @@ class MultiDateAtmosphericDataset(Dataset):
         start_idx = int(self.cumulative_sizes[file_idx - 1]) if file_idx > 0 else 0
         row_in_file = idx - start_idx
 
-        # 2. Read only that row (skiprows skips data rows, not the header)
-        df = pd.read_csv(
-            self.file_paths[file_idx],
-            skiprows=range(1, row_in_file + 1),
-            nrows=1,
-        )
+        # 2. Read row: parquet uses cached DataFrame; CSV uses skiprows (lazy I/O)
+        if self._is_parquet[file_idx]:
+            if file_idx not in self._cache:
+                self._cache[file_idx] = pd.read_parquet(self.file_paths[file_idx])
+            df = self._cache[file_idx].iloc[[row_in_file]].reset_index(drop=True)
+        else:
+            df = pd.read_csv(
+                self.file_paths[file_idx],
+                skiprows=range(1, row_in_file + 1),
+                nrows=1,
+            )
 
         # 3. Trigonometric transforms (for raw CSV that hasn't been pre-processed)
         df = apply_trig_transforms(df)

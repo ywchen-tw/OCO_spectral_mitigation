@@ -14,6 +14,7 @@ import platform
 import logging
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 from config import Config
 import pickle
 
@@ -277,28 +278,57 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
 
     df = pd.DataFrame(final_dict)
     df = df[df.xco2_bc > 0]  # Filter out invalid XCO2 value
-    
+
     if orbit_id is not None:
-        df.to_csv(os.path.join(output_dir, f'combined_{date}_orbit_{orbit_id}.csv'), index=False)
+        stem = f'combined_{date}_orbit_{orbit_id}'
     else:
-        df.to_csv(os.path.join(output_dir, f'combined_{date}_all_orbits.csv'), index=False)
+        stem = f'combined_{date}_all_orbits'
+    df.to_parquet(os.path.join(output_dir, f'{stem}.parquet'), index=False, compression='zstd')
 
 
-def raw_processing_multipe_dates(fdir, date_list, output_fname):
+def raw_processing_multipe_dates(fdir, date_list, output_fname, n_workers=8):
     """
     Collect single dates' data in the date_list and concatenate into one DataFrame for analysis.
+
+    Prefers Parquet per-date files over CSV (much faster I/O, smaller on disk).
+    Uses parallel reads to overlap I/O across files.
+    Output format is determined by the extension of output_fname (.parquet or .csv).
     """
-    files_list = glob.glob(os.path.join(fdir, 'combined_*_all_orbits.csv'))
-    dates = [os.path.basename(f).split('_')[1] for f in files_list]
-    selected_files = [f for f, d in zip(files_list, dates) if d in date_list]
+    date_set = set(date_list)
+
+    def _get_date(path):
+        return os.path.basename(path).split('_')[1]
+
+    # Prefer parquet over csv for per-date input files
+    parquet_files = glob.glob(os.path.join(fdir, 'combined_*_all_orbits.parquet'))
+    if parquet_files:
+        all_files = parquet_files
+        reader = pd.read_parquet
+    else:
+        all_files = glob.glob(os.path.join(fdir, 'combined_*_all_orbits.csv'))
+        reader = pd.read_csv
+
+    selected_files = [f for f in all_files if _get_date(f) in date_set]
     if not selected_files:
         print("No files found for the specified dates.")
         return None
-    
-    combined_df = pd.concat([pd.read_csv(f) for f in selected_files], ignore_index=True)
-    combined_df.to_csv(os.path.join(fdir, output_fname), index=False)
-    
-    return os.path.join(fdir, output_fname)
+
+    print(f"Reading {len(selected_files)} files with {n_workers} workers...")
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        dfs = list(pool.map(reader, selected_files))
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+    del dfs
+    gc.collect()
+
+    out_path = os.path.join(fdir, output_fname)
+    if out_path.endswith('.parquet'):
+        combined_df.to_parquet(out_path, index=False, compression='zstd')
+    else:
+        combined_df.to_csv(out_path, index=False)
+
+    print(f"Written {len(combined_df):,} rows → {out_path}")
+    return out_path
 
 def main():
     storage_dir = get_storage_dir()
@@ -315,21 +345,21 @@ def main():
                  '20160101', '20160201', '20160301', '20160405',
                  '20160501', '20160601', '20160701', '20160801',
                  '20160901', '20161001', '20161101', '20161201',
-                 '20170101', '20170201', '20170301', '20170401',
-                 '20170501', '20170601', '20170701', 
-                             '20171001', '20171105', '20171201',
-                 '20180101', '20180201', '20180301', '20180401',
-                 '20180501', '20180601', '20180701', '20180801',
-                 '20180901', '20181001', '20181101', '20181201',
-                 '20190101', '20190201', 
+                #  '20170101', '20170201', '20170301', '20170401',
+                #  '20170501', '20170601', '20170701', 
+                #              '20171001', '20171105', '20171201',
+                #  '20180101', '20180201', '20180301', '20180401',
+                #  '20180501', '20180601', '20180701', '20180801',
+                #  '20180901', '20181001', '20181101', '20181201',
+                #  '20190101', '20190201', 
                  # '20190301', 
-                 '20190401',
-                 '20190501', '20190601', '20190701', '20190801',
-                 '20190901', 
-                 '20191001', '20191101', '20191201',
-                 '20200101', '20200201', '20200301', '20200401',
-                 '20200501', '20200601', '20200701', '20200801',
-                 '20200903', '20201001', '20201101', '20201201'
+                #  '20190401',
+                #  '20190501', '20190601', '20190701', '20190801',
+                #  '20190901', 
+                #  '20191001', '20191101', '20191201',
+                #  '20200101', '20200201', '20200301', '20200401',
+                #  '20200501', '20200601', '20200701', '20200801',
+                #  '20200903', '20201001', '20201101', '20201201'
                  ]  
     
     # date_list = ['20180221', '20180313', '20180710', '20180902',
@@ -346,15 +376,15 @@ def main():
     #              ]  
     
         
-    # for date in date_list:
-    #     date_dt = datetime.strptime(date, '%Y%m%d')
-    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    for date in date_list:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
-    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
-    csv_output_dir = os.path.join(fdir, 'csv_collection')
-    output_fname = 'combined_2017_2020_dates.csv'
-    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+    # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    # csv_output_dir = os.path.join(fdir, 'csv_collection')
+    # output_fname = 'combined_2016_2020_dates.parquet'
+    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()

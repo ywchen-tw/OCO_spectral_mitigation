@@ -44,11 +44,11 @@ def main():
 
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
-    data_name = 'combined_2020_dates.csv'
+    data_name = 'combined_2020_dates.parquet'
     if platform.system() == "Linux":
-        data_name = 'combined_2019_2020_dates.csv'  # for full 2-year dataset
+        data_name = 'combined_2019_2020_dates.parquet'  # for full 2-year dataset
     elif platform.system() == "Darwin":
-        data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
+        data_name = 'combined_2020-01-01_all_orbits.parquet'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_mlp_lr'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -57,7 +57,7 @@ def main():
     logger.info(f"Surface type filter: {sfc_type} (0=ocean only, 1=land only, 2=sea-ice only)")
 
     data_path = os.path.join(fdir, data_name)
-    df = pd.read_csv(data_path)
+    df = pd.read_parquet(data_path) if data_path.endswith('.parquet') else pd.read_csv(data_path)
     df = df[df['sfc_type'] == sfc_type]
     df = df[df['snow_flag'] == 0]
 
@@ -227,7 +227,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     if test_csv is None:
         test_df = df  
     else:
-        test_df = pd.read_csv(test_csv)
+        test_df = (pd.read_parquet(test_csv) if str(test_csv).endswith('.parquet')
+                   else pd.read_csv(test_csv))
         test_df = test_df[test_df['sfc_type_lt'] == 0]  # Ocean only for now
         # onehot encode the fp_number in the training DataFrame as well
         for i in range(8):
