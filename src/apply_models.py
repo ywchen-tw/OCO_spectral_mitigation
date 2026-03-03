@@ -9,16 +9,32 @@ Optionally:
   - generates cross-model comparison plots (when ground-truth anomaly present)
 
 Usage:
+    # Single explicit file
     python src/apply_models.py \\
         --pipeline   results/exp_v1/pipeline.pkl \\
         --ridge-dir  results/model_mlp_lr/exp_v1/ \\
-        --mlp-dir    results/model_mlp_lr/exp_v1/ \\
-        --ft-dir     results/model_ft_transformer/exp_v1/ \\
         --input      new_data.csv \\
-        --output     corrected.csv \\
-        --plot-dir   results/exp_v1/comparison/   # optional
+        --output     corrected.csv
 
-Output CSV columns added:
+    # All files in a directory (models loaded once, reused for each file)
+    python src/apply_models.py \\
+        --pipeline   results/exp_v1/pipeline.pkl \\
+        --input-dir  results/csv_collection/
+
+    # Mix: directory glob + extra explicit files
+    python src/apply_models.py \\
+        --input-dir  results/csv_collection/ \\
+        --input      extra_a.parquet extra_b.parquet
+
+Output layout (per input file, under <plot_dir>/<input_stem>/):
+    corrected<suffix>.parquet        ← full prediction output
+    plot_data<suffix>.parquet        ← slim spatial + prediction file for plotting
+    comparison_scatter.png           ┐
+    comparison_hist.png              ├ comparison plots (when xco2_bc_anomaly present)
+    anomaly_comparison.png           │
+    xco2bc_comparison_regime.png     ┘
+
+Prediction columns added to output:
     ridge_pred, mlp_pred, ft_q05, ft_q50, ft_q95, ft_uncertainty
     (+ ridge_anomaly, mlp_anomaly, ft_anomaly when orbit metadata present)
 """
@@ -72,7 +88,9 @@ def _recompute_anomaly(df: pd.DataFrame,
         df['date'], df['orbit_id'],
         df['lat'].to_numpy(), df['cld_dist_km'].to_numpy(),
         xco2_corrected,
-        **_ANOMALY_ARGS,
+        lat_thres=_ANOMALY_ARGS['lat_thres'],
+        std_thres=_ANOMALY_ARGS['std_thres'],
+        min_cld_dist=_ANOMALY_ARGS['min_cld_dist'],
     )
 
 
@@ -271,7 +289,7 @@ def _plot_anomaly_scatter_hist(df_out: pd.DataFrame, active: list,
     # estimate of the original anomaly — correlated with true_anom by design —
     # so it must NOT be used in the histogram or scatter as a recomputed anomaly.
     active_anom = []
-    for name, pred_col, color in active:
+    for name, _, color in active:
         anom_col = _ANOM_COL.get(name)
         if anom_col and anom_col in df_out.columns:
             active_anom.append((name, anom_col, color))
@@ -335,7 +353,7 @@ def _plot_anomaly_scatter_hist(df_out: pd.DataFrame, active: list,
     logger.info("Saved anomaly_comparison.png")
 
 
-def _comparison_plots(df_out: pd.DataFrame, available: dict,
+def _comparison_plots(df_out: pd.DataFrame, available: set,
                       plot_dir: Path) -> None:
     """Scatter + histogram comparison plots when ground-truth anomaly exists."""
     plot_dir.mkdir(parents=True, exist_ok=True)
@@ -399,9 +417,9 @@ def _comparison_plots(df_out: pd.DataFrame, available: dict,
         ]:
             _v = anom[np.isfinite(anom)]
             _mu, _sigma = np.nanmean(_v), np.nanstd(_v)
-            ax.hist(_v, bins=_bins, color=color, alpha=0.5, density=True,
+            ax.hist(_v, bins=_bins.tolist(), color=color, alpha=0.5, density=True,
                     label=f'{label}  μ={_mu:.3f} σ={_sigma:.3f}')
-            ax.axvline(_mu, color=color, linewidth=1.0)
+            ax.axvline(float(_mu), color=color, linewidth=1.0)
         ax.set_xlabel('XCO2_bc anomaly (ppm)')
         ax.set_title('Anomaly distribution comparison')
         ax.axvline(0, color='k', linestyle='--', linewidth=0.7)
@@ -427,96 +445,33 @@ def _comparison_plots(df_out: pd.DataFrame, available: dict,
         _plot_regime_comparison(df_out, active, plot_dir)
 
 
-# ─── Main ──────────────────────────────────────────────────────────────────────
+# ─── Per-file processing ───────────────────────────────────────────────────────
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Apply trained Ridge/MLP/FT models to a new CSV."
-    )
-    parser.add_argument('--suffix',    type=str, default='',
-                        help='Experiment subfolder used to derive default model dirs and output paths '
-                             '(e.g. --suffix exp_v1).  Ignored when the corresponding explicit '
-                             'path arg is supplied.')
-    parser.add_argument('--pipeline',  default=None,
-                        help='Path to pipeline.pkl.  '
-                             'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/pipeline.pkl')
-    parser.add_argument('--ridge-dir', default=None,
-                        help='Dir containing ridge_model.pkl.  '
-                             'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/')
-    parser.add_argument('--mlp-dir',   default=None,
-                        help='Dir containing mlp_meta.pkl + mlp_weights.pt.  '
-                             'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/')
-    parser.add_argument('--ft-dir',    default=None,
-                        help='Dir containing ft_meta.pkl + model_best.pt.  '
-                             'Defaults to <storage_dir>/results/model_ft_transformer/<suffix>/')
-    parser.add_argument('--input',     default=None,
-                        help='Input file path (.parquet or .csv).  '
-                             'Defaults to <storage_dir>/results/csv_collection/combined_2020_dates.parquet')
-    parser.add_argument('--output',    default=None,
-                        help='Output file path (.parquet or .csv).  '
-                             'Defaults to <storage_dir>/results/corrected<suffix>.parquet')
-    parser.add_argument('--plot-dir',  default=None,
-                        help='Output directory for comparison plots.  '
-                             'Defaults to <storage_dir>/results/comparison/<suffix>/')
-    parser.add_argument('--sfc-type',  type=int, default=None,
-                        help='Filter input by sfc_type (0=ocean, 1=land). '
-                             'Defaults to the pipeline\'s sfc_type.')
-    args = parser.parse_args()
+def _process_one_file(
+    input_path: str,
+    output_path: str,
+    plot_dir: str,
+    suffix_tag: str,
+    pipeline,
+    ridge, mlp, ft,
+    available: set,
+    sfc_type: int,
+) -> None:
+    """Load one input file, predict with all loaded adapters, and save outputs.
 
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-
-    storage_dir  = get_storage_dir()
-    suffix       = args.suffix
-    lr_dir       = storage_dir / 'results/model_mlp_lr'    / suffix if suffix else storage_dir / 'results/model_mlp_lr'
-    ft_dir_def   = storage_dir / 'results/model_ft_transformer' / suffix if suffix else storage_dir / 'results/model_ft_transformer'
-    suffix_tag   = f'_{suffix}' if suffix else ''
-
-    def _abs(p):
-        """Resolve a relative path against storage_dir; leave absolute paths unchanged."""
-        if p is None:
-            return None
-        pp = Path(p)
-        return str(storage_dir / pp) if not pp.is_absolute() else p
-
-    pipeline_path = _abs(args.pipeline) or str(lr_dir / 'pipeline.pkl')
-    ridge_dir     = _abs(args.ridge_dir) or str(lr_dir)
-    mlp_dir       = _abs(args.mlp_dir)   or str(lr_dir)
-    ft_dir        = _abs(args.ft_dir)    or str(ft_dir_def)
-    input_path    = _abs(args.input)     or str(storage_dir / 'results/csv_collection/combined_2020_dates.parquet')
-
-    # All outputs go into a sub-folder named after the input CSV stem.
-    _input_stem = Path(input_path).stem          # e.g. "combined_2020_dates"
-    _base_dir   = storage_dir / 'results' / _input_stem
-    if suffix:
-        _base_dir = _base_dir / suffix
-
-    plot_dir      = _abs(args.plot_dir)  or str(_base_dir / 'plots')
-    # Output lands in plot_dir; --output controls only the filename, not the directory.
-    _out_name   = Path(args.output).name if args.output else f'corrected{suffix_tag}.parquet'
-    output_path = str(Path(plot_dir) / _out_name)
-
-    # ── Load pipeline ──────────────────────────────────────────────────────
-    print(f"Loading pipeline: {pipeline_path}", flush=True)
-    pipeline = FeaturePipeline.load(pipeline_path)
-    print(f"  {pipeline}", flush=True)
-
-    sfc_type = args.sfc_type if args.sfc_type is not None else pipeline.sfc_type
-
-    # ── Load adapters ──────────────────────────────────────────────────────
-    ridge = _try_load(RidgeAdapter, ridge_dir, 'Ridge')
-    mlp   = _try_load(MLPAdapter,   mlp_dir,   'MLP')
-    ft    = _try_load(FTAdapter,    ft_dir,    'FT')
-
-    available = {name for name, adapter in [('ridge', ridge), ('mlp', mlp), ('ft', ft)]
-                 if adapter is not None}
-    if not available:
-        print("ERROR: No adapter files found. Supply at least one of "
-              "--ridge-dir, --mlp-dir, --ft-dir.", file=sys.stderr)
-        sys.exit(1)
+    All outputs (parquet + figures) land flat under <plot_dir>/<input_stem>/.
+    """
+    file_dir = Path(plot_dir) / Path(input_path).stem
+    file_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Load + filter input ────────────────────────────────────────────────
-    print(f"\nLoading input: {input_path}", flush=True)
-    df = pd.read_parquet(input_path) if input_path.endswith('.parquet') else pd.read_csv(input_path)
+    print(f"\n{'='*60}", flush=True)
+    print(f"Processing: {input_path}", flush=True)
+    try:
+        df = pd.read_parquet(input_path) if input_path.endswith('.parquet') else pd.read_csv(input_path)
+    except FileNotFoundError:
+        logger.warning("File not found, skipping: %s", input_path)
+        return
     print(f"  Rows loaded: {len(df):,}", flush=True)
 
     df = df[df['sfc_type'] == sfc_type]
@@ -543,10 +498,10 @@ def main():
 
     if ft is not None:
         print("Predicting with FT-Transformer …", flush=True)
-        q05, q50, q95         = ft.predict_quantiles(X)
-        df_out['ft_q05']      = q05
-        df_out['ft_q50']      = q50
-        df_out['ft_q95']      = q95
+        q05, q50, q95            = ft.predict_quantiles(X)
+        df_out['ft_q05']         = q05
+        df_out['ft_q50']         = q50
+        df_out['ft_q95']         = q95
         df_out['ft_uncertainty'] = np.clip(q95 - q05, 0, None)
 
     # ── Anomaly re-computation ─────────────────────────────────────────────
@@ -575,8 +530,7 @@ def main():
             logger.info("'xco2_bc' column not present — skipping anomaly re-computation.")
 
     # ── Save output ────────────────────────────────────────────────────────
-    out_path = Path(output_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path = file_dir / Path(output_path).name
     if str(out_path).endswith('.parquet'):
         df_out.to_parquet(out_path, index=False, compression='zstd')
     else:
@@ -587,7 +541,6 @@ def main():
     print(f"  New columns: {added}", flush=True)
 
     # ── Save plot-data (Parquet) ───────────────────────────────────────────
-    # Slim file with spatial/cloud context + raw and corrected XCO2 per model.
     _has_xco2_bc = 'xco2_bc' in df_out.columns
     _plot_data: dict = {}
     for _c in ('sounding_id', 'time', 'footprint_id', 'lon', 'lat', 'cld_dist_km', 'xco2_bc', 'xco2_bc_anomaly'):
@@ -605,17 +558,150 @@ def main():
     for _c in ('ft_uncertainty', 'ridge_anomaly', 'mlp_anomaly', 'ft_anomaly'):
         if _c in df_out.columns:
             _plot_data[_c] = df_out[_c].values
-    _plot_path = out_path.parent / f'plot_data{suffix_tag}.parquet'
+    _plot_path = file_dir / f'plot_data{suffix_tag}.parquet'
     pd.DataFrame(_plot_data, index=df_out.index).to_parquet(_plot_path, index=False, compression='zstd')
     print(f"Plot data saved → {_plot_path}  ({len(_plot_data)} cols: {list(_plot_data)})",
           flush=True)
 
     # ── Comparison plots ───────────────────────────────────────────────────
     if plot_dir and 'xco2_bc_anomaly' in df_out.columns:
-        print(f"\nGenerating comparison plots → {plot_dir}", flush=True)
-        _comparison_plots(df_out, available, Path(plot_dir))
+        print(f"\nGenerating comparison plots → {file_dir}", flush=True)
+        _comparison_plots(df_out, available, file_dir)
     elif plot_dir:
         logger.info("'xco2_bc_anomaly' column not present — comparison plots skipped.")
+
+
+# ─── Main ──────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Apply trained Ridge/MLP/FT models to one or more input files."
+    )
+    parser.add_argument('--suffix',    type=str, default='',
+                        help='Experiment subfolder used to derive default model dirs and output paths '
+                             '(e.g. --suffix exp_v1).  Ignored when the corresponding explicit '
+                             'path arg is supplied.')
+    parser.add_argument('--pipeline',  default=None,
+                        help='Path to pipeline.pkl.  '
+                             'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/pipeline.pkl')
+    parser.add_argument('--ridge-dir', default=None,
+                        help='Dir containing ridge_model.pkl.  '
+                             'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/')
+    parser.add_argument('--mlp-dir',   default=None,
+                        help='Dir containing mlp_meta.pkl + mlp_weights.pt.  '
+                             'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/')
+    parser.add_argument('--ft-dir',    default=None,
+                        help='Dir containing ft_meta.pkl + model_best.pt.  '
+                             'Defaults to <storage_dir>/results/model_ft_transformer/<suffix>/')
+    parser.add_argument('--input-dir',  default=None,
+                        help='Directory of input files; all *.parquet and *.csv files inside are '
+                             'processed in sorted order.  Combined with --input when both are given.')
+    parser.add_argument('--input',     nargs='+', default=None,
+                        help='One or more filenames to process.  When --input-dir is also given, '
+                             'these are treated as basenames inside that directory (no glob).  '
+                             'When --input-dir is absent, treated as full/relative paths.  '
+                             'Defaults to combined_2020_dates.parquet when neither arg is supplied.')
+    parser.add_argument('--output',    default=None,
+                        help='Output filename (basename only, directory is auto-derived per input).  '
+                             'Ignored when more than one input file is resolved.  '
+                             'Defaults to corrected<suffix>.parquet')
+    parser.add_argument('--plot-dir',  default=None,
+                        help='Base output directory.  Each input file writes all outputs '
+                             '(parquet + figures) flat into <plot_dir>/<input_stem>/.  '
+                             'Ignored when more than one input file is resolved (auto-derived).  '
+                             'Defaults to <storage_dir>/results/')
+    parser.add_argument('--sfc-type',  type=int, default=None,
+                        help='Filter input by sfc_type (0=ocean, 1=land). '
+                             'Defaults to the pipeline\'s sfc_type.')
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+    storage_dir  = get_storage_dir()
+    suffix       = args.suffix
+    lr_dir       = storage_dir / 'results/model_mlp_lr'    / suffix if suffix else storage_dir / 'results/model_mlp_lr'
+    ft_dir_def   = storage_dir / 'results/model_ft_transformer' / suffix if suffix else storage_dir / 'results/model_ft_transformer'
+    suffix_tag   = f'_{suffix}' if suffix else ''
+
+    def _abs(p):
+        """Resolve a relative path against storage_dir; leave absolute paths unchanged."""
+        if p is None:
+            return None
+        pp = Path(p)
+        return str(storage_dir / pp) if not pp.is_absolute() else p
+
+    pipeline_path = _abs(args.pipeline) or str(lr_dir / 'pipeline.pkl')
+    ridge_dir     = _abs(args.ridge_dir) or str(lr_dir)
+    mlp_dir       = _abs(args.mlp_dir)   or str(lr_dir)
+    ft_dir        = _abs(args.ft_dir)    or str(ft_dir_def)
+
+    if args.input_dir:
+        _idir = Path(str(_abs(args.input_dir) or args.input_dir))
+        if args.input:
+            # Only the named files within input_dir — no directory glob.
+            input_paths: list[str] = [str(_idir / f) for f in args.input]
+        else:
+            # No explicit files given — glob everything in the directory.
+            input_paths = sorted(
+                [str(p) for p in _idir.glob('*.parquet')] +
+                [str(p) for p in _idir.glob('*.csv')]
+            )
+            if not input_paths:
+                print(f"WARNING: --input-dir {_idir} contains no .parquet or .csv files.",
+                      file=sys.stderr)
+    elif args.input:
+        input_paths = [str(_abs(p) or p) for p in args.input]
+    else:
+        input_paths = [str(storage_dir / 'results/csv_collection/combined_2020_dates.parquet')]
+
+    multi = len(input_paths) > 1
+    if multi and args.output:
+        logger.warning("--output is ignored when more than one input file is resolved; "
+                       "output filename defaults to corrected<suffix>.parquet per file.")
+
+    # ── Load pipeline ──────────────────────────────────────────────────────
+    print(f"Loading pipeline: {pipeline_path}", flush=True)
+    pipeline = FeaturePipeline.load(pipeline_path)
+    print(f"  {pipeline}", flush=True)
+
+    sfc_type = args.sfc_type if args.sfc_type is not None else pipeline.sfc_type
+
+    # ── Load adapters (once) ───────────────────────────────────────────────
+    ridge = _try_load(RidgeAdapter, ridge_dir, 'Ridge')
+    mlp   = _try_load(MLPAdapter,   mlp_dir,   'MLP')
+    ft    = _try_load(FTAdapter,    ft_dir,    'FT')
+
+    available = {name for name, adapter in [('ridge', ridge), ('mlp', mlp), ('ft', ft)]
+                 if adapter is not None}
+    if not available:
+        print("ERROR: No adapter files found. Supply at least one of "
+              "--ridge-dir, --mlp-dir, --ft-dir.", file=sys.stderr)
+        sys.exit(1)
+
+    # base_dir: shared root under which each file gets its own <input_stem>/ subfolder.
+    # --plot-dir is always honoured; only --output (filename) is ignored in multi mode.
+    _results_dir = storage_dir / 'results'
+    if suffix:
+        _results_dir = _results_dir / suffix
+    base_dir = _abs(args.plot_dir) or str(_results_dir)
+    out_name = Path(args.output).name if (not multi and args.output) \
+               else f'corrected{suffix_tag}.parquet'
+
+    # ── Process each input file ────────────────────────────────────────────
+    for input_path in input_paths:
+        _process_one_file(
+            input_path=input_path,
+            output_path=out_name,
+            plot_dir=base_dir,
+            suffix_tag=suffix_tag,
+            pipeline=pipeline,
+            ridge=ridge, mlp=mlp, ft=ft,
+            available=available,
+            sfc_type=sfc_type,
+        )
+
+    if multi:
+        print(f"\nDone — processed {len(input_paths)} files.", flush=True)
 
 
 if __name__ == '__main__':

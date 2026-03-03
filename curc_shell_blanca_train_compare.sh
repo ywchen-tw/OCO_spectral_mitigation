@@ -58,18 +58,22 @@ python src/apply_models.py \
   --ridge-dir results/model_mlp_lr/ocean_2019_2020/ \
   --mlp-dir   results/model_mlp_lr/ocean_2019_2020/ \
   --ft-dir    results/model_ft_transformer/ocean_2019_2020/ \
-  --input     results/csv_collection/combined_2020-03-30_all_orbits.parquet  \
+  --input-dir results/csv_collection \
+  --input     combined_2018-02-21_all_orbits.parquet combined_2018-11-30_all_orbits.parquet \
   --output    corrected.csv \
-  --plot-dir  results/model_comparison/ocean_2019_2020_2020-03-30
+  --plot-dir  results/model_comparison/ocean_2019_2020
 
-# python src/apply_models.py \
-#   --pipeline  results/train_data/pipeline_land_2019_2020.pkl \
-#   --ridge-dir results/model_mlp_lr/land_2019_2020/ \
-#   --mlp-dir   results/model_mlp_lr/land_2019_2020/ \
-#   --ft-dir    results/model_ft_transformer/land_2019_2020/ \
-#   --input     results/csv_collection/combined_2018-10-24_all_orbits.parquet  \
-#   --output    corrected.csv \
-#   --plot-dir  results/model_comparison/land_2019_2020_2018-10-24
+  # combined_2020-03-30_all_orbits.parquet combined_2020-09-06_all_orbits.parquet combined_2018-09-01_all_orbits.parquet combined_2018-09-02_all_orbits.parquet
+
+python src/apply_models.py \
+  --pipeline  results/train_data/pipeline_land_2019_2020.pkl \
+  --ridge-dir results/model_mlp_lr/land_2019_2020/ \
+  --mlp-dir   results/model_mlp_lr/land_2019_2020/ \
+  --ft-dir    results/model_ft_transformer/land_2019_2020/ \
+  --input-dir results/csv_collection \
+  --input     combined_2018-10-24_all_orbits.parquet combined_2020-01-15_all_orbits.parquet  \
+  --output    corrected.csv \
+  --plot-dir  results/model_comparison/land_2019_2020
 
 
 

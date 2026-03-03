@@ -379,7 +379,7 @@ def _scatter_map(ax, lon, lat, values, title, norm, cmap,
                   aspect='auto', origin='upper', zorder=0)
     valid = np.isfinite(values)
     ax.scatter(lon[valid], lat[valid], c=values[valid],
-               norm=norm, cmap=cmap, s=1, alpha=0.5, rasterized=True)
+               norm=norm, cmap=cmap, s=7.5, alpha=0.5, rasterized=True)
     if tccon_lon is not None and tccon_lat is not None:
         ax.scatter([tccon_lon], [tccon_lat], c='red', s=80, marker='*',
                    zorder=5, label='TCCON station')
@@ -438,7 +438,7 @@ def _tccon_panel(ax, tccon_df: pd.DataFrame, vmin: float, vmax: float, title: st
                        label='OCO-2 pass' if i == 0 else '_nolegend_')
 
     # Raw measurements + ±1σ shading
-    ax.scatter(t, y, s=1, c='salmon', alpha=0.4, zorder=2, label='Measurements')
+    ax.scatter(t, y, s=15, c='salmon', alpha=0.7, zorder=2, label='Measurements')
     ax.fill_between(t, y - ye, y + ye, color='red', alpha=0.12, zorder=1)
 
     # Monthly mean (group by year+month to avoid resample API version issues)
@@ -458,7 +458,7 @@ def _tccon_panel(ax, tccon_df: pd.DataFrame, vmin: float, vmax: float, title: st
             vmin = float(np.nanpercentile(_v, 1))  - _margin
             vmax = float(np.nanpercentile(_v, 99)) + _margin
     ax.set_ylim(vmin, vmax)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=35, ha='right', fontsize=6)
     ax.legend(fontsize=7)
@@ -513,7 +513,7 @@ def _histogram_panel(ax, oco_df: pd.DataFrame, tccon_df: pd.DataFrame,
     # Merge legends from both axes
     h1, l1 = ax.get_legend_handles_labels()
     h2, l2 = ax_twin.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, fontsize=8, ncol=3, loc='upper left')
+    ax.legend(h1 + h2, l1 + l2, fontsize=12, ncol=2, loc='upper left')
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -596,8 +596,8 @@ def main():
     oco_start_time = pd.to_datetime(oco['time'], unit='s', utc=True).min() if 'time' in oco.columns else 'N/A'
     oco_end_time   = pd.to_datetime(oco['time'], unit='s', utc=True).max() if 'time' in oco.columns else 'N/A'
     print(f" OCO-2 after spatial filter", flush=True)
-    print(f" start time: {pd.to_datetime(oco['time'], unit='s', utc=True).min() if 'time' in oco.columns else 'N/A'}", flush=True)
-    print(f" end time:   {pd.to_datetime(oco['time'], unit='s', utc=True).max() if 'time' in oco.columns else 'N/A'}", flush=True)
+    print(f" start time: {oco_start_time}", flush=True)
+    print(f" end time:   {oco_end_time}", flush=True)
     if args.date_plot:
         # Step 1: filter to the target date (single calendar day, UTC)
         t_date = pd.Timestamp(args.date_plot, tz='UTC').normalize()
@@ -625,6 +625,10 @@ def main():
         plt.scatter(tccon['time'], tccon['xco2'], c='red', s=10, label='TCCON', alpha=0.6)
         plt.xlabel('Time (UTC)')
         plt.ylabel('XCO₂ (ppm)')
+        # set x_axis as HH:MM and rotate labels
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator())
+        
         plt.title('OCO-2 vs TCCON on ' + t_date.strftime('%Y-%m-%d'))
         plt.legend()
         plt.tight_layout()
@@ -639,8 +643,13 @@ def main():
         
         # Step 2: further narrow to the OCO-2 footprint time window if valid
         if isinstance(oco_start_time, pd.Timestamp) and isinstance(oco_end_time, pd.Timestamp):
+            # add a 30-minute buffer on either side to account for potential time mismatches
+            buffer = pd.Timedelta(minutes=30)
+            oco_start_time_buffered = oco_start_time - buffer
+            oco_end_time_buffered   = oco_end_time   + buffer
+            
             tccon = tccon[
-                (tccon['time'] >= oco_start_time) & (tccon['time'] <= oco_end_time)
+                (tccon['time'] >= oco_start_time_buffered) & (tccon['time'] <= oco_end_time_buffered)
             ]
         
         print(f" TCCON after oco time filter", flush=True)
@@ -878,8 +887,10 @@ def main():
 
     # ── Figure ────────────────────────────────────────────────────────────────
     fig = plt.figure(figsize=(18, 16))
-    gs  = fig.add_gridspec(3, 3, hspace=0.50, wspace=0.30,
-                            height_ratios=[1.0, 1.0, 0.75])
+    gs  = fig.add_gridspec(3, 4, hspace=0.50, wspace=0.30,
+                            height_ratios=[1.0, 1.0, 0.75],
+                            width_ratios=[1.0, 1.0, 1.0, 0.07])
+    cbar_ax = fig.add_subplot(gs[0:2, 3])   # dedicated colorbar column
 
     map_axes = []   # collect lon/lat map axes for the shared colorbar
 
@@ -944,11 +955,11 @@ def main():
     if map_axes:
         sm = mcm.ScalarMappable(norm=norm, cmap=_CMAP)
         sm.set_array([])
-        cbar = fig.colorbar(sm, ax=map_axes,
-                            orientation='vertical', shrink=0.85,
-                            aspect=30, pad=0.02)
+        cbar = fig.colorbar(sm, cax=cbar_ax)
         cbar.set_label('XCO₂ (ppm)', fontsize=9)
         cbar.ax.tick_params(labelsize=8)
+    else:
+        cbar_ax.set_visible(False)
 
     # ── Save ──────────────────────────────────────────────────────────────────
     out_dir = (Path(output_dir) if output_dir
