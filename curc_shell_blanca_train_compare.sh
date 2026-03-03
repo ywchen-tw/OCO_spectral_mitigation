@@ -62,14 +62,14 @@ python src/apply_models.py \
   --output    corrected.csv \
   --plot-dir  results/model_comparison/ocean_2019_2020_2020-03-30
 
-python src/apply_models.py \
-  --pipeline  results/train_data/pipeline_land_2019_2020.pkl \
-  --ridge-dir results/model_mlp_lr/land_2019_2020/ \
-  --mlp-dir   results/model_mlp_lr/land_2019_2020/ \
-  --ft-dir    results/model_ft_transformer/land_2019_2020/ \
-  --input     results/csv_collection/combined_2018-10-24_all_orbits.csv  \
-  --output    corrected.csv \
-  --plot-dir  results/model_comparison/land_2019_2020_2018-10-24
+# python src/apply_models.py \
+#   --pipeline  results/train_data/pipeline_land_2019_2020.pkl \
+#   --ridge-dir results/model_mlp_lr/land_2019_2020/ \
+#   --mlp-dir   results/model_mlp_lr/land_2019_2020/ \
+#   --ft-dir    results/model_ft_transformer/land_2019_2020/ \
+#   --input     results/csv_collection/combined_2018-10-24_all_orbits.csv  \
+#   --output    corrected.csv \
+#   --plot-dir  results/model_comparison/land_2019_2020_2018-10-24
 
 
 
