@@ -1,8 +1,8 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=8
-#SBATCH --ntasks-per-node=8
+#SBATCH --ntasks=15
+#SBATCH --ntasks-per-node=15
 #SBATCH --mem=150G
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
@@ -35,8 +35,15 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
+# Log GPU utilisation every 10 s in background; killed automatically when job ends
+nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,memory.total,power.draw \
+           --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}.csv &
+GPU_MONITOR_PID=$!
+
 # python src/models_transformer.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
 # --sfc_type 1 --suffix land_2016_2020
 
 python src/models_transformer.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
 --sfc_type 0 --suffix ocean_2016_2020
+
+kill $GPU_MONITOR_PID 2>/dev/null || true
