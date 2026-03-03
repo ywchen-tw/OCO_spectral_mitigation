@@ -586,7 +586,7 @@ def main():
     added = [c for c in df_out.columns if c not in df.columns]
     print(f"  New columns: {added}", flush=True)
 
-    # ── Save plot-data CSV ─────────────────────────────────────────────────
+    # ── Save plot-data (Parquet) ───────────────────────────────────────────
     # Slim file with spatial/cloud context + raw and corrected XCO2 per model.
     _has_xco2_bc = 'xco2_bc' in df_out.columns
     _plot_data: dict = {}
@@ -605,8 +605,8 @@ def main():
     for _c in ('ft_uncertainty', 'ridge_anomaly', 'mlp_anomaly', 'ft_anomaly'):
         if _c in df_out.columns:
             _plot_data[_c] = df_out[_c].values
-    _plot_path = out_path.parent / f'plot_data{suffix_tag}.csv'
-    pd.DataFrame(_plot_data, index=df_out.index).to_csv(_plot_path, index=False)
+    _plot_path = out_path.parent / f'plot_data{suffix_tag}.parquet'
+    pd.DataFrame(_plot_data, index=df_out.index).to_parquet(_plot_path, index=False, compression='zstd')
     print(f"Plot data saved → {_plot_path}  ({len(_plot_data)} cols: {list(_plot_data)})",
           flush=True)
 

@@ -81,9 +81,9 @@ def load_tccon(nc_path: str) -> pd.DataFrame:
     return df[valid].reset_index(drop=True)
 
 
-def load_plot_data(csv_path: str) -> pd.DataFrame:
-    """Load plot_data.csv; compute ideal-corrected column if anomaly is present."""
-    df = pd.read_csv(csv_path)
+def load_plot_data(path: str) -> pd.DataFrame:
+    """Load plot_data.parquet (or .csv); compute ideal-corrected column if anomaly is present."""
+    df = pd.read_parquet(path) if str(path).endswith('.parquet') else pd.read_csv(path)
     if 'xco2_bc' in df.columns and 'xco2_bc_anomaly' in df.columns:
         df['ideal_corrected_xco2'] = df['xco2_bc'] - df['xco2_bc_anomaly']
     return df
@@ -523,7 +523,7 @@ def main():
         description='Plot OCO-2 model-corrected XCO2 vs TCCON ground station.'
     )
     parser.add_argument('--plot-data',  required=True,
-                        help='plot_data.csv produced by apply_models.py')
+                        help='plot_data.parquet (or .csv) produced by apply_models.py')
     parser.add_argument('--tccon',      required=True,
                         help='TCCON NetCDF4 file (*.public.qc.nc)')
     parser.add_argument('--output-dir', default=None,
