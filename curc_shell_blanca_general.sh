@@ -44,10 +44,10 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # Option 1: Loop with year, month, day (ACTIVE)
 # ============================================================================
 # Specify year, month, and day ranges
-start_year=2016
-end_year=2016
-start_month=1
-end_month=1
+start_year=2019
+end_year=2019
+start_month=8
+end_month=8
 start_day=1
 end_day=1
 
@@ -58,7 +58,7 @@ for year in $(seq $start_year $end_year); do
             # Format date as YYYY-MM-DD with zero-padding
             date=$(printf "%04d-%02d-%02d" $year $month $day)
             echo "Processing date: $date"
-            python workspace/demo_combined.py --date "$date" --delete-modis
+            python workspace/demo_combined.py --date "$date" --delete-modis --force-recompute
             if [ $? -ne 0 ]; then
                 echo "Failed to process date: $date"
             else
