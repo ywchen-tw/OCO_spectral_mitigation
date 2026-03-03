@@ -34,9 +34,16 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
+# Log GPU utilisation every 10 s in background; killed automatically when job ends
+nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,memory.total,power.draw \
+           --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}.csv &
+GPU_MONITOR_PID=$!
+
 # python src/mlp_lr_models.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
 #  --sfc_type 1 --suffix land_2016_2020
 
-python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
- --sfc_type 0 --suffix ocean_2016_2020
+python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2019.pkl \
+ --sfc_type 0 --suffix ocean_2019
+
+kill $GPU_MONITOR_PID 2>/dev/null || true
 
