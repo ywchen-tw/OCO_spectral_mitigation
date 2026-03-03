@@ -7,7 +7,7 @@ import sys
 import platform
 import matplotlib.pyplot as plt
 from matplotlib import colors
-from pipeline import FeaturePipeline
+from pipeline import FeaturePipeline, _ensure_derived_features
 from model_adapters import FTAdapter
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
@@ -1519,6 +1519,8 @@ def main():
     # Strategy: extract needed columns from df as float32 first, then free df
     # BEFORE calling QT.transform() so df is never alive at the same time as
     # the QT float64 intermediates (which would otherwise push peak to ~25 GB).
+    # Derive any engineered features missing from older CSVs (e.g. airmass_sq).
+    df = _ensure_derived_features(df)
     # Ensure fp one-hot cols exist — build all missing at once to avoid fragmentation.
     missing_fp = [i for i in range(8) if f'fp_{i}' not in df.columns]
     if missing_fp:

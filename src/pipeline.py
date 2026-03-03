@@ -256,6 +256,48 @@ def _ensure_fp_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# Derived features that older CSVs may be missing: maps column name → (formula, base cols).
+# Computed lazily so stale CSVs regenerated from raw base columns still work.
+_DERIVED_FEATURES = {
+    'xco2_raw_minus_apriori': ('xco2_raw - xco2_apriori',  ['xco2_raw', 'xco2_apriori']),
+    'airmass_sq':             ('airmass ** 2',              ['airmass']),
+    'alb_o2a_over_cos_sza':   ('alb_o2a / cos(sza)',        ['alb_o2a', 'sza']),
+    'alb_wco2_over_cos_sza':  ('alb_wco2 / cos(sza)',       ['alb_wco2', 'sza']),
+    'alb_sco2_over_cos_sza':  ('alb_sco2 / cos(sza)',       ['alb_sco2', 'sza']),
+}
+
+
+def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute any missing derived feature columns from their base columns.
+
+    Handles CSVs generated before these engineered features were added to
+    fitting_data_correction.py.  A copy is made only if at least one column
+    needs to be added.
+    """
+    missing = [c for c in _DERIVED_FEATURES if c not in df.columns]
+    if not missing:
+        return df
+    df = df.copy()
+    cos_sza = None  # compute once if needed by alb_*_over_cos_sza features
+    for col in missing:
+        if col == 'xco2_raw_minus_apriori':
+            df[col] = df['xco2_raw'] - df['xco2_apriori']
+        elif col == 'airmass_sq':
+            df[col] = df['airmass'] ** 2
+        elif col in ('alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza'):
+            if cos_sza is None:
+                cos_sza = np.cos(np.radians(df['sza'].to_numpy(dtype=float)))
+            band = col.replace('_over_cos_sza', '')   # 'alb_o2a' / 'alb_wco2' / 'alb_sco2'
+            df[col] = df[band].to_numpy(dtype=float) / cos_sza
+        logger.debug("_ensure_derived_features: computed '%s' from base columns", col)
+    if missing:
+        logger.info(
+            "_ensure_derived_features: computed %d missing derived column(s): %s",
+            len(missing), missing,
+        )
+    return df
+
+
 class FeaturePipeline:
     """Shared feature pipeline for all XCO2 bias-correction models.
 
@@ -296,6 +338,7 @@ class FeaturePipeline:
         fp_cols     = list(_FP_COLS)
         features    = qt_features + fp_cols
 
+        df = _ensure_derived_features(df)
         df = _ensure_fp_columns(df)
 
         qt = RobustStandardScaler()
@@ -318,6 +361,7 @@ class FeaturePipeline:
         X : np.ndarray, shape [N, n_features]
             Ready to pass to any adapter's predict().
         """
+        df = _ensure_derived_features(df)
         df = _ensure_fp_columns(df)
         X_qt = self.qt.transform(df[self.qt_features].to_numpy(dtype=float))
         X_fp = df[self.fp_cols].to_numpy(dtype=float)
