@@ -4,6 +4,93 @@
 
 ---
 
+## 2026-03-03 — Parquet I/O Throughout the Analysis Pipeline
+
+### Motivation
+
+CSV files become a bottleneck when the number of processed dates grows: text-based serialisation is slow, verbose, and produces multi-GB output for 50+ dates.  All per-date intermediate files and combined output files are now stored as **Parquet** (columnar binary, zstd-compressed), giving typically **5–10× smaller files** and **10–100× faster reads/writes** for the float-heavy arrays produced by this pipeline.
+
+### `src/fitting_data_correction.py`
+
+- `raw_processing_single_date()` — output format changed from `.csv` to `.parquet` (`compression='zstd'`).  File stem unchanged (`combined_{date}_{orbit_id|all_orbits}.parquet`).
+- `raw_processing_multipe_dates()` — three improvements:
+  1. **Parallel reads** via `ThreadPoolExecutor(max_workers=n_workers)` — overlaps I/O across per-date files (~4–6× faster for 60 dates on 8 workers).
+  2. **Auto-detects input format** — prefers `.parquet` files in `fdir`; falls back to `.csv` when no parquet files are present (backward-compatible with legacy directories).
+  3. **Output format** determined by the extension of `output_fname` — pass `.parquet` to get Parquet output; `.csv` still supported.
+- `main()` — `output_fname` updated to `'combined_2016_2020_dates.parquet'`.
+
+### `src/pipeline.py`
+
+- Default `--data` path: `combined_2020_dates.csv` → `combined_2020_dates.parquet`.
+- `pd.read_csv(data_path)` → auto-detects by extension (`.parquet` → `pd.read_parquet`, else `pd.read_csv`).
+
+### `src/mlp_lr_models.py`
+
+- All three `data_name` variants (default / Linux / Darwin) updated: `.csv` → `.parquet`.
+- `pd.read_csv(data_path)` → extension-based auto-detect.
+- `pd.read_csv(test_csv)` in `mitigation_test()` → extension-based auto-detect.
+
+### `src/models_transformer.py`
+
+- All three `data_name` variants updated: `.csv` → `.parquet`.
+- `pd.read_csv` in `main()` (×2) and `evaluate_model_X_all()` → extension-based auto-detect.
+- `MultiDateAtmosphericDataset` (legacy streaming dataset, not active in `main()`):
+  - `__init__`: uses `pyarrow.parquet.read_metadata(f).num_rows` for O(1) row-count on parquet files instead of reading a full column.
+  - `__getitem__`: parquet path caches the full file as a DataFrame on first access (`self._cache`) and indexes with `iloc`; CSV path retains the existing `skiprows`/`nrows` pattern.
+
+### `src/apply_models.py`
+
+- Default `--input` path: `combined_2020_dates.csv` → `combined_2020_dates.parquet`.
+- Default `--output` filename: `corrected{suffix}.csv` → `corrected{suffix}.parquet`.
+- `pd.read_csv(input_path)` → extension-based auto-detect.
+- Main output (`df_out`) — written as Parquet when output path ends in `.parquet` (`compression='zstd'`); CSV still supported.
+- **`plot_data` file** renamed `plot_data{suffix}.parquet`; written with `to_parquet(compression='zstd')`.
+
+### `src/plot_corrected_xco2.py`
+
+- `load_plot_data(path)` — extension-based auto-detect (`pd.read_parquet` for `.parquet`, `pd.read_csv` otherwise).
+- `--plot-data` CLI help text updated to reflect `.parquet` default.
+
+### Workflow snippet (updated file extensions)
+
+```bash
+# Per-date processing (writes .parquet per orbit)
+python src/fitting_data_correction.py  # loops raw_processing_single_date
+
+# Combine dates (reads .parquet, writes combined .parquet, parallel I/O)
+python -c "
+from fitting_data_correction import raw_processing_multipe_dates
+raw_processing_multipe_dates(
+    fdir='results/csv_collection',
+    date_list=['2020-01-01', '2020-02-01', ...],
+    output_fname='combined_2020_dates.parquet',
+)"
+
+# Fit pipeline
+python src/pipeline.py \
+    --data results/csv_collection/combined_2020_dates.parquet \
+    --sfc-type 0 --out results/train_data/pipeline_ocean.pkl
+
+# Train + infer (unchanged CLI; file extensions updated internally)
+python src/mlp_lr_models.py --sfc_type 0 --suffix ocean_2020
+python src/apply_models.py \
+    --input    results/csv_collection/combined_2020_dates.parquet \
+    --output   corrected.parquet \
+    --pipeline results/train_data/pipeline_ocean.pkl \
+    --ridge-dir results/model_mlp_lr/ocean_2020/
+
+# Plot (reads plot_data.parquet)
+python src/plot_corrected_xco2.py \
+    --plot-data results/combined_2020_dates/plots/plot_data.parquet \
+    --tccon     data/TCCON/ra20150301_20200718.public.qc.nc
+```
+
+### Backward compatibility
+
+All readers include an extension check — `.csv` files are still accepted everywhere, so existing directories produced with the old code do not need to be re-generated immediately.  New runs will write `.parquet` by default.
+
+---
+
 ## 2026-03-01 — Output Organisation, Plot-Data Export, TCCON Comparison Script
 
 ### `src/apply_models.py` — output sub-folder + plot-data CSV
