@@ -343,8 +343,7 @@ def main():
     
     date_list = [
                  '20160101', '20160201', '20160301', '20160405',
-                #  '20160501', 
-                 '20160601', '20160701', '20160801',
+                 '20160501', '20160601', '20160701', '20160801',
                  '20160901', '20161001', '20161101', '20161201',
                  '20170101', '20170201', '20170301', '20170401',
                  '20170501', '20170601', '20170701', 
@@ -367,22 +366,22 @@ def main():
     #              '20201005', '20201224', 
     #              '20210210', '20210424', '20211229']  
     
-    date_list = [
-                #  '20160801',
-                #  '20160901',
-                 '20160501'
-                 ]  
+    # date_list = [
+    #             #  '20160801',
+    #             #  '20160901',
+    #              '20160501'
+    #              ]  
     
         
-    for date in date_list:
-        date_dt = datetime.strptime(date, '%Y%m%d')
-        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    # for date in date_list:
+    #     date_dt = datetime.strptime(date, '%Y%m%d')
+    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
-    # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
-    # csv_output_dir = os.path.join(fdir, 'csv_collection')
-    # output_fname = 'combined_2016_2020_dates.parquet'
-    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    csv_output_dir = os.path.join(fdir, 'csv_collection')
+    output_fname = 'combined_2016_2020_dates.parquet'
+    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()
