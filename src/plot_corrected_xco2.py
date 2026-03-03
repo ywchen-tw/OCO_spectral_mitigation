@@ -64,7 +64,12 @@ def load_tccon(nc_path: str) -> pd.DataFrame:
         xco2_arr  = np.ma.filled(ds.variables['xco2'][:],      np.nan).astype(np.float64)
         xco2e_arr = np.ma.filled(ds.variables['xco2_error'][:], np.nan).astype(np.float64)
 
-    times = pd.to_datetime(time_sec, unit='s', utc=True)
+    # TCCON time: "seconds since 1970-01-01 00:00:00" (gregorian UTC).
+    # pd.to_datetime(float_array, unit='s') fails in pandas 2.x when the array
+    # contains NaN (tries int64 cast first).  Route through pd.to_timedelta
+    # which converts NaN → NaT without error.
+    _epoch = pd.Timestamp('1970-01-01 00:00:00', tz='UTC')
+    times  = _epoch + pd.to_timedelta(time_sec, unit='s', errors='coerce')
     df = pd.DataFrame({
         'time':       times,
         'lat':        lat_arr,
@@ -90,7 +95,7 @@ def download_modis_rgb(
         date,
         extent,
         which='terra',
-        wmts_cgi='https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi',
+        wmts_cgi='https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi',
         fdir='.',
         proj=None,
         coastline=False,
@@ -106,6 +111,15 @@ def download_modis_rgb(
     fdir    : directory to save the PNG
     run     : if False, skip the download and just return the expected filename
     Returns the PNG file path.
+
+    Notes
+    -----
+    Uses the GIBS EPSG:4326 (geographic) WMTS endpoint rather than EPSG:3857
+    (Mercator).  The geographic endpoint:
+      - pairs naturally with PlateCarree axes (no CRS reprojection),
+      - avoids the OWSLib TileMatrixLimits-duplication warnings that corrupt
+        tile coordinates in the Mercator endpoint,
+      - has reliable tile coverage at all zoom levels (no 404s at TILEMATRIX=9).
     """
     which  = which.lower()
     date_s = date.strftime('%Y-%m-%d')
@@ -123,7 +137,6 @@ def download_modis_rgb(
             )
         try:
             import cartopy.crs as ccrs
-            import cartopy.io.ogc_clients as ogcc
         except ImportError:
             raise ImportError(
                 "download_modis_rgb requires 'cartopy'. Install with: pip install cartopy"
@@ -139,11 +152,22 @@ def download_modis_rgb(
         if proj is None:
             proj = ccrs.PlateCarree()
 
-        # Register the Mercator CRS used by the GIBS WMTS endpoint
-        ogcc._URN_TO_CRS['urn:ogc:def:crs:EPSG:6.18:3:3857'] = ccrs.GOOGLE_MERCATOR
-        ogcc.METERS_PER_UNIT['urn:ogc:def:crs:EPSG:6.18:3:3857'] = 1
-
+        # EPSG:4326 endpoint — no Mercator CRS registration required
         wmts = WebMapTileService(wmts_cgi)
+
+        # Print the GetTile URL pattern so the user can verify / curl-test it.
+        # Cartopy chooses {zoom}/{row}/{col} at render time; the rest is fixed.
+        _tms_id = next(iter(wmts.contents[layer_name].tilematrixsetlinks), '?')
+        _fmt    = (wmts.contents[layer_name].formats or ['image/jpeg'])[0]
+        print(
+            f"  GetTile URL pattern:\n"
+            f"    {wmts_cgi}?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0"
+            f"&LAYER={layer_name}&STYLE=default"
+            f"&TILEMATRIXSET={_tms_id}&TILEMATRIX={{zoom}}"
+            f"&TILEROW={{row}}&TILECOL={{col}}"
+            f"&FORMAT={_fmt}&time={date_s}",
+            flush=True,
+        )
 
         fig = plt.figure(figsize=(12, 6))
         ax1 = fig.add_subplot(111, projection=proj)
@@ -158,6 +182,128 @@ def download_modis_rgb(
         print(f"  MODIS RGB saved → {fname}", flush=True)
 
     return fname
+
+
+# ── Per-granule MODIS RGB ──────────────────────────────────────────────────────
+
+def render_modis_granule_rgb(myd021km_path, myd03_path, output_png,
+                              extent=None, gamma=2.0, resolution=0.01):
+    """Render a per-granule MODIS true-colour RGB from MYD021KM + MYD03.
+
+    GIBS WMTS only provides daily composites.  This function reads the actual
+    per-granule Level-1B calibrated radiances (HDF4) and the paired geolocation
+    file, resamples the swath onto a regular lat/lon grid, and saves a PNG.
+
+    Bands used (standard MODIS true-colour):
+        Red   — EV_250_Aggr1km_RefSB[0]  (Band 1, 620–670 nm)
+        Green — EV_500_Aggr1km_RefSB[1]  (Band 4, 545–565 nm)
+        Blue  — EV_500_Aggr1km_RefSB[0]  (Band 3, 459–479 nm)
+
+    Parameters
+    ----------
+    myd021km_path : str | Path   MYD021KM HDF4 file
+    myd03_path    : str | Path   MYD03    HDF4 geolocation file
+    output_png    : str | Path   Destination PNG
+    extent        : [lon_min, lon_max, lat_min, lat_max] or None
+                    Clip swath to this bounding box before resampling.
+    gamma         : float        Gamma correction (default 2.0 brightens image).
+    resolution    : float        Output grid spacing in degrees (default 0.01°≈1 km).
+
+    Returns
+    -------
+    (output_png_str, actual_extent)
+
+    Requirements
+    ------------
+    pyhdf   : conda install -c conda-forge pyhdf
+    scipy   : already a pipeline dependency
+    """
+    try:
+        from pyhdf.SD import SD, SDC
+    except ImportError:
+        raise ImportError(
+            "render_modis_granule_rgb requires pyhdf.\n"
+            "  conda install -c conda-forge pyhdf"
+        )
+    from scipy.spatial import cKDTree
+
+    # ── Read calibrated reflectances from MYD021KM ────────────────────────────
+    hdf = SD(str(myd021km_path), SDC.READ)
+
+    def _refl(sds_name, band_idx):
+        sds    = hdf.select(sds_name)
+        raw    = sds[band_idx].astype(np.float32)
+        attrs  = sds.attributes()
+        scale  = attrs['reflectance_scales'][band_idx]
+        offset = attrs['reflectance_offsets'][band_idx]
+        fill   = attrs.get('_FillValue', 65535)
+        ref    = np.where(raw == fill, np.nan, (raw - offset) * scale)
+        return np.clip(ref, 0.0, 1.0)
+
+    r = _refl('EV_250_Aggr1km_RefSB', 0)   # Band 1 — Red
+    g = _refl('EV_500_Aggr1km_RefSB', 1)   # Band 4 — Green
+    b = _refl('EV_500_Aggr1km_RefSB', 0)   # Band 3 — Blue
+    hdf.end()
+
+    # ── Read geolocation from MYD03 ───────────────────────────────────────────
+    geo    = SD(str(myd03_path), SDC.READ)
+    lat_2d = geo.select('Latitude')[:]    # float32 [lines, samples]
+    lon_2d = geo.select('Longitude')[:]   # float32 [lines, samples]
+    geo.end()
+
+    # ── Clip to extent ────────────────────────────────────────────────────────
+    if extent is not None:
+        lon_min, lon_max, lat_min, lat_max = extent
+        pad  = 0.1
+        mask = ((lon_2d >= lon_min - pad) & (lon_2d <= lon_max + pad) &
+                (lat_2d >= lat_min - pad) & (lat_2d <= lat_max + pad))
+        if mask.any():
+            rows   = np.where(mask.any(axis=1))[0]
+            cols   = np.where(mask.any(axis=0))[0]
+            sl_r   = slice(rows[0], rows[-1] + 1)
+            sl_c   = slice(cols[0], cols[-1] + 1)
+            lat_2d = lat_2d[sl_r, sl_c]
+            lon_2d = lon_2d[sl_r, sl_c]
+            r, g, b = r[sl_r, sl_c], g[sl_r, sl_c], b[sl_r, sl_c]
+
+    actual_extent = [
+        float(np.nanmin(lon_2d)), float(np.nanmax(lon_2d)),
+        float(np.nanmin(lat_2d)), float(np.nanmax(lat_2d)),
+    ]
+
+    # ── Resample swath → regular lat/lon grid (nearest-neighbour) ────────────
+    lon_out = np.arange(actual_extent[0], actual_extent[1] + resolution, resolution)
+    # lat from top (north) to bottom (south) so imshow renders correctly
+    lat_out = np.arange(actual_extent[3], actual_extent[2] - resolution, -resolution)
+    lon_mg, lat_mg = np.meshgrid(lon_out, lat_out)
+
+    valid  = (np.isfinite(lat_2d) & np.isfinite(lon_2d) &
+              np.isfinite(r) & np.isfinite(g) & np.isfinite(b))
+    pts    = np.column_stack([lon_2d[valid], lat_2d[valid]])
+    tree   = cKDTree(pts)
+    _, idx = tree.query(np.column_stack([lon_mg.ravel(), lat_mg.ravel()]),
+                        workers=-1)
+
+    def _ch(arr):
+        return arr[valid][idx].reshape(lon_mg.shape)
+
+    rgb = np.stack([_ch(r), _ch(g), _ch(b)], axis=-1)
+
+    # ── Gamma correction ──────────────────────────────────────────────────────
+    rgb = np.clip(rgb ** (1.0 / gamma), 0.0, 1.0)
+
+    # ── Save ──────────────────────────────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.imshow(rgb,
+              extent=[actual_extent[0], actual_extent[1],
+                      actual_extent[2], actual_extent[3]],
+              aspect='auto', origin='upper')
+    ax.axis('off')
+    plt.savefig(str(output_png), bbox_inches='tight', pad_inches=0, dpi=300)
+    plt.close(fig)
+    print(f"  MODIS granule RGB saved → {output_png}", flush=True)
+
+    return str(output_png), actual_extent
 
 
 # ── Plot helpers ───────────────────────────────────────────────────────────────
@@ -285,12 +431,19 @@ def main():
     parser.add_argument('--vmax', type=float, default=None,
                         help='Force colorbar/histogram upper bound (ppm)')
     parser.add_argument('--modis-rgb', action='store_true',
-                        help='Download and overlay a MODIS true-colour RGB background on scatter maps')
+                        help='Download and overlay a MODIS true-colour RGB background on scatter maps '
+                             '(GIBS daily composite; use --modis-l1b for per-granule accuracy)')
     parser.add_argument('--modis-which', default='aqua', choices=['terra', 'aqua'],
                         help='MODIS instrument for RGB download (default: aqua)')
     parser.add_argument('--modis-date', default=None,
                         help='Date for MODIS RGB (YYYY-MM-DD). '
                              'If omitted, derived from the median time column of plot_data.csv')
+    parser.add_argument('--modis-l1b', default=None,
+                        help='MYD021KM HDF4 file for per-granule RGB rendering '
+                             '(overrides --modis-rgb; requires pyhdf)')
+    parser.add_argument('--modis-geo', default=None,
+                        help='MYD03 HDF4 geolocation file paired with --modis-l1b '
+                             '(default: auto-derived from --modis-l1b filename in the same directory)')
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()

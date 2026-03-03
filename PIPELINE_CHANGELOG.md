@@ -43,14 +43,56 @@ Three-row figure comparing OCO-2 corrected XCO₂ with a TCCON ground station:
 - TCCON station marked as red ★ on every map panel.
 - TCCON time series panel: raw measurements + ±1σ shading + monthly mean line.
 - `netCDF4` reader handles TCCON NC4 HDF5 format; reads `long` (not `lon`) variable name.
+- TCCON `time` is `double` seconds since 1970-01-01 00:00:00 UTC (gregorian); converted via `epoch + pd.to_timedelta(time_sec, unit='s', errors='coerce')` — avoids pandas 2.x `int64` cast failure when masked values are NaN-filled.
 - Optional CLI filters: `--lon-range`, `--lat-range`, `--date-range`, `--vmin`/`--vmax`.
 
 ```bash
+# Minimal — required args only; output goes next to plot_data.csv
 python src/plot_corrected_xco2.py \
     --plot-data  results/combined_2020_dates/plot_data.csv \
     --tccon      /path/to/ra20150301_20200718.public.qc.nc \
     --output-dir results/combined_2020_dates/plots/
+
+# Full example — spatial/temporal filter + fixed colorbar + MODIS RGB background
+python src/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/ocean_2017_2020_2020-05-17/plot_data.csv \
+    --tccon       data/TCCON/ra20150301_20200718.public.qc.nc \
+    --output-dir  results/model_comparison/ocean_2017_2020_2020-05-17/ \
+    --lon-range   53.67 56.35 \
+    --lat-range   -24.44 -14.98 \
+    --date-range  2020-05-17 2020-05-17 \
+    --vmin 400 --vmax 415 \
+    --modis-rgb \
+    --modis-which aqua \
+    --modis-date  2020-05-17
+
+python src/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/land_2017_2020_2018-10-24/plot_data.csv \
+    --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
+    --output-dir  results/model_comparison/land_2017_2020_2018-10-24/ \
+    --lon-range   120.48 120.87 \
+    --lat-range   18.21 18.61 \
+    --date-range  2018-10-18 2018-10-19 \
+    --vmin 400 --vmax 415 \
+    --modis-rgb \
+    --modis-which aqua \
+    --modis-date  2018-10-18
 ```
+
+**Argument reference:**
+
+| Flag | Required | Description |
+|---|---|---|
+| `--plot-data` | ✅ | `plot_data.csv` produced by `apply_models.py` |
+| `--tccon` | ✅ | TCCON NetCDF4 file (`*.public.qc.nc`) |
+| `--output-dir` | — | Output directory (default: same dir as `--plot-data`) |
+| `--lon-range LON_MIN LON_MAX` | — | Spatial filter on OCO-2 longitude |
+| `--lat-range LAT_MIN LAT_MAX` | — | Spatial filter on OCO-2 latitude |
+| `--date-range START END` | — | TCCON date filter, e.g. `2018-01-01 2020-12-31` |
+| `--vmin` / `--vmax` | — | Force colorbar / histogram bounds (ppm) |
+| `--modis-rgb` | — | Download and overlay MODIS true-colour RGB on scatter maps |
+| `--modis-which` | — | MODIS instrument for RGB: `aqua` (default) or `terra` |
+| `--modis-date YYYY-MM-DD` | — | Date for MODIS RGB (default: median time in `plot_data.csv`) |
 
 ### `src/models_transformer.py` — DataFrame fragmentation fix
 

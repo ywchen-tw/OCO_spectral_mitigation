@@ -587,7 +587,7 @@ def main():
     # Slim file with spatial/cloud context + raw and corrected XCO2 per model.
     _has_xco2_bc = 'xco2_bc' in df_out.columns
     _plot_data: dict = {}
-    for _c in ('sounding_id', 'lon', 'lat', 'cld_dist_km', 'xco2_bc', 'xco2_bc_anomaly'):
+    for _c in ('sounding_id', 'time', 'footprint_id', 'lon', 'lat', 'cld_dist_km', 'xco2_bc', 'xco2_bc_anomaly'):
         if _c in df_out.columns:
             _plot_data[_c] = df_out[_c].values
     for _model, _pred_col in [('ridge', 'ridge_pred'), ('mlp', 'mlp_pred'), ('ft', 'ft_q50')]:
