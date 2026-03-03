@@ -35,29 +35,8 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-python src/models_transformer.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
---sfc_type 1 --suffix land_2016_2020
+# python src/models_transformer.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
+# --sfc_type 1 --suffix land_2016_2020
 
-
-
-# ============================================================================
-# Option 2: Hard-coded dates (uncomment to use)
-# ============================================================================
-# Define dates to process (modify as needed)
-# dates=(
-#     "2018-10-18"
-#     "2020-01-04"
-#     "2020-01-08"
-# )
-#
-# # Loop through each date
-# for date in "${dates[@]}"; do
-#     echo "Processing date: $date"
-#     python workspace/demo_combined.py --date "$date" --delete-modis
-#     if [ $? -ne 0 ]; then
-#         echo "Failed to process date: $date"
-#     else
-#         echo "Successfully processed: $date"
-#     fi
-#     echo ""
-# done
+python src/models_transformer.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
+--sfc_type 0 --suffix ocean_2016_2020
