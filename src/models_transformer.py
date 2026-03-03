@@ -1488,7 +1488,7 @@ def main():
     fdir      = storage_dir / 'results/csv_collection'
     data_name = 'combined_2020_dates.csv'
     if platform.system() == "Linux":
-        data_name = 'combined_2017_2021_dates.csv'  # for quick testing with one date's data
+        data_name = 'combined_2019_2020_dates.csv'  # for quick testing with one date's data
     elif platform.system() == "Darwin":
         data_name = 'combined_2020-01-01_all_orbits.csv'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_ft_transformer'
