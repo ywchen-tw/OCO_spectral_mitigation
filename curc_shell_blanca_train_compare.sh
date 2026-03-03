@@ -12,7 +12,7 @@
 #SBATCH --account=blanca-airs
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:1
 
 
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8 cuda/12.1.1
@@ -58,7 +58,7 @@ python src/apply_models.py \
   --ridge-dir results/model_mlp_lr/ocean_2019_2020/ \
   --mlp-dir   results/model_mlp_lr/ocean_2019_2020/ \
   --ft-dir    results/model_ft_transformer/ocean_2019_2020/ \
-  --input     results/csv_collection/combined_2020-03-30_all_orbits.csv  \
+  --input     results/csv_collection/combined_2020-03-30_all_orbits.parquet  \
   --output    corrected.csv \
   --plot-dir  results/model_comparison/ocean_2019_2020_2020-03-30
 
@@ -67,31 +67,9 @@ python src/apply_models.py \
 #   --ridge-dir results/model_mlp_lr/land_2019_2020/ \
 #   --mlp-dir   results/model_mlp_lr/land_2019_2020/ \
 #   --ft-dir    results/model_ft_transformer/land_2019_2020/ \
-#   --input     results/csv_collection/combined_2018-10-24_all_orbits.csv  \
+#   --input     results/csv_collection/combined_2018-10-24_all_orbits.parquet  \
 #   --output    corrected.csv \
 #   --plot-dir  results/model_comparison/land_2019_2020_2018-10-24
 
 
 
-
-# ============================================================================
-# Option 2: Hard-coded dates (uncomment to use)
-# ============================================================================
-# Define dates to process (modify as needed)
-# dates=(
-#     "2018-10-18"
-#     "2020-01-04"
-#     "2020-01-08"
-# )
-#
-# # Loop through each date
-# for date in "${dates[@]}"; do
-#     echo "Processing date: $date"
-#     python workspace/demo_combined.py --date "$date" --delete-modis
-#     if [ $? -ne 0 ]; then
-#         echo "Failed to process date: $date"
-#     else
-#         echo "Successfully processed: $date"
-#     fi
-#     echo ""
-# done
