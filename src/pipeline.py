@@ -273,10 +273,38 @@ def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     Handles CSVs generated before these engineered features were added to
     fitting_data_correction.py.  A copy is made only if at least one column
     needs to be added.
+
+    Raises
+    ------
+    ValueError
+        If a derived column is missing AND one or more of its required base
+        columns are also absent.  This means the CSV is too old to recover
+        from and must be regenerated via fitting_data_correction.py.
     """
     missing = [c for c in _DERIVED_FEATURES if c not in df.columns]
     if not missing:
         return df
+
+    # Check that all base columns exist before touching df.
+    absent_base: dict[str, list[str]] = {}
+    for col in missing:
+        _, base_cols = _DERIVED_FEATURES[col]
+        bad = [b for b in base_cols if b not in df.columns]
+        if bad:
+            absent_base[col] = bad
+    if absent_base:
+        lines = "\n".join(
+            f"  {col!r} needs base column(s): {bases}"
+            for col, bases in absent_base.items()
+        )
+        raise ValueError(
+            f"Cannot derive {len(absent_base)} feature(s) — required base columns are "
+            f"missing from the CSV.\n{lines}\n\n"
+            "The CSV was generated before these columns existed.  "
+            "Re-run fitting_data_correction.py for all dates and rebuild the "
+            "combined CSV (raw_processing_multipe_dates) to fix this."
+        )
+
     df = df.copy()
     cos_sza = None  # compute once if needed by alb_*_over_cos_sza features
     for col in missing:
@@ -290,11 +318,10 @@ def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
             band = col.replace('_over_cos_sza', '')   # 'alb_o2a' / 'alb_wco2' / 'alb_sco2'
             df[col] = df[band].to_numpy(dtype=float) / cos_sza
         logger.debug("_ensure_derived_features: computed '%s' from base columns", col)
-    if missing:
-        logger.info(
-            "_ensure_derived_features: computed %d missing derived column(s): %s",
-            len(missing), missing,
-        )
+    logger.info(
+        "_ensure_derived_features: computed %d missing derived column(s): %s",
+        len(missing), missing,
+    )
     return df
 
 
