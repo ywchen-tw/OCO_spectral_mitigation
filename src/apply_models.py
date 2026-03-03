@@ -450,11 +450,11 @@ def main():
                         help='Dir containing ft_meta.pkl + model_best.pt.  '
                              'Defaults to <storage_dir>/results/model_ft_transformer/<suffix>/')
     parser.add_argument('--input',     default=None,
-                        help='Input CSV path.  '
-                             'Defaults to <storage_dir>/results/csv_collection/combined_2020_dates.csv')
+                        help='Input file path (.parquet or .csv).  '
+                             'Defaults to <storage_dir>/results/csv_collection/combined_2020_dates.parquet')
     parser.add_argument('--output',    default=None,
-                        help='Output CSV path.  '
-                             'Defaults to <storage_dir>/results/corrected<suffix>.csv')
+                        help='Output file path (.parquet or .csv).  '
+                             'Defaults to <storage_dir>/results/corrected<suffix>.parquet')
     parser.add_argument('--plot-dir',  default=None,
                         help='Output directory for comparison plots.  '
                              'Defaults to <storage_dir>/results/comparison/<suffix>/')
@@ -482,7 +482,7 @@ def main():
     ridge_dir     = _abs(args.ridge_dir) or str(lr_dir)
     mlp_dir       = _abs(args.mlp_dir)   or str(lr_dir)
     ft_dir        = _abs(args.ft_dir)    or str(ft_dir_def)
-    input_path    = _abs(args.input)     or str(storage_dir / 'results/csv_collection/combined_2020_dates.csv')
+    input_path    = _abs(args.input)     or str(storage_dir / 'results/csv_collection/combined_2020_dates.parquet')
 
     # All outputs go into a sub-folder named after the input CSV stem.
     _input_stem = Path(input_path).stem          # e.g. "combined_2020_dates"
@@ -491,8 +491,8 @@ def main():
         _base_dir = _base_dir / suffix
 
     plot_dir      = _abs(args.plot_dir)  or str(_base_dir / 'plots')
-    # CSV always lands in plot_dir; --output controls only the filename, not the directory.
-    _out_name   = Path(args.output).name if args.output else f'corrected{suffix_tag}.csv'
+    # Output lands in plot_dir; --output controls only the filename, not the directory.
+    _out_name   = Path(args.output).name if args.output else f'corrected{suffix_tag}.parquet'
     output_path = str(Path(plot_dir) / _out_name)
 
     # ── Load pipeline ──────────────────────────────────────────────────────
@@ -514,9 +514,9 @@ def main():
               "--ridge-dir, --mlp-dir, --ft-dir.", file=sys.stderr)
         sys.exit(1)
 
-    # ── Load + filter input CSV ────────────────────────────────────────────
+    # ── Load + filter input ────────────────────────────────────────────────
     print(f"\nLoading input: {input_path}", flush=True)
-    df = pd.read_csv(input_path)
+    df = pd.read_parquet(input_path) if input_path.endswith('.parquet') else pd.read_csv(input_path)
     print(f"  Rows loaded: {len(df):,}", flush=True)
 
     df = df[df['sfc_type'] == sfc_type]
@@ -574,10 +574,13 @@ def main():
         if not has_xco2_bc:
             logger.info("'xco2_bc' column not present — skipping anomaly re-computation.")
 
-    # ── Save output CSV ────────────────────────────────────────────────────
+    # ── Save output ────────────────────────────────────────────────────────
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    df_out.to_csv(out_path, index=False)
+    if str(out_path).endswith('.parquet'):
+        df_out.to_parquet(out_path, index=False, compression='zstd')
+    else:
+        df_out.to_csv(out_path, index=False)
     print(f"\nOutput saved → {out_path}  ({len(df_out):,} rows)", flush=True)
 
     added = [c for c in df_out.columns if c not in df.columns]
