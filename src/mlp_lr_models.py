@@ -329,7 +329,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         print(f"  MLP parameters: {n_params:,}  |  train samples: {len(X_train):,}  "
               f"|  ratio: {len(X_train)/n_params:.2f}", flush=True)
 
-        optimizer = torch.optim.AdamW(mlp.parameters(), lr=6e-4, weight_decay=5e-4)
+        optimizer = torch.optim.AdamW(mlp.parameters(), lr=6e-4, weight_decay=1e-3)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=150, eta_min=1e-6)
 
         train_losses, val_losses = [], []
