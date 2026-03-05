@@ -72,7 +72,7 @@ class _MLP(nn.Module):
     training; MLPAdapter handles denormalisation at inference time.
     """
 
-    def __init__(self, n: int, d_model: int = 256,
+    def __init__(self, n: int, d_model: int = 128,
                  n_blocks: int = 3, dropout: float = 0.25):
         super().__init__()
         self.input_proj = nn.Sequential(
