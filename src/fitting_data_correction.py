@@ -270,6 +270,8 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     
     final_dict['log_P'] = np.log10(combined.get('psfc'))  # Logarithm of surface pressure
     final_dict['dp_psfc_ratio'] = combined.get('dp') / combined.get('psfc')  # Ratio of dp to surface pressure
+    final_dict['psfc_prior'] = combined.get('psfc') - combined.get('dp')  # Prior surface pressure estimate
+    final_dict['dp_psfc_prior_ratio'] = combined.get('dp') / (combined.get('psfc') - combined.get('dp'))  # Ratio of dp to prior surface pressure
     fs_rel_0 = combined.get('fs_rel')
     fs_rel_0[fs_rel_0 < 0] = 0  # Set any negative relative humidity values to 0
     fs_rel_0[np.isnan(fs_rel_0)] = 0  # Set any NaN relative humidity values to 0
@@ -377,15 +379,15 @@ def main():
     #              ]  
     
         
-    # for date in date_list:
-    #     date_dt = datetime.strptime(date, '%Y%m%d')
-    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    for date in date_list:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
-    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
-    csv_output_dir = os.path.join(fdir, 'csv_collection')
-    output_fname = 'combined_2019_dates.parquet'
-    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+    # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    # csv_output_dir = os.path.join(fdir, 'csv_collection')
+    # output_fname = 'combined_2016_2020_dates.parquet'
+    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()

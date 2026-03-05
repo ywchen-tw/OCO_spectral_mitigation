@@ -46,8 +46,10 @@ def _cuda_available() -> bool:
 
 # ─── Custom objective ───────────────────────────────────────────────────────────
 
-def _huber_l1_pred_obj(y_pred: np.ndarray, dtrain) -> tuple:
+def _huber_l1_pred_obj(y_true: np.ndarray, y_pred: np.ndarray) -> tuple:
     """Custom XGBoost objective: Huber loss + λ·|ŷ| prediction shrinkage.
+
+    XGBRegressor sklearn API calls custom objectives as fn(labels, preds).
 
     Mirrors the `+ 0.05 * pred.abs().mean()` term added to the MLP/Transformer
     training losses — pushing leaf weights toward zero when signal is weak so
@@ -58,7 +60,6 @@ def _huber_l1_pred_obj(y_pred: np.ndarray, dtrain) -> tuple:
     """
     delta = 1.0   # Huber transition point (ppm)
     lam   = 0.05  # L1 penalty weight — same as neural net models
-    y_true   = dtrain.get_label()
     residual = y_pred - y_true          # sign convention: ŷ − y
     abs_r    = np.abs(residual)
     grad = np.where(abs_r <= delta, residual, delta * np.sign(residual))
