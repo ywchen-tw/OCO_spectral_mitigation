@@ -43,7 +43,7 @@ GPU_MONITOR_PID=$!
 #  --sfc_type 1 --suffix land_2016_2020
 
 python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
- --sfc_type 0 --suffix ocean_2016_2020_2
+ --sfc_type 0 --suffix ocean_2016_2020_3
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
 
