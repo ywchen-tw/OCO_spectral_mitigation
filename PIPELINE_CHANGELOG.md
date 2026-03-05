@@ -314,7 +314,7 @@ Both `mlp_lr_models.py` and `models_transformer.py` have identical feature lists
 
 ```bash
 # 1. Fit pipeline once
-python src/pipeline.py --data results/csv_collection/combined_2017_2021_dates.csv --sfc-type 0 --out results/train_data/pipeline_ocean_2017_2020.pkl
+python src/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet --sfc-type 0 --out results/train_data/pipeline_ocean_2016_2020.pkl
 
 python src/pipeline.py --data results/csv_collection/combined_2020-01-01_all_orbits.csv --sfc-type 0 --out results/train_data/pipeline_ocean_20200101.pkl
 
@@ -390,7 +390,7 @@ python src/apply_models.py \
   --ft-dir    results/model_ft_transformer/ocean_20200201/ \
   --xgb-dir   results/model_xgb/ocean_20200201/ \
   --hybrid-dir results/model_hybrid/ocean_20200201/ \
-  --input     results/csv_collection/combined_2020-01-01_all_orbits.csv  \
+  --input     results/csv_collection/combined_2020-01-01_all_orbits.parquet  \
   --output    corrected.csv \
   --plot-dir  results/model_comparison/ocean_20200201
 

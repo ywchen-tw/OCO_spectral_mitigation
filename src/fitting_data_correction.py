@@ -279,6 +279,10 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['pol_ang_rad'] = np.radians(combined.get('pol_angle'))  # Convert polarization angle to radians
     
     
+    final_dict['o2a_k2_over_k1'] = combined.get('o2a_k2_fitting') / combined.get('o2a_k1_fitting')
+    final_dict['wco2_k2_over_k1'] = combined.get('wco2_k2_fitting') / combined.get('wco2_k1_fitting')
+    final_dict['sco2_k2_over_k1'] = combined.get('sco2_k2_fitting') / combined.get('sco2_k1_fitting')    
+    
     final_dict['cos_glint_angle'] = np.cos(np.radians(combined.get('glint_angle')))
     final_dict['glint_prox'] = np.exp(-1 * combined.get('glint_angle') / 10.0) # Decay constant of 10 degrees
 
@@ -379,10 +383,10 @@ def main():
     #              ]  
     
         
-    # for date in date_list:
-    #     date_dt = datetime.strptime(date, '%Y%m%d')
-    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    for date in date_list:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
     date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
     csv_output_dir = os.path.join(fdir, 'csv_collection')
