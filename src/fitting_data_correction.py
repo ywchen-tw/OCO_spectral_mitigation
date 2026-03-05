@@ -373,12 +373,12 @@ def main():
                  '20200903', '20201001', '20201101', '20201201'
                  ]  
     
-    date_list = ['20180221', '20180313', '20180710', '20180902',
-                 '20181024', '20181129', '20181130',
-                 '20200115', '20200211', '20200330', '20200415', 
-                 '20200517', '20200906',
-                 '20201005', '20201224', 
-                 '20210210', '20210424', '20211229']  
+    # date_list = ['20180221', '20180313', '20180710', '20180902',
+    #              '20181024', '20181129', '20181130',
+    #              '20200115', '20200211', '20200330', '20200415', 
+    #              '20200517', '20200906',
+    #              '20201005', '20201224', 
+    #              '20210210', '20210424', '20211229']  
     
     # date_list = [
     #             #  '20160801',
@@ -387,15 +387,15 @@ def main():
     #              ]  
     
         
-    for date in date_list:
-        date_dt = datetime.strptime(date, '%Y%m%d')
-        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    # for date in date_list:
+    #     date_dt = datetime.strptime(date, '%Y%m%d')
+    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
-    # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
-    # csv_output_dir = os.path.join(fdir, 'csv_collection')
-    # output_fname = 'combined_2016_2020_dates.parquet'
-    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    csv_output_dir = os.path.join(fdir, 'csv_collection')
+    output_fname = 'combined_2016_2020_dates.parquet'
+    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()
