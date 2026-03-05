@@ -379,7 +379,7 @@ class GeometryProcessor:
             logger.info(f"   Total cloud pixels: {len(cloud_lons)}")
             
             # Filter to only Cloudy and Uncertain pixels (flags: 0=Uncertain, 1=Cloudy)
-            valid_flags = (cloud_flags == 0) | (cloud_flags == 1)
+            valid_flags = (cloud_flags == 0) #| (cloud_flags == 1)
             cloudy_uncertain_indices = np.where(valid_flags)[0]
             
             cloudy_count = np.sum(cloud_flags == 1)
