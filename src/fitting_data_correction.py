@@ -287,6 +287,10 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['exp_wco2_intercept'] = np.exp(combined.get('wco2_intercept_fitting'))
     final_dict['exp_sco2_intercept'] = np.exp(combined.get('sco2_intercept_fitting'))
     
+    final_dict['1_over_cos_sza'] = 1 / cos_sza
+    final_dict['1_over_cos_vza'] = 1 / cos_vza
+    
+    
     final_dict['cos_glint_angle'] = np.cos(np.radians(combined.get('glint_angle')))
     final_dict['glint_prox'] = np.exp(-1 * combined.get('glint_angle') / 10.0) # Decay constant of 10 degrees
 
