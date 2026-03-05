@@ -318,7 +318,7 @@ class UncertainFTTransformerRefined(nn.Module):
     """
 
     def __init__(self, n_features, d_token=128, n_heads=8, n_layers=4, d_ff=512,
-                 tokenizer_type: str = 'mlp', drop_path_rate: float = 0.1,
+                 tokenizer_type: str = 'mlp', drop_path_rate: float = 0.15,
                  feature_names: list | None = None):
         super().__init__()
         self.n_features = n_features
@@ -854,7 +854,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
                                               d_token=d_token, n_heads=n_heads,
                                               n_layers=n_layers, d_ff=d_ff,
                                               feature_names=features).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
     _t_max    = patience if patience is not None else n_epochs
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=_t_max, eta_min=1e-6
@@ -864,10 +864,10 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
 
     if loss_fn == 'huber':
         def _loss(preds, targets):
-            return huber_pinball_loss(preds, targets, q_levels, delta=huber_delta)
+            return huber_pinball_loss(preds, targets, q_levels, delta=huber_delta) + 0.05 * preds[:, 1].abs().mean()
     else:
         def _loss(preds, targets):
-            return quantile_loss(preds, targets, q_levels)
+            return quantile_loss(preds, targets, q_levels) + 0.05 * preds[:, 1].abs().mean()
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     tqdm.write("=" * 60)
@@ -1514,7 +1514,7 @@ def main():
     if platform.system() == "Linux":
         data_name = 'combined_2016_2020_dates.parquet'  # for full 2-year dataset
     elif platform.system() == "Darwin":
-        data_name = 'combined_2020-01-01_all_orbits.parquet'  # for quick testing with one date's data
+        data_name = 'combined_2020-02-01_all_orbits.parquet'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_ft_transformer'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1596,11 +1596,16 @@ def main():
         else:
             epochs = 500  # More epochs for CURC training
 
+        d_token = 128
+        n_heads  = 8
+        n_layers = 4
+        d_ff    = 256
+        
         model = train_uncertainty_transformer(
             X_train, y_train, X_test, y_test,
             features=features,
             output_dir=str(output_dir),
-            d_token=256, n_heads=8, n_layers=4, d_ff=512,
+            d_token=d_token, n_heads=n_heads, n_layers=n_layers, d_ff=d_ff,
             batch_size=1024, n_epochs=epochs,
             patience=50,   # None = run all epochs; int = early-stop after N epochs with no improvement
             loss_fn=args.loss,
@@ -1609,7 +1614,7 @@ def main():
 
         # ── Persist adapter metadata (model_best.pt already written by training loop) ──
         FTAdapter(model, n_features=pipeline.n_features,
-                  d_token=256, n_heads=8, n_layers=4, d_ff=512,
+                  d_token=d_token, n_heads=n_heads, n_layers=n_layers, d_ff=d_ff,
                   tokenizer_type='mlp', feature_names=features).save(output_dir)
 
     # ── Evaluate: quantile width vs selected features ─────────────────────────

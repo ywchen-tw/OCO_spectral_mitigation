@@ -254,6 +254,10 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['xco2_bc_minus_apriori'] = combined.get('xco2_bc') - combined.get('xco2_apriori')
     final_dict['xco2_raw_minus_apriori'] = combined.get('xco2_raw') - combined.get('xco2_apriori')
     final_dict['xco2_bc_minus_raw'] = combined.get('xco2_bc') - combined.get('xco2_raw')
+    final_dict['xco2_raw_minus-xco2_strong_idp_minus'] = combined.get('xco2_raw') - combined.get('xco2_strong_idp')
+    final_dict['xco2_strong_idp_minus_apriori'] = combined.get('xco2_strong_idp') - combined.get('xco2_apriori')
+    final_dict['xco2_weak_idp_minus_apriori'] = combined.get('xco2_weak_idp') - combined.get('xco2_apriori')
+    final_dict['xco2_strong_idp_minus_raw'] = combined.get('xco2_strong_idp') - combined.get('xco2_raw')
     final_dict['airmass_sq'] = combined.get('airmass') ** 2
     final_dict['alb_o2a_over_cos_sza'] = combined.get('alb_o2a') / cos_sza
     final_dict['alb_wco2_over_cos_sza'] = combined.get('alb_wco2') / cos_sza
@@ -342,18 +346,18 @@ def main():
     #              '20200903', '20201001', '20201101', '20201201']  
     
     date_list = [
-                #  '20160101', '20160201', '20160301', '20160405',
-                #  '20160501', '20160601', '20160701', '20160801',
-                #  '20160901', '20161001', '20161101', '20161201',
-                #  '20170101', '20170201', '20170301', '20170401',
-                #  '20170501', '20170601', '20170701', 
-                #              '20171001', '20171105', '20171201',
+                 '20160101', '20160201', '20160301', '20160405',
+                 '20160501', '20160601', '20160701', '20160801',
+                 '20160901', '20161001', '20161101', '20161201',
+                 '20170101', '20170201', '20170301', '20170401',
+                 '20170501', '20170601', '20170701', 
+                             '20171001', '20171105', '20171201',
                 #  '20180101', '20180201', '20180301', '20180401',
                 #  '20180501', '20180601', '20180701', '20180801',
                 #  '20180901', '20181001', '20181101', '20181201',
-                 '20190101', '20190201', '20190301', '20190401',
-                 '20190501', '20190601', '20190701', '20190801',
-                 '20190901', '20191001', '20191101', '20191201',
+                #  '20190101', '20190201', '20190301', '20190401',
+                #  '20190501', '20190601', '20190701', '20190801',
+                #  '20190901', '20191001', '20191101', '20191201',
                 #  '20200101', '20200201', '20200301', '20200401',
                 #  '20200501', '20200601', '20200701', '20200801',
                 #  '20200903', '20201001', '20201101', '20201201'
@@ -373,15 +377,15 @@ def main():
     #              ]  
     
         
-    # for date in date_list:
-    #     date_dt = datetime.strptime(date, '%Y%m%d')
-    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    for date in date_list:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
-    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
-    csv_output_dir = os.path.join(fdir, 'csv_collection')
-    output_fname = 'combined_2019_dates.parquet'
-    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+    # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    # csv_output_dir = os.path.join(fdir, 'csv_collection')
+    # output_fname = 'combined_2019_dates.parquet'
+    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()

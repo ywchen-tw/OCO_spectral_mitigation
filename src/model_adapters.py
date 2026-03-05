@@ -1,10 +1,12 @@
 """Model adapters — uniform predict/save/load interface for all XCO2 bias-correction models.
 
 Provides:
-    ModelAdapter   — abstract base class
-    RidgeAdapter   — wraps sklearn Ridge (point predictor)
-    MLPAdapter     — wraps residual MLP with target normalisation (point predictor)
-    FTAdapter      — wraps UncertainFTTransformerRefined (quantile predictor)
+    ModelAdapter      — abstract base class
+    RidgeAdapter      — wraps sklearn Ridge (point predictor)
+    MLPAdapter        — wraps residual MLP with target normalisation (point predictor)
+    FTAdapter         — wraps UncertainFTTransformerRefined (quantile predictor)
+    XGBoostAdapter    — wraps xgboost.XGBRegressor (point predictor, native .ubj format)
+    HybridAdapter     — wraps HybridDualTower (quantile predictor)
 
 Also defines _ResBlock and _MLP at module level (extracted from the nested
 definitions that previously lived inside mitigation_test() in mlp_lr_models.py).
@@ -14,14 +16,20 @@ Usage (training script, after training):
     MLPAdapter(mlp_model, y_mean, y_std).save(output_dir)
     FTAdapter(ft_model, n_features=N, d_token=256, n_heads=8,
               n_layers=4, d_ff=256).save(output_dir)
+    XGBoostAdapter(xgb_model, feature_names=features).save(output_dir)
+    HybridAdapter(hybrid_model, n_features=N, d_token=128, n_heads=8,
+                  n_layers=4, d_ff=256, mlp_hidden=256, fusion_dim=128).save(output_dir)
 
 Usage (inference):
     ridge_adapter = RidgeAdapter.load(output_dir)
     mlp_adapter   = MLPAdapter.load(output_dir)
     ft_adapter    = FTAdapter.load(output_dir)
+    xgb_adapter   = XGBoostAdapter.load(output_dir)
+    hybrid_adapter = HybridAdapter.load(output_dir)
 
     y_hat    = ridge_adapter.predict(X)         # [N]
     q05, q50, q95 = ft_adapter.predict_quantiles(X)
+    q05, q50, q95 = hybrid_adapter.predict_quantiles(X)
 """
 
 import copy
@@ -65,13 +73,13 @@ class _MLP(nn.Module):
     """
 
     def __init__(self, n: int, d_model: int = 256,
-                 n_blocks: int = 4, dropout: float = 0.2):
+                 n_blocks: int = 3, dropout: float = 0.25):
         super().__init__()
         self.input_proj = nn.Sequential(
             nn.Linear(n, d_model),
             nn.LayerNorm(d_model),
             nn.GELU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.15),
         )
         self.blocks = nn.ModuleList([_ResBlock(d_model, dropout) for _ in range(n_blocks)])
         self.head   = nn.Linear(d_model, 1)
@@ -374,6 +382,197 @@ class FTAdapter(ModelAdapter):
             if meta.get('arch_version', 1) != cls._ARCH_VERSION:
                 logger.warning(
                     "FTAdapter checkpoint at %s has arch_version=%s (current=%s) — "
+                    "will retrain from scratch.",
+                    out, meta.get('arch_version', 1), cls._ARCH_VERSION,
+                )
+                return False
+        except Exception:
+            return False
+        return True
+
+
+# ─── XGBoost adapter ───────────────────────────────────────────────────────────
+
+class XGBoostAdapter(ModelAdapter):
+    """Wraps a fitted xgboost.XGBRegressor saved in native binary format (.ubj)."""
+
+    WEIGHTS_FILE = 'xgb_model.ubj'
+    META_FILE    = 'xgb_meta.pkl'
+
+    def __init__(self, model, feature_names=None):
+        self.model         = model
+        self.feature_names = list(feature_names) if feature_names is not None else None
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        return self.model.predict(X)
+
+    def save(self, output_dir) -> None:
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        self.model.save_model(str(out / self.WEIGHTS_FILE))
+        meta = {'feature_names': self.feature_names}
+        with open(out / self.META_FILE, 'wb') as f:
+            pickle.dump(meta, f)
+        logger.info("XGBoostAdapter saved → %s", out)
+
+    @classmethod
+    def load(cls, output_dir) -> 'XGBoostAdapter':
+        import xgboost as xgb
+        out          = Path(output_dir)
+        weights_path = out / cls.WEIGHTS_FILE
+        meta_path    = out / cls.META_FILE
+        if not weights_path.exists():
+            raise FileNotFoundError(f"XGBoostAdapter weights not found: {weights_path}")
+        if not meta_path.exists():
+            raise FileNotFoundError(f"XGBoostAdapter meta not found: {meta_path}")
+        model = xgb.XGBRegressor()
+        model.load_model(str(weights_path))
+        with open(meta_path, 'rb') as f:
+            meta = pickle.load(f)
+        logger.info("XGBoostAdapter loaded ← %s", out)
+        return cls(model=model, feature_names=meta.get('feature_names'))
+
+    @classmethod
+    def can_load(cls, output_dir) -> bool:
+        out = Path(output_dir)
+        return (out / cls.WEIGHTS_FILE).exists() and (out / cls.META_FILE).exists()
+
+
+# ─── Hybrid Dual-Tower adapter ─────────────────────────────────────────────────
+
+class HybridAdapter(ModelAdapter):
+    """Wraps HybridDualTower — supports predict() and predict_quantiles().
+
+    Files written by save():
+        model_hybrid_best.pt  — model weights (written by training loop)
+        hybrid_meta.pkl       — architecture hyperparameters for reconstruction
+
+    ``_ARCH_VERSION`` must be incremented whenever the HybridDualTower
+    state_dict key structure changes (e.g. after refactoring _MLPBranch).
+    Stale checkpoints are detected by ``can_load()`` causing the caller to
+    fall through to a fresh training run automatically.
+    """
+
+    CHECKPOINT_FILE = 'model_hybrid_best.pt'
+    META_FILE       = 'hybrid_meta.pkl'
+    _ARCH_VERSION   = 1
+
+    def __init__(self, model, n_features: int,
+                 d_token: int = 128, n_heads: int = 8, n_layers: int = 4,
+                 d_ff: int = 256, mlp_hidden: int = 256, fusion_dim: int = 128,
+                 tokenizer_type: str = 'mlp',
+                 feature_names: list | None = None):
+        self.model          = model
+        self.n_features     = n_features
+        self.d_token        = d_token
+        self.n_heads        = n_heads
+        self.n_layers       = n_layers
+        self.d_ff           = d_ff
+        self.mlp_hidden     = mlp_hidden
+        self.fusion_dim     = fusion_dim
+        self.tokenizer_type = tokenizer_type
+        self.feature_names  = feature_names
+
+    def predict(self, X: np.ndarray, batch_size: int = 512) -> np.ndarray:
+        """Return q50 predictions [N]."""
+        return self.predict_quantiles(X, batch_size=batch_size)[1]
+
+    def predict_quantiles(self, X: np.ndarray,
+                          batch_size: int = 512) -> tuple:
+        """Return (q05, q50, q95) each [N]."""
+        self.model.eval()
+        q05_list, q50_list, q95_list = [], [], []
+        for start in range(0, len(X), batch_size):
+            Xb = torch.tensor(X[start:start + batch_size], dtype=torch.float32)
+            with torch.no_grad():
+                preds = self.model(Xb)   # [batch, 3]
+            q05_list.append(preds[:, 0].numpy())
+            q50_list.append(preds[:, 1].numpy())
+            q95_list.append(preds[:, 2].numpy())
+            del Xb, preds
+        return (np.concatenate(q05_list),
+                np.concatenate(q50_list),
+                np.concatenate(q95_list))
+
+    def save(self, output_dir) -> None:
+        """Save hybrid_meta.pkl.  model_hybrid_best.pt is written by the training loop."""
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        meta = {
+            'n_features':     self.n_features,
+            'd_token':        self.d_token,
+            'n_heads':        self.n_heads,
+            'n_layers':       self.n_layers,
+            'd_ff':           self.d_ff,
+            'mlp_hidden':     self.mlp_hidden,
+            'fusion_dim':     self.fusion_dim,
+            'tokenizer_type': self.tokenizer_type,
+            'feature_names':  self.feature_names,
+            'arch_version':   self._ARCH_VERSION,
+        }
+        with open(out / self.META_FILE, 'wb') as f:
+            pickle.dump(meta, f)
+        logger.info("HybridAdapter meta saved → %s", out / self.META_FILE)
+
+    @classmethod
+    def load(cls, output_dir, device: torch.device | None = None) -> 'HybridAdapter':
+        out       = Path(output_dir)
+        meta_path = out / cls.META_FILE
+        ckpt_path = out / cls.CHECKPOINT_FILE
+
+        if not meta_path.exists():
+            raise FileNotFoundError(f"HybridAdapter meta not found: {meta_path}")
+        if not ckpt_path.exists():
+            raise FileNotFoundError(f"HybridAdapter checkpoint not found: {ckpt_path}")
+
+        with open(meta_path, 'rb') as f:
+            meta = pickle.load(f)
+
+        saved_ver = meta.get('arch_version', 1)
+        if saved_ver != cls._ARCH_VERSION:
+            raise RuntimeError(
+                f"HybridAdapter checkpoint arch_version={saved_ver} does not match "
+                f"current version={cls._ARCH_VERSION}.  "
+                f"Delete {out} and retrain to generate a compatible checkpoint."
+            )
+
+        device = device or torch.device('cpu')
+
+        from models_hybrid import HybridDualTower
+        model = HybridDualTower(
+            n_features=meta['n_features'],
+            d_token=meta['d_token'],
+            n_heads=meta['n_heads'],
+            n_layers=meta['n_layers'],
+            d_ff=meta['d_ff'],
+            mlp_hidden=meta['mlp_hidden'],
+            fusion_dim=meta['fusion_dim'],
+            tokenizer_type=meta.get('tokenizer_type', 'mlp'),
+            feature_names=meta.get('feature_names'),
+        ).to(device)
+
+        ckpt = torch.load(ckpt_path, map_location=device)
+        model.load_state_dict(ckpt['model_state_dict'])
+        model.eval()
+
+        logger.info(
+            "HybridAdapter loaded ← %s  (epoch=%s, val_loss=%s)",
+            out, ckpt.get('epoch', '?'), ckpt.get('val_loss', '?')
+        )
+        meta.pop('arch_version', None)
+        return cls(model=model, **meta)
+
+    @classmethod
+    def can_load(cls, output_dir) -> bool:
+        out = Path(output_dir)
+        if not ((out / cls.META_FILE).exists() and (out / cls.CHECKPOINT_FILE).exists()):
+            return False
+        try:
+            with open(out / cls.META_FILE, 'rb') as f:
+                meta = pickle.load(f)
+            if meta.get('arch_version', 1) != cls._ARCH_VERSION:
+                logger.warning(
+                    "HybridAdapter checkpoint at %s has arch_version=%s (current=%s) — "
                     "will retrain from scratch.",
                     out, meta.get('arch_version', 1), cls._ARCH_VERSION,
                 )

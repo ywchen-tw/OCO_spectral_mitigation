@@ -318,15 +318,60 @@ python src/pipeline.py --data results/csv_collection/combined_2017_2021_dates.cs
 
 python src/pipeline.py --data results/csv_collection/combined_2020-01-01_all_orbits.csv --sfc-type 0 --out results/train_data/pipeline_ocean_20200101.pkl
 
+python src/pipeline.py --data results/csv_collection/combined_2020-02-01_all_orbits.parquet --sfc-type 0 --out results/train_data/pipeline_ocean_20200201.pkl
+
 # 2a. Train Ridge + MLP
 python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2017_2020.pkl --sfc_type 0 --suffix ocean_2017_2020
 
 python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_20200101.pkl --sfc_type 0 --suffix ocean_20200101_2
 
+python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_20200201.pkl --sfc_type 0 --suffix ocean_20200201
+
 # 2b. Train FT-Transformer (independently, e.g. on HPC)
 python src/models_transformer.py --pipeline results/train_data/pipeline_ocean_2017_2020.pkl --sfc_type 0 --suffix ocean_2017_2020
 
 python src/models_transformer.py --pipeline results/train_data/pipeline_ocean_20200101.pkl --sfc_type 0 --suffix ocean_20200101_2
+
+python src/models_transformer.py --pipeline results/train_data/pipeline_ocean_20200201.pkl --sfc_type 0 --suffix ocean_20200201
+
+# 2c. XGBoost 
+
+python src/xgb_models.py \
+  --sfc_type 0 \
+  --suffix   ocean_2016_2020 \
+  --pipeline results/train_data/pipeline_ocean_2016_2020.pkl
+
+python src/xgb_models.py \
+  --sfc_type 1 \
+  --suffix   land_2016_2020 \
+  --pipeline results/train_data/pipeline_land_2016_2020.pkl
+
+python src/xgb_models.py \
+  --sfc_type 0 \
+  --suffix   ocean_ocean_20200101 \
+  --pipeline results/train_data/pipeline_ocean_20200101.pkl
+
+python src/xgb_models.py \
+  --sfc_type 0 \
+  --suffix   ocean_ocean_20200201 \
+  --pipeline results/train_data/pipeline_ocean_20200201.pkl
+
+# 2d. hybrid
+
+python src/models_hybrid.py \
+  --sfc_type 0 \
+  --suffix   ocean_20200101 \
+  --pipeline results/train_data/pipeline_ocean_20200101.pkl
+
+python src/models_hybrid.py \
+  --sfc_type 0 \
+  --suffix   ocean_20200201 \
+  --pipeline results/train_data/pipeline_ocean_20200201.pkl
+
+python src/models_hybrid.py \
+  --sfc_type 1 \
+  --suffix   land_2016_2020 \
+  --pipeline results/train_data/pipeline_land_2016_2020.pkl
 
 # 3. Inference + comparison on new data
 python src/apply_models.py \

@@ -1,4 +1,4 @@
-"""apply_models.py — apply trained Ridge/MLP/FT models to new data.
+"""apply_models.py — apply trained Ridge/MLP/FT/XGBoost/Hybrid models to new data.
 
 Loads a shared FeaturePipeline and whichever model adapters are available,
 applies all of them to an input CSV, and writes an output CSV with the
@@ -35,12 +35,16 @@ Output layout (per input file, under <plot_dir>/<input_stem>/):
     xco2bc_comparison_regime.png     ┘
 
 Prediction columns added to output:
-    ridge_pred, mlp_pred, ft_q05, ft_q50, ft_q95, ft_uncertainty
-    (+ ridge_anomaly, mlp_anomaly, ft_anomaly when orbit metadata present)
+    ridge_pred, mlp_pred, ft_q05, ft_q50, ft_q95, ft_uncertainty, xgb_pred,
+    hybrid_q05, hybrid_q50, hybrid_q95, hybrid_uncertainty
+    (+ ridge_anomaly, mlp_anomaly, ft_anomaly, xgb_anomaly, hybrid_anomaly
+       when orbit metadata present)
 """
 
 import argparse
 import logging
+import pickle
+import re
 import sys
 from pathlib import Path
 
@@ -51,7 +55,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).parent))
 
 from pipeline import FeaturePipeline
-from model_adapters import RidgeAdapter, MLPAdapter, FTAdapter
+from model_adapters import RidgeAdapter, MLPAdapter, FTAdapter, XGBoostAdapter, HybridAdapter
 from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
@@ -76,6 +80,110 @@ def _try_load(adapter_cls, adapter_dir, label: str):
     except Exception as exc:
         logger.warning("%s: load failed (%s) — skipping.", label, exc)
         return None
+
+
+def _infer_ft_meta_from_checkpoint(ckpt_path: Path) -> dict:
+    """Infer FTAdapter meta dict from a model_best.pt state dict.
+
+    Reads key shapes to recover n_features, d_token, n_layers, d_ff, and
+    tokenizer_type.  n_heads cannot be read from weights; defaults to 8 (the
+    training-script default), falling back to 4 if d_token is not divisible.
+    feature_names is set to a list of dummy strings when group_emb is present
+    so that UncertainFTTransformerRefined creates group_emb; the actual
+    feature_to_group buffer is then overwritten by load_state_dict.
+    """
+    import torch
+    ckpt = torch.load(str(ckpt_path), map_location='cpu')
+    sd   = ckpt['model_state_dict']
+
+    # ── tokenizer type, n_features, d_token ───────────────────────────────
+    if 'tokenizer.weight' in sd:
+        tokenizer_type = 'linear'
+        n_features     = sd['tokenizer.weight'].shape[0]
+        d_token        = sd['tokenizer.weight'].shape[1]
+    else:
+        tokenizer_type = 'mlp'
+        tok_idxs: set[int] = set()
+        for k in sd:
+            m = re.match(r'tokenizer\.tokenizers\.(\d+)\.', k)
+            if m:
+                tok_idxs.add(int(m.group(1)))
+        n_features = len(tok_idxs)
+        # MLPTokenizer: tokenizers[i] = Linear(1→d//2) + GELU + Linear(d//2→d)
+        d_token = int(sd['tokenizer.tokenizers.0.2.weight'].shape[0])
+
+    # ── n_layers ──────────────────────────────────────────────────────────
+    layer_idxs: set[int] = set()
+    for k in sd:
+        m = re.match(r'layers\.(\d+)\.', k)
+        if m:
+            layer_idxs.add(int(m.group(1)))
+    n_layers = len(layer_idxs) if layer_idxs else 4
+
+    # ── d_ff (GRN hidden size = first Linear in dense seq) ───────────────
+    d_ff = int(sd['layers.0.ff.dense.0.weight'].shape[0])
+
+    # ── n_heads: not encoded in weights; use training default ─────────────
+    n_heads = 8
+    if d_token % n_heads != 0:
+        n_heads = 4   # fall back to next common divisor
+
+    # ── group_emb present → need dummy feature_names to trigger creation ──
+    has_group_emb = 'group_emb.weight' in sd
+    feature_names = [f'_f{i}' for i in range(n_features)] if has_group_emb else None
+
+    return {
+        'n_features':     n_features,
+        'd_token':        d_token,
+        'n_heads':        n_heads,
+        'n_layers':       n_layers,
+        'd_ff':           d_ff,
+        'tokenizer_type': tokenizer_type,
+        'feature_names':  feature_names,
+        'arch_version':   FTAdapter._ARCH_VERSION,
+    }
+
+
+def _load_ft_with_bootstrap(ft_dir: str | None) -> 'FTAdapter | None':
+    """Load FTAdapter, creating ft_meta.pkl from model_best.pt if absent.
+
+    Normal path  : both ft_meta.pkl and model_best.pt present → _try_load.
+    Bootstrap    : model_best.pt exists but ft_meta.pkl missing → infer arch
+                   params from state dict, write ft_meta.pkl, then load.
+    Missing ckpt : return None with a warning (nothing to bootstrap from).
+    """
+    if ft_dir is None:
+        return None
+
+    out       = Path(ft_dir)
+    ckpt_path = out / FTAdapter.CHECKPOINT_FILE
+    meta_path = out / FTAdapter.META_FILE
+
+    if FTAdapter.can_load(ft_dir):
+        return _try_load(FTAdapter, ft_dir, 'FT')
+
+    if ckpt_path.exists() and not meta_path.exists():
+        print(f"  [FT] ft_meta.pkl missing — inferring from {ckpt_path.name} …", flush=True)
+        try:
+            meta = _infer_ft_meta_from_checkpoint(ckpt_path)
+        except Exception as exc:
+            logger.warning("FT: could not infer meta from checkpoint (%s) — skipping.", exc)
+            return None
+
+        with open(meta_path, 'wb') as f:
+            pickle.dump(meta, f)
+        print(
+            f"  [FT] ft_meta.pkl created  "
+            f"n_features={meta['n_features']}  d_token={meta['d_token']}  "
+            f"n_layers={meta['n_layers']}  d_ff={meta['d_ff']}  "
+            f"tokenizer={meta['tokenizer_type']}  "
+            f"group_emb={'yes' if meta['feature_names'] else 'no'}",
+            flush=True,
+        )
+        return _try_load(FTAdapter, ft_dir, 'FT')
+
+    logger.warning("FT: adapter files not found in %s — skipping.", ft_dir)
+    return None
 
 
 def _recompute_anomaly(df: pd.DataFrame,
@@ -282,7 +390,8 @@ def _plot_anomaly_scatter_hist(df_out: pd.DataFrame, active: list,
     compute_xco2_anomaly_date_id step.
     """
     # Map model name → recomputed anomaly column
-    _ANOM_COL = {'Ridge': 'ridge_anomaly', 'MLP': 'mlp_anomaly', 'FT': 'ft_anomaly'}
+    _ANOM_COL = {'Ridge': 'ridge_anomaly', 'MLP': 'mlp_anomaly', 'FT': 'ft_anomaly',
+                 'XGBoost': 'xgb_anomaly', 'Hybrid': 'hybrid_anomaly'}
 
     # Only include models that have a proper recomputed anomaly column.
     # The raw prediction col (ridge_pred / mlp_pred / ft_q50) is the model's
@@ -365,9 +474,11 @@ def _comparison_plots(df_out: pd.DataFrame, available: set,
 
     # ── Scatter panels ─────────────────────────────────────────────────────
     pred_cols = {
-        'Ridge': ('ridge_pred',  'orange'),
-        'MLP':   ('mlp_pred',    'limegreen'),
-        'FT':    ('ft_q50',      'purple'),
+        'Ridge':   ('ridge_pred',  'orange'),
+        'MLP':     ('mlp_pred',    'limegreen'),
+        'FT':      ('ft_q50',      'purple'),
+        'XGBoost': ('xgb_pred',    'crimson'),
+        'Hybrid':  ('hybrid_q50',  'deepskyblue'),
     }
     active = [(name, col, color)
               for name, (col, color) in pred_cols.items()
@@ -453,7 +564,7 @@ def _process_one_file(
     plot_dir: str,
     suffix_tag: str,
     pipeline,
-    ridge, mlp, ft,
+    ridge, mlp, ft, xgb, hybrid,
     available: set,
     sfc_type: int,
 ) -> None:
@@ -504,6 +615,18 @@ def _process_one_file(
         df_out['ft_q95']         = q95
         df_out['ft_uncertainty'] = np.clip(q95 - q05, 0, None)
 
+    if xgb is not None:
+        print("Predicting with XGBoost …", flush=True)
+        df_out['xgb_pred'] = xgb.predict(X)
+
+    if hybrid is not None:
+        print("Predicting with Hybrid …", flush=True)
+        h_q05, h_q50, h_q95          = hybrid.predict_quantiles(X)
+        df_out['hybrid_q05']          = h_q05
+        df_out['hybrid_q50']          = h_q50
+        df_out['hybrid_q95']          = h_q95
+        df_out['hybrid_uncertainty']  = np.clip(h_q95 - h_q05, 0, None)
+
     # ── Anomaly re-computation ─────────────────────────────────────────────
     has_orbit_cols = _ORBIT_COLS.issubset(df_out.columns)
     has_xco2_bc    = 'xco2_bc' in df_out.columns
@@ -523,6 +646,14 @@ def _process_one_file(
         if ft is not None:
             corrected = xco2_bc - df_out['ft_q50'].to_numpy()
             df_out['ft_anomaly'] = _recompute_anomaly(df_out, corrected, 'FT')
+
+        if xgb is not None:
+            corrected = xco2_bc - df_out['xgb_pred'].to_numpy()
+            df_out['xgb_anomaly'] = _recompute_anomaly(df_out, corrected, 'XGBoost')
+
+        if hybrid is not None:
+            corrected = xco2_bc - df_out['hybrid_q50'].to_numpy()
+            df_out['hybrid_anomaly'] = _recompute_anomaly(df_out, corrected, 'Hybrid')
     else:
         if not has_orbit_cols:
             logger.info("Orbit metadata columns not present — skipping anomaly re-computation.")
@@ -546,7 +677,9 @@ def _process_one_file(
     for _c in ('sounding_id', 'time', 'footprint_id', 'lon', 'lat', 'cld_dist_km', 'xco2_bc', 'xco2_bc_anomaly'):
         if _c in df_out.columns:
             _plot_data[_c] = df_out[_c].values
-    for _model, _pred_col in [('ridge', 'ridge_pred'), ('mlp', 'mlp_pred'), ('ft', 'ft_q50')]:
+    for _model, _pred_col in [('ridge', 'ridge_pred'), ('mlp', 'mlp_pred'),
+                               ('ft', 'ft_q50'), ('xgb', 'xgb_pred'),
+                               ('hybrid', 'hybrid_q50')]:
         if _pred_col not in df_out.columns:
             continue
         _plot_data[_pred_col] = df_out[_pred_col].to_numpy(dtype=np.float32)
@@ -555,7 +688,8 @@ def _process_one_file(
                 df_out['xco2_bc'].to_numpy(dtype=np.float32)
                 - df_out[_pred_col].to_numpy(dtype=np.float32)
             )
-    for _c in ('ft_uncertainty', 'ridge_anomaly', 'mlp_anomaly', 'ft_anomaly'):
+    for _c in ('ft_uncertainty', 'hybrid_uncertainty',
+               'ridge_anomaly', 'mlp_anomaly', 'ft_anomaly', 'xgb_anomaly', 'hybrid_anomaly'):
         if _c in df_out.columns:
             _plot_data[_c] = df_out[_c].values
     _plot_path = file_dir / f'plot_data{suffix_tag}.parquet'
@@ -593,6 +727,12 @@ def main():
     parser.add_argument('--ft-dir',    default=None,
                         help='Dir containing ft_meta.pkl + model_best.pt.  '
                              'Defaults to <storage_dir>/results/model_ft_transformer/<suffix>/')
+    parser.add_argument('--xgb-dir',   default=None,
+                        help='Dir containing xgb_model.ubj + xgb_meta.pkl.  '
+                             'Defaults to <storage_dir>/results/model_xgb/<suffix>/')
+    parser.add_argument('--hybrid-dir', default=None,
+                        help='Dir containing model_hybrid_best.pt + hybrid_meta.pkl.  '
+                             'Defaults to <storage_dir>/results/model_hybrid/<suffix>/')
     parser.add_argument('--input-dir',  default=None,
                         help='Directory of input files; all *.parquet and *.csv files inside are '
                              'processed in sorted order.  Combined with --input when both are given.')
@@ -621,6 +761,8 @@ def main():
     suffix       = args.suffix
     lr_dir       = storage_dir / 'results/model_mlp_lr'    / suffix if suffix else storage_dir / 'results/model_mlp_lr'
     ft_dir_def   = storage_dir / 'results/model_ft_transformer' / suffix if suffix else storage_dir / 'results/model_ft_transformer'
+    xgb_dir_def    = storage_dir / 'results/model_xgb'    / suffix if suffix else storage_dir / 'results/model_xgb'
+    hybrid_dir_def = storage_dir / 'results/model_hybrid' / suffix if suffix else storage_dir / 'results/model_hybrid'
     suffix_tag   = f'_{suffix}' if suffix else ''
 
     def _abs(p):
@@ -633,7 +775,9 @@ def main():
     pipeline_path = _abs(args.pipeline) or str(lr_dir / 'pipeline.pkl')
     ridge_dir     = _abs(args.ridge_dir) or str(lr_dir)
     mlp_dir       = _abs(args.mlp_dir)   or str(lr_dir)
-    ft_dir        = _abs(args.ft_dir)    or str(ft_dir_def)
+    ft_dir        = _abs(args.ft_dir)     or str(ft_dir_def)
+    xgb_dir       = _abs(args.xgb_dir)   or str(xgb_dir_def)
+    hybrid_dir    = _abs(args.hybrid_dir) or str(hybrid_dir_def)
 
     if args.input_dir:
         _idir = Path(str(_abs(args.input_dir) or args.input_dir))
@@ -667,15 +811,19 @@ def main():
     sfc_type = args.sfc_type if args.sfc_type is not None else pipeline.sfc_type
 
     # ── Load adapters (once) ───────────────────────────────────────────────
-    ridge = _try_load(RidgeAdapter, ridge_dir, 'Ridge')
-    mlp   = _try_load(MLPAdapter,   mlp_dir,   'MLP')
-    ft    = _try_load(FTAdapter,    ft_dir,    'FT')
+    ridge  = _try_load(RidgeAdapter,   ridge_dir,  'Ridge')
+    mlp    = _try_load(MLPAdapter,     mlp_dir,    'MLP')
+    ft     = _load_ft_with_bootstrap(ft_dir)
+    xgb    = _try_load(XGBoostAdapter, xgb_dir,    'XGBoost')
+    hybrid = _try_load(HybridAdapter,  hybrid_dir, 'Hybrid')
 
-    available = {name for name, adapter in [('ridge', ridge), ('mlp', mlp), ('ft', ft)]
+    available = {name for name, adapter in [('ridge', ridge), ('mlp', mlp),
+                                             ('ft', ft), ('xgboost', xgb),
+                                             ('hybrid', hybrid)]
                  if adapter is not None}
     if not available:
         print("ERROR: No adapter files found. Supply at least one of "
-              "--ridge-dir, --mlp-dir, --ft-dir.", file=sys.stderr)
+              "--ridge-dir, --mlp-dir, --ft-dir, --xgb-dir, --hybrid-dir.", file=sys.stderr)
         sys.exit(1)
 
     # base_dir: shared root under which each file gets its own <input_stem>/ subfolder.
@@ -695,7 +843,7 @@ def main():
             plot_dir=base_dir,
             suffix_tag=suffix_tag,
             pipeline=pipeline,
-            ridge=ridge, mlp=mlp, ft=ft,
+            ridge=ridge, mlp=mlp, ft=ft, xgb=xgb, hybrid=hybrid,
             available=available,
             sfc_type=sfc_type,
         )

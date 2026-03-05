@@ -47,7 +47,7 @@ def main():
     if platform.system() == "Linux":
         data_name = 'combined_2016_2020_dates.parquet'  # for full 2-year dataset
     elif platform.system() == "Darwin":
-        data_name = 'combined_2020-01-01_all_orbits.parquet'  # for quick testing with one date's data
+        data_name = 'combined_2020-02-01_all_orbits.parquet'  # for quick testing with one date's data
     base_dir   = storage_dir / 'results/model_mlp_lr'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -329,7 +329,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         print(f"  MLP parameters: {n_params:,}  |  train samples: {len(X_train):,}  "
               f"|  ratio: {len(X_train)/n_params:.2f}", flush=True)
 
-        optimizer = torch.optim.AdamW(mlp.parameters(), lr=3e-4, weight_decay=1e-4)
+        optimizer = torch.optim.AdamW(mlp.parameters(), lr=3e-4, weight_decay=5e-4)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=150, eta_min=1e-6)
 
         train_losses, val_losses = [], []
@@ -341,7 +341,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
             for bx, by in train_loader:
                 bx, by = bx.to(device), by.to(device)
                 optimizer.zero_grad()
-                loss = nn.functional.huber_loss(mlp(bx), by, delta=1.0)
+                pred = mlp(bx)
+                loss = nn.functional.huber_loss(pred, by, delta=1.0) + 0.05 * pred.abs().mean()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(mlp.parameters(), max_norm=1.0)
                 optimizer.step()
