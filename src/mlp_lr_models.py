@@ -291,6 +291,9 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
 
     train_ds = train_loader = best_state = None  # initialised here; set inside else-branch if training runs
 
+    def _loss(pred, by):
+        return nn.functional.huber_loss(pred, by, delta=1.0) + 0.05 * pred.abs().mean()
+
     if RidgeAdapter.can_load(output_dir) and MLPAdapter.can_load(output_dir):
         # ── Load from checkpoint, skip training ───────────────────────────
         print(f"  [checkpoint] Found existing adapter checkpoints → {output_dir}", flush=True)
@@ -319,7 +322,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
                 for start in range(0, len(X_test), 4096):
                     Xb = torch.tensor(X_test[start:start + 4096], dtype=torch.float32).to(device)
                     yb = torch.tensor(y_test_n[start:start + 4096], dtype=torch.float32).to(device)
-                    total += nn.functional.huber_loss(model_(Xb), yb, delta=1.0).item() * len(Xb)
+                    pred = model_(Xb)
+                    total += _loss(pred, yb).item() * len(Xb)
                     n += len(Xb)
                     del Xb, yb
             return total / n
@@ -342,7 +346,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
                 bx, by = bx.to(device), by.to(device)
                 optimizer.zero_grad()
                 pred = mlp(bx)
-                loss = nn.functional.huber_loss(pred, by, delta=1.0) + 0.05 * pred.abs().mean()
+                loss = _loss(pred, by)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(mlp.parameters(), max_norm=1.0)
                 optimizer.step()
@@ -378,13 +382,13 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         # ── Learning curve: train vs val loss ──────────────────────────
         fig_lc, ax_lc = plt.subplots(figsize=(8, 4))
         epochs_ran = range(1, len(train_losses) + 1)
-        ax_lc.plot(epochs_ran, train_losses, label='Train (Huber)', color='steelblue')
-        ax_lc.plot(epochs_ran, val_losses,   label='Val   (Huber)', color='tomato')
+        ax_lc.plot(epochs_ran, train_losses, label='Train (Huber + L1 reg)', color='steelblue')
+        ax_lc.plot(epochs_ran, val_losses,   label='Val   (Huber + L1 reg)', color='tomato')
         best_ep = int(np.argmin(val_losses)) + 1
         ax_lc.axvline(best_ep, color='gray', linestyle='--', linewidth=0.8,
                       label=f'Best val epoch {best_ep}')
         ax_lc.set_xlabel('Epoch')
-        ax_lc.set_ylabel('Huber loss (normalised target)')
+        ax_lc.set_ylabel('Huber + L1 reg loss (normalised target)')
         ax_lc.set_title('MLP Learning Curve — train vs validation')
         ax_lc.legend()
         fig_lc.tight_layout()
@@ -521,6 +525,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     # _val_loss is only defined in the training branch; guard before deletion
     if not _mlp_from_ckpt:
         del _val_loss
+    del _loss
     del _mlp_infer, mlp
     del X_pi, y_pi
     del y_train, y_test, X_train, X_test

@@ -259,7 +259,7 @@ def plot_xgb_learning_curve(model, output_dir: Path) -> None:
                label=f'Best round {best_round + 1}')
     ax.set_xlabel('Boosting round')
     ax.set_ylabel('MAE (ppm)')
-    ax.set_title('XGBoost Learning Curve — train vs validation (Huber + L1 pred penalty)')
+    ax.set_title('XGBoost Learning Curve — train vs validation (eval metric: MAE)')
     ax.legend()
     fig.tight_layout()
     fig.savefig(output_dir / 'xgb_learning_curve.png', dpi=150, bbox_inches='tight')
