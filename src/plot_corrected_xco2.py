@@ -2,12 +2,13 @@
 
 Reads plot_data.csv produced by apply_models.py and a TCCON NetCDF4 file.
 
-Figure layout (3 rows × 3 columns):
-  Row 1 : lon/lat scatter maps — Ridge-corrected | MLP-corrected | FT-corrected XCO₂
+Figure layout (3 rows × n_models columns, n_models = number of active models ≥ 3):
+  Row 1 : lon/lat scatter maps — one panel per active model correction
+          (Ridge | MLP | FT | XGBoost | Hybrid — only present models shown)
   Row 2 : lon/lat scatter maps — original XCO₂_bc | ideal-corrected | TCCON time series
   Row 3 : histogram — all corrected XCO₂ distributions vs TCCON
 
-Shared colorbar covers all lon/lat map panels (rows 1–2, cols 0–1).
+Shared colorbar covers all lon/lat map panels (rows 1–2, cols 0–2).
 
 Usage:
     python src/plot_corrected_xco2.py \\
@@ -46,9 +47,11 @@ from utils import get_storage_dir
 _CMAP = 'jet'
 
 _MODEL_CFGS = [
-    ('Ridge', 'ridge_corrected_xco2', 'orange'),
-    ('MLP',   'mlp_corrected_xco2',   'limegreen'),
-    ('FT',    'ft_corrected_xco2',    'purple'),
+    ('Ridge',   'ridge_corrected_xco2',  'orange'),
+    ('MLP',     'mlp_corrected_xco2',    'limegreen'),
+    ('FT',      'ft_corrected_xco2',     'purple'),
+    ('XGBoost', 'xgb_corrected_xco2',    'crimson'),
+    ('Hybrid',  'hybrid_corrected_xco2', 'deepskyblue'),
 ]
 
 
@@ -668,7 +671,8 @@ def main():
     # ── Shared colour range ───────────────────────────────────────────────────
     _pool = []
     for col in ('xco2_bc', 'ridge_corrected_xco2', 'mlp_corrected_xco2',
-                'ft_corrected_xco2', 'ideal_corrected_xco2'):
+                'ft_corrected_xco2', 'xgb_corrected_xco2', 'hybrid_corrected_xco2',
+                'ideal_corrected_xco2'):
         if col in oco.columns:
             _pool.append(oco[col].dropna().values)
     if len(tccon) > 0:
@@ -886,16 +890,18 @@ def main():
         map_extent = None
 
     # ── Figure ────────────────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(18, 16))
-    gs  = fig.add_gridspec(3, 4, hspace=0.50, wspace=0.30,
+    # n_map_cols: enough columns for all active models; row 2 always needs ≥3
+    n_map_cols = max(len(active), 3)
+    fig = plt.figure(figsize=(6 * n_map_cols + 2, 16))
+    gs  = fig.add_gridspec(3, n_map_cols + 1, hspace=0.50, wspace=0.30,
                             height_ratios=[1.0, 1.0, 0.75],
-                            width_ratios=[1.0, 1.0, 1.0, 0.07])
-    cbar_ax = fig.add_subplot(gs[0:2, 3])   # dedicated colorbar column
+                            width_ratios=[1.0] * n_map_cols + [0.07])
+    cbar_ax = fig.add_subplot(gs[0:2, n_map_cols])   # dedicated colorbar column
 
     map_axes = []   # collect lon/lat map axes for the shared colorbar
 
     # Row 1: model-corrected maps
-    for j, (name, col, _) in enumerate(active[:3]):
+    for j, (name, col, _) in enumerate(active[:n_map_cols]):
         ax = fig.add_subplot(gs[0, j])
         vals = oco[col].values
         _scatter_map(ax, lon_arr, lat_arr, vals,
@@ -904,7 +910,7 @@ def main():
                      bg_img=bg_img, bg_extent=bg_extent,
                      view_extent=map_extent)
         map_axes.append(ax)
-    for j in range(len(active), 3):          # hide unused slots
+    for j in range(len(active), n_map_cols):   # hide unused slots
         fig.add_subplot(gs[0, j]).set_visible(False)
 
     # Row 2 col 0: original XCO₂_bc
@@ -935,21 +941,46 @@ def main():
                   ha='center', va='center', transform=ax21.transAxes, fontsize=9)
         ax21.set_title('Ideal-corrected XCO₂', fontsize=9)
 
-    # Row 2 col 2: TCCON time series (ground station, fixed location)
+    # Row 2 cols 3+: hide any extra slots not used by fixed panels
+    for j in range(3, n_map_cols):
+        fig.add_subplot(gs[1, j]).set_visible(False)
+
+    # Row 2 col 2: nearest-cloud distance scatter
     ax22 = fig.add_subplot(gs[1, 2])
+    _cld_col = next((c for c in ('nearest_cloud_dist_km', 'cloud_dist_km', 'min_cloud_dist_km')
+                     if c in oco.columns), None)
+    if _cld_col:
+        _cld_vals = oco[_cld_col].values.astype(float)
+        _cld_finite = _cld_vals[np.isfinite(_cld_vals)]
+        _cld_vmax = float(np.nanpercentile(_cld_finite, 95)) if len(_cld_finite) > 0 else 100.0
+        _cld_norm = mcolors.Normalize(vmin=0.0, vmax=_cld_vmax)
+        _scatter_map(ax22, lon_arr, lat_arr, _cld_vals,
+                     'Nearest-cloud distance (km)',
+                     _cld_norm, 'viridis_r', tccon_lon, tccon_lat,
+                     bg_img=bg_img, bg_extent=bg_extent,
+                     view_extent=map_extent)
+        _sm_cld = mcm.ScalarMappable(norm=_cld_norm, cmap='viridis_r')
+        _sm_cld.set_array([])
+        plt.colorbar(_sm_cld, ax=ax22, fraction=0.046, pad=0.04).set_label('km', fontsize=7)
+    else:
+        ax22.text(0.5, 0.5, 'Cloud distance not available\n(no nearest_cloud_dist_km column)',
+                  ha='center', va='center', transform=ax22.transAxes, fontsize=9)
+        ax22.set_title('Nearest-cloud distance', fontsize=9)
+
+    # Row 3: histogram (left portion) | TCCON time series (rightmost map column)
+    ax3 = fig.add_subplot(gs[2, :n_map_cols - 1])
+    _histogram_panel(ax3, oco, tccon, vmin, vmax)
+
+    ax3_tccon = fig.add_subplot(gs[2, n_map_cols - 1])
     fp_times = None
     if 'time' in oco.columns:
         fp_times = pd.to_datetime(
             oco['time'], unit='s', utc=True, errors='coerce'
         ).dropna()
-    _tccon_panel(ax22, tccon, vmin, vmax,
+    _tccon_panel(ax3_tccon, tccon, vmin, vmax,
                  'TCCON XCO₂ (ppm)\n(ground station)',
                  fp_times=fp_times,
                  oco_vals=oco['xco2_bc'].values if 'xco2_bc' in oco.columns else None)
-
-    # Row 3: histogram spanning all columns; ideal-corrected on twinx
-    ax3 = fig.add_subplot(gs[2, :])
-    _histogram_panel(ax3, oco, tccon, vmin, vmax)
 
     # ── Shared colorbar for all lon/lat map panels ─────────────────────────────
     if map_axes:
