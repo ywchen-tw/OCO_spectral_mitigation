@@ -1054,6 +1054,13 @@ def main():
     # ── quality filter (snow excluded, surface split done below) ──────────────
     df = apply_quality_filter(df)
 
+    # ── scale exp_intercept by π ──────────────────────────────────────────────
+    # TODO: remove this once the π factor is absorbed into oco_fp_spec_anal.py
+    _exp_int_cols = ['exp_o2a_intercept', 'exp_wco2_intercept', 'exp_sco2_intercept']
+    for _col in _exp_int_cols:
+        if _col in df.columns:
+            df[_col] = df[_col] * np.pi
+
     # ── cloud-distance bins ───────────────────────────────────────────────────
     edges  = [0, 2, 5, 10, 15, 20, 30, 50]
     bins, labels = cld_dist_bins(edges)
