@@ -34,6 +34,8 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
+pip install xgboost
+
 # Log GPU utilisation every 10 s in background; killed automatically when job ends
 nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,memory.total,power.draw \
            --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}.csv &
