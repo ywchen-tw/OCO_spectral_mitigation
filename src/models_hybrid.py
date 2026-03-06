@@ -244,7 +244,7 @@ def train_hybrid_model(
         device = torch.device("cpu")
 
     pin      = device.type in ("cuda", "mps")
-    n_workers = min(4, os.cpu_count() or 1)
+    n_workers = min(8, os.cpu_count() or 1)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                               pin_memory=pin, num_workers=n_workers,
                               persistent_workers=n_workers > 0, prefetch_factor=2)
@@ -261,9 +261,13 @@ def train_hybrid_model(
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=5e-4)
-    _t_max    = patience if patience is not None else n_epochs
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=_t_max, eta_min=1e-6
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        max_lr=5e-4,
+        total_steps=n_epochs * len(train_loader),
+        pct_start=0.05,
+        div_factor=25,
+        final_div_factor=1000,
     )
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
 
@@ -287,7 +291,7 @@ def train_hybrid_model(
     tqdm.write(f"  Train size  : {len(train_ds):,}  |  Val size: {len(val_ds):,}")
     tqdm.write(f"  Batch size  : {batch_size}  |  Epochs: {n_epochs}")
     tqdm.write(f"  Early stop  : {'disabled' if patience is None else f'patience={patience}'}")
-    tqdm.write(f"  LR schedule : CosineAnnealingLR(T_max={_t_max}, eta_min=1e-6)")
+    tqdm.write(f"  LR schedule : OneCycleLR(max_lr=5e-4, warmup=5%, total_steps={n_epochs * len(train_loader):,})")
     tqdm.write(f"  Loss        : {loss_fn}" + (f"  (delta={huber_delta})" if loss_fn == 'huber' else ""))
     tqdm.write(f"  Checkpoint  : {ckpt_path}")
     tqdm.write("=" * 60)
@@ -314,6 +318,7 @@ def train_hybrid_model(
             grad_norm = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
+            scheduler.step()
             train_loss    += loss.item()
             grad_norm_sum += grad_norm.item()
 
@@ -357,7 +362,6 @@ def train_hybrid_model(
         else:
             epochs_no_improve += 1
 
-        scheduler.step()
         train_history.append((epoch, avg_train, avg_val))
 
         epoch_bar.set_postfix(
@@ -367,7 +371,7 @@ def train_hybrid_model(
             MAE=f"{val_mae:.4f}",
             R2=f"{val_r2:.4f}",
             gnorm=f"{avg_gnorm:.3f}",
-            lr=f"{scheduler.get_last_lr()[0]:.2e}",
+            lr=f"{optimizer.param_groups[0]['lr']:.2e}",
             saved="✓" if improved else "",
         )
 
@@ -592,7 +596,7 @@ def main():
             output_dir=str(output_dir),
             d_token=128, n_heads=8, n_layers=3, d_ff=256,
             mlp_hidden=256, fusion_dim=128,
-            batch_size=1024, n_epochs=epochs,
+            batch_size=1024 if platform.system() == "Darwin" else 4096, n_epochs=epochs,
             patience=50,
             loss_fn=args.loss,
             huber_delta=args.huber_delta,

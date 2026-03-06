@@ -842,7 +842,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
         device = torch.device("cpu")
 
     pin       = device.type in ("cuda", "mps")
-    n_workers = min(4, os.cpu_count() or 1)
+    n_workers = min(8, os.cpu_count() or 1)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                               pin_memory=pin, num_workers=n_workers,
                               persistent_workers=n_workers > 0, prefetch_factor=2)
@@ -855,9 +855,13 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
                                               n_layers=n_layers, d_ff=d_ff,
                                               feature_names=features).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-    _t_max    = patience if patience is not None else n_epochs
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=_t_max, eta_min=1e-6
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        max_lr=1e-3,
+        total_steps=n_epochs * len(train_loader),
+        pct_start=0.05,
+        div_factor=25,
+        final_div_factor=1000,
     )
     scaler    = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
     q_levels  = [0.05, 0.5, 0.95]
@@ -880,7 +884,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
     tqdm.write(f"  Train size  : {len(train_ds):,}  |  Val size: {len(val_ds):,}")
     tqdm.write(f"  Batch size  : {batch_size}  |  Epochs: {n_epochs}  |  Log every: {log_every}")
     tqdm.write(f"  Early stop  : {'disabled (patience=None)' if patience is None else f'patience={patience} epochs'}")
-    tqdm.write(f"  LR schedule : CosineAnnealingLR(T_max={_t_max}, eta_min=1e-6)")
+    tqdm.write(f"  LR schedule : OneCycleLR(max_lr=1e-3, warmup=5%, total_steps={n_epochs * len(train_loader):,})")
     tqdm.write(f"  Mixed prec. : {'GradScaler+autocast (CUDA)' if device.type == 'cuda' else 'autocast only (MPS)' if device.type == 'mps' else 'disabled (CPU)'}")
     tqdm.write(f"  Loss        : {loss_fn}" + (f"  (huber_delta={huber_delta})" if loss_fn == 'huber' else ""))
     ckpt_path = os.path.join(output_dir, 'model_best.pt')
@@ -911,6 +915,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
             grad_norm = nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
+            scheduler.step()
             train_loss    += loss.item()
             grad_norm_sum += grad_norm.item()
             batch_bar.set_postfix(loss=f"{loss.item():.5f}", gnorm=f"{grad_norm.item():.3f}")
@@ -953,7 +958,6 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
         else:
             epochs_no_improve += 1
 
-        scheduler.step()
         train_history.append((epoch, avg_train, avg_val))
 
         epoch_bar.set_postfix(
@@ -963,7 +967,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
             MAE=f"{val_mae:.4f}",
             R2=f"{val_r2:.4f}",
             gnorm=f"{avg_gnorm:.3f}",
-            lr=f"{scheduler.get_last_lr()[0]:.2e}",
+            lr=f"{optimizer.param_groups[0]['lr']:.2e}",
             saved="✓" if improved else "",
         )
 
@@ -1606,7 +1610,7 @@ def main():
             features=features,
             output_dir=str(output_dir),
             d_token=d_token, n_heads=n_heads, n_layers=n_layers, d_ff=d_ff,
-            batch_size=1024, n_epochs=epochs,
+            batch_size=1024 if platform.system() == "Darwin" else 4096, n_epochs=epochs,
             patience=50,   # None = run all epochs; int = early-stop after N epochs with no improvement
             loss_fn=args.loss,
             huber_delta=args.huber_delta,
