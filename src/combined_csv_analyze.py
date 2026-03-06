@@ -25,7 +25,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from matplotlib.gridspec import GridSpec
+
 from scipy import stats
 
 # ── path setup ────────────────────────────────────────────────────────────────
@@ -224,7 +224,7 @@ def plot_k1_k2_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):
             ax.fill_between(xs, q25, q75, color=col, alpha=0.25, label='IQR')
 
             # Pearson r
-            r, p = stats.pearsonr(xm, ym)
+            r, _ = stats.pearsonr(xm, ym)
             ax.set_title(f'{nm} {klabel} vs cld_dist   r={r:.3f}', fontsize=10)
             ax.set_xlabel('Cloud distance (km)', fontsize=9)
             ax.set_ylabel(f'{nm} {klabel}', fontsize=9)
@@ -330,6 +330,56 @@ def plot_k1_k2_binned_profile(df, bins, labels, outdir):
 
     fig.tight_layout()
     _save(fig, outdir, 'k1_k2_binned_profile.png')
+
+
+def plot_intercept_binned_profile(df, bins, labels, outdir):
+    """Mean ± SEM (bars) / ± std (shading) of the spectral exp_intercept per band."""
+    bands = [
+        ('exp_o2a_intercept',  'O2-A',   'C0'),
+        ('exp_wco2_intercept', 'WCO\u2082', 'C1'),
+        ('exp_sco2_intercept', 'SCO\u2082', 'C2'),
+    ]
+    avail = [(col, nm, c) for col, nm, c in bands if col in df.columns]
+    if not avail:
+        return
+
+    df = df.copy()
+    df['_bin'] = bin_by_cld_dist(df, bins, labels)
+    x = np.arange(len(labels))
+
+    fig, axes = plt.subplots(len(avail), 1, figsize=(7, 4 * len(avail)))
+    if len(avail) == 1:
+        axes = [axes]
+
+    for ax, (col, nm, color) in zip(axes, avail):
+        means = df.groupby('_bin', observed=True)[col].mean().reindex(labels)
+        stds  = df.groupby('_bin', observed=True)[col].std().reindex(labels)
+        ns    = df.groupby('_bin', observed=True)[col].count().reindex(labels).fillna(0).astype(int)
+        sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
+        ref_val = means.dropna().iloc[-1] if means.dropna().size else np.nan
+
+        ax.fill_between(x, (means - stds).values, (means + stds).values,
+                        color=color, alpha=0.15, label='\u00b1 1 std')
+        ax.errorbar(x, means.values, yerr=sems.values, fmt='o-',
+                    capsize=4, color=color, lw=1.5, label='mean \u00b1 SEM')
+        if np.isfinite(ref_val):
+            ax.axhline(ref_val, color='tomato', lw=2.5, linestyle='--', zorder=5,
+                       label=f'mean @ {labels[-1]} km = {ref_val:.4f}')
+        ax.legend(fontsize=7)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=30, fontsize=8)
+        ax.set_xlabel('Cloud distance (km)', fontsize=9)
+        ax.set_ylabel(f'{nm} exp_intercept', fontsize=9)
+        ax.set_title(f'{nm} exp_intercept: mean \u00b1 SEM (bars) / \u00b1 std (shading)', fontsize=10)
+        ax.grid(axis='y', alpha=0.3)
+        finite_means = means.dropna()
+        finite_stds  = stds.dropna()
+        if finite_means.size:
+            spread = max(finite_stds.max() * 1.5, (finite_means.max() - finite_means.min()) * 1.5, 1e-9)
+            ax.set_ylim(finite_means.min() - spread, finite_means.max() + spread)
+
+    fig.tight_layout()
+    _save(fig, outdir, 'exp_intercept_binned_profile.png')
 
 
 # ── 3. xco2_anomaly relationships ────────────────────────────────────────────
@@ -515,6 +565,155 @@ def plot_k1_k2_joint(df, outdir, max_dist=50):
     _save(fig, outdir, 'k1_vs_k2_joint_cld_dist.png')
 
 
+def plot_alb_binned_profile(df, bins, labels, outdir):
+    """Mean ± SEM (bars) / ± std (shading) of albedo per band vs cloud-distance bin."""
+    bands = [
+        ('alb_o2a',  'O2-A',   'C0'),
+        ('alb_wco2', 'WCO\u2082', 'C1'),
+        ('alb_sco2', 'SCO\u2082', 'C2'),
+    ]
+    avail = [(col, nm, c) for col, nm, c in bands if col in df.columns]
+    if not avail:
+        return
+
+    df = df.copy()
+    df['_bin'] = bin_by_cld_dist(df, bins, labels)
+    x = np.arange(len(labels))
+
+    fig, axes = plt.subplots(len(avail), 1, figsize=(7, 4 * len(avail)))
+    if len(avail) == 1:
+        axes = [axes]
+
+    for ax, (col, nm, color) in zip(axes, avail):
+        means = df.groupby('_bin', observed=True)[col].mean().reindex(labels)
+        stds  = df.groupby('_bin', observed=True)[col].std().reindex(labels)
+        ns    = df.groupby('_bin', observed=True)[col].count().reindex(labels).fillna(0).astype(int)
+        sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
+        ref_val = means.dropna().iloc[-1] if means.dropna().size else np.nan
+
+        ax.fill_between(x, (means - stds).values, (means + stds).values,
+                        color=color, alpha=0.15, label='\u00b1 1 std')
+        ax.errorbar(x, means.values, yerr=sems.values, fmt='o-',
+                    capsize=4, color=color, lw=1.5, label='mean \u00b1 SEM')
+        if np.isfinite(ref_val):
+            ax.axhline(ref_val, color='tomato', lw=2.5, linestyle='--', zorder=5,
+                       label=f'mean @ {labels[-1]} km = {ref_val:.4f}')
+        ax.legend(fontsize=7)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=30, fontsize=8)
+        ax.set_xlabel('Cloud distance (km)', fontsize=9)
+        ax.set_ylabel(f'{nm} albedo', fontsize=9)
+        ax.set_title(f'{nm} albedo: mean \u00b1 SEM (bars) / \u00b1 std (shading)', fontsize=10)
+        ax.grid(axis='y', alpha=0.3)
+        finite_means = means.dropna()
+        finite_stds  = stds.dropna()
+        if finite_means.size:
+            spread = max(finite_stds.max() * 1.5, (finite_means.max() - finite_means.min()) * 1.5, 1e-9)
+            ax.set_ylim(finite_means.min() - spread, finite_means.max() + spread)
+
+    fig.tight_layout()
+    _save(fig, outdir, 'alb_binned_profile.png')
+
+
+def plot_alb_vs_exp_intercept(df, outdir, n_roll=200):
+    """Scatter (hexbin) + rolling median of albedo vs exp_intercept for each band."""
+    bands = [
+        ('alb_o2a',  'exp_o2a_intercept',  'O2-A',   'C0'),
+        ('alb_wco2', 'exp_wco2_intercept', 'WCO\u2082', 'C1'),
+        ('alb_sco2', 'exp_sco2_intercept', 'SCO\u2082', 'C2'),
+    ]
+    avail = [(alb, eint, nm, c) for alb, eint, nm, c in bands
+             if alb in df.columns and eint in df.columns]
+    if not avail:
+        logger.warning("No alb/exp_intercept column pairs found — skipping plot")
+        return
+
+    fig, axes = plt.subplots(1, len(avail), figsize=(6 * len(avail), 5))
+    if len(avail) == 1:
+        axes = [axes]
+
+    for ax, (alb_col, eint_col, nm, col) in zip(axes, avail):
+        x = df[alb_col].values
+        y = df[eint_col].values
+        mask = np.isfinite(x) & np.isfinite(y)
+        xm, ym = x[mask], y[mask]
+
+        hb = ax.hexbin(xm, ym, gridsize=60, cmap='YlOrRd',
+                       mincnt=1, norm=mcolors.LogNorm())
+        plt.colorbar(hb, ax=ax, label='count')
+
+        xs, med, q25, q75 = rolling_median_iqr(xm, ym, n_pts=n_roll)
+        ax.plot(xs, med, color=col, lw=1.5, label='rolling median')
+        ax.fill_between(xs, q25, q75, color=col, alpha=0.25, label='IQR')
+
+        r, _ = stats.pearsonr(xm, ym)
+        ax.set_title(f'{nm}: albedo vs exp_intercept   r={r:.3f}', fontsize=10)
+        ax.set_xlabel(f'{nm} albedo', fontsize=9)
+        ax.set_ylabel(f'{nm} exp_intercept', fontsize=9)
+        ax.legend(fontsize=8)
+
+    fig.suptitle('Albedo vs exp_intercept — all bands', fontsize=12)
+    fig.tight_layout()
+    _save(fig, outdir, 'alb_vs_exp_intercept.png')
+
+
+def plot_alb_vs_exp_intercept_cross(df, outdir, n_roll=200):
+    """3×3 cross-band scatter: each exp_intercept (rows) vs each albedo (cols)."""
+    intercepts = [
+        ('exp_o2a_intercept',  'O2-A exp_intercept'),
+        ('exp_wco2_intercept', 'WCO\u2082 exp_intercept'),
+        ('exp_sco2_intercept', 'SCO\u2082 exp_intercept'),
+    ]
+    albedos = [
+        ('alb_o2a',  'O2-A albedo'),
+        ('alb_wco2', 'WCO\u2082 albedo'),
+        ('alb_sco2', 'SCO\u2082 albedo'),
+    ]
+    row_avail = [(col, lbl) for col, lbl in intercepts if col in df.columns]
+    col_avail = [(col, lbl) for col, lbl in albedos  if col in df.columns]
+    if not row_avail or not col_avail:
+        logger.warning("No exp_intercept/albedo columns found for cross-band plot — skipping")
+        return
+
+    nrows, ncols = len(row_avail), len(col_avail)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5.5 * ncols, 4.5 * nrows))
+    if nrows == 1:
+        axes = axes[np.newaxis, :]
+    if ncols == 1:
+        axes = axes[:, np.newaxis]
+
+    for ri, (int_col, int_lbl) in enumerate(row_avail):
+        for ci, (alb_col, alb_lbl) in enumerate(col_avail):
+            ax = axes[ri, ci]
+            x = df[alb_col].values
+            y = df[int_col].values
+            mask = np.isfinite(x) & np.isfinite(y)
+            xm, ym = x[mask], y[mask]
+            if len(xm) < 10:
+                ax.set_visible(False)
+                continue
+
+            hb = ax.hexbin(xm, ym, gridsize=55, cmap='YlOrRd',
+                           mincnt=1, norm=mcolors.LogNorm())
+            plt.colorbar(hb, ax=ax, label='count')
+
+            xs, med, q25, q75 = rolling_median_iqr(xm, ym, n_pts=n_roll)
+            color = f'C{ri}'
+            ax.plot(xs, med, color=color, lw=1.5, label='rolling median')
+            ax.fill_between(xs, q25, q75, color=color, alpha=0.25, label='IQR')
+
+            r, _ = stats.pearsonr(xm, ym)
+            ax.set_title(f'r={r:.3f}', fontsize=9)
+            ax.set_xlabel(alb_lbl, fontsize=9)
+            ax.set_ylabel(int_lbl, fontsize=9)
+            ax.legend(fontsize=7)
+
+    fig.suptitle('exp_intercept vs albedo — cross-band (rows: intercept band, cols: albedo band)',
+                 fontsize=11)
+    fig.tight_layout()
+    _save(fig, outdir, 'alb_vs_exp_intercept_cross.png')
+
+
 def print_summary_stats(df, bins, labels):
     """Print key statistics to stdout."""
     print("=" * 65)
@@ -645,7 +844,7 @@ def plot_k1_k2_overlay(df: pd.DataFrame, cld_bins, cld_labels,
     df = df.copy()
     df['_bin'] = bin_by_cld_dist(df, cld_bins, cld_labels)
     x = np.arange(len(cld_labels))
-    colors = plt.cm.viridis(np.linspace(0.1, 0.9, len(strat_labels)))
+    colors = plt.colormaps['viridis'](np.linspace(0.1, 0.9, len(strat_labels)))
 
     fig, axes = plt.subplots(len(avail), 2, figsize=(12, 4 * len(avail)))
     if len(avail) == 1:
@@ -665,6 +864,10 @@ def plot_k1_k2_overlay(df: pd.DataFrame, cld_bins, cld_labels,
                 sems  = stds / np.sqrt(ns)
                 ax.errorbar(x, means.values, yerr=sems.values, fmt='o-',
                             capsize=3, color=colors[si], lw=1.5, label=slabel)
+                ref_val = means.dropna().iloc[-1] if means.dropna().size else np.nan
+                if np.isfinite(ref_val):
+                    ax.axhline(ref_val, color=colors[si], lw=1.2,
+                               linestyle='--', alpha=0.7, zorder=3)
                 all_means.append(means.values[~np.isnan(means.values)])
 
             ax.set_xticks(x)
@@ -687,6 +890,65 @@ def plot_k1_k2_overlay(df: pd.DataFrame, cld_bins, cld_labels,
     _save(fig, outdir, 'k1_k2_binned_profile_overlay.png')
 
 
+def plot_intercept_overlay(df: pd.DataFrame, cld_bins, cld_labels,
+                           outdir: str, strat_var: str,
+                           strat_labels: list) -> None:
+    """exp_intercept profiles for all strata overlaid on one figure."""
+    bands = [
+        ('exp_o2a_intercept',  'O2-A',   'C0'),
+        ('exp_wco2_intercept', 'WCO\u2082', 'C1'),
+        ('exp_sco2_intercept', 'SCO\u2082', 'C2'),
+    ]
+    avail = [(col, nm, c) for col, nm, c in bands if col in df.columns]
+    if not avail:
+        return
+
+    df = df.copy()
+    df['_bin'] = bin_by_cld_dist(df, cld_bins, cld_labels)
+    x = np.arange(len(cld_labels))
+    colors = plt.colormaps['viridis'](np.linspace(0.1, 0.9, len(strat_labels)))
+
+    fig, axes = plt.subplots(len(avail), 1, figsize=(7, 4 * len(avail)))
+    if len(avail) == 1:
+        axes = [axes]
+
+    for ax, (col, nm, _) in zip(axes, avail):
+        all_means = []
+        for si, slabel in enumerate(strat_labels):
+            sdf = df[df['_strat'] == slabel]
+            if len(sdf) < 100:
+                continue
+            means = sdf.groupby('_bin', observed=True)[col].mean().reindex(cld_labels)
+            stds  = sdf.groupby('_bin', observed=True)[col].std().reindex(cld_labels)
+            ns    = sdf.groupby('_bin', observed=True)[col].count().reindex(cld_labels)
+            sems  = stds / np.sqrt(ns)
+            ax.errorbar(x, means.values, yerr=sems.values, fmt='o-',
+                        capsize=3, color=colors[si], lw=1.5, label=slabel)
+            ref_val = means.dropna().iloc[-1] if means.dropna().size else np.nan
+            if np.isfinite(ref_val):
+                ax.axhline(ref_val, color=colors[si], lw=1.2,
+                           linestyle='--', alpha=0.7, zorder=3)
+            all_means.append(means.values[~np.isnan(means.values)])
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(cld_labels, rotation=30, fontsize=8)
+        ax.set_xlabel('Cloud distance (km)', fontsize=9)
+        ax.set_ylabel(f'{nm} exp_intercept', fontsize=9)
+        ax.set_title(f'{nm} exp_intercept — stratified by {strat_var}', fontsize=10)
+        ax.legend(fontsize=7, title=strat_var, title_fontsize=7)
+        ax.grid(axis='y', alpha=0.3)
+        if all_means:
+            all_vals = np.concatenate(all_means)
+            if len(all_vals):
+                vmin, vmax = all_vals.min(), all_vals.max()
+                spread = max((vmax - vmin) * 1.5, 1e-9)
+                ax.set_ylim(vmin - spread, vmax + spread)
+
+    fig.suptitle(f'Spectral exp_intercepts by {strat_var} stratum', fontsize=12)
+    fig.tight_layout()
+    _save(fig, outdir, 'exp_intercept_binned_profile_overlay.png')
+
+
 def plot_xco2_anomaly_binned_overlay(df: pd.DataFrame, cld_bins, cld_labels,
                                      outdir: str, strat_var: str,
                                      strat_labels: list) -> None:
@@ -702,7 +964,7 @@ def plot_xco2_anomaly_binned_overlay(df: pd.DataFrame, cld_bins, cld_labels,
     df = df.copy()
     df['_bin'] = bin_by_cld_dist(df, cld_bins, cld_labels)
     x = np.arange(len(cld_labels))
-    colors = plt.cm.plasma(np.linspace(0.1, 0.85, len(strat_labels)))
+    colors = plt.colormaps['plasma'](np.linspace(0.1, 0.85, len(strat_labels)))
 
     for col, lbl, _ in avail:
         fig, ax = plt.subplots(figsize=(7, 5))
@@ -750,9 +1012,11 @@ def run_stratified_analysis(df: pd.DataFrame,
     Per-stratum plots: {base_outdir}/stratified/by_{strat_var}/{bin_label}/
     Overlay plots:     {base_outdir}/stratified/by_{strat_var}/
     """
-    df, clipped, bin_labels = _build_strata(df, strat_var, edges, unit)
-    if df is None:
+    strat_df, _, bin_labels = _build_strata(df, strat_var, edges, unit)
+    if strat_df is None:
         return
+    assert bin_labels is not None
+    df = strat_df
 
     overlay_dir = os.path.join(base_outdir, 'stratified', f'by_{strat_var}')
     logger.info(f"  Stratifying by '{strat_var}' into {len(bin_labels)} bins")
@@ -769,10 +1033,12 @@ def run_stratified_analysis(df: pd.DataFrame,
         plot_xco2_anomaly_vs_cld_dist_binned(sdf, cld_bins, cld_labels, sdir)
         plot_xco2_anomaly_vs_key_vars(sdf, sdir)
         plot_k1_k2_binned_profile(sdf, cld_bins, cld_labels, sdir)
+        plot_intercept_binned_profile(sdf, cld_bins, cld_labels, sdir)
 
     # Overlay comparison figures — all strata on one plot
     logger.info(f"    Generating overlay figures for '{strat_var}' …")
     plot_k1_k2_overlay(df, cld_bins, cld_labels, overlay_dir, strat_var, bin_labels)
+    plot_intercept_overlay(df, cld_bins, cld_labels, overlay_dir, strat_var, bin_labels)
     plot_xco2_anomaly_binned_overlay(df, cld_bins, cld_labels, overlay_dir, strat_var, bin_labels)
 
 
@@ -813,8 +1079,20 @@ def main():
         logger.info("Plotting k1/k2 binned profiles …")
         plot_k1_k2_binned_profile(sdf, bins, labels, sfc_outdir)
 
+        logger.info("Plotting intercept binned profiles …")
+        plot_intercept_binned_profile(sdf, bins, labels, sfc_outdir)
+
+        logger.info("Plotting albedo binned profiles …")
+        plot_alb_binned_profile(sdf, bins, labels, sfc_outdir)
+
         logger.info("Plotting k1 vs k2 joint colored by cld_dist …")
         plot_k1_k2_joint(sdf, sfc_outdir)
+
+        logger.info("Plotting albedo vs exp_intercept …")
+        plot_alb_vs_exp_intercept(sdf, sfc_outdir)
+
+        logger.info("Plotting albedo vs exp_intercept cross-band …")
+        plot_alb_vs_exp_intercept_cross(sdf, sfc_outdir)
 
         logger.info("Plotting XCO2 anomaly vs predictors …")
         plot_xco2_anomaly_vs_key_vars(sdf, sfc_outdir)

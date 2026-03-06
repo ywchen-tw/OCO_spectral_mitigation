@@ -53,16 +53,6 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 #   --output    corrected.csv \
 #   --plot-dir  results/model_comparison/land_2017_2020_2018-10-24
 
-python src/models_hybrid.py \
-  --sfc_type 0 \
-  --suffix   ocean_2016_2020 \
-  --pipeline results/train_data/pipeline_ocean_2016_2020.pkl
-
-python src/models_hybrid.py \
-  --sfc_type 1 \
-  --suffix   land_2016_2020 \
-  --pipeline results/train_data/pipeline_land_2016_2020.pkl
-
 python src/apply_models.py \
   --pipeline   results/train_data/pipeline_ocean_2016_2020.pkl \
   --ridge-dir  results/model_mlp_lr/ocean_2016_2020/ \
