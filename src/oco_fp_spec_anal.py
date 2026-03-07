@@ -343,7 +343,7 @@ def compute_transmittance(radiances, toa_sol):
     T : array [3, N, 1016], NaN where T > 1 or division is undefined
     """
     with np.errstate(divide='ignore', invalid='ignore'):
-        T = radiances / toa_sol
+        T = radiances / toa_sol * np.pi  # Scale by π to convert from radiance to irradiance ratio
     T[T > 1] = np.nan
     return T
 
@@ -486,7 +486,7 @@ def fit_spectral_model(tau, ln_T, fit_order):
 
 def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
                          lat_thres=0.5, std_thres=2.0, min_cld_dist=10.0,
-                         chunk_size=32):
+                         chunk_size=32, extra_vars=None):
     """XCO2 anomaly relative to nearby clear-sky soundings.
 
     For each footprint i, the reference set is all footprints within ±lat_thres°
@@ -504,10 +504,17 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
     chunk_size  : int, rows processed per iteration (controls peak memory).
                   Peak memory per chunk ≈ chunk_size × N × 24 bytes (three
                   [chunk, N] arrays).  Default 32 → ~65 MB for N=84 000.
+    extra_vars  : dict[str, np.ndarray] | None
+                  Optional additional [N] arrays whose mean and std over the
+                  same clear-sky reference window are returned alongside the
+                  anomaly.  When provided, returns (anomaly, means, stds).
 
     Returns
     -------
-    anomaly : [N] float array, NaN where reference is unavailable or noisy
+    anomaly : [N] float array, NaN where reference is unavailable or noisy.
+    If extra_vars is not None, also returns:
+    extra_means : dict[str, [N] float array]  per-sounding reference mean
+    extra_stds  : dict[str, [N] float array]  per-sounding reference std
     """
     N          = len(fp_lat)
     chunk_size = int(chunk_size)   # guard against float passed via **kwargs
@@ -523,6 +530,16 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
     ref_lat  = np.where(clear_mask, fp_lat, np.nan)          # [N]
     ref_xco2 = np.where(clear_mask, xco2,   np.nan)          # [N]
 
+    # Pre-extract extra reference arrays (if any)
+    extra_ref      = {}
+    extra_mean_out = {}
+    extra_std_out  = {}
+    if extra_vars is not None:
+        for k, v in extra_vars.items():
+            extra_ref[k]      = np.where(clear_mask, np.asarray(v), np.nan)
+            extra_mean_out[k] = np.full(N, np.nan)
+            extra_std_out[k]  = np.full(N, np.nan)
+
     for start in range(0, N, chunk_size):
         end   = min(start + chunk_size, N)
         q_lat = fp_lat[start:end]                             # [chunk]
@@ -534,7 +551,8 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
         # xco2 of clear-sky refs within window; NaN elsewhere
         xco2_win  = np.where(in_window, ref_xco2[None, :], np.nan)  # [chunk, N]
 
-        has_refs = in_window.any(axis=1)                         # [chunk]
+        n_refs   = np.sum(~np.isnan(xco2_win), axis=1)          # [chunk] clear-sky refs in window
+        has_refs = n_refs >= 5                                    # [chunk] require ≥5 for meaningful std
 
         chunk_mean = np.full(end - start, np.nan)
         chunk_std  = np.full(end - start, np.nan)
@@ -545,10 +563,26 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
         ref_mean[start:end] = chunk_mean
         ref_std[start:end]  = chunk_std
 
+        if extra_vars is not None and has_refs.any():
+            for k, ref_v in extra_ref.items():
+                ev_win = np.where(in_window, ref_v[None, :], np.nan)
+                chunk_emean = np.full(end - start, np.nan)
+                chunk_estd  = np.full(end - start, np.nan)
+                chunk_emean[has_refs] = np.nanmean(ev_win[has_refs], axis=1)
+                chunk_estd[has_refs]  = np.nanstd( ev_win[has_refs], axis=1)
+                extra_mean_out[k][start:end] = chunk_emean
+                extra_std_out[k][start:end]  = chunk_estd
+
         del lat_diff, in_window, xco2_win
 
     valid = valid_lat & ~np.isnan(ref_mean) & (ref_std <= std_thres)
     anomaly[valid] = xco2[valid] - ref_mean[valid]
+    if extra_vars is not None:
+        not_valid = ~valid
+        for k in extra_mean_out:
+            extra_mean_out[k][not_valid] = np.nan
+            extra_std_out[k][not_valid]  = np.nan
+        return anomaly, extra_mean_out, extra_std_out
     return anomaly
 
 
@@ -730,6 +764,11 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
             intercept_fitting[2]   = f["sco2_intercept_fitting"][...]
             logger.info(f"Loaded existing fitting results from {output_file}. Skipping fitting step.")
         
+    # ── 3b. Exponential of fitting intercepts ─────────────────────────────
+    exp_intercept_o2a  = np.exp(intercept_fitting[0])
+    exp_intercept_wco2 = np.exp(intercept_fitting[1])
+    exp_intercept_sco2 = np.exp(intercept_fitting[2])
+
     # ── 4. Lite variable extraction (vectorised) ───────────────────────────
     def _lite(key):
         """Extract one Lite variable for all soundings; NaN where not matched."""
@@ -748,6 +787,9 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     lt_xco2_raw = _lite("xco2_raw")
     lt_xco2_raw[lt_xco2_raw <= 0] = np.nan  # Mask unphysical raw XCO2 values (zero or negative)
     lt_xco2_bc[lt_xco2_bc <= 0] = np.nan    # Mask unphysical corrected XCO2 values (zero or negative)
+    lt_alb_o2a  = _lite("albedo_o2a")
+    lt_alb_wco2 = _lite("albedo_wco2")
+    lt_alb_sco2 = _lite("albedo_sco2")
 
     # ── 5. Cloud distance per sounding (O(1) dict lookup) ─────────────────
     cld_idx     = shared_data["cld_dist_index"]
@@ -757,7 +799,22 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     logger.info(f"[{orbit_id}] Computing XCO2 anomalies...")
     anomaly_args = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
     xco2_raw_anomaly = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args)
-    xco2_bc_anomaly  = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_bc, **anomaly_args)
+    ref_extra_vars = {
+        "o2a_k1":      kappa_fitting[0, :, 0],
+        "o2a_k2":      kappa_fitting[0, :, 1],
+        "wco2_k1":     kappa_fitting[1, :, 0],
+        "wco2_k2":     kappa_fitting[1, :, 1],
+        "sco2_k1":     kappa_fitting[2, :, 0],
+        "sco2_k2":     kappa_fitting[2, :, 1],
+        "alb_o2a":     lt_alb_o2a,
+        "alb_wco2":    lt_alb_wco2,
+        "alb_sco2":    lt_alb_sco2,
+        "exp_int_o2a":  exp_intercept_o2a,
+        "exp_int_wco2": exp_intercept_wco2,
+        "exp_int_sco2": exp_intercept_sco2,
+    }
+    xco2_bc_anomaly, ref_means, ref_stds = compute_xco2_anomaly(
+        od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args)
 
     # ── 7. Write output HDF5 ───────────────────────────────────────────────
     logger.info(f"[{orbit_id}] Writing {output_file}...")
@@ -809,9 +866,9 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "dp_o2a":      _lite("dp_o2a"),
         "dp_sco2":     _lite("dp_sco2"),
         "co2_grad_del": _lite("co2_grad_del"),
-        "alb_o2a":     _lite("albedo_o2a"),
-        "alb_wco2":    _lite("albedo_wco2"),
-        "alb_sco2":    _lite("albedo_sco2"),
+        "alb_o2a":     lt_alb_o2a,
+        "alb_wco2":    lt_alb_wco2,
+        "alb_sco2":    lt_alb_sco2,
         "aod_total":   _lite("aod_total"),
         "fs_rel":      _lite("fs_rel"),
         "alt":         _lite("altitude"),
@@ -864,7 +921,35 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "tcwv":        _lite("tcwv"),
         "operation_mode": _lite("operation_mode"),
         "water_height": _lite("water_height"),
-        
+        # Fitting intercept (exponential)
+        "exp_intercept_o2a":  exp_intercept_o2a,
+        "exp_intercept_wco2": exp_intercept_wco2,
+        "exp_intercept_sco2": exp_intercept_sco2,
+        # Reference clear-sky statistics (mean and std over lat-window, same mask as xco2_bc_anomaly)
+        "ref_o2a_k1_mean":       ref_means["o2a_k1"],
+        "ref_o2a_k1_std":        ref_stds["o2a_k1"],
+        "ref_o2a_k2_mean":       ref_means["o2a_k2"],
+        "ref_o2a_k2_std":        ref_stds["o2a_k2"],
+        "ref_wco2_k1_mean":      ref_means["wco2_k1"],
+        "ref_wco2_k1_std":       ref_stds["wco2_k1"],
+        "ref_wco2_k2_mean":      ref_means["wco2_k2"],
+        "ref_wco2_k2_std":       ref_stds["wco2_k2"],
+        "ref_sco2_k1_mean":      ref_means["sco2_k1"],
+        "ref_sco2_k1_std":       ref_stds["sco2_k1"],
+        "ref_sco2_k2_mean":      ref_means["sco2_k2"],
+        "ref_sco2_k2_std":       ref_stds["sco2_k2"],
+        "ref_alb_o2a_mean":      ref_means["alb_o2a"],
+        "ref_alb_o2a_std":       ref_stds["alb_o2a"],
+        "ref_alb_wco2_mean":     ref_means["alb_wco2"],
+        "ref_alb_wco2_std":      ref_stds["alb_wco2"],
+        "ref_alb_sco2_mean":     ref_means["alb_sco2"],
+        "ref_alb_sco2_std":      ref_stds["alb_sco2"],
+        "ref_exp_int_o2a_mean":  ref_means["exp_int_o2a"],
+        "ref_exp_int_o2a_std":   ref_stds["exp_int_o2a"],
+        "ref_exp_int_wco2_mean": ref_means["exp_int_wco2"],
+        "ref_exp_int_wco2_std":  ref_stds["exp_int_wco2"],
+        "ref_exp_int_sco2_mean": ref_means["exp_int_sco2"],
+        "ref_exp_int_sco2_std":  ref_stds["exp_int_sco2"],
     }
     
     

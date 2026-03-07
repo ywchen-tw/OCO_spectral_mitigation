@@ -947,7 +947,7 @@ def main():
 
     # Row 2 col 2: nearest-cloud distance scatter
     ax22 = fig.add_subplot(gs[1, 2])
-    _cld_col = next((c for c in ('nearest_cloud_dist_km', 'cloud_dist_km', 'min_cloud_dist_km')
+    _cld_col = next((c for c in ('cld_dist_km', 'nearest_cloud_dist_km', 'cloud_dist_km', 'min_cloud_dist_km')
                      if c in oco.columns), None)
     if _cld_col:
         _cld_vals = oco[_cld_col].values.astype(float)
@@ -956,10 +956,10 @@ def main():
         _cld_norm = mcolors.Normalize(vmin=0.0, vmax=_cld_vmax)
         _scatter_map(ax22, lon_arr, lat_arr, _cld_vals,
                      'Nearest-cloud distance (km)',
-                     _cld_norm, 'viridis_r', tccon_lon, tccon_lat,
+                     _cld_norm, 'viridis', tccon_lon, tccon_lat,
                      bg_img=bg_img, bg_extent=bg_extent,
                      view_extent=map_extent)
-        _sm_cld = mcm.ScalarMappable(norm=_cld_norm, cmap='viridis_r')
+        _sm_cld = mcm.ScalarMappable(norm=_cld_norm, cmap='viridis')
         _sm_cld.set_array([])
         plt.colorbar(_sm_cld, ax=ax22, fraction=0.046, pad=0.04).set_label('km', fontsize=7)
     else:
