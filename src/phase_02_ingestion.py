@@ -486,17 +486,26 @@ class DataIngestionManager:
                         if viewing_mode not in ['GL', 'ND', 'TG']:
                             viewing_mode = None
                         orbit_matches = [m for m in matches if orbit_id in m]
-                        if orbit_matches and viewing_mode:          
+                        if not orbit_matches:
+                            logger.warning(
+                                f"No file found for orbit {orbit_id} in:\n"
+                                f"  URL: {dir_url}\n"
+                                f"  Available files: {matches[:5]}"
+                            )
+                            return None
+                        if viewing_mode:
                             mode_matches = [m for m in orbit_matches if viewing_mode+'_' in m.upper()]
                             if not mode_matches:
                                 logger.warning(
-                                    f"No {viewing_mode}-mode file found for orbit {orbit_id} mode {viewing_mode} in:\n"
+                                    f"No {viewing_mode}-mode file found for orbit {orbit_id} in:\n"
                                     f"  URL: {dir_url}\n"
-                                    f"  Skipping — file may be unavailable or in a different collection."
+                                    f"  Orbit matches: {orbit_matches}"
                                 )
                                 return None
                             filename = mode_matches[0]
-                            logger.debug(f"Found orbit-specific file for {orbit_id} mode {viewing_mode}: {filename}")
+                        else:
+                            filename = orbit_matches[0]
+                        logger.debug(f"Found orbit-specific file for {orbit_id} mode {viewing_mode}: {filename}")
                 else:
                     logger.debug(f"No matching files found for {granule_id}")
                     return None
