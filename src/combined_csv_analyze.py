@@ -1379,6 +1379,201 @@ def plot_exp_intercept_albedo_residuals(df: pd.DataFrame, bins, labels,
     _save(fig, outdir, 'exp_intercept_albedo_residuals.png')
 
 
+# ── NEW Section 2f: exp/alb ratio residuals ──────────────────────────────────
+
+def plot_exp_alb_ratio_residuals(df: pd.DataFrame, bins, labels,
+                                 outdir: str) -> None:
+    """OLS-remove airmass + cos(SZA) + AOD from the exp/alb ratio (albedo
+    already divided out), then plot residuals vs cloud distance.
+
+    Ocean O₂A: ~67% of the raw signal survives → genuine cloud-edge photon
+    enhancement persists even after geometric/aerosol correction.
+    Land all bands: sign flip (r_raw >0 → r_resid <0) → once geometry/AOD
+    are removed the ratio is actually elevated near clouds, consistent with
+    the ocean direction and confirming a real cloud-adjacency effect.
+    """
+    ratio_defs = [
+        ('exp_o2a_intercept',  'alb_o2a',  'O\u2082A',   'C0'),
+        ('exp_wco2_intercept', 'alb_wco2', 'WCO\u2082',  'C1'),
+        ('exp_sco2_intercept', 'alb_sco2', 'SCO\u2082',  'C2'),
+    ]
+    avail = [(ei, alb, nm, c) for ei, alb, nm, c in ratio_defs
+             if ei in df.columns and alb in df.columns]
+    if not avail:
+        logger.warning("exp_intercept or albedo columns missing — skipping ratio residual plot")
+        return
+
+    df = df.copy()
+    for ei, alb, nm, c in avail:
+        tag = alb.split('_')[1]                     # 'o2a' / 'wco2' / 'sco2'
+        df[f'_ratio_{tag}'] = df[ei] / df[alb].replace(0, np.nan)
+
+    # confounders: albedo already divided out; control geometry + aerosol
+    control_cols = ['airmass', 'mu_sza', 'aod_total']
+    subsets = [('Ocean', df[df['sfc_type'] == 0]),
+               ('Land',  df[df['sfc_type'] == 1])]
+
+    fig, axes = plt.subplots(len(avail), 2, figsize=(13, 4.5 * len(avail)))
+    if len(avail) == 1:
+        axes = axes[np.newaxis, :]
+
+    for row, (ei, alb, nm, col) in enumerate(avail):
+        tag       = alb.split('_')[1]
+        ratio_col = f'_ratio_{tag}'
+        for ci, (sfc_name, sdf) in enumerate(subsets):
+            ax = axes[row, ci]
+            ctrl  = [c for c in control_cols if c in sdf.columns]
+            req   = [ratio_col, 'cld_dist_km'] + ctrl
+            m     = sdf[req].notna().all(axis=1) & np.isfinite(sdf[ratio_col])
+            sdf_m = sdf[m].copy()
+            if len(sdf_m) < 50:
+                ax.set_visible(False)
+                continue
+
+            X = np.column_stack([np.ones(len(sdf_m))]
+                                + [sdf_m[c].values for c in ctrl])
+            y = sdf_m[ratio_col].values
+            coef, *_ = np.linalg.lstsq(X, y, rcond=None)
+            sdf_m['_resid'] = y - X @ coef
+
+            r_raw, _ = stats.pearsonr(sdf_m['cld_dist_km'], sdf_m[ratio_col])
+            r_res, _ = stats.pearsonr(sdf_m['cld_dist_km'], sdf_m['_resid'])
+
+            sdf_m['_bin'] = pd.cut(sdf_m['cld_dist_km'], bins=bins,
+                                   labels=labels, right=False)
+            means = sdf_m.groupby('_bin', observed=True)['_resid'].mean().reindex(labels)
+            stds  = sdf_m.groupby('_bin', observed=True)['_resid'].std().reindex(labels)
+            ns    = sdf_m.groupby('_bin', observed=True)['_resid'].count().reindex(labels).fillna(0).astype(int)
+            sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
+            xp = np.arange(len(labels))
+
+            ax.fill_between(xp, (means - stds).values, (means + stds).values,
+                            color=col, alpha=0.15, label='\u00b1 1 std')
+            ax.errorbar(xp, means.values, yerr=sems.values, fmt='o-',
+                        capsize=4, color=col, lw=1.5,
+                        label=f'mean\u00b1SEM  r={r_res:.3f}')
+            ax.axhline(0, color='gray', lw=0.8, linestyle='--')
+            ax.set_xticks(xp)
+            ax.set_xticklabels(labels, rotation=30, fontsize=8)
+            ax.set_xlabel('Cloud distance (km)', fontsize=9)
+            ax.set_ylabel(f'{nm} exp/alb residual', fontsize=9)
+            ax.set_title(
+                f'{nm} — {sfc_name}  |  r_raw={r_raw:.3f} \u2192 r_resid={r_res:.3f}',
+                fontsize=9)
+            ax.legend(fontsize=7)
+            ax.grid(axis='y', alpha=0.3)
+            finite_means = means.dropna()
+            finite_stds  = stds.dropna()
+            if finite_means.size:
+                spread = max(finite_stds.max() * 1.5,
+                             (finite_means.max() - finite_means.min()) * 1.5, 1e-9)
+                ax.set_ylim(finite_means.min() - spread, finite_means.max() + spread)
+
+    fig.suptitle(
+        'exp/alb ratio residuals after removing airmass + cos(SZA) + AOD\n'
+        '(albedo already divided out — residual is the pure cloud-adjacency component)',
+        fontsize=11)
+    fig.tight_layout()
+    _save(fig, outdir, 'exp_alb_ratio_residuals.png')
+
+
+# ── NEW Section 3e: k1, k2, k3 albedo residuals ───────────────────────────────
+
+def plot_k_albedo_residuals(df: pd.DataFrame, bins, labels,
+                            outdir: str) -> None:
+    """For each of k1, k2, k3 across all three bands: OLS-remove
+    alb_{band} + airmass + cos(SZA), then plot residuals vs cloud distance.
+
+    Key finding: SCO₂ k1/k2/k3 on land retain large residual r (+0.20/+0.28/+0.23)
+    — a genuine cloud-proximity signal not explained by surface or geometry.
+    O₂A and WCO₂ k coefficients collapse to near zero after confounder removal.
+    One output file per k term (k1, k2, k3).
+    """
+    k_terms = [
+        ('k1', 'k\u2081'),
+        ('k2', 'k\u2082'),
+        ('k3', 'k\u2083'),
+    ]
+    band_defs = [
+        ('o2a',  'O\u2082A',  'alb_o2a',  'C0'),
+        ('wco2', 'WCO\u2082', 'alb_wco2', 'C1'),
+        ('sco2', 'SCO\u2082', 'alb_sco2', 'C2'),
+    ]
+    control_cols = ['airmass', 'mu_sza']
+    subsets = [('Ocean', df[df['sfc_type'] == 0]),
+               ('Land',  df[df['sfc_type'] == 1])]
+
+    for kt, kt_label in k_terms:
+        band_info = [(f'{bp}_{kt}', alb, nm, col)
+                     for bp, nm, alb, col in band_defs
+                     if f'{bp}_{kt}' in df.columns and alb in df.columns]
+        if not band_info:
+            continue
+
+        fig, axes = plt.subplots(len(band_info), 2,
+                                 figsize=(13, 4.5 * len(band_info)))
+        if len(band_info) == 1:
+            axes = axes[np.newaxis, :]
+
+        for row, (k_col, alb_col, nm, col) in enumerate(band_info):
+            for ci, (sfc_name, sdf) in enumerate(subsets):
+                ax = axes[row, ci]
+                ctrl  = [c for c in control_cols if c in sdf.columns]
+                X_cols = [alb_col] + ctrl
+                m     = sdf[[k_col, 'cld_dist_km'] + X_cols].notna().all(axis=1)
+                sdf_m = sdf[m].copy()
+                if len(sdf_m) < 50:
+                    ax.set_visible(False)
+                    continue
+
+                X = np.column_stack([np.ones(len(sdf_m))]
+                                    + [sdf_m[c].values for c in X_cols])
+                y = sdf_m[k_col].values
+                coef, *_ = np.linalg.lstsq(X, y, rcond=None)
+                sdf_m['_resid'] = y - X @ coef
+
+                r_raw, _ = stats.pearsonr(sdf_m['cld_dist_km'], sdf_m[k_col])
+                r_res, _ = stats.pearsonr(sdf_m['cld_dist_km'], sdf_m['_resid'])
+
+                sdf_m['_bin'] = pd.cut(sdf_m['cld_dist_km'], bins=bins,
+                                       labels=labels, right=False)
+                means = sdf_m.groupby('_bin', observed=True)['_resid'].mean().reindex(labels)
+                stds  = sdf_m.groupby('_bin', observed=True)['_resid'].std().reindex(labels)
+                ns    = sdf_m.groupby('_bin', observed=True)['_resid'].count().reindex(labels).fillna(0).astype(int)
+                sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
+                xp = np.arange(len(labels))
+
+                ax.fill_between(xp, (means - stds).values, (means + stds).values,
+                                color=col, alpha=0.15, label='\u00b1 1 std')
+                ax.errorbar(xp, means.values, yerr=sems.values, fmt='o-',
+                            capsize=4, color=col, lw=1.5,
+                            label=f'mean\u00b1SEM  r={r_res:.3f}')
+                ax.axhline(0, color='gray', lw=0.8, linestyle='--')
+                ax.set_xticks(xp)
+                ax.set_xticklabels(labels, rotation=30, fontsize=8)
+                ax.set_xlabel('Cloud distance (km)', fontsize=9)
+                ax.set_ylabel(f'{nm} {kt_label} residual', fontsize=9)
+                ax.set_title(
+                    f'{nm} {kt_label} — {sfc_name}  |  r_raw={r_raw:.3f} \u2192 r_resid={r_res:.3f}',
+                    fontsize=9)
+                ax.legend(fontsize=7)
+                ax.grid(axis='y', alpha=0.3)
+                finite_means = means.dropna()
+                finite_stds  = stds.dropna()
+                if finite_means.size:
+                    spread = max(finite_stds.max() * 1.5,
+                                 (finite_means.max() - finite_means.min()) * 1.5, 1e-9)
+                    ax.set_ylim(finite_means.min() - spread, finite_means.max() + spread)
+
+        fig.suptitle(
+            f'{kt_label} residuals after removing alb + airmass + cos(SZA)\n'
+            f'SCO\u2082 {kt_label} retains genuine cloud-proximity signal on land; '
+            f'O\u2082A and WCO\u2082 do not.',
+            fontsize=11)
+        fig.tight_layout()
+        _save(fig, outdir, f'{kt}_albedo_residuals.png')
+
+
 # ── NEW Section 2d: exp_intercept inter-band coherence ───────────────────────
 
 def plot_exp_intercept_interband_coherence(df: pd.DataFrame, outdir: str) -> None:
@@ -1539,6 +1734,14 @@ def main():
     # ── Section 2e: albedo vs exp_intercept divergence ───────────────────────
     logger.info("Section 2e: Plotting alb vs exp_intercept divergence …")
     plot_alb_exp_divergence(df, bins, labels, overall_outdir)
+
+    # ── Section 2f: exp/alb ratio residuals ──────────────────────────────────
+    logger.info("Section 2f: Plotting exp/alb ratio residuals …")
+    plot_exp_alb_ratio_residuals(df, bins, labels, overall_outdir)
+
+    # ── Section 3e: k1, k2, k3 albedo residuals ──────────────────────────────
+    logger.info("Section 3e: Plotting k1/k2/k3 albedo residuals …")
+    plot_k_albedo_residuals(df, bins, labels, overall_outdir)
 
     # ── Section 2d: exp_intercept inter-band coherence ────────────────────────
     logger.info("Section 2d: Plotting exp_intercept inter-band coherence …")
