@@ -440,8 +440,11 @@ class DataIngestionManager:
                         # (whose granule_id encodes the previous day) still resolve
                         # to the correct target date's Lite file.
                         date_str = target_date_str if target_date_str is not None else parts[3]
-                        # Look for files with this date - match only valid filename characters
-                        pattern = rf'href=["\']+(oco2_LtCO2[\w._-]*{date_str}[\w._-]*\.nc4)["\']+'
+                        # Anchor date_str to the data-date slot (right after "LtCO2_") so
+                        # the processing timestamp at the end of the filename cannot produce
+                        # a false match (e.g. oco2_LtCO2_200306_..._200615xxxs.nc4 must NOT
+                        # match a search for date 200615).
+                        pattern = rf'href=["\']+(oco2_LtCO2_{date_str}[\w._-]*\.nc4)["\']+'
                     else:
                         # Fallback to generic pattern
                         pattern = r'href=["\']+(oco2_LtCO2[\w._-]+\.nc4)["\']+'
@@ -465,7 +468,9 @@ class DataIngestionManager:
                     if len(parts) >= 4:
                         # Consistent with the pattern built above: prefer target_date_str
                         date_str = target_date_str if target_date_str is not None else parts[3]
-                        date_matches = [m for m in matches if date_str in m]
+                        # Match only files where date_str is in the data-date position,
+                        # not in the processing timestamp at the end of the filename.
+                        date_matches = [m for m in matches if f'LtCO2_{date_str}_' in m]
                         if date_matches:
                             filename = date_matches[0]
                             logger.debug(f"Found date-specific L2 Lite file: {filename}")
