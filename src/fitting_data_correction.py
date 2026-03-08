@@ -50,6 +50,16 @@ def load_output_dict(filepath):
         'wco2_k4_fitting', 'wco2_k5_fitting', 'wco2_intercept_fitting',
         'sco2_k1_fitting', 'sco2_k2_fitting', 'sco2_k3_fitting',
         'sco2_k4_fitting', 'sco2_k5_fitting', 'sco2_intercept_fitting',
+        'exp_intercept_o2a', 'exp_intercept_wco2', 'exp_intercept_sco2',
+        # Reference clear-sky statistics
+        'ref_o2a_k1_mean', 'ref_o2a_k1_std', 'ref_o2a_k2_mean', 'ref_o2a_k2_std',
+        'ref_wco2_k1_mean', 'ref_wco2_k1_std', 'ref_wco2_k2_mean', 'ref_wco2_k2_std',
+        'ref_sco2_k1_mean', 'ref_sco2_k1_std', 'ref_sco2_k2_mean', 'ref_sco2_k2_std',
+        'ref_alb_o2a_mean', 'ref_alb_o2a_std', 'ref_alb_wco2_mean', 'ref_alb_wco2_std',
+        'ref_alb_sco2_mean', 'ref_alb_sco2_std',
+        'ref_exp_int_o2a_mean', 'ref_exp_int_o2a_std',
+        'ref_exp_int_wco2_mean', 'ref_exp_int_wco2_std',
+        'ref_exp_int_sco2_mean', 'ref_exp_int_sco2_std',
         # Geometry
         'lon', 'lat', 'sza', 'vza', 'mu_sza', 'mu_vza', 'fp_number', 'fp_id',
         # Cloud proximity
@@ -287,12 +297,50 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['exp_wco2_intercept'] = np.exp(combined.get('wco2_intercept_fitting'))
     final_dict['exp_sco2_intercept'] = np.exp(combined.get('sco2_intercept_fitting'))
     
+    final_dict['o2a_exp_intercept-alb'] = np.exp(combined.get('o2a_intercept_fitting')) - combined.get('alb_o2a')
+    final_dict['wco2_exp_intercept-alb'] = np.exp(combined.get('wco2_intercept_fitting')) - combined.get('alb_wco2')
+    final_dict['sco2_exp_intercept-alb'] = np.exp(combined.get('sco2_intercept_fitting')) - combined.get('alb_sco2')
+    
+    final_dict['o2a_exp_intercept_over_alb'] = np.exp(combined.get('o2a_intercept_fitting')) / combined.get('alb_o2a')
+    final_dict['wco2_exp_intercept_over_alb'] = np.exp(combined.get('wco2_intercept_fitting')) / combined.get('alb_wco2')
+    final_dict['sco2_exp_intercept_over_alb'] = np.exp(combined.get('sco2_intercept_fitting')) / combined.get('alb_sco2')
+
+    
+    
     final_dict['1_over_cos_sza'] = 1 / cos_sza
     final_dict['1_over_cos_vza'] = 1 / cos_vza
     
     
     final_dict['cos_glint_angle'] = np.cos(np.radians(combined.get('glint_angle')))
     final_dict['glint_prox'] = np.exp(-1 * combined.get('glint_angle') / 10.0) # Decay constant of 10 degrees
+
+    # add reference clear-sky statistics for downstream use in mitigation or stratification
+    final_dict['ref_o2a_k1_mean'] = combined.get('ref_o2a_k1_mean')
+    final_dict['ref_o2a_k1_std'] = combined.get('ref_o2a_k1_std')
+    final_dict['ref_o2a_k2_mean'] = combined.get('ref_o2a_k2_mean')
+    final_dict['ref_o2a_k2_std'] = combined.get('ref_o2a_k2_std')
+    final_dict['ref_wco2_k1_mean'] = combined.get('ref_wco2_k1_mean')
+    final_dict['ref_wco2_k1_std'] = combined.get('ref_wco2_k1_std')
+    final_dict['ref_wco2_k2_mean'] = combined.get('ref_wco2_k2_mean')
+    final_dict['ref_wco2_k2_std'] = combined.get('ref_wco2_k2_std')
+    final_dict['ref_sco2_k1_mean'] = combined.get('ref_sco2_k1_mean')
+    final_dict['ref_sco2_k1_std'] = combined.get('ref_sco2_k1_std')
+    final_dict['ref_sco2_k2_mean'] = combined.get('ref_sco2_k2_mean')
+    final_dict['ref_sco2_k2_std'] = combined.get('ref_sco2_k2_std')
+    final_dict['ref_alb_o2a_mean'] = combined.get('ref_alb_o2a_mean')
+    final_dict['ref_alb_o2a_std'] = combined.get('ref_alb_o2a_std')
+    final_dict['ref_alb_wco2_mean'] = combined.get('ref_alb_wco2_mean')
+    final_dict['ref_alb_wco2_std'] = combined.get('ref_alb_wco2_std')
+    final_dict['ref_alb_sco2_mean'] = combined.get('ref_alb_sco2_mean')
+    final_dict['ref_alb_sco2_std'] = combined.get('ref_alb_sco2_std')
+    final_dict['ref_exp_int_o2a_mean'] = combined.get('ref_exp_int_o2a_mean')
+    final_dict['ref_exp_int_o2a_std'] = combined.get('ref_exp_int_o2a_std')
+    final_dict['ref_exp_int_wco2_mean'] = combined.get('ref_exp_int_wco2_mean')
+    final_dict['ref_exp_int_wco2_std'] = combined.get('ref_exp_int_wco2_std')
+    final_dict['ref_exp_int_sco2_mean'] = combined.get('ref_exp_int_sco2_mean')
+    final_dict['ref_exp_int_sco2_std'] = combined.get('ref_exp_int_sco2_std')
+    
+
 
     df = pd.DataFrame(final_dict)
     df = df[df.xco2_bc > 0]  # Filter out invalid XCO2 value
@@ -377,13 +425,34 @@ def main():
                  '20200903', '20201001', '20201101', '20201201'
                  ]  
     
-    date_list = ['20180221', '20180313', '20180710', '20180902',
-                 '20181024', '20181129', '20181130',
-                 '20190710', '20190313',
-                 '20200115', '20200211', '20200330', '20200415', 
-                 '20200517', '20200906',
-                 '20201005', '20201224', 
-                 '20210210', '20210424', '20211229']  
+    # date_list = [
+    #              '20160115', '20160215', '20160315', '20160415',
+    #              '20160515', '20160615', '20160715', 
+    #             #  '20160821',
+    #              '20160915', '20161015', '20161115', '20161215',
+    #              '20170115', '20170215', '20170315', '20170415',
+    #              '20170515', '20170615', '20170715', 
+    #                          '20171015', '20171115', '20171215',
+    #              '20180115', 
+    #             #  '20180212', 
+    #              '20180315', '20180415',
+    #              '20180515', '20180615', '20180715', '20180815',
+    #              '20180915', '20181015', '20181117', '20181215',
+    #              '20190115', '20190215', '20190315', '20190415',
+    #              '20190515', '20190615', '20190715', '20190815',
+    #              '20190915', '20191015', '20191115', '20191215',
+    #              '20200115', '20200215', '20200315', '20200415',
+    #              '20200515', '20200615', '20200715', '20200815',
+    #              '20200915', '20201015', '20201115', '20201215'
+    #              ]
+    
+    # date_list = ['20180221', '20180313', '20180710', '20180902',
+    #              '20181024', '20181129', '20181130',
+    #              '20190710', '20190313',
+    #              '20200115', '20200211', '20200330', '20200415', 
+    #              '20200517', '20200906',
+    #              '20201005', '20201224', 
+    #              '20210210', '20210424', '20211229']  
     
     # date_list = [
     #             #  '20160801',
