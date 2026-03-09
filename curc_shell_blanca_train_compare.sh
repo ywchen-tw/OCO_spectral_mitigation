@@ -1,8 +1,8 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=8
-#SBATCH --ntasks-per-node=8
+#SBATCH --ntasks=16
+#SBATCH --ntasks-per-node=16
 #SBATCH --mem=150G
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
