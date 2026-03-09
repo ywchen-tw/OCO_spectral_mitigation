@@ -179,18 +179,24 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
 
     _checkpoint("mitigation_test: entry")
 
-    df_xco2_anomaly = df[df['xco2_bc_anomaly'].notna()]
-    # df_orig was a full deepcopy used only to read 4 columns — replaced with df[col] directly.
+    # Keep only the 3 columns needed downstream — avoids copying all df columns for the filtered subset
+    df_xco2_anomaly = df.loc[df['xco2_bc_anomaly'].notna(), ['xco2_bc', 'xco2_bc_anomaly', 'cld_dist_km']]
 
     _checkpoint("before pipeline.transform + train_test_split")
-    features = pipeline.features
-    X_all    = pipeline.transform(df)
+    features    = pipeline.features
+    # float32 halves feature-array memory (Ridge + MLP are both fine with float32)
+    X_all       = pipeline.transform(df).astype(np.float32)
     valid_rows  = ~df['xco2_bc_anomaly'].isna()
-    X           = X_all[valid_rows.values]
+    # df_X is the single valid-row subset used for both training and later inference
+    df_X        = X_all[valid_rows.values]
+    df_all_X    = X_all
+    del X_all   # df_all_X holds the only reference; free the alias
     y           = df['xco2_bc_anomaly'][valid_rows].values
-    print("X shape:", X.shape)
+    print("X shape:", df_X.shape)
     print("y shape:", y.shape)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(df_X, y, test_size=0.2, random_state=42)
+    del y  # y_train + y_test contain all labels; drop the combined copy
+    gc.collect()
     print("X_train shape", X_train.shape)
     _checkpoint("after  pipeline.transform + train_test_split")
 
@@ -211,10 +217,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     plt.close(fig_corr)
     # ── end correlation matrix ─────────────────────────────────────────────
 
-    _checkpoint("before pipeline.transform (df_X / df_all_X)")
-    df_X     = X_all[valid_rows.values]
-    df_all_X = X_all
-    _checkpoint("after  pipeline.transform")
+    # df_X / df_all_X already computed above; checkpoint retained for timing
+    _checkpoint("df_X / df_all_X already ready (no-op)")
 
     # Convert to numpy immediately so pandas doesn't keep the full DataFrame columns pinned
     df_xco2_bc             = df_xco2_anomaly['xco2_bc'].to_numpy()
@@ -311,6 +315,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
             torch.tensor(X_train,   dtype=torch.float32),
             torch.tensor(y_train_n, dtype=torch.float32),
         )
+        del y_train_n  # data copied into train_ds tensor; free the numpy array
         # Larger batch size for full dataset efficiency; 512 is fine for the local subset too
         train_loader = torch.utils.data.DataLoader(train_ds, batch_size=1024, shuffle=True)
 
@@ -451,6 +456,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
 
     # LR: standardised absolute coefficients  |coef_i * std(X_train_i)|
     lr_std_importance = np.abs(model.coef_) * X_train.std(axis=0)
+    del X_train  # no longer needed after std computation
+    gc.collect()
 
     # Permutation importance — subsample to cap memory/compute (perm_max_rows rows is enough for stable estimates)
     rng_pi   = np.random.default_rng(42)
@@ -528,7 +535,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     del _loss
     del _mlp_infer, mlp
     del X_pi, y_pi
-    del y_train, y_test, X_train, X_test
+    del y_train, y_test, X_test
     gc.collect()
     _checkpoint("after feature importance gc")
 
