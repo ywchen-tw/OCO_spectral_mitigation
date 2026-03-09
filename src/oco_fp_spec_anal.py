@@ -569,13 +569,18 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
         ref_mean[start:end] = chunk_mean
         ref_std[start:end]  = chunk_std
 
-        if extra_vars is not None and has_refs.any():
+        # Only populate extra vars for soundings whose XCO2 background is stable
+        # (chunk_std <= std_thres).  Noisy-ref soundings keep NaN in-loop rather
+        # than relying solely on the post-hoc not_valid mask below.
+        has_stable = has_refs & (chunk_std <= std_thres)
+
+        if extra_vars is not None and has_stable.any():
             for k, ref_v in extra_ref.items():
                 ev_win = np.where(in_window, ref_v[None, :], np.nan)
                 chunk_emean = np.full(end - start, np.nan)
                 chunk_estd  = np.full(end - start, np.nan)
-                chunk_emean[has_refs] = np.nanmean(ev_win[has_refs], axis=1)
-                chunk_estd[has_refs]  = np.nanstd( ev_win[has_refs], axis=1)
+                chunk_emean[has_stable] = np.nanmean(ev_win[has_stable], axis=1)
+                chunk_estd[has_stable]  = np.nanstd( ev_win[has_stable], axis=1)
                 extra_mean_out[k][start:end] = chunk_emean
                 extra_std_out[k][start:end]  = chunk_estd
 

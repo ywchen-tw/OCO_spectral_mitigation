@@ -32,6 +32,10 @@ results/figures/cld_dist_analysis/
         k1_k2_vs_cld_dist.png
         k2_over_k1_vs_cld_dist.png
         k1_vs_k2_joint_cld_dist.png
+        cross_band_k_ratio_profiles.png
+        cross_band_k1_scatter_matrix.png
+        cross_band_k2_scatter_matrix.png
+        cross_band_k3_scatter_matrix.png
         alb_binned_profile.png
         xco2_anomaly_partial_vs_cld_dist.png
         xco2_bc_anomaly_vs_predictors.png
@@ -88,6 +92,7 @@ Section 3  k1 / k2 / k3 analyses
     plot_k1_k2_joint()                 k1 vs k2 scatter colored by cld_dist
     plot_higher_order_k_profiles()      k3 binned profiles for SCO2 and WCO2
     plot_k_albedo_residuals()           OLS residuals of k1/k2/k3 after alb+airmass+SZA
+    plot_cross_band_k_combinations()    Cross-band kN ratios (binned profiles) + scatter matrix per k-order
 
 Section 4  Stratified analyses
     STRAT_CONFIG                        Dict of stratification variables and bin edges
@@ -680,6 +685,194 @@ def plot_k1_k2_joint(df, outdir, max_dist=50):
     fig.suptitle('k\u2081 vs k\u2082 colored by cloud distance', fontsize=11)
     fig.tight_layout()
     _save(fig, outdir, 'k1_vs_k2_joint_cld_dist.png')
+
+
+# ── Section 3f: Cross-band k combinations vs cloud distance ───────────────────
+
+def plot_cross_band_k_combinations(df: pd.DataFrame, bins, labels,
+                                   outdir: str) -> None:
+    """Cross-band cumulant-coefficient ratio profiles and scatter matrix.
+
+    Two sub-analyses:
+    (A) Binned mean ± SEM profiles of cross-band k ratios
+        (e.g. o2a_k2 / wco2_k2) vs cloud-distance bins.
+        Ratios that isolate scattering differences across spectral channels.
+    (B) Scatter matrix of cross-band k pairs colored by cld_dist bin,
+        showing how the joint distribution of kN in two different bands
+        shifts with cloud proximity.
+
+    Outputs
+    -------
+    cross_band_k_ratio_profiles.png   — panel of ratio binned profiles
+    cross_band_k_scatter_matrix.png   — N×N scatter grid per k-order
+    """
+    import itertools
+
+    BANDS = [
+        ('o2a',  'O2-A',   'C0'),
+        ('wco2', 'WCO\u2082', 'C1'),
+        ('sco2', 'SCO\u2082', 'C2'),
+    ]
+    ORDERS = [
+        ('k1', 'k\u2081'),
+        ('k2', 'k\u2082'),
+        ('k3', 'k\u2083'),
+    ]
+
+    # ── (A) Cross-band ratio binned profiles ──────────────────────────────────
+    # Build list of (numerator_col, denom_col, label, color) for all
+    # (band_i, band_j, kN) combos where band_i != band_j.
+    ratio_specs = []
+    for (b1, n1, c1), (b2, n2, c2) in itertools.combinations(
+            [(b, n, c) for b, n, c in BANDS], 2):
+        for kord, klbl in ORDERS:
+            col1 = f'{b1}_{kord}'
+            col2 = f'{b2}_{kord}'
+            if col1 not in df.columns or col2 not in df.columns:
+                continue
+            ratio_col = f'_xb_{b1}_{b2}_{kord}'
+            df[ratio_col] = df[col1] / df[col2].replace(0, np.nan)
+            label = f'{n1}/{n2} {klbl}'
+            ratio_specs.append((ratio_col, label, c1))
+
+    if ratio_specs:
+        _bin = bin_by_cld_dist(df, bins, labels)
+        xp = np.arange(len(labels))
+        ncols = 3
+        nrows = int(np.ceil(len(ratio_specs) / ncols))
+        fig, axes = plt.subplots(nrows, ncols,
+                                 figsize=(5.5 * ncols, 4 * nrows))
+        axes = np.array(axes).flatten()
+
+        for ax, (ratio_col, label, color) in zip(axes, ratio_specs):
+            # clip extreme outliers to 1–99 percentile for stability
+            vals = df[ratio_col].replace([np.inf, -np.inf], np.nan).dropna()
+            lo, hi = np.percentile(vals, 1), np.percentile(vals, 99)
+            col_clipped = df[ratio_col].clip(lo, hi)
+            means = col_clipped.groupby(_bin).mean().reindex(labels)
+            stds  = col_clipped.groupby(_bin).std().reindex(labels)
+            ns    = col_clipped.groupby(_bin).count().reindex(labels).fillna(0).astype(int)
+            sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
+            ref_val = means.dropna().iloc[-1] if means.dropna().size else np.nan
+
+            ax.fill_between(xp, (means - stds).values, (means + stds).values,
+                            color=color, alpha=0.15, label='\u00b1 1 std')
+            ax.errorbar(xp, means.values, yerr=sems.values, fmt='o-',
+                        capsize=4, color=color, lw=1.5, label='mean \u00b1 SEM')
+            if np.isfinite(ref_val):
+                ax.axhline(ref_val, color='tomato', lw=2, linestyle='--',
+                           label=f'ref={ref_val:.3f}')
+
+            # Pearson r with cld_dist
+            valid = df[ratio_col].replace([np.inf, -np.inf], np.nan).notna() & \
+                    df['cld_dist_km'].notna()
+            r_val = np.nan
+            if valid.sum() > 10:
+                r_val, _ = stats.pearsonr(df.loc[valid, 'cld_dist_km'],
+                                          df.loc[valid, ratio_col].clip(lo, hi))
+
+            ax.set_xticks(xp)
+            ax.set_xticklabels(labels, rotation=30, fontsize=7)
+            ax.set_xlabel('Cloud distance (km)', fontsize=8)
+            ax.set_ylabel(label, fontsize=8)
+            ax.set_title(f'{label}   r={r_val:.3f}', fontsize=9)
+            ax.legend(fontsize=6)
+            ax.grid(axis='y', alpha=0.3)
+
+            finite_means = means.dropna()
+            finite_stds  = stds.dropna()
+            if finite_means.size:
+                spread = max(finite_stds.max() * 1.5,
+                             (finite_means.max() - finite_means.min()) * 1.5,
+                             1e-9)
+                ax.set_ylim(finite_means.min() - spread,
+                            finite_means.max() + spread)
+
+        for ax in axes[len(ratio_specs):]:
+            ax.set_visible(False)
+
+        fig.suptitle(
+            'Cross-band k-ratio profiles vs cloud distance\n'
+            '(each panel = kN in band A / kN in band B)',
+            fontsize=11)
+        fig.tight_layout()
+        _save(fig, outdir, 'cross_band_k_ratio_profiles.png')
+
+    # ── (B) Cross-band k scatter matrix (per k-order) ────────────────────────
+    # For each k-order, draw an N×N grid where cell (i,j) is scatter of
+    # band_i kN vs band_j kN, coloured by cld_dist bin.
+    cmap_bins = plt.cm.get_cmap('plasma', len(labels))
+    _bin_cat = bin_by_cld_dist(df, bins, labels)
+
+    for kord, klbl in ORDERS:
+        avail_bands = [(b, n, c) for b, n, c in BANDS
+                       if f'{b}_{kord}' in df.columns]
+        if len(avail_bands) < 2:
+            continue
+
+        nb = len(avail_bands)
+        fig, axes = plt.subplots(nb, nb, figsize=(4.5 * nb, 4.5 * nb))
+        if nb == 1:
+            axes = np.array([[axes]])
+        axes = np.array(axes)
+
+        for ri, (b_row, n_row, _) in enumerate(avail_bands):
+            for ci, (b_col, n_col, _) in enumerate(avail_bands):
+                ax = axes[ri, ci]
+                col_x = f'{b_col}_{kord}'
+                col_y = f'{b_row}_{kord}'
+                if ri == ci:
+                    # diagonal: histogram per cld_dist bin
+                    for bi, lbl in enumerate(labels):
+                        mask = _bin_cat == lbl
+                        vals = df.loc[mask, col_x].dropna().values
+                        if len(vals) > 5:
+                            lo_v = np.percentile(vals, 1)
+                            hi_v = np.percentile(vals, 99)
+                            ax.hist(vals[(vals >= lo_v) & (vals <= hi_v)],
+                                    bins=40, alpha=0.5,
+                                    color=cmap_bins(bi),
+                                    label=lbl, density=True)
+                    ax.set_title(f'{n_row} {klbl}', fontsize=9)
+                    ax.legend(fontsize=5, loc='upper right')
+                else:
+                    for bi, lbl in enumerate(labels):
+                        mask = _bin_cat == lbl
+                        xs = df.loc[mask, col_x].values
+                        ys = df.loc[mask, col_y].values
+                        valid = np.isfinite(xs) & np.isfinite(ys)
+                        if valid.sum() > 5:
+                            # subsample to avoid overplotting
+                            idx = np.where(valid)[0]
+                            if len(idx) > 3000:
+                                idx = np.random.choice(idx, 3000, replace=False)
+                            ax.scatter(xs[idx], ys[idx],
+                                       s=1.5, alpha=0.4,
+                                       color=cmap_bins(bi),
+                                       label=lbl if ri == 0 else None)
+                    if ci == 0:
+                        ax.set_ylabel(f'{n_row} {klbl}', fontsize=8)
+                    if ri == nb - 1:
+                        ax.set_xlabel(f'{n_col} {klbl}', fontsize=8)
+
+        # shared colorbar legend for cld_dist bins
+        handles = [plt.Line2D([0], [0], marker='o', color='w',
+                               markerfacecolor=cmap_bins(bi), markersize=7,
+                               label=lbl)
+                   for bi, lbl in enumerate(labels)]
+        fig.legend(handles=handles, title='cld_dist (km)',
+                   loc='lower right', fontsize=7, title_fontsize=8,
+                   bbox_to_anchor=(1.0, 0.0))
+        fig.suptitle(
+            f'Cross-band {klbl} scatter matrix colored by cloud-distance bin',
+            fontsize=11)
+        fig.tight_layout()
+        _save(fig, outdir, f'cross_band_{kord}_scatter_matrix.png')
+
+    # clean up temporary ratio columns
+    for ratio_col, _, _ in ratio_specs:
+        if ratio_col in df.columns:
+            df.drop(columns=[ratio_col], inplace=True)
 
 
 def plot_alb_binned_profile(df, bins, labels, outdir):
@@ -2870,6 +3063,10 @@ def main():
         # ── Section 3d: k1 vs k2 joint scatter ───────────────────────────────
         logger.info("Plotting k1 vs k2 joint colored by cld_dist …")
         plot_k1_k2_joint(sdf, sfc_outdir)
+
+        # ── Section 3f: cross-band k combinations ─────────────────────────────
+        logger.info("Plotting cross-band k combination profiles and scatter matrix …")
+        plot_cross_band_k_combinations(sdf.copy(), bins, labels, sfc_outdir)
 
         # ── Supplementary ─────────────────────────────────────────────────────
         logger.info("Plotting albedo binned profiles …")
