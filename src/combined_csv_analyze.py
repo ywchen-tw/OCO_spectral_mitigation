@@ -1905,6 +1905,543 @@ def plot_xco2_anomaly_partial(df: pd.DataFrame, bins, labels,
     _save(fig, outdir, 'xco2_anomaly_partial_vs_cld_dist.png')
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Ref-corrected analyses  (Sections R1–R7)
+# Clear-sky reference pixels: ref_{k1,k2,alb,exp_int}_{band}_{mean,std}
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Registry: (obs_col, ref_mean_col, ref_std_col, diff_col, band_label, term_label, band_color)
+_REF_PAIRS: list[tuple] = [
+    ('o2a_k1',             'ref_o2a_k1_mean',       'ref_o2a_k1_std',       'dk1_o2a',   'O\u2082A',  'k\u2081',   'C0'),
+    ('o2a_k2',             'ref_o2a_k2_mean',       'ref_o2a_k2_std',       'dk2_o2a',   'O\u2082A',  'k\u2082',   'C0'),
+    ('wco2_k1',            'ref_wco2_k1_mean',      'ref_wco2_k1_std',      'dk1_wco2',  'WCO\u2082', 'k\u2081',   'C1'),
+    ('wco2_k2',            'ref_wco2_k2_mean',      'ref_wco2_k2_std',      'dk2_wco2',  'WCO\u2082', 'k\u2082',   'C1'),
+    ('sco2_k1',            'ref_sco2_k1_mean',      'ref_sco2_k1_std',      'dk1_sco2',  'SCO\u2082', 'k\u2081',   'C2'),
+    ('sco2_k2',            'ref_sco2_k2_mean',      'ref_sco2_k2_std',      'dk2_sco2',  'SCO\u2082', 'k\u2082',   'C2'),
+    ('alb_o2a',            'ref_alb_o2a_mean',      'ref_alb_o2a_std',      'dalb_o2a',  'O\u2082A',  'albedo',    'C0'),
+    ('alb_wco2',           'ref_alb_wco2_mean',     'ref_alb_wco2_std',     'dalb_wco2', 'WCO\u2082', 'albedo',    'C1'),
+    ('alb_sco2',           'ref_alb_sco2_mean',     'ref_alb_sco2_std',     'dalb_sco2', 'SCO\u2082', 'albedo',    'C2'),
+    ('exp_o2a_intercept',  'ref_exp_int_o2a_mean',  'ref_exp_int_o2a_std',  'dexp_o2a',  'O\u2082A',  'exp_int',   'C0'),
+    ('exp_wco2_intercept', 'ref_exp_int_wco2_mean', 'ref_exp_int_wco2_std', 'dexp_wco2', 'WCO\u2082', 'exp_int',   'C1'),
+    ('exp_sco2_intercept', 'ref_exp_int_sco2_mean', 'ref_exp_int_sco2_std', 'dexp_sco2', 'SCO\u2082', 'exp_int',   'C2'),
+]
+
+
+def add_ref_anomalies(df: pd.DataFrame) -> pd.DataFrame:
+    """Add obs-ref difference and z-score columns for every entry in _REF_PAIRS.
+
+    New columns:
+      d{term}_{band}  = obs - ref_mean          e.g. dk1_o2a
+      z{term}_{band}  = (obs - ref_mean)/ref_std e.g. zk1_o2a
+    Rows without a ref value remain NaN in the new columns.
+    """
+    df = df.copy()
+    for obs, ref_m, ref_s, dcol, _, _, _ in _REF_PAIRS:
+        if obs in df.columns and ref_m in df.columns:
+            df[dcol] = df[obs] - df[ref_m]
+            zcol = 'z' + dcol[1:]   # 'dk1_o2a' → 'zk1_o2a'
+            if ref_s in df.columns:
+                df[zcol] = df[dcol] / df[ref_s].replace(0, np.nan)
+    return df
+
+
+def _has_ref_data(df: pd.DataFrame) -> bool:
+    """Return True if at least one ref column is present in df."""
+    return any(c.startswith('ref_') for c in df.columns)
+
+
+def _binned_ref_profile(ax, sdf: pd.DataFrame, diff_col: str,
+                        bins, labels, color: str, title: str) -> None:
+    """Shared helper: plot binned mean ± SEM (errorbar) / ± std (fill) of diff_col."""
+    sdf = sdf.copy()
+    sdf['_bin'] = pd.cut(sdf['cld_dist_km'], bins=bins, labels=labels, right=False)
+    sub = sdf.dropna(subset=[diff_col, 'cld_dist_km'])
+    if len(sub) < 10:
+        ax.set_visible(False)
+        return
+    means = sub.groupby('_bin', observed=True)[diff_col].mean().reindex(labels)
+    stds  = sub.groupby('_bin', observed=True)[diff_col].std().reindex(labels)
+    ns    = sub.groupby('_bin', observed=True)[diff_col].count().reindex(labels).fillna(0).astype(int)
+    sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
+    xp = np.arange(len(labels))
+
+    ax.fill_between(xp, (means - stds).values, (means + stds).values,
+                    color=color, alpha=0.15, label='\u00b1 1 std')
+    ax.errorbar(xp, means.values, yerr=sems.values, fmt='o-',
+                capsize=4, color=color, lw=1.5, label='mean \u00b1 SEM')
+    ax.axhline(0, color='gray', lw=1, linestyle='--')
+
+    m = sub[diff_col].notna() & sub['cld_dist_km'].notna()
+    r_val = stats.pearsonr(sub.loc[m, 'cld_dist_km'], sub.loc[m, diff_col])[0] if m.sum() > 10 else np.nan
+
+    ax.set_xticks(xp)
+    ax.set_xticklabels(labels, rotation=30, fontsize=8)
+    ax.set_xlabel('Cloud distance (km)', fontsize=9)
+    ax.set_title(f'{title}   r={r_val:.3f}', fontsize=9)
+    ax.legend(fontsize=7)
+    ax.grid(axis='y', alpha=0.3)
+
+    finite_means = means.dropna()
+    finite_stds  = stds.dropna()
+    if finite_means.size and finite_stds.size:
+        spread = max(finite_stds.max() * 2, abs(finite_means).max() * 2, 1e-9)
+        ax.set_ylim(-spread, spread)
+
+
+# ── R1: Coverage bias analysis ────────────────────────────────────────────────
+
+def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str) -> None:
+    """Compare soundings that have vs lack a clear-sky reference per cld_dist bin.
+
+    Tests whether the subset with ref data is representative.  Systematic
+    differences reveal selection bias that must be considered when interpreting
+    ref-corrected anomalies.  The coverage fraction panel (bottom-right) shows
+    how ref availability drops sharply near clouds.
+    """
+    check_vars = {
+        'o2a_k1':            'O\u2082A k\u2081',
+        'alb_o2a':           'O\u2082A albedo',
+        'exp_o2a_intercept': 'O\u2082A exp_int',
+        'sco2_k1':           'SCO\u2082 k\u2081',
+        'xco2_bc_anomaly':   'XCO\u2082 BC anomaly (ppm)',
+        'airmass':           'Airmass',
+    }
+    avail = {k: v for k, v in check_vars.items() if k in df.columns}
+    ref_flag_col = 'ref_o2a_k1_mean'
+    if ref_flag_col not in df.columns or not avail:
+        return
+
+    df = df.copy()
+    df['_bin']     = pd.cut(df['cld_dist_km'], bins=bins, labels=labels, right=False)
+    df['_has_ref'] = df[ref_flag_col].notna()
+    xp    = np.arange(len(labels))
+    width = 0.35
+
+    ncols = 2
+    nrows = int(np.ceil((len(avail) + 1) / ncols))   # +1 for coverage panel
+    fig, axes = plt.subplots(nrows, ncols, figsize=(13, 4 * nrows))
+    axes = axes.flatten()
+
+    for ax, (col, lbl) in zip(axes, avail.items()):
+        for gi, (flag, color, grp_lbl) in enumerate([(True, 'C0', 'has ref'),
+                                                      (False, 'C3', 'no ref')]):
+            sub  = df[df['_has_ref'] == flag]
+            means = sub.groupby('_bin', observed=True)[col].mean().reindex(labels)
+            stds  = sub.groupby('_bin', observed=True)[col].std().reindex(labels)
+            ns    = sub.groupby('_bin', observed=True)[col].count().reindex(labels).fillna(0).astype(int)
+            sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
+            ax.bar(xp + (gi - 0.5) * width, means.fillna(0).values, width=width,
+                   color=color, alpha=0.75, label=grp_lbl)
+            ax.errorbar(xp + (gi - 0.5) * width, means.fillna(0).values,
+                        yerr=sems.values, fmt='none', color='k', capsize=3, lw=1)
+        ax.set_xticks(xp)
+        ax.set_xticklabels(labels, rotation=30, fontsize=8)
+        ax.set_xlabel('Cloud distance (km)', fontsize=9)
+        ax.set_ylabel(lbl, fontsize=9)
+        ax.set_title(f'{lbl}: has-ref vs no-ref', fontsize=10)
+        ax.legend(fontsize=8)
+        ax.grid(axis='y', alpha=0.3)
+
+    # Coverage fraction panel
+    cov_ax = axes[len(avail)]
+    cov_ax.set_visible(True)
+    coverage = df.groupby('_bin', observed=True)['_has_ref'].mean() * 100
+    cov_ax.bar(xp, coverage.reindex(labels).values, color='steelblue', alpha=0.8)
+    cov_ax.set_xticks(xp)
+    cov_ax.set_xticklabels(labels, rotation=30, fontsize=8)
+    cov_ax.set_xlabel('Cloud distance (km)', fontsize=9)
+    cov_ax.set_ylabel('% soundings with ref', fontsize=9)
+    cov_ax.set_title('Clear-sky ref coverage vs cloud distance', fontsize=10)
+    cov_ax.set_ylim(0, 110)
+    cov_ax.grid(axis='y', alpha=0.3)
+    for xi, cov in enumerate(coverage.reindex(labels).fillna(0).values):
+        cov_ax.text(xi, cov + 1.5, f'{cov:.0f}%', ha='center', fontsize=8, color='navy')
+
+    for ax in axes[len(avail) + 1:]:
+        ax.set_visible(False)
+
+    fig.suptitle('Selection bias check: soundings with vs without clear-sky reference\n'
+                 '(ideally the two groups match within each cld_dist bin)',
+                 fontsize=11)
+    fig.tight_layout()
+    _save(fig, outdir, 'ref_coverage_bias.png')
+
+
+# ── R2: Ref std profiles (scene heterogeneity proxy) ─────────────────────────
+
+def plot_ref_std_profiles(df: pd.DataFrame, bins, labels, outdir: str) -> None:
+    """Plot ref_std (within-reference-pool variability) vs cloud-distance bin.
+
+    A decrease in ref_std near clouds can indicate:
+      (a) fewer reference pixels → downward-biased std estimate, or
+      (b) genuinely more homogeneous clear-sky corridors adjacent to clouds.
+    Ocean and land are shown in separate columns.
+    """
+    std_vars = [
+        ('ref_o2a_k1_std',       'O\u2082A k\u2081 ref \u03c3',       'C0'),
+        ('ref_sco2_k1_std',      'SCO\u2082 k\u2081 ref \u03c3',      'C2'),
+        ('ref_alb_o2a_std',      'O\u2082A alb ref \u03c3',           'C0'),
+        ('ref_alb_sco2_std',     'SCO\u2082 alb ref \u03c3',          'C2'),
+        ('ref_exp_int_o2a_std',  'O\u2082A exp_int ref \u03c3',       'C0'),
+        ('ref_exp_int_sco2_std', 'SCO\u2082 exp_int ref \u03c3',      'C2'),
+    ]
+    avail = [(c, l, col) for c, l, col in std_vars if c in df.columns]
+    if not avail:
+        return
+
+    subsets = [('Ocean', df[df['sfc_type'] == 0]),
+               ('Land',  df[df['sfc_type'] == 1])]
+    xp = np.arange(len(labels))
+
+    fig, axes = plt.subplots(len(avail), 2, figsize=(12, 3.5 * len(avail)))
+    if len(avail) == 1:
+        axes = axes[np.newaxis, :]
+
+    for row, (col, lbl, color) in enumerate(avail):
+        for ci, (sfc_name, sdf) in enumerate(subsets):
+            ax = axes[row, ci]
+            sdf = sdf.copy()
+            sdf['_bin'] = pd.cut(sdf['cld_dist_km'], bins=bins, labels=labels, right=False)
+            means = sdf.groupby('_bin', observed=True)[col].mean().reindex(labels)
+            ns    = sdf.groupby('_bin', observed=True)[col].count().reindex(labels).replace(0, np.nan)
+            sems  = (sdf.groupby('_bin', observed=True)[col].std().reindex(labels)
+                     / np.sqrt(ns)).fillna(0)
+            ax.errorbar(xp, means.values, yerr=sems.values,
+                        fmt='o-', capsize=3, color=color, lw=1.5)
+            ax.set_xticks(xp)
+            ax.set_xticklabels(labels, rotation=30, fontsize=8)
+            ax.set_xlabel('Cloud distance (km)', fontsize=9)
+            ax.set_ylabel(lbl, fontsize=9)
+            ax.set_title(f'{lbl} — {sfc_name}', fontsize=9)
+            ax.grid(axis='y', alpha=0.3)
+
+    fig.suptitle('Clear-sky reference \u03c3 vs cloud distance\n'
+                 '(decreasing near clouds may reflect sampling, not homogeneity)',
+                 fontsize=11)
+    fig.tight_layout()
+    _save(fig, outdir, 'ref_std_profiles.png')
+
+
+# ── R3: Ref-corrected anomaly profiles ────────────────────────────────────────
+
+def plot_ref_corrected_profiles(df: pd.DataFrame, bins, labels, outdir: str) -> None:
+    """Binned mean ± SEM/std of (obs − ref_mean) for k1, k2, albedo, exp_intercept.
+
+    Four figures (one per variable type), each with 3 rows (bands O2A/WCO2/SCO2)
+    × 2 columns (ocean / land).  The y = 0 line marks where obs matches its
+    clear-sky baseline; deviations reveal cloud-adjacency effects that survive
+    local scene conditioning.
+    """
+    term_groups = [
+        ('k\u2081',   [p for p in _REF_PAIRS if p[5] == 'k\u2081'],   'ref_corrected_k1_profiles.png'),
+        ('k\u2082',   [p for p in _REF_PAIRS if p[5] == 'k\u2082'],   'ref_corrected_k2_profiles.png'),
+        ('albedo', [p for p in _REF_PAIRS if p[5] == 'albedo'],   'ref_corrected_alb_profiles.png'),
+        ('exp_int',[p for p in _REF_PAIRS if p[5] == 'exp_int'],  'ref_corrected_exp_profiles.png'),
+    ]
+    subsets = [('Ocean', df[df['sfc_type'] == 0]),
+               ('Land',  df[df['sfc_type'] == 1])]
+
+    for term_lbl, pairs, fname in term_groups:
+        avail = [p for p in pairs if p[3] in df.columns]
+        if not avail:
+            continue
+
+        fig, axes = plt.subplots(len(avail), 2, figsize=(12, 4 * len(avail)))
+        if len(avail) == 1:
+            axes = axes[np.newaxis, :]
+
+        for row, (_, _, _, dcol, bl, tl, col) in enumerate(avail):
+            for ci, (sfc_name, sdf) in enumerate(subsets):
+                ax = axes[row, ci]
+                _binned_ref_profile(ax, sdf, dcol, bins, labels, col,
+                                    f'{bl} {tl} \u2212 ref — {sfc_name}')
+                if ax.get_visible():
+                    ax.set_ylabel(f'{bl} {tl}\nobs \u2212 ref', fontsize=8)
+
+        fig.suptitle(f'Ref-corrected anomaly  [{term_lbl}]:  obs \u2212 clear-sky ref\n'
+                     'y = 0 → obs matches clear-sky baseline',
+                     fontsize=11)
+        fig.tight_layout()
+        _save(fig, outdir, fname)
+
+
+# ── R4: Ref z-score profiles ──────────────────────────────────────────────────
+
+def plot_ref_zscore_profiles(df: pd.DataFrame, bins, labels, outdir: str) -> None:
+    """Binned mean ± SEM of z = (obs − ref_mean) / ref_std vs cloud distance.
+
+    Normalising by ref_std puts all variables on the same scale (units of
+    clear-sky natural variability).  A z-score of ±1 means the obs deviates
+    by one standard deviation of the local reference distribution.
+    """
+    term_groups = [
+        ('k\u2081',   [p for p in _REF_PAIRS if p[5] == 'k\u2081'],   'ref_zscore_k1_profiles.png'),
+        ('k\u2082',   [p for p in _REF_PAIRS if p[5] == 'k\u2082'],   'ref_zscore_k2_profiles.png'),
+        ('albedo', [p for p in _REF_PAIRS if p[5] == 'albedo'],   'ref_zscore_alb_profiles.png'),
+        ('exp_int',[p for p in _REF_PAIRS if p[5] == 'exp_int'],  'ref_zscore_exp_profiles.png'),
+    ]
+    subsets = [('Ocean', df[df['sfc_type'] == 0]),
+               ('Land',  df[df['sfc_type'] == 1])]
+
+    for term_lbl, pairs, fname in term_groups:
+        avail = [p for p in pairs if p[3] in df.columns]
+        if not avail:
+            continue
+
+        fig, axes = plt.subplots(len(avail), 2, figsize=(12, 4 * len(avail)))
+        if len(avail) == 1:
+            axes = axes[np.newaxis, :]
+
+        for row, (_, _, _, dcol, bl, tl, col) in enumerate(avail):
+            zcol = 'z' + dcol[1:]   # e.g. 'zk1_o2a'
+            if zcol not in df.columns:
+                continue
+            for ci, (sfc_name, sdf) in enumerate(subsets):
+                ax = axes[row, ci]
+                _binned_ref_profile(ax, sdf, zcol, bins, labels, col,
+                                    f'{bl} {tl} z-score — {sfc_name}')
+                if ax.get_visible():
+                    ax.set_ylabel(f'{bl} {tl}\n(obs\u2212ref)/\u03c3_ref', fontsize=8)
+
+        fig.suptitle(f'Ref z-score  [{term_lbl}]:  (obs \u2212 ref) / \u03c3_ref\n'
+                     'Units of clear-sky natural variability',
+                     fontsize=11)
+        fig.tight_layout()
+        _save(fig, outdir, fname)
+
+
+# ── R5: Signal hierarchy with ref normalization ───────────────────────────────
+
+def plot_ref_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
+    """Bar chart of r(cld_dist, obs − ref) for all ref-corrected variables.
+
+    Companion to plot_signal_hierarchy but using diff columns (obs − ref_mean)
+    instead of raw obs.  Variables that retain large |r| after subtracting the
+    clear-sky reference carry genuine cloud-adjacency signal not explained by
+    local scene co-variation.  Ocean and land are shown side-by-side.
+    """
+    feat_groups = [
+        ('dk1_o2a',   'O\u2082A',  'k\u2081',   ''),
+        ('dk2_o2a',   'O\u2082A',  'k\u2082',   '///'),
+        ('dk1_wco2',  'WCO\u2082', 'k\u2081',   ''),
+        ('dk2_wco2',  'WCO\u2082', 'k\u2082',   '///'),
+        ('dk1_sco2',  'SCO\u2082', 'k\u2081',   ''),
+        ('dk2_sco2',  'SCO\u2082', 'k\u2082',   '///'),
+        ('dalb_o2a',  'O\u2082A',  'alb',       '...'),
+        ('dalb_wco2', 'WCO\u2082', 'alb',       '...'),
+        ('dalb_sco2', 'SCO\u2082', 'alb',       '...'),
+        ('dexp_o2a',  'O\u2082A',  'exp_int',   '|||'),
+        ('dexp_wco2', 'WCO\u2082', 'exp_int',   '|||'),
+        ('dexp_sco2', 'SCO\u2082', 'exp_int',   '|||'),
+    ]
+    avail = [(col, bl, tl, ht) for col, bl, tl, ht in feat_groups if col in df.columns]
+    if not avail:
+        return
+
+    band_colors  = {'O\u2082A': 'C0', 'WCO\u2082': 'C1', 'SCO\u2082': 'C2'}
+    subsets = [('Ocean', df[df['sfc_type'] == 0]),
+               ('Land',  df[df['sfc_type'] == 1])]
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 5), sharey=True)
+    x = np.arange(len(avail))
+
+    for ax, (sfc_name, sdf) in zip(axes, subsets):
+        rs = []
+        for col, _, _, _ in avail:
+            m = sdf[col].notna() & sdf['cld_dist_km'].notna()
+            r = stats.pearsonr(sdf.loc[m, 'cld_dist_km'], sdf.loc[m, col])[0] if m.sum() > 10 else np.nan
+            rs.append(r)
+
+        colors  = [band_colors[bl] for _, bl, _, _  in avail]
+        hatches = [ht              for _, _,  _, ht in avail]
+        bars = ax.bar(x, rs, color=colors, hatch=hatches, edgecolor='white', alpha=0.85)
+        ax.axhline(0, color='k', lw=0.8)
+        ax.set_xticks(x)
+        ax.set_xticklabels([f'{bl}\n{tl}' for _, bl, tl, _ in avail],
+                           fontsize=7.5, rotation=40, ha='right')
+        ax.set_ylabel('Pearson r(cld_dist, obs\u2212ref)', fontsize=9)
+        ax.set_title(f'{sfc_name} (n={sdf["cld_dist_km"].notna().sum():,})', fontsize=10)
+        ax.grid(axis='y', alpha=0.3)
+        for bar, r in zip(bars, rs):
+            if np.isfinite(r):
+                offset = 0.005 if r >= 0 else -0.005
+                ax.text(bar.get_x() + bar.get_width() / 2, r + offset,
+                        f'{r:.2f}', ha='center',
+                        va='bottom' if r >= 0 else 'top', fontsize=6.5)
+
+    from matplotlib.patches import Patch
+    legend_handles  = [Patch(facecolor=c, label=b) for b, c in band_colors.items()]
+    legend_handles += [Patch(facecolor='gray', hatch=h, label=t, alpha=0.7)
+                       for t, h in [('k\u2081', ''), ('k\u2082', '///'),
+                                    ('alb', '...'), ('exp_int', '|||')]]
+    axes[0].legend(handles=legend_handles, fontsize=7, ncol=2, loc='lower left',
+                   title='Band / Term', title_fontsize=7)
+    fig.suptitle('Ref-corrected signal hierarchy: r(cld_dist, obs \u2212 ref)\n'
+                 'Variables retaining large |r| carry genuine cloud-adjacency signal',
+                 fontsize=12)
+    fig.tight_layout()
+    _save(fig, outdir, 'ref_signal_hierarchy.png')
+
+
+# ── R6: Albedo-decoupled exp_intercept in ref-corrected space ─────────────────
+
+def plot_ref_alb_decoupled_exp(df: pd.DataFrame, bins, labels, outdir: str) -> None:
+    """OLS-remove dalb from dexp, then plot residual vs cloud distance.
+
+    In ref-corrected space: dexp ~ const + dalb (per band, per surface type).
+    The residual isolates the non-albedo component of the cloud-edge signal —
+    i.e. photon path-length or scattering effects independent of surface changes.
+    Compares r_raw(dexp) vs r_resid to quantify how much cloud signal survives
+    after accounting for albedo co-variation with cloud proximity.
+    """
+    band_defs = [
+        ('dexp_o2a',  'dalb_o2a',  'O\u2082A',  'C0'),
+        ('dexp_wco2', 'dalb_wco2', 'WCO\u2082', 'C1'),
+        ('dexp_sco2', 'dalb_sco2', 'SCO\u2082', 'C2'),
+    ]
+    avail = [(de, da, nm, col) for de, da, nm, col in band_defs
+             if de in df.columns and da in df.columns]
+    if not avail:
+        return
+
+    subsets = [('Ocean', df[df['sfc_type'] == 0]),
+               ('Land',  df[df['sfc_type'] == 1])]
+    xp = np.arange(len(labels))
+
+    fig, axes = plt.subplots(len(avail), 2, figsize=(12, 4.5 * len(avail)))
+    if len(avail) == 1:
+        axes = axes[np.newaxis, :]
+
+    for row, (dexp_col, dalb_col, nm, col) in enumerate(avail):
+        for ci, (sfc_name, sdf) in enumerate(subsets):
+            ax = axes[row, ci]
+            req = [dexp_col, dalb_col, 'cld_dist_km']
+            m   = sdf[req].notna().all(axis=1)
+            sdf_m = sdf[m].copy()
+            if len(sdf_m) < 50:
+                ax.set_visible(False)
+                continue
+
+            # OLS: dexp ~ const + dalb
+            X = np.column_stack([np.ones(len(sdf_m)), sdf_m[dalb_col].values])
+            y = sdf_m[dexp_col].values
+            coef, *_ = np.linalg.lstsq(X, y, rcond=None)
+            sdf_m['_resid'] = y - X @ coef
+
+            r_raw, _ = stats.pearsonr(sdf_m['cld_dist_km'], sdf_m[dexp_col])
+            r_res, _ = stats.pearsonr(sdf_m['cld_dist_km'], sdf_m['_resid'])
+
+            sdf_m['_bin'] = pd.cut(sdf_m['cld_dist_km'], bins=bins,
+                                   labels=labels, right=False)
+            means = sdf_m.groupby('_bin', observed=True)['_resid'].mean().reindex(labels)
+            stds  = sdf_m.groupby('_bin', observed=True)['_resid'].std().reindex(labels)
+            ns    = sdf_m.groupby('_bin', observed=True)['_resid'].count().reindex(labels).fillna(0).astype(int)
+            sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
+
+            ax.fill_between(xp, (means - stds).values, (means + stds).values,
+                            color=col, alpha=0.15, label='\u00b1 1 std')
+            ax.errorbar(xp, means.values, yerr=sems.values, fmt='o-',
+                        capsize=4, color=col, lw=1.5,
+                        label=f'mean \u00b1 SEM  r={r_res:.3f}')
+            ax.axhline(0, color='gray', lw=0.8, linestyle='--')
+            ax.set_xticks(xp)
+            ax.set_xticklabels(labels, rotation=30, fontsize=8)
+            ax.set_xlabel('Cloud distance (km)', fontsize=9)
+            ax.set_ylabel(f'{nm} \u0394exp_int | \u0394alb removed', fontsize=9)
+            ax.set_title(f'{nm} — {sfc_name}  |  r_raw={r_raw:.3f} \u2192 r_resid={r_res:.3f}',
+                         fontsize=9)
+            ax.legend(fontsize=7)
+            ax.grid(axis='y', alpha=0.3)
+            finite_means = means.dropna()
+            finite_stds  = stds.dropna()
+            if finite_means.size and finite_stds.size:
+                spread = max(finite_stds.max() * 2, abs(finite_means).max() * 2, 1e-9)
+                ax.set_ylim(-spread, spread)
+
+    fig.suptitle('\u0394exp_int residual after removing \u0394alb (OLS) — ref-corrected space\n'
+                 'Surviving signal is independent of surface reflectance co-variation',
+                 fontsize=11)
+    fig.tight_layout()
+    _save(fig, outdir, 'ref_alb_decoupled_exp_residuals.png')
+
+
+# ── R7: Obs vs ref scatter at matched geometry ────────────────────────────────
+
+def plot_obs_vs_ref_scatter(df: pd.DataFrame, outdir: str) -> None:
+    """Hexbin scatter of obs vs ref_mean colored by density, with 1:1 line.
+
+    Points above the 1:1 line: obs exceeds clear-sky reference.
+    The rolling median (colored by mean cld_dist in each hex) reveals whether
+    cloud-adjacent soundings systematically depart from the clear-sky baseline.
+    Three variable types (k1, albedo, exp_int) × two surface types (ocean/land).
+    """
+    var_defs = [
+        ('o2a_k1',            'ref_o2a_k1_mean',       'O\u2082A k\u2081',     'C0'),
+        ('sco2_k1',           'ref_sco2_k1_mean',      'SCO\u2082 k\u2081',    'C2'),
+        ('alb_o2a',           'ref_alb_o2a_mean',      'O\u2082A albedo',       'C0'),
+        ('alb_sco2',          'ref_alb_sco2_mean',     'SCO\u2082 albedo',      'C2'),
+        ('exp_o2a_intercept', 'ref_exp_int_o2a_mean',  'O\u2082A exp_int',      'C0'),
+        ('exp_sco2_intercept','ref_exp_int_sco2_mean', 'SCO\u2082 exp_int',     'C2'),
+    ]
+    avail = [(oc, rc, lbl, col) for oc, rc, lbl, col in var_defs
+             if oc in df.columns and rc in df.columns]
+    if not avail:
+        return
+
+    subsets = [('Ocean', df[df['sfc_type'] == 0]),
+               ('Land',  df[df['sfc_type'] == 1])]
+
+    for sfc_name, sdf in subsets:
+        ncols = 2
+        nrows = int(np.ceil(len(avail) / ncols))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 5.5 * nrows))
+        axes = axes.flatten()
+
+        for ax, (obs_col, ref_col, lbl, col) in zip(axes, avail):
+            m = sdf[obs_col].notna() & sdf[ref_col].notna()
+            x = sdf.loc[m, ref_col].values   # reference (clear-sky)
+            y = sdf.loc[m, obs_col].values    # observation
+            if len(x) < 10:
+                ax.set_visible(False)
+                continue
+
+            # clip to 1–99th percentile for display
+            xlo, xhi = np.percentile(x, 1), np.percentile(x, 99)
+            ylo, yhi = np.percentile(y, 1), np.percentile(y, 99)
+            vm = (x >= xlo) & (x <= xhi) & (y >= ylo) & (y <= yhi)
+
+            hb = ax.hexbin(x[vm], y[vm], gridsize=60, cmap='YlOrRd',
+                           mincnt=1, norm=mcolors.LogNorm())
+            plt.colorbar(hb, ax=ax, label='count')
+
+            # 1:1 reference line
+            lo = min(xlo, ylo)
+            hi = max(xhi, yhi)
+            ax.plot([lo, hi], [lo, hi], 'k--', lw=1.5, label='1:1 line')
+
+            # rolling median of y vs x
+            xs, med, q25, q75 = rolling_median_iqr(x[vm], y[vm], n_pts=60)
+            ax.plot(xs, med, color=col, lw=2, label='rolling median')
+            ax.fill_between(xs, q25, q75, color=col, alpha=0.25)
+
+            r, _ = stats.pearsonr(x[vm], y[vm])
+            bias = np.mean(y[vm] - x[vm])
+            ax.set_xlabel(f'ref_mean ({lbl})', fontsize=9)
+            ax.set_ylabel(f'obs ({lbl})', fontsize=9)
+            ax.set_title(f'{lbl}  |  r={r:.3f}  bias={bias:+.4f}', fontsize=9)
+            ax.legend(fontsize=7)
+
+        for ax in axes[len(avail):]:
+            ax.set_visible(False)
+
+        fig.suptitle(f'Obs vs clear-sky reference — {sfc_name}\n'
+                     'Points above 1:1 line: obs exceeds clear-sky baseline',
+                     fontsize=12)
+        fig.tight_layout()
+        fname = f'obs_vs_ref_scatter_{sfc_name.lower()}.png'
+        _save(fig, outdir, fname)
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -1918,11 +2455,16 @@ def main():
     df = apply_quality_filter(df)
 
     # ── scale exp_intercept by π ──────────────────────────────────────────────
-    # TODO: remove this once the π factor is absorbed into oco_fp_spec_anal.py
-    _exp_int_cols = ['exp_o2a_intercept', 'exp_wco2_intercept', 'exp_sco2_intercept']
-    for _col in _exp_int_cols:
-        if _col in df.columns:
-            df[_col] = df[_col] * np.pi
+    # # TODO: remove this once the π factor is absorbed into oco_fp_spec_anal.py
+    # # Scale both obs and ref exp_int so they stay on the same scale for diffs.
+    # _exp_int_cols = [
+    #     'exp_o2a_intercept',    'exp_wco2_intercept',    'exp_sco2_intercept',
+    #     'ref_exp_int_o2a_mean', 'ref_exp_int_wco2_mean', 'ref_exp_int_sco2_mean',
+    #     'ref_exp_int_o2a_std',  'ref_exp_int_wco2_std',  'ref_exp_int_sco2_std',
+    # ]
+    # for _col in _exp_int_cols:
+    #     if _col in df.columns:
+    #         df[_col] = df[_col]
 
     # ── cloud-distance bins ───────────────────────────────────────────────────
     edges  = [0, 2, 5, 10, 15, 20, 30, 50]
@@ -1960,6 +2502,37 @@ def main():
     # ── Section 3c: higher-order k profiles (k3 for SCO₂ and WCO₂) ──────────
     logger.info("Section 3c: Plotting higher-order k3 profiles …")
     plot_higher_order_k_profiles(df, bins, labels, overall_outdir)
+
+    # ── Sections R1–R7: ref-corrected analyses ────────────────────────────────
+    if _has_ref_data(df):
+        ref_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'ref_corrected')
+        logger.info("Adding ref-corrected anomaly columns …")
+        df_r = add_ref_anomalies(df)
+
+        logger.info("R1: Ref coverage bias analysis …")
+        plot_ref_coverage_bias(df_r, bins, labels, ref_outdir)
+
+        logger.info("R2: Ref std profiles (scene heterogeneity) …")
+        plot_ref_std_profiles(df_r, bins, labels, ref_outdir)
+
+        logger.info("R3: Ref-corrected anomaly profiles …")
+        plot_ref_corrected_profiles(df_r, bins, labels, ref_outdir)
+
+        logger.info("R4: Ref z-score profiles …")
+        plot_ref_zscore_profiles(df_r, bins, labels, ref_outdir)
+
+        logger.info("R5: Ref-corrected signal hierarchy …")
+        plot_ref_signal_hierarchy(df_r, ref_outdir)
+
+        logger.info("R6: Ref albedo-decoupled exp_intercept residuals …")
+        plot_ref_alb_decoupled_exp(df_r, bins, labels, ref_outdir)
+
+        logger.info("R7: Obs vs ref scatter …")
+        plot_obs_vs_ref_scatter(df_r, ref_outdir)
+
+        logger.info(f"All ref-corrected figures written to {ref_outdir}")
+    else:
+        logger.warning("No ref_* columns found — skipping Sections R1–R7")
 
     # ── split by surface type ─────────────────────────────────────────────────
     subsets = split_by_surface(df)
