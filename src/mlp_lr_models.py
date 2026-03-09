@@ -179,6 +179,19 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
 
     _checkpoint("mitigation_test: entry")
 
+    # Max points per scatter plot — keeps matplotlib PathCollection memory bounded on large datasets
+    _SCATTER_MAX = 150_000
+
+    def _scatter_ss(rng, *arrs):
+        """Subsample all arrays to ≤ _SCATTER_MAX rows using the same random index."""
+        N = len(arrs[0])
+        if N <= _SCATTER_MAX:
+            return arrs
+        idx = rng.choice(N, size=_SCATTER_MAX, replace=False)
+        return tuple(a[idx] for a in arrs)
+
+    rng_plot = np.random.default_rng(1)
+
     # Keep only the 3 columns needed downstream — avoids copying all df columns for the filtered subset
     df_xco2_anomaly = df.loc[df['xco2_bc_anomaly'].notna(), ['xco2_bc', 'xco2_bc_anomaly', 'cld_dist_km']]
 
@@ -191,7 +204,22 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     df_X        = X_all[valid_rows.values]
     df_all_X    = X_all
     del X_all   # df_all_X holds the only reference; free the alias
+    # Drop feature columns from df — only plot/anomaly columns are needed hereafter.
+    # This frees ~25-35 feature columns (~50% of df's memory) before train_test_split.
+    _keep_cols = ['lon', 'lat', 'xco2_bc', 'xco2_raw', 'xco2_bc_anomaly',
+                  'date', 'orbit_id', 'cld_dist_km', 'o2a_k1', 'o2a_k2']
+    df = df[[c for c in _keep_cols if c in df.columns]]
+    gc.collect()
     y           = df['xco2_bc_anomaly'][valid_rows].values
+
+    # Drop rows where any feature is NaN/inf (can arise from pipeline extrapolation)
+    feat_finite = np.all(np.isfinite(df_X), axis=1)
+    if not feat_finite.all():
+        n_dropped = int((~feat_finite).sum())
+        print(f"[warn] Dropping {n_dropped} rows with non-finite features before training")
+        df_X = df_X[feat_finite]
+        y    = y[feat_finite]
+
     print("X shape:", df_X.shape)
     print("y shape:", y.shape)
     X_train, X_test, y_train, y_test = train_test_split(df_X, y, test_size=0.2, random_state=42)
@@ -215,14 +243,17 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     fig_corr.savefig(os.path.join(output_dir, 'feature_correlation_matrix.png'),
                      dpi=150, bbox_inches='tight')
     plt.close(fig_corr)
+    del corr  # free [F, F] float64 matrix
     # ── end correlation matrix ─────────────────────────────────────────────
 
     # df_X / df_all_X already computed above; checkpoint retained for timing
     _checkpoint("df_X / df_all_X already ready (no-op)")
 
-    # Convert to numpy immediately so pandas doesn't keep the full DataFrame columns pinned
+    # Extract all needed numpy arrays; free df_xco2_anomaly immediately after
     df_xco2_bc             = df_xco2_anomaly['xco2_bc'].to_numpy()
     df_xco2_bc_anomaly     = df_xco2_anomaly['xco2_bc_anomaly'].to_numpy()
+    _cd_orig_for_masks     = df_xco2_anomaly['cld_dist_km'].to_numpy()  # for row masks below
+    del df_xco2_anomaly
     df_all_xco2_bc         = df['xco2_bc'].to_numpy()
     df_all_xco2_bc_anomaly = df['xco2_bc_anomaly'].to_numpy()
 
@@ -565,8 +596,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     fig, (ax_sc1, ax_sc2, ax_hist) = plt.subplots(1, 3, figsize=(18, 6))
 
     valid = np.isfinite(anomaly_orig) & np.isfinite(anomaly_lr)
-    ax_sc1.scatter(anomaly_orig[valid], anomaly_lr[valid],
-                   c='orange', edgecolor=None, s=5, alpha=0.6)
+    _x, _y = _scatter_ss(rng_plot, anomaly_orig[valid], anomaly_lr[valid])
+    ax_sc1.scatter(_x, _y, c='orange', edgecolor=None, s=5, alpha=0.6, rasterized=True)
     _lim = np.nanpercentile(np.abs(anomaly_orig[valid]), 99)
     ax_sc1.set_xlim(-_lim, _lim); ax_sc1.set_ylim(-_lim, _lim)
     ax_sc1.set_aspect('equal', adjustable='box')
@@ -579,8 +610,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     ax_sc1.text(0.05, 0.95, f'R²={r2_lr:.3f}', transform=ax_sc1.transAxes, va='top')
 
     valid2 = np.isfinite(anomaly_orig) & np.isfinite(anomaly_mlp)
-    ax_sc2.scatter(anomaly_orig[valid2], anomaly_mlp[valid2],
-                   c='green', edgecolor=None, s=5, alpha=0.6)
+    _x, _y = _scatter_ss(rng_plot, anomaly_orig[valid2], anomaly_mlp[valid2])
+    ax_sc2.scatter(_x, _y, c='green', edgecolor=None, s=5, alpha=0.6, rasterized=True)
     ax_sc2.set_xlim(-_lim, _lim); ax_sc2.set_ylim(-_lim, _lim)
     ax_sc2.set_aspect('equal', adjustable='box')
     ax_sc2.axline((0, 0), slope=1, color='r', linestyle='--')
@@ -618,34 +649,25 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
 
     # ── 3×3 XCO2_bc comparison by cloud-distance regime ──────────────────
     _checkpoint("plot: 3×3 XCO2 comparison")
-    # Row masks
-    _cd_orig       = np.array(df_xco2_anomaly['cld_dist_km'])
+    # Row masks — use pre-extracted numpy arrays (df_xco2_anomaly already freed)
+    _cd_orig       = _cd_orig_for_masks
     mask_r1        = _cd_orig > 10
     mask_r2        = _cd_orig < 10
     _cd_all_arr    = np.array(df['cld_dist_km'])
     _anom_all_orig = np.array(df['xco2_bc_anomaly'])
     mask_r3        = (_cd_all_arr < 10) & np.isnan(_anom_all_orig)
+    del _cd_all_arr, _anom_all_orig
 
-    # Data sources per row: (xco2_orig, xco2_lr, xco2_mlp, mask)
+    # Data sources per row: use pre-extracted numpy arrays (no df_xco2_anomaly reference)
     row_configs = [
-        (np.array(df_xco2_anomaly['xco2_bc_anomaly']), np.array(df_xco2_anomaly['xco2_bc']), xco2_bc_pred_anomaly, xco2_bc_pred_anomaly_mlp,
+        (df_xco2_bc_anomaly, df_xco2_bc, xco2_bc_pred_anomaly, xco2_bc_pred_anomaly_mlp,
          mask_r1, 'Clear-sky FPs (cld_dist > 10 km)', True),
-        (np.array(df_xco2_anomaly['xco2_bc_anomaly']), np.array(df_xco2_anomaly['xco2_bc']), xco2_bc_pred_anomaly, xco2_bc_pred_anomaly_mlp,
+        (df_xco2_bc_anomaly, df_xco2_bc, xco2_bc_pred_anomaly, xco2_bc_pred_anomaly_mlp,
          mask_r2, 'Cloud-affected FPs from df_orig (cld_dist < 10 km)', True),
-        (np.array(df['xco2_bc']), np.array(df['xco2_bc']), xco2_bc_predict_all_anomaly, xco2_bc_predict_all_anomaly_mlp,
+        (df_all_xco2_bc, df_all_xco2_bc, xco2_bc_predict_all_anomaly, xco2_bc_predict_all_anomaly_mlp,
          mask_r3, 'Cloud FPs with NaN anomaly from df (cld_dist < 10 km)', False),
     ]
-
-    # Shared histogram bins across all rows
-    _all_xco2 = np.concatenate([
-        np.array(df_xco2_anomaly['xco2_bc']),
-        np.array(df['xco2_bc']),
-        xco2_bc_corrected, xco2_bc_corrected_mlp,
-        xco2_bc_corrected_all, xco2_bc_corrected_all_mlp,
-    ])
-    # _xco2_lo = np.nanpercentile(_all_xco2, 1)
-    # _xco2_hi = np.nanpercentile(_all_xco2, 99)
-    # _bins_3x3 = np.linspace(_xco2_lo, _xco2_hi, 100)
+    # _all_xco2 concatenation was dead code (downstream vars were commented out) — removed
 
     plt.close('all')
     fig, axes = plt.subplots(3, 5, figsize=(27, 17))
@@ -661,8 +683,9 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         v_lr  = np.isfinite(x_orig) & np.isfinite(x_lr)
         v_mlp = np.isfinite(x_orig) & np.isfinite(x_mlp)
 
-        _lo = np.nanpercentile(x_orig[np.isfinite(x_orig)], 1)  if np.isfinite(x_orig).any() else _xco2_lo
-        _hi = np.nanpercentile(x_orig[np.isfinite(x_orig)], 99) if np.isfinite(x_orig).any() else _xco2_hi
+        _fin = x_orig[np.isfinite(x_orig)]
+        _lo = float(np.nanpercentile(_fin, 1))  if len(_fin) > 0 else -5.0
+        _hi = float(np.nanpercentile(_fin, 99)) if len(_fin) > 0 else  5.0
 
         
         for ax, x_corr, _color, method in [
@@ -671,7 +694,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         ]:
             if not (x_orig == xco2_orig_bc).all():
                 v = np.isfinite(x_orig) & np.isfinite(x_corr)
-                ax.scatter(x_orig[v], x_corr[v], c=_color, edgecolor=None, s=5, alpha=0.6)
+                _sx, _sy = _scatter_ss(rng_plot, x_orig[v], x_corr[v])
+                ax.scatter(_sx, _sy, c=_color, edgecolor=None, s=5, alpha=0.6, rasterized=True)
                 ax.set_xlim(_lo, _hi); ax.set_ylim(_lo, _hi)
                 ax.set_aspect('equal', adjustable='box')
                 ax.axline((_lo, _lo), slope=1, color='r', linestyle='--')
@@ -771,13 +795,15 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     _vmin = min(np.nanmin(df_all_xco2_bc), np.nanmin(xco2_bc_corrected_all), np.nanmin(xco2_bc_corrected_all_mlp))
     _vmax = max(np.nanmax(df_all_xco2_bc), np.nanmax(xco2_bc_corrected_all), np.nanmax(xco2_bc_corrected_all_mlp))
 
-    ax.scatter(df_all_xco2_bc, xco2_bc_corrected_all, c='blue', edgecolor=None, s=5, alpha=0.7)
+    _sx, _sy = _scatter_ss(rng_plot, df_all_xco2_bc, xco2_bc_corrected_all)
+    ax.scatter(_sx, _sy, c='blue', edgecolor=None, s=5, alpha=0.7, rasterized=True)
     ax.set_xlabel('Original XCO2 (ppm)')
     ax.set_ylabel('LR Corrected XCO2 (ppm)')
     ax.set_title('LR Correction of OCO-2 L2 XCO2')
     ax.plot([_vmin, _vmax], [_vmin, _vmax], 'r--')
 
-    ax_mlp.scatter(df_all_xco2_bc, xco2_bc_corrected_all_mlp, c='green', edgecolor=None, s=5, alpha=0.7)
+    _sx, _sy = _scatter_ss(rng_plot, df_all_xco2_bc, xco2_bc_corrected_all_mlp)
+    ax_mlp.scatter(_sx, _sy, c='green', edgecolor=None, s=5, alpha=0.7, rasterized=True)
     ax_mlp.set_xlabel('Original XCO2 (ppm)')
     ax_mlp.set_ylabel('MLP Corrected XCO2 (ppm)')
     ax_mlp.set_title('MLP Correction of OCO-2 L2 XCO2')
@@ -807,36 +833,48 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     if plot_lon.min() < -90 and plot_lon.max() > 90:
         # Assume longitude is in [0, 360] and convert to [-180, 180] for better map visualization
         plot_lon[plot_lon < 0] += 360
-    
-    sc1 = ax1.scatter(plot_lon, df.lat, c=df.o2a_k1, cmap='jet', s=20, alpha=0.7)
+
+    # Subsample once for the whole map figure — same index for all 8 panels
+    _map_arrs = _scatter_ss(rng_plot,
+        plot_lon, np.array(df.lat),
+        np.array(df.o2a_k1) if 'o2a_k1' in df.columns else np.zeros(len(plot_lon)),
+        np.array(df.o2a_k2) if 'o2a_k2' in df.columns else np.zeros(len(plot_lon)),
+        np.array(df['xco2_bc']), np.array(df['xco2_raw']),
+        xco2_bc_corrected_all, xco2_bc_predict_all_anomaly,
+        xco2_bc_predict_all_anomaly_mlp, xco2_bc_corrected_all_mlp,
+    )
+    _mlon, _mlat, _mk1, _mk2, _mxbc, _mxraw, _mlr, _mlr_anom, _mmlp_anom, _mmlp = _map_arrs
+
+    sc1 = ax1.scatter(_mlon, _mlat, c=_mk1, cmap='jet', s=20, alpha=0.7, rasterized=True)
     ax1.set_title('Retrieved O2A k1');  fig.colorbar(sc1, ax=ax1, label='k1')
 
-    sc2 = ax2.scatter(plot_lon, df.lat, c=df.o2a_k2, cmap='jet', s=20, alpha=0.7)
+    sc2 = ax2.scatter(_mlon, _mlat, c=_mk2, cmap='jet', s=20, alpha=0.7, rasterized=True)
     ax2.set_title('Retrieved O2A k2');  fig.colorbar(sc2, ax=ax2, label='k2')
 
-    sc3 = ax3.scatter(plot_lon, df.lat, c=df['xco2_bc'], cmap='jet', s=20, alpha=0.7,
-                      vmin=xco2_min, vmax=xco2_max)
+    sc3 = ax3.scatter(_mlon, _mlat, c=_mxbc, cmap='jet', s=20, alpha=0.7,
+                      vmin=xco2_min, vmax=xco2_max, rasterized=True)
     ax3.set_title('OCO-2 L2 XCO2 (bias-corrected)');  fig.colorbar(sc3, ax=ax3, label='XCO2 (ppm)')
 
-    sc4 = ax4.scatter(plot_lon, df.lat, c=df['xco2_raw'], cmap='jet', s=20, alpha=0.7,
-                      vmin=xco2_min, vmax=xco2_max)
+    sc4 = ax4.scatter(_mlon, _mlat, c=_mxraw, cmap='jet', s=20, alpha=0.7,
+                      vmin=xco2_min, vmax=xco2_max, rasterized=True)
     ax4.set_title('OCO-2 L2 XCO2 raw');  fig.colorbar(sc4, ax=ax4, label='XCO2 raw (ppm)')
 
-    sc5 = ax5.scatter(plot_lon, df.lat, c=xco2_bc_corrected_all, cmap='jet', s=20, alpha=0.7,
-                      vmin=xco2_min, vmax=xco2_max)
+    sc5 = ax5.scatter(_mlon, _mlat, c=_mlr, cmap='jet', s=20, alpha=0.7,
+                      vmin=xco2_min, vmax=xco2_max, rasterized=True)
     ax5.set_title('LR Corrected XCO2');  fig.colorbar(sc5, ax=ax5, label='LR corrected XCO2 (ppm)')
 
-    sc6 = ax6.scatter(plot_lon, df.lat, c=xco2_bc_predict_all_anomaly, cmap='jet', s=20, alpha=0.7)
+    sc6 = ax6.scatter(_mlon, _mlat, c=_mlr_anom, cmap='jet', s=20, alpha=0.7, rasterized=True)
     ax6.set_title('LR predicted XCO2 anomaly (ppm)')
     fig.colorbar(sc6, ax=ax6, label='LR predicted XCO2 anomaly (ppm)')
 
-    sc7 = ax7.scatter(plot_lon, df.lat, c=xco2_bc_predict_all_anomaly_mlp, cmap='jet', s=20, alpha=0.7)
+    sc7 = ax7.scatter(_mlon, _mlat, c=_mmlp_anom, cmap='jet', s=20, alpha=0.7, rasterized=True)
     ax7.set_title('MLP predicted XCO2 anomaly (ppm)')
     fig.colorbar(sc7, ax=ax7, label='MLP predicted XCO2 anomaly (ppm)')
 
-    sc8 = ax8.scatter(plot_lon, df.lat, c=xco2_bc_corrected_all_mlp, cmap='jet', s=20, alpha=0.7,
-                      vmin=xco2_min, vmax=xco2_max)
+    sc8 = ax8.scatter(_mlon, _mlat, c=_mmlp, cmap='jet', s=20, alpha=0.7,
+                      vmin=xco2_min, vmax=xco2_max, rasterized=True)
     ax8.set_title('MLP Corrected XCO2');  fig.colorbar(sc8, ax=ax8, label='MLP corrected XCO2 (ppm)')
+    del _map_arrs, _mlon, _mlat, _mk1, _mk2, _mxbc, _mxraw, _mlr, _mlr_anom, _mmlp_anom, _mmlp
 
     fig.suptitle(f"Cloud distance threshold for XCO2 mean: 10 km")
     fname = (f"LR_MLP_correction_lt_xco2_map_reference_{os.path.basename(test_csv).split('.')[0]}.png"
