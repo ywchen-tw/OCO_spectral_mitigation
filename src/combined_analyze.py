@@ -1929,6 +1929,22 @@ _REF_PAIRS: list[tuple] = [
     ('exp_sco2_intercept', 'ref_exp_int_sco2_mean', 'ref_exp_int_sco2_std', 'dexp_sco2', 'SCO\u2082', 'exp_int',   'C2'),
 ]
 
+# r25 reference set (min_cld_dist=25 km) — mirrors _REF_PAIRS with r25_ prefix columns
+_R25_PAIRS: list[tuple] = [
+    ('o2a_k1',             'r25_o2a_k1_mean',       'r25_o2a_k1_std',       'dr25k1_o2a',   'O\u2082A',  'k\u2081',   'C0'),
+    ('o2a_k2',             'r25_o2a_k2_mean',       'r25_o2a_k2_std',       'dr25k2_o2a',   'O\u2082A',  'k\u2082',   'C0'),
+    ('wco2_k1',            'r25_wco2_k1_mean',      'r25_wco2_k1_std',      'dr25k1_wco2',  'WCO\u2082', 'k\u2081',   'C1'),
+    ('wco2_k2',            'r25_wco2_k2_mean',      'r25_wco2_k2_std',      'dr25k2_wco2',  'WCO\u2082', 'k\u2082',   'C1'),
+    ('sco2_k1',            'r25_sco2_k1_mean',      'r25_sco2_k1_std',      'dr25k1_sco2',  'SCO\u2082', 'k\u2081',   'C2'),
+    ('sco2_k2',            'r25_sco2_k2_mean',      'r25_sco2_k2_std',      'dr25k2_sco2',  'SCO\u2082', 'k\u2082',   'C2'),
+    ('alb_o2a',            'r25_alb_o2a_mean',      'r25_alb_o2a_std',      'dr25alb_o2a',  'O\u2082A',  'albedo',    'C0'),
+    ('alb_wco2',           'r25_alb_wco2_mean',     'r25_alb_wco2_std',     'dr25alb_wco2', 'WCO\u2082', 'albedo',    'C1'),
+    ('alb_sco2',           'r25_alb_sco2_mean',     'r25_alb_sco2_std',     'dr25alb_sco2', 'SCO\u2082', 'albedo',    'C2'),
+    ('exp_o2a_intercept',  'r25_exp_int_o2a_mean',  'r25_exp_int_o2a_std',  'dr25exp_o2a',  'O\u2082A',  'exp_int',   'C0'),
+    ('exp_wco2_intercept', 'r25_exp_int_wco2_mean', 'r25_exp_int_wco2_std', 'dr25exp_wco2', 'WCO\u2082', 'exp_int',   'C1'),
+    ('exp_sco2_intercept', 'r25_exp_int_sco2_mean', 'r25_exp_int_sco2_std', 'dr25exp_sco2', 'SCO\u2082', 'exp_int',   'C2'),
+]
+
 
 def add_ref_anomalies(df: pd.DataFrame) -> pd.DataFrame:
     """Add obs-ref difference and z-score columns for every entry in _REF_PAIRS.
@@ -1951,6 +1967,28 @@ def add_ref_anomalies(df: pd.DataFrame) -> pd.DataFrame:
 def _has_ref_data(df: pd.DataFrame) -> bool:
     """Return True if at least one ref column is present in df."""
     return any(c.startswith('ref_') for c in df.columns)
+
+
+def add_r25_anomalies(df: pd.DataFrame) -> pd.DataFrame:
+    """Add obs-r25 difference and z-score columns for every entry in _R25_PAIRS.
+
+    New columns:
+      d{term}_{band}  = obs - r25_mean          e.g. dr25k1_o2a
+      z{term}_{band}  = (obs - r25_mean)/r25_std e.g. zr25k1_o2a
+    """
+    new_cols = {}
+    for obs, ref_m, ref_s, dcol, _, _, _ in _R25_PAIRS:
+        if obs in df.columns and ref_m in df.columns:
+            new_cols[dcol] = df[obs] - df[ref_m]
+            zcol = 'z' + dcol[1:]   # 'dr25k1_o2a' → 'zr25k1_o2a'
+            if ref_s in df.columns:
+                new_cols[zcol] = new_cols[dcol] / df[ref_s].replace(0, np.nan)
+    return df.assign(**new_cols)
+
+
+def _has_r25_data(df: pd.DataFrame) -> bool:
+    """Return True if at least one r25 column is present in df."""
+    return any(c.startswith('r25_') for c in df.columns)
 
 
 def _binned_ref_profile(ax, sdf: pd.DataFrame, diff_col: str,
