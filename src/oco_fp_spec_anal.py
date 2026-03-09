@@ -486,7 +486,7 @@ def fit_spectral_model(tau, ln_T, fit_order):
 
 def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
                          lat_thres=0.5, std_thres=2.0, min_cld_dist=10.0,
-                         chunk_size=32, extra_vars=None):
+                         chunk_size=128, extra_vars=None):
     """XCO2 anomaly relative to nearby clear-sky soundings.
 
     For each footprint i, the reference set is all footprints within ±lat_thres°
@@ -523,7 +523,13 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
     ref_std  = np.full(N, np.nan)
 
     valid_lat  = ~np.isnan(fp_lat)
-    clear_mask = valid_lat & (cld_dist_km > min_cld_dist)   # [N] bool
+    clear_mask = valid_lat & (cld_dist_km > min_cld_dist) & ~np.isnan(xco2)  # [N] bool
+
+    # Extend clear_mask to require valid values for ALL extra_vars so that
+    # every reference sounding contributes to every variable (shared reference pool).
+    if extra_vars is not None:
+        for v in extra_vars.values():
+            clear_mask = clear_mask & ~np.isnan(np.asarray(v))
 
     # Pre-extract clear-sky reference latitudes and xco2 values to avoid
     # broadcasting the full array on every chunk.
@@ -816,6 +822,12 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     xco2_bc_anomaly, ref_means, ref_stds = compute_xco2_anomaly(
         od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args)
 
+    # ── 6b. Second reference set with stricter min_cld_dist=25 km ─────────
+    anomaly_args_25 = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 25.0}
+    xco2_raw_anomaly_25 = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args_25)
+    xco2_bc_anomaly_25, ref_means_25, ref_stds_25 = compute_xco2_anomaly(
+        od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_25)
+
     # ── 7. Write output HDF5 ───────────────────────────────────────────────
     logger.info(f"[{orbit_id}] Writing {output_file}...")
     output_dict = {
@@ -950,6 +962,33 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "ref_exp_int_wco2_std":  ref_stds["exp_int_wco2"],
         "ref_exp_int_sco2_mean": ref_means["exp_int_sco2"],
         "ref_exp_int_sco2_std":  ref_stds["exp_int_sco2"],
+        # ── Reference set with stricter min_cld_dist=25 km (r25 prefix) ──
+        "xco2_raw_anomaly_r25":      xco2_raw_anomaly_25,
+        "xco2_bc_anomaly_r25":       xco2_bc_anomaly_25,
+        "r25_o2a_k1_mean":           ref_means_25["o2a_k1"],
+        "r25_o2a_k1_std":            ref_stds_25["o2a_k1"],
+        "r25_o2a_k2_mean":           ref_means_25["o2a_k2"],
+        "r25_o2a_k2_std":            ref_stds_25["o2a_k2"],
+        "r25_wco2_k1_mean":          ref_means_25["wco2_k1"],
+        "r25_wco2_k1_std":           ref_stds_25["wco2_k1"],
+        "r25_wco2_k2_mean":          ref_means_25["wco2_k2"],
+        "r25_wco2_k2_std":           ref_stds_25["wco2_k2"],
+        "r25_sco2_k1_mean":          ref_means_25["sco2_k1"],
+        "r25_sco2_k1_std":           ref_stds_25["sco2_k1"],
+        "r25_sco2_k2_mean":          ref_means_25["sco2_k2"],
+        "r25_sco2_k2_std":           ref_stds_25["sco2_k2"],
+        "r25_alb_o2a_mean":          ref_means_25["alb_o2a"],
+        "r25_alb_o2a_std":           ref_stds_25["alb_o2a"],
+        "r25_alb_wco2_mean":         ref_means_25["alb_wco2"],
+        "r25_alb_wco2_std":          ref_stds_25["alb_wco2"],
+        "r25_alb_sco2_mean":         ref_means_25["alb_sco2"],
+        "r25_alb_sco2_std":          ref_stds_25["alb_sco2"],
+        "r25_exp_int_o2a_mean":      ref_means_25["exp_int_o2a"],
+        "r25_exp_int_o2a_std":       ref_stds_25["exp_int_o2a"],
+        "r25_exp_int_wco2_mean":     ref_means_25["exp_int_wco2"],
+        "r25_exp_int_wco2_std":      ref_stds_25["exp_int_wco2"],
+        "r25_exp_int_sco2_mean":     ref_means_25["exp_int_sco2"],
+        "r25_exp_int_sco2_std":      ref_stds_25["exp_int_sco2"],
     }
     
     
