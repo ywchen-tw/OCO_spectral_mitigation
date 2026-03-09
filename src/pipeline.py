@@ -87,20 +87,24 @@ class ClipFreeQuantileTransformer:
         return self
 
     def transform(self, X: np.ndarray) -> np.ndarray:
-        X  = np.asarray(X, dtype=float)
+        # Preserve float32 input — only upcast non-floating types (sklearn QT supports float32 natively)
+        X = np.asarray(X)
+        if not np.issubdtype(X.dtype, np.floating):
+            X = X.astype(np.float64)
         Xt = self._qt.transform(X)   # inner QT clips OOD values to boundary
 
         # Overwrite clipped boundary values with linear extrapolation per feature.
-        for j in range(X.shape[1]):
-            lo_mask = X[:, j] < self._x_lo[j]
-            if lo_mask.any():
-                Xt[lo_mask, j] = (self._y_lo[j]
-                                  + self._slope_lo[j] * (X[lo_mask, j] - self._x_lo[j]))
-
-            hi_mask = X[:, j] > self._x_hi[j]
-            if hi_mask.any():
-                Xt[hi_mask, j] = (self._y_hi[j]
-                                  + self._slope_hi[j] * (X[hi_mask, j] - self._x_hi[j]))
+        # Vectorised: one broadcast per feature boundary instead of a Python loop.
+        lo_mask = X < self._x_lo[np.newaxis, :]   # [N, F]
+        hi_mask = X > self._x_hi[np.newaxis, :]   # [N, F]
+        if lo_mask.any():
+            Xt = np.where(lo_mask,
+                          self._y_lo + self._slope_lo * (X - self._x_lo),
+                          Xt)
+        if hi_mask.any():
+            Xt = np.where(hi_mask,
+                          self._y_hi + self._slope_hi * (X - self._x_hi),
+                          Xt)
         return Xt
 
     def fit_transform(self, X: np.ndarray) -> np.ndarray:
@@ -145,7 +149,11 @@ class RobustStandardScaler:
         return self
 
     def transform(self, X: np.ndarray) -> np.ndarray:
-        return self._std.transform(self._robust.transform(np.asarray(X, dtype=float)))
+        # Preserve float32 — only upcast non-floating types (sklearn scalers support float32 natively)
+        X = np.asarray(X)
+        if not np.issubdtype(X.dtype, np.floating):
+            X = X.astype(np.float64)
+        return self._std.transform(self._robust.transform(X))
 
     def fit_transform(self, X: np.ndarray) -> np.ndarray:
         return self.fit(X).transform(X)
@@ -441,14 +449,19 @@ class FeaturePipeline:
 
         Returns
         -------
-        X : np.ndarray, shape [N, n_features]
+        X : np.ndarray, shape [N, n_features], dtype float32
             Ready to pass to any adapter's predict().
         """
         df = _ensure_derived_features(df)
         df = _ensure_fp_columns(df)
-        X_qt = self.qt.transform(df[self.qt_features].to_numpy(dtype=float))
-        X_fp = df[self.fp_cols].to_numpy(dtype=float)
-        return np.hstack([X_qt, X_fp])
+        # Extract as float32 — halves memory vs float64 (scalers handle float32 natively)
+        X_qt_raw = df[self.qt_features].to_numpy(dtype=np.float32)
+        X_qt     = self.qt.transform(X_qt_raw)
+        del X_qt_raw   # free before concatenation
+        X_fp = df[self.fp_cols].to_numpy(dtype=np.float32)
+        result = np.concatenate([X_qt, X_fp], axis=1)
+        del X_qt       # free before return
+        return result
 
     # ── Properties ────────────────────────────────────────────────────────────
 

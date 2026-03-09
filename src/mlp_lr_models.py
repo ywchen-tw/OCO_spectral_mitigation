@@ -184,8 +184,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
 
     _checkpoint("before pipeline.transform + train_test_split")
     features    = pipeline.features
-    # float32 halves feature-array memory (Ridge + MLP are both fine with float32)
-    X_all       = pipeline.transform(df).astype(np.float32)
+    # pipeline.transform() already returns float32; copy=False is a no-op if dtype already matches
+    X_all       = pipeline.transform(df).astype(np.float32, copy=False)
     valid_rows  = ~df['xco2_bc_anomaly'].isna()
     # df_X is the single valid-row subset used for both training and later inference
     df_X        = X_all[valid_rows.values]
