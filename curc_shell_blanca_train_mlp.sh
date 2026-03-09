@@ -1,9 +1,9 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=8
-#SBATCH --ntasks-per-node=8
-#SBATCH --mem=64G
+#SBATCH --ntasks=16
+#SBATCH --ntasks-per-node=16
+#SBATCH --mem=128G
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
@@ -40,11 +40,11 @@ nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,
            --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}.csv &
 GPU_MONITOR_PID=$!
 
-python src/mlp_lr_models.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
- --sfc_type 1 --suffix land_2016_2020_3
+# python src/mlp_lr_models.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
+#  --sfc_type 1 --suffix land_2016_2020_3
 
-# python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
-#  --sfc_type 0 --suffix ocean_2016_2020_3
+python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
+ --sfc_type 0 --suffix ocean_2016_2020_3
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
 
