@@ -3,14 +3,15 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=32
 #SBATCH --ntasks-per-node=32
+#SBATCH --mem=160G
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
 #SBATCH --output=sbatch-output_%x_%j.txt
 #SBATCH --job-name=oco_spectral_anal
 #SBATCH --account=blanca-airs
-#SBATCH --partition=blanca-airs
-#SBATCH --qos=blanca-airs
+###SBATCH --partition=blanca-airs
+#SBATCH --qos=preemptable
 
 
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8

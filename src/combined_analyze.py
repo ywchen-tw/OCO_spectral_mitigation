@@ -12,6 +12,7 @@ Sections
 5. Save all figures to results/figures/
 """
 
+import gc
 import os
 import sys
 import glob
@@ -70,6 +71,11 @@ def apply_quality_filter(df: pd.DataFrame) -> pd.DataFrame:
         # snow_flag is stored as uint8/int; treat any non-zero value as snowy
         mask &= df['snow_flag'] == 0
     df = df[mask].copy()
+    # downcast float64 → float32 to halve memory for all numeric columns
+    float_cols = df.select_dtypes('float64').columns
+    if len(float_cols):
+        df[float_cols] = df[float_cols].astype('float32')
+        logger.info(f"Downcast {len(float_cols)} float64 columns to float32")
     logger.info(f"After QF+snow filter: {len(df):,} soundings")
     return df
 
@@ -81,8 +87,8 @@ def split_by_surface(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         logger.warning("sfc_type column missing — treating all as 'all'")
         subsets['all'] = df
         return subsets
-    ocean = df[df['sfc_type'] == 0].copy()
-    land  = df[df['sfc_type'] == 1].copy()
+    ocean = df[df['sfc_type'] == 0]
+    land  = df[df['sfc_type'] == 1]
     logger.info(f"Ocean soundings: {len(ocean):,}  |  Land soundings: {len(land):,}")
     subsets['ocean'] = ocean
     subsets['land']  = land
@@ -151,8 +157,7 @@ def plot_distributions_vs_cld_dist(df, bins, labels, outdir):
     }
     existing = {k: v for k, v in vars_of_interest.items() if k in df.columns}
 
-    df = df.copy()
-    df['_bin'] = bin_by_cld_dist(df, bins, labels)
+    _bin = bin_by_cld_dist(df, bins, labels)
 
     ncols = 2
     nrows = int(np.ceil(len(existing) / ncols))
@@ -160,7 +165,7 @@ def plot_distributions_vs_cld_dist(df, bins, labels, outdir):
     axes = axes.flatten()
 
     for ax, (col, label) in zip(axes, existing.items()):
-        groups = [df.loc[df['_bin'] == lbl, col].dropna().values for lbl in labels]
+        groups = [df.loc[_bin == lbl, col].dropna().values for lbl in labels]
         ax.boxplot(groups, tick_labels=labels, showfliers=False, patch_artist=True,
                    boxprops=dict(facecolor='steelblue', alpha=0.6),
                    medianprops=dict(color='orange', lw=3))
@@ -287,8 +292,7 @@ def plot_k1_k2_binned_profile(df, bins, labels, outdir):
     avail = [(k1, k2, nm) for k1, k2, nm in bands
              if k1 in df.columns and k2 in df.columns]
 
-    df = df.copy()
-    df['_bin'] = bin_by_cld_dist(df, bins, labels)
+    _bin = bin_by_cld_dist(df, bins, labels)
     x = np.arange(len(labels))
 
     fig, axes = plt.subplots(len(avail), 2, figsize=(12, 4 * len(avail)))
@@ -298,9 +302,9 @@ def plot_k1_k2_binned_profile(df, bins, labels, outdir):
     for row, (k1c, k2c, nm) in enumerate(avail):
         for ci, kcol in enumerate([k1c, k2c]):
             ax = axes[row, ci]
-            means = df.groupby('_bin', observed=True)[kcol].mean().reindex(labels)
-            stds  = df.groupby('_bin', observed=True)[kcol].std().reindex(labels)
-            ns    = df.groupby('_bin', observed=True)[kcol].count().reindex(labels).fillna(0).astype(int)
+            means = df.groupby(_bin, observed=True)[kcol].mean().reindex(labels)
+            stds  = df.groupby(_bin, observed=True)[kcol].std().reindex(labels)
+            ns    = df.groupby(_bin, observed=True)[kcol].count().reindex(labels).fillna(0).astype(int)
             sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
             ref_val = means.dropna().iloc[-1] if means.dropna().size else np.nan
             color = f'C{row}'
@@ -343,8 +347,7 @@ def plot_intercept_binned_profile(df, bins, labels, outdir):
     if not avail:
         return
 
-    df = df.copy()
-    df['_bin'] = bin_by_cld_dist(df, bins, labels)
+    _bin = bin_by_cld_dist(df, bins, labels)
     x = np.arange(len(labels))
 
     fig, axes = plt.subplots(len(avail), 1, figsize=(7, 4 * len(avail)))
@@ -352,9 +355,9 @@ def plot_intercept_binned_profile(df, bins, labels, outdir):
         axes = [axes]
 
     for ax, (col, nm, color) in zip(axes, avail):
-        means = df.groupby('_bin', observed=True)[col].mean().reindex(labels)
-        stds  = df.groupby('_bin', observed=True)[col].std().reindex(labels)
-        ns    = df.groupby('_bin', observed=True)[col].count().reindex(labels).fillna(0).astype(int)
+        means = df.groupby(_bin, observed=True)[col].mean().reindex(labels)
+        stds  = df.groupby(_bin, observed=True)[col].std().reindex(labels)
+        ns    = df.groupby(_bin, observed=True)[col].count().reindex(labels).fillna(0).astype(int)
         sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
         ref_val = means.dropna().iloc[-1] if means.dropna().size else np.nan
 
@@ -448,9 +451,7 @@ def plot_xco2_anomaly_vs_key_vars(df, outdir, max_dist=50, n_roll=200):
     ]
     avail = [(col, lbl) for col, lbl in key_pairs if col in df.columns]
 
-    sub = df.copy()
-    if 'cld_dist_km' in df.columns:
-        sub = sub[sub['cld_dist_km'] <= max_dist]
+    sub = df[df['cld_dist_km'] <= max_dist] if 'cld_dist_km' in df.columns else df
 
     target = 'xco2_bc_anomaly'
     ncols = 4
@@ -487,8 +488,7 @@ def plot_xco2_anomaly_vs_key_vars(df, outdir, max_dist=50, n_roll=200):
 
 def plot_xco2_anomaly_vs_cld_dist_binned(df, bins, labels, outdir):
     """Mean XCO2 anomaly ± SEM as a function of cloud-distance bin."""
-    df = df.copy()
-    df['_bin'] = bin_by_cld_dist(df, bins, labels)
+    _bin = bin_by_cld_dist(df, bins, labels)
     x = np.arange(len(labels))
 
     targets = [
@@ -499,9 +499,9 @@ def plot_xco2_anomaly_vs_cld_dist_binned(df, bins, labels, outdir):
 
     for col, lbl, c in avail:
         fig, ax = plt.subplots(figsize=(7, 5))
-        means = df.groupby('_bin', observed=True)[col].mean().reindex(labels)
-        stds  = df.groupby('_bin', observed=True)[col].std().reindex(labels)
-        ns    = df.groupby('_bin', observed=True)[col].count().reindex(labels).fillna(0).astype(int)
+        means = df.groupby(_bin, observed=True)[col].mean().reindex(labels)
+        stds  = df.groupby(_bin, observed=True)[col].std().reindex(labels)
+        ns    = df.groupby(_bin, observed=True)[col].count().reindex(labels).fillna(0).astype(int)
         sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
 
         # reference level = last non-NaN bin
@@ -576,8 +576,7 @@ def plot_alb_binned_profile(df, bins, labels, outdir):
     if not avail:
         return
 
-    df = df.copy()
-    df['_bin'] = bin_by_cld_dist(df, bins, labels)
+    _bin = bin_by_cld_dist(df, bins, labels)
     x = np.arange(len(labels))
 
     fig, axes = plt.subplots(len(avail), 1, figsize=(7, 4 * len(avail)))
@@ -585,9 +584,9 @@ def plot_alb_binned_profile(df, bins, labels, outdir):
         axes = [axes]
 
     for ax, (col, nm, color) in zip(axes, avail):
-        means = df.groupby('_bin', observed=True)[col].mean().reindex(labels)
-        stds  = df.groupby('_bin', observed=True)[col].std().reindex(labels)
-        ns    = df.groupby('_bin', observed=True)[col].count().reindex(labels).fillna(0).astype(int)
+        means = df.groupby(_bin, observed=True)[col].mean().reindex(labels)
+        stds  = df.groupby(_bin, observed=True)[col].std().reindex(labels)
+        ns    = df.groupby(_bin, observed=True)[col].count().reindex(labels).fillna(0).astype(int)
         sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
         ref_val = means.dropna().iloc[-1] if means.dropna().size else np.nan
 
@@ -722,8 +721,7 @@ def print_summary_stats(df, bins, labels):
     print(f"Total soundings: {len(df):,}")
     print()
 
-    df = df.copy()
-    df['_bin'] = bin_by_cld_dist(df, bins, labels)
+    _bin = bin_by_cld_dist(df, bins, labels)
 
     k_cols = ['o2a_k1', 'o2a_k2', 'wco2_k1', 'wco2_k2', 'sco2_k1', 'sco2_k2']
     anom_cols = ['xco2_bc_anomaly', 'xco2_raw_anomaly']
@@ -739,13 +737,13 @@ def print_summary_stats(df, bins, labels):
 
     print("--- k1 mean by cloud-distance bin ---")
     for col in avail_k:
-        grp = df.groupby('_bin', observed=True)[col].mean().round(4)
+        grp = df.groupby(_bin, observed=True)[col].mean().round(4)
         print(f"  {col}: {dict(grp)}")
     print()
 
     print("--- XCO2 anomaly mean by cloud-distance bin ---")
     for col in avail_a:
-        grp = df.groupby('_bin', observed=True)[col].mean().round(4)
+        grp = df.groupby(_bin, observed=True)[col].mean().round(4)
         print(f"  {col}: {dict(grp)}")
     print()
 
@@ -841,8 +839,7 @@ def plot_k1_k2_overlay(df: pd.DataFrame, cld_bins, cld_labels,
     if not avail:
         return
 
-    df = df.copy()
-    df['_bin'] = bin_by_cld_dist(df, cld_bins, cld_labels)
+    _bin = bin_by_cld_dist(df, cld_bins, cld_labels)
     x = np.arange(len(cld_labels))
     colors = plt.colormaps['viridis'](np.linspace(0.1, 0.9, len(strat_labels)))
 
@@ -855,12 +852,14 @@ def plot_k1_k2_overlay(df: pd.DataFrame, cld_bins, cld_labels,
             ax = axes[row, ci]
             all_means = []
             for si, slabel in enumerate(strat_labels):
-                sdf = df[df['_strat'] == slabel]
+                smask = df['_strat'] == slabel
+                sdf = df[smask]
                 if len(sdf) < 100:
                     continue
-                means = sdf.groupby('_bin', observed=True)[kcol].mean().reindex(cld_labels)
-                stds  = sdf.groupby('_bin', observed=True)[kcol].std().reindex(cld_labels)
-                ns    = sdf.groupby('_bin', observed=True)[kcol].count().reindex(cld_labels)
+                sdf_bin = _bin[smask]
+                means = sdf.groupby(sdf_bin, observed=True)[kcol].mean().reindex(cld_labels)
+                stds  = sdf.groupby(sdf_bin, observed=True)[kcol].std().reindex(cld_labels)
+                ns    = sdf.groupby(sdf_bin, observed=True)[kcol].count().reindex(cld_labels)
                 sems  = stds / np.sqrt(ns)
                 ax.errorbar(x, means.values, yerr=sems.values, fmt='o-',
                             capsize=3, color=colors[si], lw=1.5, label=slabel)
@@ -903,8 +902,7 @@ def plot_intercept_overlay(df: pd.DataFrame, cld_bins, cld_labels,
     if not avail:
         return
 
-    df = df.copy()
-    df['_bin'] = bin_by_cld_dist(df, cld_bins, cld_labels)
+    _bin = bin_by_cld_dist(df, cld_bins, cld_labels)
     x = np.arange(len(cld_labels))
     colors = plt.colormaps['viridis'](np.linspace(0.1, 0.9, len(strat_labels)))
 
@@ -915,12 +913,14 @@ def plot_intercept_overlay(df: pd.DataFrame, cld_bins, cld_labels,
     for ax, (col, nm, _) in zip(axes, avail):
         all_means = []
         for si, slabel in enumerate(strat_labels):
-            sdf = df[df['_strat'] == slabel]
+            smask = df['_strat'] == slabel
+            sdf = df[smask]
             if len(sdf) < 100:
                 continue
-            means = sdf.groupby('_bin', observed=True)[col].mean().reindex(cld_labels)
-            stds  = sdf.groupby('_bin', observed=True)[col].std().reindex(cld_labels)
-            ns    = sdf.groupby('_bin', observed=True)[col].count().reindex(cld_labels)
+            sdf_bin = _bin[smask]
+            means = sdf.groupby(sdf_bin, observed=True)[col].mean().reindex(cld_labels)
+            stds  = sdf.groupby(sdf_bin, observed=True)[col].std().reindex(cld_labels)
+            ns    = sdf.groupby(sdf_bin, observed=True)[col].count().reindex(cld_labels)
             sems  = stds / np.sqrt(ns)
             ax.errorbar(x, means.values, yerr=sems.values, fmt='o-',
                         capsize=3, color=colors[si], lw=1.5, label=slabel)
@@ -961,8 +961,7 @@ def plot_xco2_anomaly_binned_overlay(df: pd.DataFrame, cld_bins, cld_labels,
     if not avail:
         return
 
-    df = df.copy()
-    df['_bin'] = bin_by_cld_dist(df, cld_bins, cld_labels)
+    _bin = bin_by_cld_dist(df, cld_bins, cld_labels)
     x = np.arange(len(cld_labels))
     colors = plt.colormaps['plasma'](np.linspace(0.1, 0.85, len(strat_labels)))
 
@@ -970,12 +969,14 @@ def plot_xco2_anomaly_binned_overlay(df: pd.DataFrame, cld_bins, cld_labels,
         fig, ax = plt.subplots(figsize=(7, 5))
         all_means = []
         for si, slabel in enumerate(strat_labels):
-            sdf = df[df['_strat'] == slabel]
+            smask = df['_strat'] == slabel
+            sdf = df[smask]
             if len(sdf) < 100:
                 continue
-            means = sdf.groupby('_bin', observed=True)[col].mean().reindex(cld_labels)
-            stds  = sdf.groupby('_bin', observed=True)[col].std().reindex(cld_labels)
-            ns    = sdf.groupby('_bin', observed=True)[col].count().reindex(cld_labels)
+            sdf_bin = _bin[smask]
+            means = sdf.groupby(sdf_bin, observed=True)[col].mean().reindex(cld_labels)
+            stds  = sdf.groupby(sdf_bin, observed=True)[col].std().reindex(cld_labels)
+            ns    = sdf.groupby(sdf_bin, observed=True)[col].count().reindex(cld_labels)
             sems  = stds / np.sqrt(ns)
             ax.errorbar(x, means.values, yerr=sems.values, fmt='o-',
                         capsize=3, color=colors[si], lw=1.5, label=slabel)
@@ -1087,14 +1088,13 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
 
     for row, (alb_col, exp_col, nm, col) in enumerate(avail):
         for ci, (sfc_name, sdf) in enumerate(subsets):
-            sdf = sdf.copy()
-            sdf['_bin'] = pd.cut(sdf['cld_dist_km'], bins=bins,
-                                 labels=labels, right=False)
+            _sdf_bin = pd.cut(sdf['cld_dist_km'], bins=bins,
+                              labels=labels, right=False)
 
-            def _binned(c):
-                m = sdf.groupby('_bin', observed=True)[c].mean().reindex(labels)
-                s = sdf.groupby('_bin', observed=True)[c].std().reindex(labels)
-                n = sdf.groupby('_bin', observed=True)[c].count().reindex(labels).fillna(0).astype(int)
+            def _binned(c, _b=_sdf_bin, _s=sdf):
+                m = _s.groupby(_b, observed=True)[c].mean().reindex(labels)
+                s = _s.groupby(_b, observed=True)[c].std().reindex(labels)
+                n = _s.groupby(_b, observed=True)[c].count().reindex(labels).fillna(0).astype(int)
                 sem = (s / np.sqrt(n.replace(0, np.nan))).fillna(0)
                 return m, s, sem
 
@@ -1196,10 +1196,12 @@ def plot_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
         ('exp_wco2_intercept', 'alb_wco2', '_exp_alb_wco2'),
         ('exp_sco2_intercept', 'alb_sco2', '_exp_alb_sco2'),
     ]
-    df = df.copy()
-    for exp_col, alb_col, ratio_col in ratio_pairs:
-        if exp_col in df.columns and alb_col in df.columns:
-            df[ratio_col] = df[exp_col] / df[alb_col].replace(0, np.nan)
+    new_ratio_cols = {
+        ratio_col: df[exp_col] / df[alb_col].replace(0, np.nan)
+        for exp_col, alb_col, ratio_col in ratio_pairs
+        if exp_col in df.columns and alb_col in df.columns
+    }
+    df = df.assign(**new_ratio_cols)
 
     feat_groups = [
         # (column,                band_label,    term_label)
@@ -1304,16 +1306,17 @@ def plot_residual_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
     Key result: SCO₂ k₁/k₂/k₃ on land retain large residual r (≈ +0.20–0.28);
     all other bands collapse to near zero.  Ocean exp/alb O₂A also survives (≈ −0.16).
     """
-    df = df.copy()
-
     # ── compute exp/alb ratios ─────────────────────────────────────────────────
-    for exp_col, alb_col, tag in [
-        ('exp_o2a_intercept',  'alb_o2a',  'o2a'),
-        ('exp_wco2_intercept', 'alb_wco2', 'wco2'),
-        ('exp_sco2_intercept', 'alb_sco2', 'sco2'),
-    ]:
-        if exp_col in df.columns and alb_col in df.columns:
-            df[f'_ratio_{tag}'] = df[exp_col] / df[alb_col].replace(0, np.nan)
+    ratio_assign = {
+        f'_ratio_{tag}': df[exp_col] / df[alb_col].replace(0, np.nan)
+        for exp_col, alb_col, tag in [
+            ('exp_o2a_intercept',  'alb_o2a',  'o2a'),
+            ('exp_wco2_intercept', 'alb_wco2', 'wco2'),
+            ('exp_sco2_intercept', 'alb_sco2', 'sco2'),
+        ]
+        if exp_col in df.columns and alb_col in df.columns
+    }
+    df = df.assign(**ratio_assign)
 
     # (column, band_label, term_label, [confounder_cols])
     feat_defs = [
@@ -1522,10 +1525,11 @@ def plot_exp_alb_ratio_residuals(df: pd.DataFrame, bins, labels,
         logger.warning("exp_intercept or albedo columns missing — skipping ratio residual plot")
         return
 
-    df = df.copy()
-    for ei, alb, nm, c in avail:
-        tag = alb.split('_')[1]                     # 'o2a' / 'wco2' / 'sco2'
-        df[f'_ratio_{tag}'] = df[ei] / df[alb].replace(0, np.nan)
+    ratio_assign = {
+        f'_ratio_{alb.split("_")[1]}': df[ei] / df[alb].replace(0, np.nan)
+        for ei, alb, nm, c in avail
+    }
+    df = df.assign(**ratio_assign)
 
     # confounders: albedo already divided out; control geometry + aerosol
     control_cols = ['airmass', 'mu_sza', 'aod_total']
@@ -1774,11 +1778,10 @@ def plot_higher_order_k_profiles(df: pd.DataFrame, bins, labels,
     for row, (col, lbl, color) in enumerate(avail):
         for ci, (sfc_name, sdf) in enumerate(subsets):
             ax = axes[row, ci]
-            sdf = sdf.copy()
-            sdf['_bin'] = bin_by_cld_dist(sdf, bins, labels)
-            means = sdf.groupby('_bin', observed=True)[col].mean().reindex(labels)
-            stds  = sdf.groupby('_bin', observed=True)[col].std().reindex(labels)
-            ns    = sdf.groupby('_bin', observed=True)[col].count().reindex(labels).fillna(0).astype(int)
+            _sdf_bin = bin_by_cld_dist(sdf, bins, labels)
+            means = sdf.groupby(_sdf_bin, observed=True)[col].mean().reindex(labels)
+            stds  = sdf.groupby(_sdf_bin, observed=True)[col].std().reindex(labels)
+            ns    = sdf.groupby(_sdf_bin, observed=True)[col].count().reindex(labels).fillna(0).astype(int)
             sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
 
             r_val = np.nan
@@ -1935,14 +1938,14 @@ def add_ref_anomalies(df: pd.DataFrame) -> pd.DataFrame:
       z{term}_{band}  = (obs - ref_mean)/ref_std e.g. zk1_o2a
     Rows without a ref value remain NaN in the new columns.
     """
-    df = df.copy()
+    new_cols = {}
     for obs, ref_m, ref_s, dcol, _, _, _ in _REF_PAIRS:
         if obs in df.columns and ref_m in df.columns:
-            df[dcol] = df[obs] - df[ref_m]
+            new_cols[dcol] = df[obs] - df[ref_m]
             zcol = 'z' + dcol[1:]   # 'dk1_o2a' → 'zk1_o2a'
             if ref_s in df.columns:
-                df[zcol] = df[dcol] / df[ref_s].replace(0, np.nan)
-    return df
+                new_cols[zcol] = new_cols[dcol] / df[ref_s].replace(0, np.nan)
+    return df.assign(**new_cols)
 
 
 def _has_ref_data(df: pd.DataFrame) -> bool:
@@ -1953,15 +1956,16 @@ def _has_ref_data(df: pd.DataFrame) -> bool:
 def _binned_ref_profile(ax, sdf: pd.DataFrame, diff_col: str,
                         bins, labels, color: str, title: str) -> None:
     """Shared helper: plot binned mean ± SEM (errorbar) / ± std (fill) of diff_col."""
-    sdf = sdf.copy()
-    sdf['_bin'] = pd.cut(sdf['cld_dist_km'], bins=bins, labels=labels, right=False)
-    sub = sdf.dropna(subset=[diff_col, 'cld_dist_km'])
+    _full_bin = pd.cut(sdf['cld_dist_km'], bins=bins, labels=labels, right=False)
+    sub_mask = sdf[[diff_col, 'cld_dist_km']].notna().all(axis=1)
+    sub = sdf[sub_mask]
+    sub_bin = _full_bin[sub_mask]
     if len(sub) < 10:
         ax.set_visible(False)
         return
-    means = sub.groupby('_bin', observed=True)[diff_col].mean().reindex(labels)
-    stds  = sub.groupby('_bin', observed=True)[diff_col].std().reindex(labels)
-    ns    = sub.groupby('_bin', observed=True)[diff_col].count().reindex(labels).fillna(0).astype(int)
+    means = sub.groupby(sub_bin, observed=True)[diff_col].mean().reindex(labels)
+    stds  = sub.groupby(sub_bin, observed=True)[diff_col].std().reindex(labels)
+    ns    = sub.groupby(sub_bin, observed=True)[diff_col].count().reindex(labels).fillna(0).astype(int)
     sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
     xp = np.arange(len(labels))
 
@@ -2011,9 +2015,8 @@ def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str) -> None:
     if ref_flag_col not in df.columns or not avail:
         return
 
-    df = df.copy()
-    df['_bin']     = pd.cut(df['cld_dist_km'], bins=bins, labels=labels, right=False)
-    df['_has_ref'] = df[ref_flag_col].notna()
+    _bin     = pd.cut(df['cld_dist_km'], bins=bins, labels=labels, right=False)
+    _has_ref = df[ref_flag_col].notna()
     xp    = np.arange(len(labels))
     width = 0.35
 
@@ -2025,10 +2028,12 @@ def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str) -> None:
     for ax, (col, lbl) in zip(axes, avail.items()):
         for gi, (flag, color, grp_lbl) in enumerate([(True, 'C0', 'has ref'),
                                                       (False, 'C3', 'no ref')]):
-            sub  = df[df['_has_ref'] == flag]
-            means = sub.groupby('_bin', observed=True)[col].mean().reindex(labels)
-            stds  = sub.groupby('_bin', observed=True)[col].std().reindex(labels)
-            ns    = sub.groupby('_bin', observed=True)[col].count().reindex(labels).fillna(0).astype(int)
+            flag_mask = _has_ref == flag
+            sub = df[flag_mask]
+            sub_bin = _bin[flag_mask]
+            means = sub.groupby(sub_bin, observed=True)[col].mean().reindex(labels)
+            stds  = sub.groupby(sub_bin, observed=True)[col].std().reindex(labels)
+            ns    = sub.groupby(sub_bin, observed=True)[col].count().reindex(labels).fillna(0).astype(int)
             sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
             ax.bar(xp + (gi - 0.5) * width, means.fillna(0).values, width=width,
                    color=color, alpha=0.75, label=grp_lbl)
@@ -2045,7 +2050,7 @@ def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str) -> None:
     # Coverage fraction panel
     cov_ax = axes[len(avail)]
     cov_ax.set_visible(True)
-    coverage = df.groupby('_bin', observed=True)['_has_ref'].mean() * 100
+    coverage = _has_ref.groupby(_bin, observed=True).mean() * 100
     cov_ax.bar(xp, coverage.reindex(labels).values, color='steelblue', alpha=0.8)
     cov_ax.set_xticks(xp)
     cov_ax.set_xticklabels(labels, rotation=30, fontsize=8)
@@ -2100,11 +2105,10 @@ def plot_ref_std_profiles(df: pd.DataFrame, bins, labels, outdir: str) -> None:
     for row, (col, lbl, color) in enumerate(avail):
         for ci, (sfc_name, sdf) in enumerate(subsets):
             ax = axes[row, ci]
-            sdf = sdf.copy()
-            sdf['_bin'] = pd.cut(sdf['cld_dist_km'], bins=bins, labels=labels, right=False)
-            means = sdf.groupby('_bin', observed=True)[col].mean().reindex(labels)
-            ns    = sdf.groupby('_bin', observed=True)[col].count().reindex(labels).replace(0, np.nan)
-            sems  = (sdf.groupby('_bin', observed=True)[col].std().reindex(labels)
+            _sdf_bin = pd.cut(sdf['cld_dist_km'], bins=bins, labels=labels, right=False)
+            means = sdf.groupby(_sdf_bin, observed=True)[col].mean().reindex(labels)
+            ns    = sdf.groupby(_sdf_bin, observed=True)[col].count().reindex(labels).replace(0, np.nan)
+            sems  = (sdf.groupby(_sdf_bin, observed=True)[col].std().reindex(labels)
                      / np.sqrt(ns)).fillna(0)
             ax.errorbar(xp, means.values, yerr=sems.values,
                         fmt='o-', capsize=3, color=color, lw=1.5)
@@ -2531,14 +2535,18 @@ def main():
         plot_obs_vs_ref_scatter(df_r, ref_outdir)
 
         logger.info(f"All ref-corrected figures written to {ref_outdir}")
+        del df_r
+        gc.collect()
     else:
         logger.warning("No ref_* columns found — skipping Sections R1–R7")
 
-    # ── split by surface type ─────────────────────────────────────────────────
-    subsets = split_by_surface(df)
+    # ── surface-type loop: process ocean then land sequentially ───────────────
+    sfc_codes = {'ocean': 0, 'land': 1} if 'sfc_type' in df.columns else {'all': None}
 
-    for sfc_name, sdf in subsets.items():
+    for sfc_name, sfc_code in sfc_codes.items():
+        sdf = df[df['sfc_type'] == sfc_code] if sfc_code is not None else df
         logger.info(f"\n{'='*55}\nRunning analysis for surface type: {sfc_name.upper()}\n{'='*55}")
+        logger.info(f"  {sfc_name} soundings: {len(sdf):,}")
         sfc_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / sfc_name)
 
         print_summary_stats(sdf, bins, labels)
@@ -2602,6 +2610,9 @@ def main():
                 continue
             run_stratified_analysis(sdf, bins, labels, sfc_outdir,
                                     strat_var, strat_edges, strat_unit)
+
+        del sdf
+        gc.collect()
 
 
 if __name__ == '__main__':
