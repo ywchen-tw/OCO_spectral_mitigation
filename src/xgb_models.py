@@ -16,6 +16,7 @@ import gc
 import logging
 import os
 import platform
+import resource
 import subprocess
 import sys
 from pathlib import Path
@@ -245,21 +246,23 @@ def plot_xgb_shap(model, X_test: np.ndarray, features: list, output_dir: Path,
 # ─── Learning curve ──────────────────────────────────────────────────────────────
 
 def plot_xgb_learning_curve(model, output_dir: Path) -> None:
-    """Train vs eval RMSE from evals_result_ (written by XGBRegressor.fit)."""
+    """Val MAE from evals_result_ (written by XGBRegressor.fit).
+
+    eval_set contains only X_test (no X_train) to avoid scoring 3M+ train
+    rows every round; XGBoost labels the single entry 'validation_0'.
+    """
     results     = model.evals_result()
-    train_metric = results['validation_0']['mae']
-    eval_metric  = results['validation_1']['mae']
-    best_round = int(np.argmin(eval_metric))
-    epochs     = range(1, len(train_metric) + 1)
+    eval_metric = results['validation_0']['mae']
+    best_round  = int(np.argmin(eval_metric))
+    epochs      = range(1, len(eval_metric) + 1)
 
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(epochs, train_metric, label='Train MAE', color='steelblue')
-    ax.plot(epochs, eval_metric,  label='Val   MAE', color='tomato')
+    ax.plot(epochs, eval_metric, label='Val MAE', color='tomato')
     ax.axvline(best_round + 1, color='gray', linestyle='--', linewidth=0.8,
                label=f'Best round {best_round + 1}')
     ax.set_xlabel('Boosting round')
     ax.set_ylabel('MAE (ppm)')
-    ax.set_title('XGBoost Learning Curve — train vs validation (eval metric: MAE)')
+    ax.set_title('XGBoost Learning Curve — validation MAE (eval metric: MAE)')
     ax.legend()
     fig.tight_layout()
     fig.savefig(output_dir / 'xgb_learning_curve.png', dpi=150, bbox_inches='tight')
@@ -285,6 +288,11 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
+    def _checkpoint(label: str) -> None:
+        rss_raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss_mb  = rss_raw / (1024 * 1024) if platform.system() == 'Darwin' else rss_raw / 1024
+        print(f"[MEM] {label:55s}  RSS={rss_mb:.0f} MB", flush=True)
+
     storage_dir = get_storage_dir()
     fdir        = storage_dir / 'results/csv_collection'
     if platform.system() == 'Linux':
@@ -303,11 +311,13 @@ def main():
     # ── Load data ──────────────────────────────────────────────────────────
     data_path = str(fdir / data_name)
     print(f"Loading data: {data_path}", flush=True)
+    _checkpoint("before data load")
     df = (pd.read_parquet(data_path) if data_path.endswith('.parquet')
           else pd.read_csv(data_path))
     df = df[df['sfc_type'] == sfc_type]
     df = df[df['snow_flag'] == 0]
     print(f"  Rows after filter: {len(df):,}", flush=True)
+    _checkpoint("after data load + filter")
 
     # ── Pipeline: load or fit ──────────────────────────────────────────────
     if args.pipeline:
@@ -335,8 +345,17 @@ def main():
     X_all = pipeline.transform(df)
     X     = X_all[valid_rows.values].astype(np.float32)
     y     = df['xco2_bc_anomaly'][valid_rows].values.astype(np.float32)
-    del X_all
+    del X_all, df   # df is no longer needed; free before split
     gc.collect()
+    _checkpoint("after pipeline.transform  (df freed)")
+
+    # Drop rows with NaN/inf features before the split
+    feat_finite = np.all(np.isfinite(X), axis=1)
+    if not feat_finite.all():
+        n_dropped = int((~feat_finite).sum())
+        print(f"[warn] Dropping {n_dropped} rows with non-finite features", flush=True)
+        X = X[feat_finite]
+        y = y[feat_finite]
 
     print(f"X shape: {X.shape}  |  y shape: {y.shape}", flush=True)
     X_train, X_test, y_train, y_test = train_test_split(
@@ -345,6 +364,7 @@ def main():
     del X, y
     gc.collect()
     print(f"X_train: {X_train.shape}  |  X_test: {X_test.shape}", flush=True)
+    _checkpoint("after train_test_split")
 
     # ── Train ──────────────────────────────────────────────────────────────
     import xgboost as xgb
@@ -372,11 +392,16 @@ def main():
     )
 
     print("Training XGBoost …", flush=True)
+    # Only pass X_test to eval_set — scoring X_train (3M+ rows) every round
+    # doubles per-round overhead without adding signal (early stopping uses val only).
     model.fit(
         X_train, y_train,
-        eval_set=[(X_train, y_train), (X_test, y_test)],
+        eval_set=[(X_test, y_test)],
         verbose=50,
     )
+    del X_train, y_train   # no longer needed after fit
+    gc.collect()
+    _checkpoint("after XGBoost fit  (X_train freed)")
 
     y_pred  = model.predict(X_test)
     ss_res  = float(((y_test - y_pred) ** 2).sum())
