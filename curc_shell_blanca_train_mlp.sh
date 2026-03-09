@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
 #SBATCH --ntasks-per-node=8
-#SBATCH --mem=60G
+#SBATCH --mem=64G
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
@@ -12,7 +12,7 @@
 #SBATCH --account=blanca-airs
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:1
 
 
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8 cuda/12.1.1
