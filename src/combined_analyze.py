@@ -1992,6 +1992,83 @@ def _binned_ref_profile(ax, sdf: pd.DataFrame, diff_col: str,
         ax.set_ylim(-spread, spread)
 
 
+# ── R0: fp − ref scatter vs cloud distance ────────────────────────────────────
+
+def plot_ref_diff_vs_cld_dist(df: pd.DataFrame, outdir: str,
+                               max_dist: float = 50,
+                               n_roll: int = 100) -> None:
+    """Hexbin scatter + rolling median of (obs − ref_mean) vs cld_dist_km.
+
+    One figure per spectral term type (k1, k2, albedo, exp_int).
+    Rows  = spectral bands (O₂A, WCO₂, SCO₂).
+    Cols  = surface type (ocean / land).
+    y = 0 means the footprint matches its clear-sky reference; positive values
+    mean the footprint exceeds the reference.  The rolling median reveals any
+    systematic trend with cloud proximity.
+    """
+    term_groups = [
+        ('k\u2081',   [p for p in _REF_PAIRS if p[5] == 'k\u2081'],  'ref_diff_scatter_k1.png'),
+        ('k\u2082',   [p for p in _REF_PAIRS if p[5] == 'k\u2082'],  'ref_diff_scatter_k2.png'),
+        ('albedo', [p for p in _REF_PAIRS if p[5] == 'albedo'],      'ref_diff_scatter_alb.png'),
+        ('exp_int',[p for p in _REF_PAIRS if p[5] == 'exp_int'],     'ref_diff_scatter_exp.png'),
+    ]
+    subsets = [('Ocean', df[df['sfc_type'] == 0]),
+               ('Land',  df[df['sfc_type'] == 1])]
+
+    for term_lbl, pairs, fname in term_groups:
+        avail = [p for p in pairs if p[3] in df.columns]
+        if not avail:
+            logger.warning(f"No diff columns for term '{term_lbl}' — skipping R0 scatter")
+            continue
+
+        nrows, ncols = len(avail), len(subsets)
+        fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 4.5 * nrows))
+        if nrows == 1:
+            axes = axes[np.newaxis, :]
+        if ncols == 1:
+            axes = axes[:, np.newaxis]
+
+        for row, (_, _, _, dcol, bl, tl, col) in enumerate(avail):
+            for ci, (sfc_name, sdf) in enumerate(subsets):
+                ax = axes[row, ci]
+                sub = sdf[sdf['cld_dist_km'] <= max_dist]
+                x = sub['cld_dist_km'].values
+                y = sub[dcol].values
+                mask = np.isfinite(x) & np.isfinite(y)
+                xm, ym = x[mask], y[mask]
+
+                if len(xm) < 10:
+                    ax.set_visible(False)
+                    continue
+
+                # clip y to 1–99th percentile to suppress outlier whitespace
+                ylo, yhi = np.percentile(ym, 1), np.percentile(ym, 99)
+                vm = (ym >= ylo) & (ym <= yhi)
+
+                hb = ax.hexbin(xm[vm], ym[vm], gridsize=55, cmap='YlOrRd',
+                               mincnt=1, norm=mcolors.LogNorm())
+                plt.colorbar(hb, ax=ax, label='count')
+
+                xs, med, q25, q75 = rolling_median_iqr(xm[vm], ym[vm], n_pts=n_roll)
+                ax.plot(xs, med, color=col, lw=2, label='rolling median')
+                ax.fill_between(xs, q25, q75, color=col, alpha=0.25, label='IQR')
+
+                ax.axhline(0, color='gray', lw=1.2, linestyle='--')
+
+                r, _ = stats.pearsonr(xm[vm], ym[vm])
+                ax.set_title(f'{bl} {tl}  obs\u2212ref — {sfc_name}   r={r:.3f}', fontsize=9)
+                ax.set_xlabel('Cloud distance (km)', fontsize=9)
+                ax.set_ylabel(f'{bl} {tl}\n(obs \u2212 ref)', fontsize=9)
+                ax.legend(fontsize=7)
+
+        fig.suptitle(
+            f'Footprint \u2212 clear-sky reference  [{term_lbl}]  vs cloud distance\n'
+            'y > 0 \u2192 footprint exceeds reference;  y = 0 \u2192 matches clear-sky baseline',
+            fontsize=11)
+        fig.tight_layout()
+        _save(fig, outdir, fname)
+
+
 # ── R1: Coverage bias analysis ────────────────────────────────────────────────
 
 def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str) -> None:
@@ -2512,6 +2589,9 @@ def main():
         ref_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'ref_corrected')
         logger.info("Adding ref-corrected anomaly columns …")
         df_r = add_ref_anomalies(df)
+
+        logger.info("R0: fp − ref scatter vs cloud distance …")
+        plot_ref_diff_vs_cld_dist(df_r, ref_outdir)
 
         logger.info("R1: Ref coverage bias analysis …")
         plot_ref_coverage_bias(df_r, bins, labels, ref_outdir)
