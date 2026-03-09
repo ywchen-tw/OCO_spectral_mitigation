@@ -212,17 +212,22 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     gc.collect()
     y           = df['xco2_bc_anomaly'][valid_rows].values
 
-    # Drop rows where any feature is NaN/inf (can arise from pipeline extrapolation)
+    # Drop rows with NaN/inf features for training only — df_X stays intact for inference
+    # (inference code below already applies its own isfinite mask over df_X)
     feat_finite = np.all(np.isfinite(df_X), axis=1)
     if not feat_finite.all():
         n_dropped = int((~feat_finite).sum())
         print(f"[warn] Dropping {n_dropped} rows with non-finite features before training")
-        df_X = df_X[feat_finite]
-        y    = y[feat_finite]
+        X_for_train = df_X[feat_finite]
+        y_for_train = y[feat_finite]
+    else:
+        X_for_train = df_X
+        y_for_train = y
 
-    print("X shape:", df_X.shape)
-    print("y shape:", y.shape)
-    X_train, X_test, y_train, y_test = train_test_split(df_X, y, test_size=0.2, random_state=42)
+    print("X shape (train-eligible):", X_for_train.shape)
+    print("y shape (train-eligible):", y_for_train.shape)
+    X_train, X_test, y_train, y_test = train_test_split(X_for_train, y_for_train, test_size=0.2, random_state=42)
+    del X_for_train, y_for_train
     del y  # y_train + y_test contain all labels; drop the combined copy
     gc.collect()
     print("X_train shape", X_train.shape)
