@@ -2034,7 +2034,8 @@ def _binned_ref_profile(ax, sdf: pd.DataFrame, diff_col: str,
 
 def plot_ref_diff_vs_cld_dist(df: pd.DataFrame, outdir: str,
                                max_dist: float = 50,
-                               n_roll: int = 100) -> None:
+                               n_roll: int = 100,
+                               pairs=None, tag: str = 'ref') -> None:
     """Hexbin scatter + rolling median of (obs − ref_mean) vs cld_dist_km.
 
     One figure per spectral term type (k1, k2, albedo, exp_int).
@@ -2044,11 +2045,13 @@ def plot_ref_diff_vs_cld_dist(df: pd.DataFrame, outdir: str,
     mean the footprint exceeds the reference.  The rolling median reveals any
     systematic trend with cloud proximity.
     """
+    if pairs is None:
+        pairs = _REF_PAIRS
     term_groups = [
-        ('k\u2081',   [p for p in _REF_PAIRS if p[5] == 'k\u2081'],  'ref_diff_scatter_k1.png'),
-        ('k\u2082',   [p for p in _REF_PAIRS if p[5] == 'k\u2082'],  'ref_diff_scatter_k2.png'),
-        ('albedo', [p for p in _REF_PAIRS if p[5] == 'albedo'],      'ref_diff_scatter_alb.png'),
-        ('exp_int',[p for p in _REF_PAIRS if p[5] == 'exp_int'],     'ref_diff_scatter_exp.png'),
+        ('k\u2081',   [p for p in pairs if p[5] == 'k\u2081'],  f'{tag}_diff_scatter_k1.png'),
+        ('k\u2082',   [p for p in pairs if p[5] == 'k\u2082'],  f'{tag}_diff_scatter_k2.png'),
+        ('albedo', [p for p in pairs if p[5] == 'albedo'],      f'{tag}_diff_scatter_alb.png'),
+        ('exp_int',[p for p in pairs if p[5] == 'exp_int'],     f'{tag}_diff_scatter_exp.png'),
     ]
     subsets = [('Ocean', df[df['sfc_type'] == 0]),
                ('Land',  df[df['sfc_type'] == 1])]
@@ -2100,7 +2103,7 @@ def plot_ref_diff_vs_cld_dist(df: pd.DataFrame, outdir: str,
                 ax.legend(fontsize=7)
 
         fig.suptitle(
-            f'Footprint \u2212 clear-sky reference  [{term_lbl}]  vs cloud distance\n'
+            f'[{tag}] Footprint \u2212 clear-sky reference  [{term_lbl}]  vs cloud distance\n'
             'y > 0 \u2192 footprint exceeds reference;  y = 0 \u2192 matches clear-sky baseline',
             fontsize=11)
         fig.tight_layout()
@@ -2109,7 +2112,8 @@ def plot_ref_diff_vs_cld_dist(df: pd.DataFrame, outdir: str,
 
 # ── R1: Coverage bias analysis ────────────────────────────────────────────────
 
-def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str) -> None:
+def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str,
+                           pairs=None, tag: str = 'ref') -> None:
     """Compare soundings that have vs lack a clear-sky reference per cld_dist bin.
 
     Tests whether the subset with ref data is representative.  Systematic
@@ -2117,6 +2121,8 @@ def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str) -> None:
     ref-corrected anomalies.  The coverage fraction panel (bottom-right) shows
     how ref availability drops sharply near clouds.
     """
+    if pairs is None:
+        pairs = _REF_PAIRS
     check_vars = {
         'o2a_k1':            'O\u2082A k\u2081',
         'alb_o2a':           'O\u2082A albedo',
@@ -2126,7 +2132,7 @@ def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str) -> None:
         'airmass':           'Airmass',
     }
     avail = {k: v for k, v in check_vars.items() if k in df.columns}
-    ref_flag_col = 'ref_o2a_k1_mean'
+    ref_flag_col = pairs[0][1]   # first pair's ref_mean_col
     if ref_flag_col not in df.columns or not avail:
         return
 
