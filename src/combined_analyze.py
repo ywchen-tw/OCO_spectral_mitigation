@@ -41,6 +41,10 @@ results/figures/cld_dist_analysis/
         xco2_bc_anomaly_vs_predictors.png
         xco2_{bc,raw}_anomaly_vs_cld_dist_binned.png
         xco2_anomaly_correlation_heatmap.png
+        xco2_raw_minus_apriori_vs_cld_dist_binned.png
+        xco2_raw_minus_strong_idp_vs_cld_dist_binned.png
+        xco2_raw_minus_apriori_vs_bc_anomaly.png
+        xco2_raw_minus_strong_idp_vs_bc_anomaly.png
         stratified/by_{var}/{bin}/  (Section 4)
     ref_corrected/   (Sections R0–R7, requires ref_* columns)
         ref_diff_scatter_{k1,k2,alb,exp}.png
@@ -2218,6 +2222,166 @@ def plot_xco2_anomaly_partial(df: pd.DataFrame, bins, labels,
     _save(fig, outdir, 'xco2_anomaly_partial_vs_cld_dist.png')
 
 
+# ── Section 5b: xco2_raw_minus_apriori & xco2_raw_minus_strong_idp analyses ──
+
+_XCO2_DERIVED_TARGETS = [
+    ('xco2_raw_minus_apriori',
+     'XCO\u2082 raw \u2212 a priori (ppm)',
+     'C2'),
+    ('xco2_raw_minus-xco2_strong_idp_minus',
+     'XCO\u2082 raw \u2212 strong IDP (ppm)',
+     'C3'),
+]
+
+
+def plot_xco2_derived_vs_cld_dist_binned(df: pd.DataFrame, bins, labels,
+                                         outdir: str) -> None:
+    """Mean ± SEM bar chart of xco2_raw_minus_apriori and
+    xco2_raw_minus-xco2_strong_idp_minus as a function of cloud-distance bin.
+
+    Outputs
+    -------
+    xco2_raw_minus_apriori_vs_cld_dist_binned.png
+    xco2_raw_minus_strong_idp_vs_cld_dist_binned.png
+    """
+    _bin = bin_by_cld_dist(df, bins, labels)
+    x = np.arange(len(labels))
+
+    for col, lbl, c in _XCO2_DERIVED_TARGETS:
+        if col not in df.columns:
+            logger.warning(f"Column {col!r} not found — skipping binned profile")
+            continue
+
+        means = df.groupby(_bin, observed=True)[col].mean().reindex(labels)
+        stds  = df.groupby(_bin, observed=True)[col].std().reindex(labels)
+        ns    = df.groupby(_bin, observed=True)[col].count().reindex(labels).fillna(0).astype(int)
+        sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
+
+        ref_val = means.dropna().iloc[-1] if means.dropna().size else np.nan
+
+        fig, ax = plt.subplots(figsize=(7, 5))
+        ax.bar(x, means.fillna(0).values, color=c, alpha=0.6, label='mean')
+        ax.errorbar(x, means.fillna(0).values, yerr=sems.values,
+                    fmt='none', color='k', capsize=4)
+        ax.axhline(0, color='gray', lw=0.8, linestyle='--')
+        if np.isfinite(ref_val):
+            ax.axhline(ref_val, color='tomato', lw=2.5, linestyle='--', zorder=5,
+                       label=f'mean @ {labels[-1]} km = {ref_val:.4f}')
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=30, fontsize=9)
+        ax.set_xlabel('Cloud distance (km)', fontsize=10)
+        ax.set_ylabel(lbl, fontsize=10)
+        ax.set_title(f'{lbl}: mean \u00b1 SEM by cloud-distance bin', fontsize=10)
+        ax.legend(fontsize=8)
+        for xi, (m, n) in enumerate(zip(means.values, ns.values)):
+            if np.isfinite(m):
+                ax.text(xi, m + sems.values[xi] * 1.1,
+                        f'n={n:,}', ha='center', fontsize=7, color='gray')
+        ax.grid(axis='y', alpha=0.3)
+        fig.tight_layout()
+
+        safe = col.replace('-', '_minus_').replace('__', '_')
+        _save(fig, outdir, f'{safe}_vs_cld_dist_binned.png')
+
+
+def plot_xco2_derived_vs_bc_anomaly(df: pd.DataFrame, bins, labels,
+                                    outdir: str, max_dist: float = 50,
+                                    n_roll: int = 80) -> None:
+    """Analyses (2) & (4): scatter of xco2_raw_minus_apriori /
+    xco2_raw_minus-xco2_strong_idp_minus vs xco2_bc_anomaly.
+
+    Panel A  — hexbin scatter colored by log-density, rolling median overlaid.
+    Panel B  — mean ± SEM per cld_dist bin, with one line per bin in Panel A
+               to show how the relationship shifts with proximity to cloud.
+
+    Outputs (per derived column)
+    ----------------------------
+    xco2_raw_minus_apriori_vs_bc_anomaly.png
+    xco2_raw_minus_strong_idp_vs_bc_anomaly.png
+    """
+    if 'xco2_bc_anomaly' not in df.columns:
+        logger.warning("xco2_bc_anomaly not found — skipping derived vs bc_anomaly plots")
+        return
+
+    sub = df[df['cld_dist_km'] <= max_dist].copy() if 'cld_dist_km' in df.columns else df.copy()
+    _bin = bin_by_cld_dist(sub, bins, labels)
+
+    bin_colors = plt.cm.get_cmap('plasma', len(labels))
+
+    for col, lbl, _ in _XCO2_DERIVED_TARGETS:
+        if col not in df.columns:
+            logger.warning(f"Column {col!r} not found — skipping vs bc_anomaly plot")
+            continue
+
+        y_col = 'xco2_bc_anomaly'
+        mask = sub[col].notna() & sub[y_col].notna()
+        xv = sub.loc[mask, col].values.astype(float)
+        yv = sub.loc[mask, y_col].values.astype(float)
+
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+        # ── Panel A: overall hexbin + rolling median ──────────────────────────
+        ax = axes[0]
+        if len(xv) > 0:
+            hb = ax.hexbin(xv, yv, gridsize=60, cmap='YlOrRd',
+                           mincnt=1, norm=mcolors.LogNorm())
+            plt.colorbar(hb, ax=ax, label='count')
+            xs, med, q25, q75 = rolling_median_iqr(xv, yv, n_pts=n_roll)
+            ax.plot(xs, med, 'k-', lw=2, label='rolling median')
+            ax.fill_between(xs, q25, q75, color='k', alpha=0.15, label='IQR')
+            r, p = stats.pearsonr(xv, yv)
+            ax.set_title(f'Overall  r={r:.3f}  p={p:.2e}', fontsize=10)
+        ax.set_xlabel(lbl, fontsize=9)
+        ax.set_ylabel('XCO\u2082 BC anomaly (ppm)', fontsize=9)
+        ax.legend(fontsize=8)
+        ax.grid(alpha=0.3)
+
+        # ── Panel B: per-cld_dist-bin mean ± SEM ─────────────────────────────
+        ax2 = axes[1]
+        bin_means_x, bin_means_y, bin_sems_y = [], [], []
+        for bi, lbl_b in enumerate(labels):
+            m = (_bin == lbl_b) & mask
+            if m.sum() < 5:
+                bin_means_x.append(np.nan)
+                bin_means_y.append(np.nan)
+                bin_sems_y.append(np.nan)
+                continue
+            xs_b = sub.loc[m, col].values.astype(float)
+            ys_b = sub.loc[m, y_col].values.astype(float)
+            # scatter colored by bin
+            ax2.scatter(xs_b, ys_b, s=2, alpha=0.25,
+                        color=bin_colors(bi), label=None)
+            # rolling median per bin
+            if len(xs_b) >= 10:
+                order = np.argsort(xs_b)
+                xs_s, med_s, _, _ = rolling_median_iqr(xs_b[order], ys_b[order],
+                                                        n_pts=min(30, len(xs_b) // 5))
+                ax2.plot(xs_s, med_s, '-', color=bin_colors(bi), lw=2,
+                         label=f'{lbl_b} km')
+            bin_means_x.append(np.nanmean(xs_b))
+            bin_means_y.append(np.nanmean(ys_b))
+            bin_sems_y.append(np.nanstd(ys_b) / np.sqrt(len(ys_b)))
+
+        ax2.errorbar(bin_means_x, bin_means_y, yerr=bin_sems_y,
+                     fmt='D', color='k', ms=6, capsize=4, zorder=10,
+                     label='bin mean ± SEM')
+        ax2.set_xlabel(lbl, fontsize=9)
+        ax2.set_ylabel('XCO\u2082 BC anomaly (ppm)', fontsize=9)
+        ax2.set_title('Grouped by cloud-distance bin', fontsize=10)
+        ax2.legend(fontsize=7, ncol=2)
+        ax2.grid(alpha=0.3)
+
+        fig.suptitle(
+            f'{lbl} vs XCO\u2082 BC anomaly\n'
+            f'(left: all soundings ≤{max_dist} km from cloud; '
+            f'right: colored by cld_dist bin)',
+            fontsize=11)
+        fig.tight_layout()
+
+        safe = col.replace('-', '_minus_').replace('__', '_')
+        _save(fig, outdir, f'{safe}_vs_bc_anomaly.png')
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Ref-corrected analyses  (Sections R1–R7)
 # Clear-sky reference pixels: ref_{k1,k2,alb,exp_int}_{band}_{mean,std}
@@ -3084,6 +3248,13 @@ def main():
 
         logger.info("Plotting correlation heat-map …")
         plot_xco2_anomaly_correlations(sdf, sfc_outdir)
+
+        # ── Section 5b: xco2_raw_minus_apriori / strong_idp analyses ─────────
+        logger.info("Plotting xco2 derived quantities vs cld_dist binned …")
+        plot_xco2_derived_vs_cld_dist_binned(sdf, bins, labels, sfc_outdir)
+
+        logger.info("Plotting xco2 derived quantities vs xco2_bc_anomaly …")
+        plot_xco2_derived_vs_bc_anomaly(sdf, bins, labels, sfc_outdir)
 
         logger.info(f"All figures for {sfc_name} written to {sfc_outdir}")
 
