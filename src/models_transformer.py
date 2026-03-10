@@ -993,6 +993,11 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
             )
 
     # ── Restore best checkpoint ────────────────────────────────────────────────
+    if not os.path.exists(ckpt_path):
+        raise RuntimeError(
+            f"No checkpoint was saved to {ckpt_path}. "
+            "Training produced only NaN losses — check for NaN/Inf in input features."
+        )
     best_ckpt = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(best_ckpt["model_state_dict"])
     tqdm.write("=" * 60)
@@ -1581,6 +1586,17 @@ def main():
     y = y_all[valid_rows]
     del X_all, y_all
     gc.collect()
+
+    # Drop any rows where features contain NaN or Inf — these propagate through the
+    # model and produce NaN loss from the very first batch, which prevents any
+    # checkpoint from being saved.
+    finite_mask = np.all(np.isfinite(X), axis=1)
+    n_bad = int((~finite_mask).sum())
+    if n_bad > 0:
+        logger.warning("Dropping %d rows with NaN/Inf in features (%d remain)", n_bad, finite_mask.sum())
+        print(f"WARNING: dropping {n_bad} rows with NaN/Inf features ({finite_mask.sum()} remain)")
+        X = X[finite_mask]
+        y = y[finite_mask]
 
     print("X shape:", X.shape)
     print("y shape:", y.shape)
