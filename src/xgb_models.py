@@ -373,12 +373,12 @@ def main():
     print(f"  Device: {device}", flush=True)
 
     model = xgb.XGBRegressor(
-        n_estimators          = 10000,
+        n_estimators          = 12000,
         max_depth             = 5,
         learning_rate         = 0.1,
         subsample             = 0.8,
         colsample_bytree      = 0.8,
-        min_child_weight      = 200,
+        min_child_weight      = 400,
         gamma                 = 1.0,
         reg_lambda            = 5.0,
         reg_alpha             = 0.5,
