@@ -42,12 +42,12 @@ GPU_MONITOR_PID=$!
 
 python src/models_hybrid.py \
   --sfc_type 0 \
-  --suffix   ocean_2016_2020_3 \
+  --suffix   ocean_2016_2020_4 \
   --pipeline results/train_data/pipeline_ocean_2016_2020.pkl
 
 # python src/models_hybrid.py \
 #   --sfc_type 1 \
-#   --suffix   land_2016_2020_3 \
+#   --suffix   land_2016_2020_4 \
 #   --pipeline results/train_data/pipeline_land_2016_2020.pkl
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
