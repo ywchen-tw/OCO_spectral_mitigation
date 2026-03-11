@@ -43,15 +43,15 @@ nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,
            --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}.csv &
 GPU_MONITOR_PID=$!
 
-python src/xgb_models.py \
-  --sfc_type 1 \
-  --suffix   land_2016_2020_4 \
-  --pipeline results/train_data/pipeline_land_2016_2020.pkl
-
 # python src/xgb_models.py \
-#   --sfc_type 0 \
-#   --suffix   ocean_2016_2020_4 \
-#   --pipeline results/train_data/pipeline_ocean_2016_2020.pkl
+#   --sfc_type 1 \
+#   --suffix   land_2016_2020_4 \
+#   --pipeline results/train_data/pipeline_land_2016_2020.pkl
+
+python src/xgb_models.py \
+  --sfc_type 0 \
+  --suffix   ocean_2016_2020_4 \
+  --pipeline results/train_data/pipeline_ocean_2016_2020.pkl
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
 
