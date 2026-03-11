@@ -650,17 +650,20 @@ def plot_fp_area_analysis(df: pd.DataFrame, bins, labels,
 
     Skips silently if fp_area_km2 column is absent.
 
-    Four sub-analyses:
+    Five sub-analyses:
       1. Binned profile per cld_dist bin  — mean ± SEM vs fp_area_km2 quantile bins
       2. 2-D hexbin  — fp_area_km2 vs each spectral variable, colored by cld_dist
       3. Partial-r bar chart  — Pearson r(variable, fp_area_km2) per cld_dist bin
       4. Interaction heatmap  — mean xco2_bc_anomaly on (cld_dist × fp_area_km2) grid
+      5. fp_area_km2 vs mu_sza — hexbin scatter + rolling median, and binned-mean profile
 
     Output (under outdir/fp_area/):
       fp_area_binned_{var}.png
       fp_area_hexbin_{var}.png
       fp_area_partial_r.png
       fp_area_xco2_interaction_heatmap.png
+      fp_area_vs_mu_sza_hexbin.png
+      fp_area_vs_mu_sza_binned_profile.png
     """
     from scipy import stats as _stats
     import os
@@ -875,3 +878,76 @@ def plot_fp_area_analysis(df: pd.DataFrame, bins, labels,
                         fontsize=6.5, color='k')
     fig.tight_layout()
     _save(fig, fp_outdir, 'fp_area_xco2_interaction_heatmap.png')
+
+    # ── 5. fp_area_km2 vs mu_sza relationship ─────────────────────────────────
+    if 'mu_sza' not in sub.columns:
+        logger.info("R13-5: mu_sza not in data — skipping fp_area vs mu_sza analysis")
+        return
+
+    mu    = sub['mu_sza'].values.astype(float)
+    farea = sub['fp_area_km2'].values.astype(float)
+    m_ok  = np.isfinite(mu) & np.isfinite(farea)
+    mu_ok, fa_ok = mu[m_ok], farea[m_ok]
+
+    if m_ok.sum() < 50:
+        logger.warning("R13-5: too few valid mu_sza/fp_area pairs — skipping")
+        return
+
+    r_val, p_val = _stats.pearsonr(mu_ok, fa_ok)
+
+    # ── 5a. Hexbin scatter ──────────────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(7, 5))
+    hb = ax.hexbin(mu_ok, fa_ok, gridsize=60, cmap='viridis', mincnt=3,
+                   norm=mcolors.LogNorm())
+    plt.colorbar(hb, ax=ax, label='count')
+
+    # rolling median overlay
+    order = np.argsort(mu_ok)
+    xs, med, q25, q75 = rolling_median_iqr(mu_ok[order], fa_ok[order])
+    ax.plot(xs, med, 'r-', lw=2, label='rolling median')
+    ax.fill_between(xs, q25, q75, color='red', alpha=0.2, label='IQR')
+
+    ax.set_xlabel('mu_sza  [cos(SZA)]', fontsize=10)
+    ax.set_ylabel('fp_area_km2  (km²)', fontsize=10)
+    ax.set_title(f'Footprint area vs cos(SZA)\nPearson r = {r_val:.3f}  (p = {p_val:.2e})',
+                 fontsize=11)
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    _save(fig, fp_outdir, 'fp_area_vs_mu_sza_hexbin.png')
+
+    # ── 5b. Binned profile: mean fp_area_km2 per mu_sza bin ────────────────
+    n_bins  = 20
+    mu_edges = np.linspace(np.nanpercentile(mu_ok, 1),
+                           np.nanpercentile(mu_ok, 99), n_bins + 1)
+    mu_mids  = 0.5 * (mu_edges[:-1] + mu_edges[1:])
+    mu_bin   = pd.cut(pd.Series(mu_ok), bins=mu_edges)
+    fa_ser   = pd.Series(fa_ok)
+
+    grp   = fa_ser.groupby(mu_bin, observed=True)
+    means = grp.mean().values
+    stds  = grp.std().values
+    cnts  = grp.count().values
+    sems  = np.where(cnts > 0, stds / np.sqrt(cnts), np.nan)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.fill_between(mu_mids, means - stds, means + stds,
+                    alpha=0.18, color='steelblue', label='±1 STD')
+    ax.errorbar(mu_mids, means, yerr=sems,
+                fmt='o-', capsize=4, color='steelblue', lw=2, label='mean ± SEM')
+    ax.set_xlabel('mu_sza  [cos(SZA)]', fontsize=10)
+    ax.set_ylabel('fp_area_km2  (km²)', fontsize=10)
+    ax.set_title(f'Mean footprint area vs cos(SZA)  (binned)\nPearson r = {r_val:.3f}',
+                 fontsize=11)
+    # annotate count per bin
+    for mx, mn, cnt in zip(mu_mids, means, cnts):
+        if np.isfinite(mn) and cnt > 0:
+            ax.text(mx, mn, f'n={cnt}', ha='center', va='bottom',
+                    fontsize=5.5, color='gray')
+    ax.legend(fontsize=9)
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    _save(fig, fp_outdir, 'fp_area_vs_mu_sza_binned_profile.png')
+
+    logger.info(f"R13-5: fp_area vs mu_sza  r={r_val:.3f}  p={p_val:.2e}  "
+                f"n={m_ok.sum():,}")
