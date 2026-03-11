@@ -181,7 +181,7 @@ from ca_k_coeff import (
     plot_k2_over_k1_vs_cld_dist, plot_k1_k2_binned_profile,
     plot_k1_k2_joint, plot_higher_order_k_profiles,
     plot_k_albedo_residuals, plot_cross_band_k_combinations,
-    plot_fp_area_analysis,
+    plot_fp_area_analysis, plot_xco2_anomaly_ocean_land,
 )
 from ca_stratified import STRAT_CONFIG, run_stratified_analysis
 from ca_xco2 import (
@@ -470,6 +470,11 @@ def main():
 
         del sdf
         gc.collect()
+
+    # ── Ocean vs Land XCO2 anomaly boxplot (uses full df) ─────────────────────
+    combined_outdir = str(result_dir / 'figures' / 'cld_dist_analysis')
+    logger.info("Plotting XCO2 BC anomaly ocean vs land boxplot …")
+    plot_xco2_anomaly_ocean_land(df, bins, labels, combined_outdir)
 
 
 if __name__ == '__main__':

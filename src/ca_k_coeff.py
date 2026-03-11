@@ -78,6 +78,45 @@ def plot_distributions_vs_cld_dist(df, bins, labels, outdir):
     _save(fig, outdir, 'dist_vs_cld_dist_boxplot.png')
 
 
+def plot_xco2_anomaly_ocean_land(df, bins, labels, outdir):
+    """Two-panel boxplot: xco2_bc_anomaly vs cloud-distance for ocean (left) and land (right)."""
+    if 'xco2_bc_anomaly' not in df.columns or 'sfc_type' not in df.columns:
+        logger.info("xco2_bc_anomaly or sfc_type missing — skipping ocean/land boxplot")
+        return
+
+    _bin = bin_by_cld_dist(df, bins, labels)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=False)
+    subsets = [('Ocean', df['sfc_type'] == 0),
+               ('Land',  df['sfc_type'] == 1)]
+
+    for ax, (title, mask) in zip(axes, subsets):
+        sub  = df[mask]
+        bsub = _bin[mask]
+        groups = [sub.loc[bsub == lbl, 'xco2_bc_anomaly'].dropna().values
+                  for lbl in labels]
+        ax.boxplot(groups, labels=labels, showfliers=False, patch_artist=True,
+                   boxprops=dict(facecolor='steelblue', alpha=0.6),
+                   medianprops=dict(color='orange', lw=3))
+        ref_val = np.median(groups[-1]) if len(groups[-1]) > 0 else np.nan
+        ax.axhline(ref_val, color='tomato', lw=2.5, linestyle='--', zorder=5,
+                   label=f'median @ {labels[-1]} km = {ref_val:.4f}')
+        ax.axhline(0, color='gray', lw=1, linestyle=':')
+        ax.legend(fontsize=7)
+        ax.set_xlabel('Cloud distance (km)', fontsize=9)
+        ax.set_ylabel('XCO\u2082 BC anomaly (ppm)', fontsize=9)
+        ax.tick_params(axis='x', rotation=30, labelsize=8)
+        ax.set_title(f'{title}: XCO\u2082 BC anomaly vs cloud distance', fontsize=10)
+        for xi, g in enumerate(groups):
+            ax.text(xi + 1, ax.get_ylim()[0], f'n={len(g):,}',
+                    ha='center', va='bottom', fontsize=6.5, color='gray')
+
+    fig.suptitle('XCO\u2082 BC anomaly vs cloud distance — Ocean vs Land\n'
+                 '(box = IQR, whiskers = 1.5\u00d7IQR)', fontsize=11, y=1.01)
+    fig.tight_layout()
+    _save(fig, outdir, 'xco2_anomaly_ocean_land_boxplot.png')
+
+
 def plot_k1_k2_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):
     """Scatter (hexbin) + rolling median of k1, k2 for each spectral band."""
     bands = [
@@ -662,63 +701,104 @@ def plot_fp_area_analysis(df: pd.DataFrame, bins, labels,
         return
 
     _bin = bin_by_cld_dist(sub, bins, labels)
-    N_AREA_BINS = 5
-    sub['_fp_q'] = pd.qcut(sub['fp_area_km2'], N_AREA_BINS, duplicates='drop')
+    FP_AREA_STEP = 0.5   # km² — change here to adjust bin width
+    _fp_max = np.nanpercentile(sub['fp_area_km2'], 99)
+    fp_edges = np.arange(0, _fp_max + FP_AREA_STEP, FP_AREA_STEP)
+    sub['_fp_q'] = pd.cut(sub['fp_area_km2'], bins=fp_edges, right=False)
+    sub = sub[sub['_fp_q'].notna()].copy()
     fp_q_labels = [str(iv) for iv in sorted(sub['_fp_q'].cat.categories)]
 
-    # ── 1. Binned profile per cld_dist bin ────────────────────────────────────
+    # ── 1. Binned profile per fp_area group ───────────────────────────────────
+    # Panels = fp_area quintiles + 1 combined; x = cld_dist bins
+    sub['_cld_bin'] = _bin
+    xi      = np.arange(len(labels))
+    fp_cats = sorted(sub['_fp_q'].cat.categories)
+    n_fp    = len(fp_cats)
+    n_panels = n_fp + 1          # fp_area panels + 1 combined
+
     for col, lbl in avail:
-        n_bins = len(labels)
-        ncols = 4
-        nrows = int(np.ceil(n_bins / ncols))
-        fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3.5 * nrows),
+        ncols = min(n_panels, 4)
+        nrows = int(np.ceil(n_panels / ncols))
+        fig, axes = plt.subplots(nrows, ncols,
+                                 figsize=(4.5 * ncols, 4 * nrows),
                                  sharey=True)
         axes = np.array(axes).flatten()
-        xi = np.arange(len(fp_q_labels))
 
-        for ai, dist_lbl in enumerate(labels):
-            ax = axes[ai]
-            mask = (_bin == dist_lbl)
-            grp = sub.loc[mask].groupby('_fp_q', observed=True)[col]
-            means = grp.mean().reindex(sorted(sub['_fp_q'].cat.categories))
-            sems  = (grp.std() / np.sqrt(grp.count())).reindex(
-                        sorted(sub['_fp_q'].cat.categories))
-            ax.errorbar(xi, means.values, yerr=sems.values,
-                        fmt='o-', capsize=3, color=f'C{ai % 10}', lw=1.5)
-            ax.set_xticks(xi)
-            ax.set_xticklabels(fp_q_labels, rotation=40, fontsize=6)
-            ax.set_title(f'cld_dist {dist_lbl} km', fontsize=8)
-            ax.set_xlabel('fp_area_km2 (quantile bin)', fontsize=7)
+        # ── per-fp_area panels ──────────────────────────────────────────────
+        for pi, fq in enumerate(fp_cats):
+            ax  = axes[pi]
+            grp = sub.loc[sub['_fp_q'] == fq].groupby('_cld_bin', observed=True)[col]
+            means = grp.mean().reindex(labels)
+            stds  = grp.std().reindex(labels)
+            cnts  = grp.count().reindex(labels)
+            sems  = stds / np.sqrt(cnts)
+
+            xv = xi
+            # STD as shaded band
+            ax.fill_between(xv, (means - stds).values, (means + stds).values,
+                            alpha=0.18, color=f'C{pi}', label='±1 STD')
+            # SEM as error bars
+            ax.errorbar(xv, means.values, yerr=sems.values,
+                        fmt='o-', capsize=3, color=f'C{pi}', lw=1.8,
+                        label='mean ± SEM')
+            ax.set_xticks(xv)
+            ax.set_xticklabels([str(l) for l in labels], rotation=35, fontsize=6)
+            ax.set_title(f'fp_area {fq}', fontsize=8)
+            ax.set_xlabel('cld_dist bin (km)', fontsize=7)
             ax.set_ylabel(lbl, fontsize=7)
             ax.grid(axis='y', alpha=0.3)
+            ax.legend(fontsize=6, loc='upper left',
+                      bbox_to_anchor=(1.01, 1), borderaxespad=0)
 
-        for ax in axes[n_bins:]:
+        # ── combined panel ──────────────────────────────────────────────────
+        ax_all = axes[n_fp]
+        for pi, fq in enumerate(fp_cats):
+            grp   = sub.loc[sub['_fp_q'] == fq].groupby('_cld_bin', observed=True)[col]
+            means = grp.mean().reindex(labels)
+            stds  = grp.std().reindex(labels)
+            cnts  = grp.count().reindex(labels)
+            sems  = stds / np.sqrt(cnts)
+            ax_all.errorbar(xi, means.values, yerr=sems.values,
+                            fmt='o-', capsize=3, color=f'C{pi}', lw=1.5,
+                            label=str(fq))
+        ax_all.set_xticks(xi)
+        ax_all.set_xticklabels([str(l) for l in labels], rotation=35, fontsize=6)
+        ax_all.set_title('All fp_area groups', fontsize=8)
+        ax_all.set_xlabel('cld_dist bin (km)', fontsize=7)
+        ax_all.set_ylabel(lbl, fontsize=7)
+        ax_all.grid(axis='y', alpha=0.3)
+        ax_all.legend(title='fp_area bin', fontsize=6,
+                      loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0)
+
+        for ax in axes[n_panels:]:
             ax.set_visible(False)
 
-        fig.suptitle(f'{lbl} vs fp_area_km2 per cloud-distance bin\n'
-                     'mean \u00b1 SEM', fontsize=11)
+        fig.suptitle(f'{lbl} vs cld_dist bin per fp_area group\n'
+                     'shaded = ±1 STD,  bars = ±SEM', fontsize=11)
         fig.tight_layout()
         safe = col.replace('_', '')
         _save(fig, fp_outdir, f'fp_area_binned_{safe}.png')
 
-    # ── 2. 2-D hexbin: fp_area_km2 vs each spectral variable ───────────────────
-    norm = mcolors.Normalize(vmin=0, vmax=max_dist)
-    cmap_dist = plt.cm.plasma_r
-    xfp = sub['fp_area_km2'].values
-    cv  = sub['cld_dist_km'].values
+    # ── 2. 2-D hexbin: cld_dist_km vs each spectral variable (binned by fp_area_km2) ──
+    fp_area_max = np.nanpercentile(sub['fp_area_km2'].values, 99)
+    norm_fp = mcolors.Normalize(vmin=0, vmax=fp_area_max)
+    cmap_fp = plt.cm.plasma_r
+    xcld = sub['cld_dist_km'].values
+    cv   = sub['fp_area_km2'].values
+
+    _fp_q = sub['_fp_q']  # reuse fixed 0.5 km² bins defined above
 
     for col, lbl in avail:
         yv = sub[col].values.astype(float)
-        m  = np.isfinite(xfp) & np.isfinite(yv)
+        m  = np.isfinite(xcld) & np.isfinite(yv) & np.isfinite(cv)
         fig, ax = plt.subplots(figsize=(7, 5))
-        hb = ax.hexbin(xfp[m], yv[m], C=cv[m], gridsize=50,
-                       cmap=cmap_dist, norm=norm, reduce_C_function=np.mean,
+        hb = ax.hexbin(xcld[m], yv[m], C=cv[m], gridsize=50,
+                       cmap=cmap_fp, norm=norm_fp, reduce_C_function=np.mean,
                        mincnt=3)
-        plt.colorbar(hb, ax=ax, label='mean cld_dist (km)')
-        # rolling median per cld_dist quintile
-        _cld_q = pd.qcut(sub['cld_dist_km'], 5, duplicates='drop')
-        for qi, (qcat, qdf) in enumerate(sub.groupby(_cld_q, observed=True)):
-            xq = qdf['fp_area_km2'].values
+        plt.colorbar(hb, ax=ax, label='mean fp_area (km²)')
+        # rolling median per fp_area quintile
+        for qi, (qcat, qdf) in enumerate(sub.groupby(_fp_q, observed=True)):
+            xq = qdf['cld_dist_km'].values
             yq = qdf[col].values.astype(float)
             mq = np.isfinite(xq) & np.isfinite(yq)
             if mq.sum() < 20:
@@ -726,11 +806,13 @@ def plot_fp_area_analysis(df: pd.DataFrame, bins, labels,
             order = np.argsort(xq[mq])
             xs, med, _, _ = rolling_median_iqr(xq[mq][order], yq[mq][order])
             ax.plot(xs, med, lw=1.5, label=str(qcat), color=f'C{qi}')
-        ax.legend(title='cld_dist bin', fontsize=7, loc='best')
-        ax.set_xlabel('fp_area_km2 (km\u00b2)', fontsize=9)
+        ax.set_xlabel('cld_dist_km (km)', fontsize=9)
         ax.set_ylabel(lbl, fontsize=9)
-        ax.set_title(f'{lbl} vs fp_area_km2\n(colored by mean cld_dist; lines = cld_dist quintiles)',
+        ax.set_title(f'{lbl} vs cld_dist_km\n(colored by mean fp_area; lines = fp_area quintiles)',
                      fontsize=10)
+        fig.legend(title='fp_area bin', fontsize=7, title_fontsize=8,
+                   loc='lower center', bbox_to_anchor=(0.5, -0.08),
+                   ncol=5, borderaxespad=0)
         fig.tight_layout()
         safe = col.replace('_', '')
         _save(fig, fp_outdir, f'fp_area_hexbin_{safe}.png')
