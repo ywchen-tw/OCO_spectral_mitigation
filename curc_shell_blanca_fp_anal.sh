@@ -16,6 +16,8 @@
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
 conda activate data
 
+pip install pyproj geopandas shapely
+
 # Prepend conda's libs so Python's netCDF4/h5py loads the conda-compiled
 # libhdf5 rather than the system one injected by `module load hdf5/...`.
 # Without this, an ABI mismatch causes NC_EHDF (-101) at H5Fopen() time.
