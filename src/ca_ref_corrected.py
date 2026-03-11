@@ -5,7 +5,7 @@ Ref-corrected analysis functions extracted from combined_analyze.py (Sections R0
 
 Contents
 --------
-- _REF_PAIRS               Registry of (obs, ref_mean, ref_std, diff_col, band, term, color) × 12
+- _REF_PAIRS               Registry of (obs, ref_mean, ref_std, diff_col, band, term, color) × 15 (k1+k2+k3 × 3 bands + alb × 3 + exp_int × 3)
 - _R25_PAIRS               Same structure for r25_* reference (min_cld_dist=25 km)
 - add_ref_anomalies        Compute obs-ref diff and z-score columns
 - add_r25_anomalies        Compute obs-r25 diff and z-score columns
@@ -37,10 +37,13 @@ logger = logging.getLogger(__name__)
 _REF_PAIRS: list[tuple] = [
     ('o2a_k1',             'ref_o2a_k1_mean',       'ref_o2a_k1_std',       'dk1_o2a',   'O\u2082A',  'k\u2081',   'C0'),
     ('o2a_k2',             'ref_o2a_k2_mean',       'ref_o2a_k2_std',       'dk2_o2a',   'O\u2082A',  'k\u2082',   'C0'),
+    ('o2a_k3',             'ref_o2a_k3_mean',       'ref_o2a_k3_std',       'dk3_o2a',   'O\u2082A',  'k\u2083',   'C0'),
     ('wco2_k1',            'ref_wco2_k1_mean',      'ref_wco2_k1_std',      'dk1_wco2',  'WCO\u2082', 'k\u2081',   'C1'),
     ('wco2_k2',            'ref_wco2_k2_mean',      'ref_wco2_k2_std',      'dk2_wco2',  'WCO\u2082', 'k\u2082',   'C1'),
+    ('wco2_k3',            'ref_wco2_k3_mean',      'ref_wco2_k3_std',      'dk3_wco2',  'WCO\u2082', 'k\u2083',   'C1'),
     ('sco2_k1',            'ref_sco2_k1_mean',      'ref_sco2_k1_std',      'dk1_sco2',  'SCO\u2082', 'k\u2081',   'C2'),
     ('sco2_k2',            'ref_sco2_k2_mean',      'ref_sco2_k2_std',      'dk2_sco2',  'SCO\u2082', 'k\u2082',   'C2'),
+    ('sco2_k3',            'ref_sco2_k3_mean',      'ref_sco2_k3_std',      'dk3_sco2',  'SCO\u2082', 'k\u2083',   'C2'),
     ('alb_o2a',            'ref_alb_o2a_mean',      'ref_alb_o2a_std',      'dalb_o2a',  'O\u2082A',  'albedo',    'C0'),
     ('alb_wco2',           'ref_alb_wco2_mean',     'ref_alb_wco2_std',     'dalb_wco2', 'WCO\u2082', 'albedo',    'C1'),
     ('alb_sco2',           'ref_alb_sco2_mean',     'ref_alb_sco2_std',     'dalb_sco2', 'SCO\u2082', 'albedo',    'C2'),
@@ -53,10 +56,13 @@ _REF_PAIRS: list[tuple] = [
 _R25_PAIRS: list[tuple] = [
     ('o2a_k1',             'r25_o2a_k1_mean',       'r25_o2a_k1_std',       'dr25k1_o2a',   'O\u2082A',  'k\u2081',   'C0'),
     ('o2a_k2',             'r25_o2a_k2_mean',       'r25_o2a_k2_std',       'dr25k2_o2a',   'O\u2082A',  'k\u2082',   'C0'),
+    ('o2a_k3',             'r25_o2a_k3_mean',       'r25_o2a_k3_std',       'dr25k3_o2a',   'O\u2082A',  'k\u2083',   'C0'),
     ('wco2_k1',            'r25_wco2_k1_mean',      'r25_wco2_k1_std',      'dr25k1_wco2',  'WCO\u2082', 'k\u2081',   'C1'),
     ('wco2_k2',            'r25_wco2_k2_mean',      'r25_wco2_k2_std',      'dr25k2_wco2',  'WCO\u2082', 'k\u2082',   'C1'),
+    ('wco2_k3',            'r25_wco2_k3_mean',      'r25_wco2_k3_std',      'dr25k3_wco2',  'WCO\u2082', 'k\u2083',   'C1'),
     ('sco2_k1',            'r25_sco2_k1_mean',      'r25_sco2_k1_std',      'dr25k1_sco2',  'SCO\u2082', 'k\u2081',   'C2'),
     ('sco2_k2',            'r25_sco2_k2_mean',      'r25_sco2_k2_std',      'dr25k2_sco2',  'SCO\u2082', 'k\u2082',   'C2'),
+    ('sco2_k3',            'r25_sco2_k3_mean',      'r25_sco2_k3_std',      'dr25k3_sco2',  'SCO\u2082', 'k\u2083',   'C2'),
     ('alb_o2a',            'r25_alb_o2a_mean',      'r25_alb_o2a_std',      'dr25alb_o2a',  'O\u2082A',  'albedo',    'C0'),
     ('alb_wco2',           'r25_alb_wco2_mean',     'r25_alb_wco2_std',     'dr25alb_wco2', 'WCO\u2082', 'albedo',    'C1'),
     ('alb_sco2',           'r25_alb_sco2_mean',     'r25_alb_sco2_std',     'dr25alb_sco2', 'SCO\u2082', 'albedo',    'C2'),
@@ -69,9 +75,15 @@ _R25_PAIRS: list[tuple] = [
 def add_ref_anomalies(df: pd.DataFrame) -> pd.DataFrame:
     """Add obs-ref difference and z-score columns for every entry in _REF_PAIRS.
 
-    New columns:
+    Standard diff columns:
       d{term}_{band}  = obs - ref_mean          e.g. dk1_o2a
       z{term}_{band}  = (obs - ref_mean)/ref_std e.g. zk1_o2a
+
+    Derived composite diff columns (computed from standard diffs):
+      d_exp_minus_alb_{band}  = dexp_{band} - dalb_{band}
+      d_exp_over_alb_{band}   = (obs_exp / obs_alb) - (ref_exp_mean / ref_alb_mean)
+      d_k2_over_k1_{band}     = (obs_k2 / obs_k1) - (ref_k2_mean / ref_k1_mean)
+
     Rows without a ref value remain NaN in the new columns.
     """
     new_cols = {}
@@ -81,6 +93,51 @@ def add_ref_anomalies(df: pd.DataFrame) -> pd.DataFrame:
             zcol = 'z' + dcol[1:]   # 'dk1_o2a' → 'zk1_o2a'
             if ref_s in df.columns:
                 new_cols[zcol] = new_cols[dcol] / df[ref_s].replace(0, np.nan)
+
+    # ── derived composite deltas ──────────────────────────────────────────────
+    _band_to_exp = {p[4]: p for p in _REF_PAIRS if p[5] == 'exp_int'}
+    _band_to_alb = {p[4]: p for p in _REF_PAIRS if p[5] == 'albedo'}
+    _band_to_k1  = {p[4]: p for p in _REF_PAIRS if p[5] == 'k\u2081'}
+    _band_to_k2  = {p[4]: p for p in _REF_PAIRS if p[5] == 'k\u2082'}
+
+    for band in _band_to_exp:
+        exp_p = _band_to_exp[band]
+        obs_exp_col, ref_exp_col = exp_p[0], exp_p[1]
+
+        # Δ(exp − alb)
+        if band in _band_to_alb:
+            alb_p = _band_to_alb[band]
+            obs_alb_col, ref_alb_col = alb_p[0], alb_p[1]
+            dc_minus = f'd_exp_minus_alb_{band}'
+            if obs_exp_col in df.columns and obs_alb_col in df.columns \
+                    and ref_exp_col in df.columns and ref_alb_col in df.columns:
+                new_cols[dc_minus] = (
+                    (df[obs_exp_col] - df[obs_alb_col])
+                    - (df[ref_exp_col] - df[ref_alb_col])
+                )
+
+            # Δ(exp / alb)
+            dc_ratio = f'd_exp_over_alb_{band}'
+            if obs_exp_col in df.columns and obs_alb_col in df.columns \
+                    and ref_exp_col in df.columns and ref_alb_col in df.columns:
+                new_cols[dc_ratio] = (
+                    df[obs_exp_col] / df[obs_alb_col].replace(0, np.nan)
+                    - df[ref_exp_col] / df[ref_alb_col].replace(0, np.nan)
+                )
+
+        # Δ(k2 / k1)
+        if band in _band_to_k1 and band in _band_to_k2:
+            k1_p = _band_to_k1[band]
+            k2_p = _band_to_k2[band]
+            obs_k1, ref_k1 = k1_p[0], k1_p[1]
+            obs_k2, ref_k2 = k2_p[0], k2_p[1]
+            dc_k2k1 = f'd_k2_over_k1_{band}'
+            if all(c in df.columns for c in [obs_k1, obs_k2, ref_k1, ref_k2]):
+                new_cols[dc_k2k1] = (
+                    df[obs_k2] / df[obs_k1].replace(0, np.nan)
+                    - df[ref_k2] / df[ref_k1].replace(0, np.nan)
+                )
+
     return df.assign(**new_cols)
 
 
@@ -170,6 +227,7 @@ def plot_ref_diff_vs_cld_dist(df: pd.DataFrame, outdir: str,
     term_groups = [
         ('k\u2081',   [p for p in pairs if p[5] == 'k\u2081'],  f'{tag}_diff_scatter_k1.png'),
         ('k\u2082',   [p for p in pairs if p[5] == 'k\u2082'],  f'{tag}_diff_scatter_k2.png'),
+        ('k\u2083',   [p for p in pairs if p[5] == 'k\u2083'],  f'{tag}_diff_scatter_k3.png'),
         ('albedo', [p for p in pairs if p[5] == 'albedo'],      f'{tag}_diff_scatter_alb.png'),
         ('exp_int',[p for p in pairs if p[5] == 'exp_int'],     f'{tag}_diff_scatter_exp.png'),
     ]
@@ -383,17 +441,36 @@ def plot_ref_corrected_profiles(df: pd.DataFrame, bins, labels, outdir: str,
     """
     if pairs is None:
         pairs = _REF_PAIRS
+
+    _BANDS = ['O\u2082A', 'WCO\u2082', 'SCO\u2082']
+    _BAND_COLOR = {'O\u2082A': 'C0', 'WCO\u2082': 'C1', 'SCO\u2082': 'C2'}
+
+    # standard pairs groups (7-tuples) + derived groups (4-tuples padded to 7)
     term_groups = [
         ('k\u2081',   [p for p in pairs if p[5] == 'k\u2081'],   f'{tag}_corrected_k1_profiles.png'),
         ('k\u2082',   [p for p in pairs if p[5] == 'k\u2082'],   f'{tag}_corrected_k2_profiles.png'),
+        ('k\u2083',   [p for p in pairs if p[5] == 'k\u2083'],   f'{tag}_corrected_k3_profiles.png'),
         ('albedo', [p for p in pairs if p[5] == 'albedo'],       f'{tag}_corrected_alb_profiles.png'),
         ('exp_int',[p for p in pairs if p[5] == 'exp_int'],      f'{tag}_corrected_exp_profiles.png'),
+        # derived groups — 4-tuples padded: (None, None, None, dcol, band, term, color)
+        ('exp\u2212alb',
+         [(None, None, None, f'd_exp_minus_alb_{b}', b, 'exp\u2212alb', _BAND_COLOR[b])
+          for b in _BANDS],
+         f'{tag}_corrected_exp_minus_alb_profiles.png'),
+        ('exp/alb',
+         [(None, None, None, f'd_exp_over_alb_{b}', b, 'exp/alb', _BAND_COLOR[b])
+          for b in _BANDS],
+         f'{tag}_corrected_exp_over_alb_profiles.png'),
+        ('k\u2082/k\u2081',
+         [(None, None, None, f'd_k2_over_k1_{b}', b, 'k\u2082/k\u2081', _BAND_COLOR[b])
+          for b in _BANDS],
+         f'{tag}_corrected_k2_over_k1_profiles.png'),
     ]
     subsets = [('Ocean', df[df['sfc_type'] == 0]),
                ('Land',  df[df['sfc_type'] == 1])]
 
-    for term_lbl, pairs, fname in term_groups:
-        avail = [p for p in pairs if p[3] in df.columns]
+    for term_lbl, grp_pairs, fname in term_groups:
+        avail = [p for p in grp_pairs if p[3] in df.columns]
         if not avail:
             continue
 
@@ -431,6 +508,7 @@ def plot_ref_zscore_profiles(df: pd.DataFrame, bins, labels, outdir: str,
     term_groups = [
         ('k\u2081',   [p for p in pairs if p[5] == 'k\u2081'],   f'{tag}_zscore_k1_profiles.png'),
         ('k\u2082',   [p for p in pairs if p[5] == 'k\u2082'],   f'{tag}_zscore_k2_profiles.png'),
+        ('k\u2083',   [p for p in pairs if p[5] == 'k\u2083'],   f'{tag}_zscore_k3_profiles.png'),
         ('albedo', [p for p in pairs if p[5] == 'albedo'],       f'{tag}_zscore_alb_profiles.png'),
         ('exp_int',[p for p in pairs if p[5] == 'exp_int'],      f'{tag}_zscore_exp_profiles.png'),
     ]
@@ -477,9 +555,10 @@ def plot_ref_signal_hierarchy(df: pd.DataFrame, outdir: str,
     """
     if pairs is None:
         pairs = _REF_PAIRS
-    _term_order  = ['k\u2081', 'k\u2082', 'albedo', 'exp_int']
-    _hatch_map   = {'k\u2081': '', 'k\u2082': '///', 'albedo': '...', 'exp_int': '|||'}
-    _disp_term   = {'k\u2081': 'k\u2081', 'k\u2082': 'k\u2082', 'albedo': 'alb', 'exp_int': 'exp_int'}
+    _term_order  = ['k\u2081', 'k\u2082', 'k\u2083', 'albedo', 'exp_int']
+    _hatch_map   = {'k\u2081': '', 'k\u2082': '///', 'k\u2083': 'xxx', 'albedo': '...', 'exp_int': '|||'}
+    _disp_term   = {'k\u2081': 'k\u2081', 'k\u2082': 'k\u2082', 'k\u2083': 'k\u2083',
+                    'albedo': 'alb', 'exp_int': 'exp_int'}
     feat_groups = [
         (dcol, bl, _disp_term[tl], _hatch_map[tl])
         for tl in _term_order
@@ -524,7 +603,7 @@ def plot_ref_signal_hierarchy(df: pd.DataFrame, outdir: str,
     from matplotlib.patches import Patch
     legend_handles  = [Patch(facecolor=c, label=b) for b, c in band_colors.items()]
     legend_handles += [Patch(facecolor='gray', hatch=h, label=t, alpha=0.7)
-                       for t, h in [('k\u2081', ''), ('k\u2082', '///'),
+                       for t, h in [('k\u2081', ''), ('k\u2082', '///'), ('k\u2083', 'xxx'),
                                     ('alb', '...'), ('exp_int', '|||')]]
     axes[0].legend(handles=legend_handles, fontsize=7, ncol=2, loc='lower left',
                    title='Band / Term', title_fontsize=7)
@@ -730,22 +809,40 @@ def plot_ref_delta_multivar(df: pd.DataFrame, bins, labels,
                   else [('All', df)]
 
     x = np.arange(len(labels))
-    term_order = ['k\u2081', 'k\u2082', 'albedo', 'exp_int']
+    term_order = ['k\u2081', 'k\u2082', 'k\u2083', 'albedo', 'exp_int']
     terms = [t for t in term_order if t in term_map] + \
             [t for t in term_map if t not in term_order]
+
+    # derived delta groups: (label, [(dcol, band_lbl, color), ...])
+    _BANDS = ['O\u2082A', 'WCO\u2082', 'SCO\u2082']
+    _BAND_COLOR = {'O\u2082A': 'C0', 'WCO\u2082': 'C1', 'SCO\u2082': 'C2'}
+    _derived_terms = []
+    for derived_lbl, col_prefix in [
+        ('exp\u2212alb',    'd_exp_minus_alb'),
+        ('exp/alb',         'd_exp_over_alb'),
+        ('k\u2082/k\u2081', 'd_k2_over_k1'),
+    ]:
+        entries = [(f'{col_prefix}_{b}', b, _BAND_COLOR[b])
+                   for b in _BANDS if f'{col_prefix}_{b}' in df.columns]
+        if entries:
+            _derived_terms.append((derived_lbl, entries))
+
+    all_terms_count = len(terms) + len(_derived_terms)
 
     for sfc_name, sdf in sfc_subsets:
         if len(sdf) < 50:
             continue
-        ncols = min(len(terms), 4)
-        nrows = int(np.ceil(len(terms) / ncols))
+        ncols = min(all_terms_count, 4)
+        nrows = int(np.ceil(all_terms_count / ncols))
         fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows),
                                  sharey=False)
         axes = np.array(axes).flatten()
 
         _bin = pd.cut(sdf['cld_dist_km'], bins=bins, labels=labels, right=False)
+        ax_idx = 0
 
-        for ax, term in zip(axes, terms):
+        for term in terms:
+            ax = axes[ax_idx]; ax_idx += 1
             for dcol, band_lbl, color in term_map[term]:
                 sub = sdf[[dcol, 'cld_dist_km']].dropna()
                 sub_bin = _bin[sub.index]
@@ -764,7 +861,27 @@ def plot_ref_delta_multivar(df: pd.DataFrame, bins, labels,
             ax.legend(fontsize=7)
             ax.grid(axis='y', alpha=0.3)
 
-        for ax in axes[len(terms):]:
+        for derived_lbl, entries in _derived_terms:
+            ax = axes[ax_idx]; ax_idx += 1
+            for dcol, band_lbl, color in entries:
+                sub = sdf[[dcol, 'cld_dist_km']].dropna()
+                sub_bin = _bin[sub.index]
+                means = sub.groupby(sub_bin, observed=True)[dcol].mean().reindex(labels)
+                sems  = (sub.groupby(sub_bin, observed=True)[dcol].std() /
+                         np.sqrt(sub.groupby(sub_bin, observed=True)[dcol].count())
+                         ).reindex(labels)
+                ax.errorbar(x, means.values, yerr=sems.values, fmt='o-',
+                            capsize=3, lw=1.5, label=band_lbl, color=color)
+            ax.axhline(0, color='gray', lw=1, linestyle='--')
+            ax.set_xticks(x)
+            ax.set_xticklabels(labels, rotation=30, fontsize=8)
+            ax.set_xlabel('Cloud distance (km)', fontsize=9)
+            ax.set_ylabel(f'\u0394({derived_lbl}) (obs \u2212 ref)', fontsize=9)
+            ax.set_title(f'\u0394({derived_lbl})', fontsize=10)
+            ax.legend(fontsize=7)
+            ax.grid(axis='y', alpha=0.3)
+
+        for ax in axes[ax_idx:]:
             ax.set_visible(False)
 
         fig.suptitle(f'[{tag}] All delta variables vs cloud distance — {sfc_name}\n'
@@ -802,6 +919,7 @@ def plot_ref_cross_band_delta(df: pd.DataFrame, outdir: str,
 
     term_order = [('k\u2081', f'{tag}_cross_band_delta_k1.png'),
                   ('k\u2082', f'{tag}_cross_band_delta_k2.png'),
+                  ('k\u2083', f'{tag}_cross_band_delta_k3.png'),
                   ('albedo', f'{tag}_cross_band_delta_alb.png'),
                   ('exp_int', f'{tag}_cross_band_delta_exp.png')]
 
@@ -974,6 +1092,7 @@ def plot_ref_delta_vs_xco2(df: pd.DataFrame, outdir: str,
 
     term_order = [('k\u2081', f'{tag}_delta_vs_xco2_k1.png'),
                   ('k\u2082', f'{tag}_delta_vs_xco2_k2.png'),
+                  ('k\u2083', f'{tag}_delta_vs_xco2_k3.png'),
                   ('albedo', f'{tag}_delta_vs_xco2_alb.png'),
                   ('exp_int', f'{tag}_delta_vs_xco2_exp.png')]
 
@@ -1034,6 +1153,20 @@ def plot_ref_delta_partial_xco2(df: pd.DataFrame, outdir: str,
     dcols = [(dcol, band_lbl, term_lbl, color)
              for _, _, _, dcol, band_lbl, term_lbl, color in pairs
              if dcol in df.columns]
+
+    # append derived composite deltas
+    _BANDS = ['O\u2082A', 'WCO\u2082', 'SCO\u2082']
+    _BAND_COLOR = {'O\u2082A': 'C0', 'WCO\u2082': 'C1', 'SCO\u2082': 'C2'}
+    for derived_lbl, col_prefix in [
+        ('exp\u2212alb',    'd_exp_minus_alb'),
+        ('exp/alb',         'd_exp_over_alb'),
+        ('k\u2082/k\u2081', 'd_k2_over_k1'),
+    ]:
+        for b in _BANDS:
+            dc = f'{col_prefix}_{b}'
+            if dc in df.columns:
+                dcols.append((dc, b, derived_lbl, _BAND_COLOR[b]))
+
     if not dcols:
         return
 

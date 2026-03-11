@@ -53,8 +53,11 @@ def load_output_dict(filepath):
         'exp_intercept_o2a', 'exp_intercept_wco2', 'exp_intercept_sco2',
         # Reference clear-sky statistics
         'ref_o2a_k1_mean', 'ref_o2a_k1_std', 'ref_o2a_k2_mean', 'ref_o2a_k2_std',
+        'ref_o2a_k3_mean', 'ref_o2a_k3_std',
         'ref_wco2_k1_mean', 'ref_wco2_k1_std', 'ref_wco2_k2_mean', 'ref_wco2_k2_std',
+        'ref_wco2_k3_mean', 'ref_wco2_k3_std',
         'ref_sco2_k1_mean', 'ref_sco2_k1_std', 'ref_sco2_k2_mean', 'ref_sco2_k2_std',
+        'ref_sco2_k3_mean', 'ref_sco2_k3_std',
         'ref_alb_o2a_mean', 'ref_alb_o2a_std', 'ref_alb_wco2_mean', 'ref_alb_wco2_std',
         'ref_alb_sco2_mean', 'ref_alb_sco2_std',
         'ref_exp_int_o2a_mean', 'ref_exp_int_o2a_std',
@@ -91,8 +94,11 @@ def load_output_dict(filepath):
         # r25 reference set (min_cld_dist=25 km)
         'xco2_raw_anomaly_r25', 'xco2_bc_anomaly_r25',
         'r25_o2a_k1_mean', 'r25_o2a_k1_std', 'r25_o2a_k2_mean', 'r25_o2a_k2_std',
+        'r25_o2a_k3_mean', 'r25_o2a_k3_std',
         'r25_wco2_k1_mean', 'r25_wco2_k1_std', 'r25_wco2_k2_mean', 'r25_wco2_k2_std',
+        'r25_wco2_k3_mean', 'r25_wco2_k3_std',
         'r25_sco2_k1_mean', 'r25_sco2_k1_std', 'r25_sco2_k2_mean', 'r25_sco2_k2_std',
+        'r25_sco2_k3_mean', 'r25_sco2_k3_std',
         'r25_alb_o2a_mean', 'r25_alb_o2a_std', 'r25_alb_wco2_mean', 'r25_alb_wco2_std',
         'r25_alb_sco2_mean', 'r25_alb_sco2_std',
         'r25_exp_int_o2a_mean', 'r25_exp_int_o2a_std',
@@ -332,14 +338,20 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['ref_o2a_k1_std'] = combined.get('ref_o2a_k1_std')
     final_dict['ref_o2a_k2_mean'] = combined.get('ref_o2a_k2_mean')
     final_dict['ref_o2a_k2_std'] = combined.get('ref_o2a_k2_std')
+    final_dict['ref_o2a_k3_mean'] = combined.get('ref_o2a_k3_mean')
+    final_dict['ref_o2a_k3_std'] = combined.get('ref_o2a_k3_std')
     final_dict['ref_wco2_k1_mean'] = combined.get('ref_wco2_k1_mean')
     final_dict['ref_wco2_k1_std'] = combined.get('ref_wco2_k1_std')
     final_dict['ref_wco2_k2_mean'] = combined.get('ref_wco2_k2_mean')
     final_dict['ref_wco2_k2_std'] = combined.get('ref_wco2_k2_std')
+    final_dict['ref_wco2_k3_mean'] = combined.get('ref_wco2_k3_mean')
+    final_dict['ref_wco2_k3_std'] = combined.get('ref_wco2_k3_std')
     final_dict['ref_sco2_k1_mean'] = combined.get('ref_sco2_k1_mean')
     final_dict['ref_sco2_k1_std'] = combined.get('ref_sco2_k1_std')
     final_dict['ref_sco2_k2_mean'] = combined.get('ref_sco2_k2_mean')
     final_dict['ref_sco2_k2_std'] = combined.get('ref_sco2_k2_std')
+    final_dict['ref_sco2_k3_mean'] = combined.get('ref_sco2_k3_mean')
+    final_dict['ref_sco2_k3_std'] = combined.get('ref_sco2_k3_std')
     final_dict['ref_alb_o2a_mean'] = combined.get('ref_alb_o2a_mean')
     final_dict['ref_alb_o2a_std'] = combined.get('ref_alb_o2a_std')
     final_dict['ref_alb_wco2_mean'] = combined.get('ref_alb_wco2_mean')
@@ -360,14 +372,20 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['r25_o2a_k1_std']            = combined.get('r25_o2a_k1_std')
     final_dict['r25_o2a_k2_mean']           = combined.get('r25_o2a_k2_mean')
     final_dict['r25_o2a_k2_std']            = combined.get('r25_o2a_k2_std')
+    final_dict['r25_o2a_k3_mean']           = combined.get('r25_o2a_k3_mean')
+    final_dict['r25_o2a_k3_std']            = combined.get('r25_o2a_k3_std')
     final_dict['r25_wco2_k1_mean']          = combined.get('r25_wco2_k1_mean')
     final_dict['r25_wco2_k1_std']           = combined.get('r25_wco2_k1_std')
     final_dict['r25_wco2_k2_mean']          = combined.get('r25_wco2_k2_mean')
     final_dict['r25_wco2_k2_std']           = combined.get('r25_wco2_k2_std')
+    final_dict['r25_wco2_k3_mean']          = combined.get('r25_wco2_k3_mean')
+    final_dict['r25_wco2_k3_std']           = combined.get('r25_wco2_k3_std')
     final_dict['r25_sco2_k1_mean']          = combined.get('r25_sco2_k1_mean')
     final_dict['r25_sco2_k1_std']           = combined.get('r25_sco2_k1_std')
     final_dict['r25_sco2_k2_mean']          = combined.get('r25_sco2_k2_mean')
     final_dict['r25_sco2_k2_std']           = combined.get('r25_sco2_k2_std')
+    final_dict['r25_sco2_k3_mean']          = combined.get('r25_sco2_k3_mean')
+    final_dict['r25_sco2_k3_std']           = combined.get('r25_sco2_k3_std')
     final_dict['r25_alb_o2a_mean']          = combined.get('r25_alb_o2a_mean')
     final_dict['r25_alb_o2a_std']           = combined.get('r25_alb_o2a_std')
     final_dict['r25_alb_wco2_mean']         = combined.get('r25_alb_wco2_mean')
