@@ -165,7 +165,7 @@ class RobustStandardScaler:
 # ── Feature definitions (identical in both training files — single source of truth) ──
 
 _FEATURES_SFC0 = [
-    # 'xco2_raw_minus_apriori',
+    'xco2_raw_minus_apriori',
     # 'xco2_bc_minus_raw',
     # 'xco2_raw_minus-xco2_strong_idp_minus',
     # 'airmass_sq',
@@ -238,7 +238,7 @@ _FEATURES_SFC0 = [
 ]
 
 _FEATURES_SFC1 = [
-    # 'xco2_raw_minus_apriori',
+    'xco2_raw_minus_apriori',
     # 'xco2_bc_minus_raw',
     # 'airmass_sq',
     'fp_area_km2',
