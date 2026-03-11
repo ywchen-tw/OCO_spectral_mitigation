@@ -24,6 +24,8 @@ import argparse
 import logging
 import glob
 from config import Config
+from shapely.geometry import Polygon
+from pyproj import Transformer
 
 
 logger = logging.getLogger(__name__)
@@ -160,6 +162,8 @@ def load_shared_data(sat):
             return np.array(nc.groups[grp].variables[var][:])
 
         lite = {
+            "vertex_latitude": _load("vertex_latitude"),
+            "vertex_longitude": _load("vertex_longitude"),
             "xco2_apriori":      _load("xco2_apriori"),
             "xco2_corr":         _load("xco2"),
             "time":             _load("time"),
@@ -222,7 +226,7 @@ def load_shared_data(sat):
             "s32": _load_grp("Retrieval",  "s32"),
             "snow_flag": _load_grp("Retrieval",  "snow_flag"),
             "t700": _load_grp("Retrieval",  "t700"),
-            "tcwv": _load_grp("Retrieval",  "tcwv"),   
+            "tcwv": _load_grp("Retrieval",  "tcwv"),
         }
 
     lite_index = {int(sid): i for i, sid in enumerate(lt_id)}
@@ -833,6 +837,21 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     xco2_bc_anomaly_25, ref_means_25, ref_stds_25 = compute_xco2_anomaly(
         od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_25)
 
+    # -- 6c. Calculate fp areas from lite vertex longitudes and latitudes --
+    fp_area_km2 = np.full(N, np.nan)
+    if valid_lt.any():
+        vlon = lite["vertex_longitude"][row_inds[valid_lt]]  # [n_valid, 4]
+        vlat = lite["vertex_latitude"][row_inds[valid_lt]]   # [n_valid, 4]
+        # Project to WGS 84 / EASE-Grid 2.0 Global (equal-area, EPSG:6933) for accurate area
+        _t = Transformer.from_crs("EPSG:4326", "EPSG:6933", always_xy=True)
+        areas = np.empty(len(vlon))
+        for i in range(len(vlon)):
+            x, y = _t.transform(vlon[i], vlat[i])
+            areas[i] = Polygon(zip(x, y)).area
+        fp_area_km2[valid_lt] = areas * 1e-6  # m² → km²
+
+
+
     # ── 7. Write output HDF5 ───────────────────────────────────────────────
     logger.info(f"[{orbit_id}] Writing {output_file}...")
     output_dict = {
@@ -867,6 +886,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "mu_vza":     np.cos(np.radians(od["vza"])),
         "fp_number": od["fp_number"],
         "fp_id":     od["sounding_id"],
+        "fp_area_km2": fp_area_km2,
         # Cloud proximity
         "cld_dist_km":      fp_cld_dist,
         # XCO2
