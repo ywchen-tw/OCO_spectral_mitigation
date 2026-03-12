@@ -1,9 +1,9 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=16
-#SBATCH --ntasks-per-node=16
-#SBATCH --mem=128G
+#SBATCH --ntasks=4
+#SBATCH --ntasks-per-node=4
+#SBATCH --mem=96G
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
@@ -33,6 +33,10 @@ fi
 # Without this, HDF5 ≥ 1.10 raises NC_EHDF (-101) on any open() call.
 export HDF5_USE_FILE_LOCKING=FALSE
 
+# Allow numpy/sklearn (MKL/OpenBLAS) and joblib to use all allocated cores.
+export OMP_NUM_THREADS=${SLURM_NTASKS:-4}
+export MKL_NUM_THREADS=${SLURM_NTASKS:-4}
+
 cd /projects/yuch8913/OCO_spectral_mitigation
 
 # Log GPU utilisation every 10 s in background; killed automatically when job ends
@@ -41,10 +45,10 @@ nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,
 GPU_MONITOR_PID=$!
 
 python src/mlp_lr_models.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
- --sfc_type 1 --suffix land_2016_2020_4
+ --sfc_type 1 --suffix land_2016_2020_5
 
 # python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
-#  --sfc_type 0 --suffix ocean_2016_2020_4
+#  --sfc_type 0 --suffix ocean_2016_2020_5
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
 
