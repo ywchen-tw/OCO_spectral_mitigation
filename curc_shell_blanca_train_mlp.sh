@@ -34,8 +34,12 @@ fi
 export HDF5_USE_FILE_LOCKING=FALSE
 
 # Allow numpy/sklearn (MKL/OpenBLAS) and joblib to use all allocated cores.
+# MKL_THREADING_LAYER=GNU forces MKL to use GNU OpenMP (libgomp) instead of
+# Intel IOMP5, which otherwise grabs CUDA resources before PyTorch initialises
+# cuBLAS — causing CUBLAS_STATUS_NOT_INITIALIZED at the first cublasSgemm call.
 export OMP_NUM_THREADS=${SLURM_NTASKS:-4}
 export MKL_NUM_THREADS=${SLURM_NTASKS:-4}
+export MKL_THREADING_LAYER=GNU
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
