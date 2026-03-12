@@ -353,16 +353,16 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         )
         del y_train_n  # data copied into train_ds tensor; free the numpy array
         # Larger batch size for full dataset efficiency; 512 is fine for the local subset too
-        train_loader = torch.utils.data.DataLoader(train_ds, batch_size=1024, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(train_ds, batch_size=8192, shuffle=True)
 
         # Val loss uses batched inference to keep peak memory bounded on the 76K-sample test set
         def _val_loss(model_):
             model_.eval()
             total, n = 0.0, 0
             with torch.no_grad():
-                for start in range(0, len(X_test), 4096):
-                    Xb = torch.tensor(X_test[start:start + 4096], dtype=torch.float32).to(device)
-                    yb = torch.tensor(y_test_n[start:start + 4096], dtype=torch.float32).to(device)
+                for start in range(0, len(X_test), 8192):
+                    Xb = torch.tensor(X_test[start:start + 8192], dtype=torch.float32).to(device)
+                    yb = torch.tensor(y_test_n[start:start + 8192], dtype=torch.float32).to(device)
                     pred = model_(Xb)
                     total += _loss(pred, yb).item() * len(Xb)
                     n += len(Xb)

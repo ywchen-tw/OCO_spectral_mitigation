@@ -612,7 +612,7 @@ def main():
             output_dir=str(output_dir),
             d_token=128, n_heads=8, n_layers=3, d_ff=256,
             mlp_hidden=256, fusion_dim=128,
-            batch_size=1024 if platform.system() == "Darwin" else 4096, n_epochs=epochs,
+            batch_size=1024 if platform.system() == "Darwin" else 16384, n_epochs=epochs,
             patience=50,
             loss_fn=args.loss,
             huber_delta=args.huber_delta,
