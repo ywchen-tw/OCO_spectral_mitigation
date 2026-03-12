@@ -50,6 +50,8 @@ STRAT_CONFIG: dict[str, tuple[list, str]] = {
     'aod_total':   ([0.00, 0.025, 0.05, 0.10, 0.25, 1.00],  ''),
     # dp = retrieved – prior surface pressure (hPa); range is roughly -8 to +10
     'dp':          ([-10, -5, -2, 0, 2, 5, 10],             'hPa'),
+    # fp_area_km2 = footprint area in km²
+    'fp_area_km2': ([0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 3.5, 4.0],   'km2'),
 }
 
 
