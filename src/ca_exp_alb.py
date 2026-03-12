@@ -265,6 +265,12 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
     if len(avail) == 1:
         axes2 = axes2[np.newaxis, :]
 
+    # ── figure: exp_intercept − alb % change ──────────────────────────────────
+    fig3, axes3 = plt.subplots(len(avail), 2,
+                               figsize=(13, 4 * len(avail)))
+    if len(avail) == 1:
+        axes3 = axes3[np.newaxis, :]
+
     xp = np.arange(len(labels))
 
     for row, (alb_col, exp_col, nm, col) in enumerate(avail):
@@ -279,8 +285,26 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
                 sem = (s / np.sqrt(n.replace(0, np.nan))).fillna(0)
                 return m, s, sem
 
+            # ── per-sounding derived columns for actual binned std ─────────────
+            _mask = sdf[exp_col].notna() & sdf[alb_col].notna() & (sdf[alb_col] != 0)
+            _tmp = pd.DataFrame({
+                '_ratio': sdf.loc[_mask, exp_col].values / sdf.loc[_mask, alb_col].values,
+                '_diff':  sdf.loc[_mask, exp_col].values - sdf.loc[_mask, alb_col].values,
+                '_bin':   _sdf_bin[_mask].values,
+            })
+
+            def _binned_series(col_name, _df=_tmp):
+                grp = _df.groupby('_bin', observed=True)[col_name]
+                m   = grp.mean().reindex(labels)
+                s   = grp.std().reindex(labels)
+                n   = grp.count().reindex(labels).fillna(0).astype(int)
+                sem = (s / np.sqrt(n.replace(0, np.nan))).fillna(0)
+                return m, s, sem
+
             alb_m, alb_s, alb_sem = _binned(alb_col)
             exp_m, exp_s, exp_sem = _binned(exp_col)
+            ratio_m, ratio_std, ratio_sem = _binned_series('_ratio')
+            diff_m,  diff_std,  diff_sem  = _binned_series('_diff')
 
             # % change from the last (far-cloud) bin
             alb_ref = alb_m.iloc[-1] if np.isfinite(alb_m.iloc[-1]) else np.nan
@@ -291,14 +315,24 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
             alb_sem_pct = alb_sem / abs(alb_ref) * 100
             exp_sem_pct = exp_sem / abs(exp_ref) * 100
 
-            # exp / alb ratio % change from far-cloud reference
-            ratio_m = exp_m / alb_m
-            ratio_ref = ratio_m.iloc[-1]
-            ratio_pct = (ratio_m - ratio_ref) / abs(ratio_ref) * 100
-            # propagate SEM through ratio
-            ratio_sem_pct = np.sqrt(
-                (exp_sem / exp_m.abs()) ** 2 + (alb_sem / alb_m.abs()) ** 2
-            ) * abs(ratio_pct) / 100 * 100   # approx in % units
+            # exp / alb ratio % change — using actual per-sounding binned stats
+            ratio_ref_val = ratio_m.iloc[-1]
+            ratio_pct = (ratio_m - ratio_ref_val) / abs(ratio_ref_val) * 100
+            ratio_std_pct = ratio_std / abs(ratio_ref_val) * 100
+            ratio_sem_pct = ratio_sem / abs(ratio_ref_val) * 100
+
+            # exp_intercept − alb % change
+            diff_ref_val = diff_m.iloc[-1]
+            if np.isfinite(diff_ref_val) and abs(diff_ref_val) > 1e-9:
+                diff_pct     = (diff_m - diff_ref_val) / abs(diff_ref_val) * 100
+                diff_std_pct = diff_std / abs(diff_ref_val) * 100
+                diff_sem_pct = diff_sem / abs(diff_ref_val) * 100
+                diff_ylabel  = 'exp−alb: % change from ref'
+            else:
+                diff_pct     = diff_m
+                diff_std_pct = diff_std
+                diff_sem_pct = diff_sem
+                diff_ylabel  = 'exp−alb (absolute)'
 
             r_alb = stats.pearsonr(sdf[alb_col].dropna(),
                                    sdf['cld_dist_km'].reindex(sdf[alb_col].dropna().index))[0]
@@ -325,13 +359,16 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
             ax.legend(fontsize=7)
             ax.grid(axis='y', alpha=0.3)
 
-            # ── plot 2: exp/alb ratio % change ────────────────────────────────
+            # ── plot 2: exp/alb ratio % change with std shading ───────────────
             ax2 = axes2[row, ci]
+            ax2.fill_between(xp,
+                             (ratio_pct - ratio_std_pct).values,
+                             (ratio_pct + ratio_std_pct).values,
+                             color=col, alpha=0.15, label='± 1 std')
             ax2.errorbar(xp, ratio_pct.values, yerr=ratio_sem_pct.values,
                          fmt='o-', capsize=3, color=col, lw=1.8,
-                         label='(exp/alb) % change')
+                         label='(exp/alb) % change ± SEM')
             ax2.axhline(0, color='gray', lw=0.8, linestyle='--')
-            # annotate near-cloud value
             near_val = ratio_pct.iloc[0]
             if np.isfinite(near_val):
                 ax2.annotate(f'{near_val:+.1f}%',
@@ -347,6 +384,31 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
             ax2.legend(fontsize=7)
             ax2.grid(axis='y', alpha=0.3)
 
+            # ── plot 3: exp_intercept − alb % change with std shading ─────────
+            ax3 = axes3[row, ci]
+            ax3.fill_between(xp,
+                             (diff_pct - diff_std_pct).values,
+                             (diff_pct + diff_std_pct).values,
+                             color=col, alpha=0.15, label='± 1 std')
+            ax3.errorbar(xp, diff_pct.values, yerr=diff_sem_pct.values,
+                         fmt='o-', capsize=3, color=col, lw=1.8,
+                         label='(exp−alb) % change ± SEM')
+            ax3.axhline(0, color='gray', lw=0.8, linestyle='--')
+            near_diff = diff_pct.iloc[0]
+            if np.isfinite(near_diff):
+                ax3.annotate(f'{near_diff:+.1f}%',
+                             xy=(0, near_diff),
+                             xytext=(0.5, near_diff + np.sign(near_diff) * 3),
+                             fontsize=8, color=col,
+                             arrowprops=dict(arrowstyle='->', color=col, lw=1))
+            ax3.set_xticks(xp)
+            ax3.set_xticklabels(labels, rotation=30, fontsize=8)
+            ax3.set_xlabel('Cloud distance (km)', fontsize=9)
+            ax3.set_ylabel(diff_ylabel, fontsize=9)
+            ax3.set_title(f'{nm} — {sfc_name}: exp_intercept − alb divergence', fontsize=9)
+            ax3.legend(fontsize=7)
+            ax3.grid(axis='y', alpha=0.3)
+
     fig1.suptitle(
         'Albedo vs exp_intercept: % change from far-cloud reference (30–50 km)',
         fontsize=11)
@@ -358,6 +420,13 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
         fontsize=11)
     fig2.tight_layout()
     _save(fig2, outdir, 'alb_exp_ratio_divergence_vs_cld_dist.png')
+
+    fig3.suptitle(
+        'exp_intercept − albedo: % change from far-cloud reference (30–50 km)\n'
+        'shading = ± 1 std,  error bars = ± SEM',
+        fontsize=11)
+    fig3.tight_layout()
+    _save(fig3, outdir, 'exp_intercept_minus_alb_vs_cld_dist.png')
 
 
 def plot_exp_intercept_albedo_residuals(df: pd.DataFrame, bins, labels,
