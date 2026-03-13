@@ -580,3 +580,132 @@ class HybridAdapter(ModelAdapter):
         except Exception:
             return False
         return True
+
+
+# ─── Logistic Regression adapter ───────────────────────────────────────────────
+
+class LogisticAdapter(ModelAdapter):
+    """Wraps a fitted sklearn LogisticRegression for binary classification."""
+
+    FILENAME = 'logistic_model.pkl'
+
+    def __init__(self, model):
+        self.model = model
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        return self.model.predict(X)
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Return probability of class 1 (positive class), shape [N]."""
+        return self.model.predict_proba(X)[:, 1]
+
+    def save(self, output_dir) -> None:
+        path = Path(output_dir) / self.FILENAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
+        logger.info("LogisticAdapter saved → %s", path)
+
+    @classmethod
+    def load(cls, output_dir) -> 'LogisticAdapter':
+        path = Path(output_dir) / cls.FILENAME
+        if not path.exists():
+            raise FileNotFoundError(f"LogisticAdapter checkpoint not found: {path}")
+        with open(path, 'rb') as f:
+            obj = pickle.load(f)
+        logger.info("LogisticAdapter loaded ← %s", path)
+        return obj
+
+    @classmethod
+    def can_load(cls, output_dir) -> bool:
+        return (Path(output_dir) / cls.FILENAME).exists()
+
+
+# ─── MLP Classifier adapter ────────────────────────────────────────────────────
+
+class MLPClassifierAdapter(ModelAdapter):
+    """Wraps a trained _MLP used as a binary classifier (outputs a single logit).
+
+    Sigmoid is applied at inference to produce probabilities ∈ [0, 1].
+    Training should use BCEWithLogitsLoss (no sigmoid in _MLP.forward()).
+
+    Files written by save():
+        mlp_clf_weights.pt  — model state_dict (CPU)
+        mlp_clf_meta.pkl    — architecture hyperparameters + decision threshold
+    """
+
+    WEIGHTS_FILE = 'mlp_clf_weights.pt'
+    META_FILE    = 'mlp_clf_meta.pkl'
+
+    def __init__(self, model: _MLP, threshold: float = 0.5,
+                 device: 'torch.device | None' = None):
+        self.model     = model
+        self.threshold = float(threshold)
+        self.device    = device or torch.device('cpu')
+
+    def predict_proba(self, X: np.ndarray, batch_size: int = 4096) -> np.ndarray:
+        """Return predicted probabilities P(class=1) ∈ [0, 1], shape [N]."""
+        self.model.eval()
+        out = []
+        for start in range(0, len(X), batch_size):
+            Xb = torch.tensor(X[start:start + batch_size],
+                              dtype=torch.float32).to(self.device)
+            with torch.no_grad():
+                out.append(torch.sigmoid(self.model(Xb)).cpu().numpy())
+            del Xb
+        return np.concatenate(out)
+
+    def predict(self, X: np.ndarray, batch_size: int = 4096) -> np.ndarray:
+        """Return class predictions (0 or 1) using self.threshold."""
+        return (self.predict_proba(X, batch_size=batch_size) >= self.threshold).astype(np.int8)
+
+    def predict_quantiles(self, X: np.ndarray) -> tuple:
+        raise NotImplementedError(
+            "MLPClassifierAdapter is a binary classifier — use predict_proba() instead."
+        )
+
+    def save(self, output_dir) -> None:
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        torch.save(self.model.cpu().state_dict(), out / self.WEIGHTS_FILE)
+        self.model.to(self.device)
+        meta = {
+            'threshold': self.threshold,
+            'n_in':      next(iter(self.model.input_proj.children())).in_features,
+            'd_model':   next(iter(self.model.input_proj.children())).out_features,
+            'n_blocks':  len(self.model.blocks),
+            'dropout':   self.model.blocks[0].block[5].p if len(self.model.blocks) > 0 else 0.25,
+        }
+        with open(out / self.META_FILE, 'wb') as f:
+            pickle.dump(meta, f)
+        logger.info("MLPClassifierAdapter saved → %s", out)
+
+    @classmethod
+    def load(cls, output_dir, device: 'torch.device | None' = None) -> 'MLPClassifierAdapter':
+        out          = Path(output_dir)
+        meta_path    = out / cls.META_FILE
+        weights_path = out / cls.WEIGHTS_FILE
+
+        if not meta_path.exists():
+            raise FileNotFoundError(f"MLPClassifierAdapter meta not found: {meta_path}")
+        if not weights_path.exists():
+            raise FileNotFoundError(f"MLPClassifierAdapter weights not found: {weights_path}")
+
+        with open(meta_path, 'rb') as f:
+            meta = pickle.load(f)
+
+        device = device or torch.device(
+            'cuda' if torch.cuda.is_available() else
+            'mps'  if torch.backends.mps.is_available() else 'cpu'
+        )
+        model = _MLP(n=meta['n_in'], d_model=meta['d_model'],
+                     n_blocks=meta['n_blocks'], dropout=meta['dropout']).to(device)
+        model.load_state_dict(torch.load(weights_path, map_location=device))
+        model.eval()
+        logger.info("MLPClassifierAdapter loaded ← %s", out)
+        return cls(model=model, threshold=meta['threshold'], device=device)
+
+    @classmethod
+    def can_load(cls, output_dir) -> bool:
+        out = Path(output_dir)
+        return (out / cls.META_FILE).exists() and (out / cls.WEIGHTS_FILE).exists()

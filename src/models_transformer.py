@@ -1626,7 +1626,7 @@ def main():
             features=features,
             output_dir=str(output_dir),
             d_token=d_token, n_heads=n_heads, n_layers=n_layers, d_ff=d_ff,
-            batch_size=1024 if platform.system() == "Darwin" else 4096, n_epochs=epochs,
+            batch_size=1024 if platform.system() == "Darwin" else 16384, n_epochs=epochs,
             patience=50,   # None = run all epochs; int = early-stop after N epochs with no improvement
             loss_fn=args.loss,
             huber_delta=args.huber_delta,
