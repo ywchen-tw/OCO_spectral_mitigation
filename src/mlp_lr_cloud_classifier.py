@@ -94,12 +94,22 @@ def cloud_proximity_classification(df: pd.DataFrame, output_dir, pipeline: Featu
 
     _ckpt("cloud_proximity_classification: entry")
 
-    # ── Device selection ───────────────────────────────────────────────────────
-    device = torch.device(
-        'cuda' if torch.cuda.is_available() else
-        'mps'  if torch.backends.mps.is_available() else
-        'cpu'
-    )
+    # ── Device selection (with CUDA health check) ──────────────────────────────
+    def _probe_device():
+        if torch.cuda.is_available():
+            try:
+                t = torch.zeros(1, device='cuda')
+                _ = t + 1          # triggers cuBLAS init
+                del t
+                torch.cuda.empty_cache()
+                return torch.device('cuda')
+            except Exception as e:
+                logger.warning("CUDA available but unusable (%s) — falling back to CPU.", e)
+        if torch.backends.mps.is_available():
+            return torch.device('mps')
+        return torch.device('cpu')
+
+    device = _probe_device()
     print(f"  Device: {device}", flush=True)
 
     # ── Target ────────────────────────────────────────────────────────────────
