@@ -98,13 +98,16 @@ def cloud_proximity_classification(df: pd.DataFrame, output_dir, pipeline: Featu
     def _probe_device():
         if torch.cuda.is_available():
             try:
-                t = torch.zeros(1, device='cuda')
-                _ = t + 1          # triggers cuBLAS init
-                del t
+                # Use a real matmul to trigger cuBLAS handle init — elementwise ops
+                # (t + 1) pass even when cuBLAS is broken on some HPC clusters.
+                a = torch.randn(32, 32, device='cuda')
+                b = torch.randn(32, 32, device='cuda')
+                _ = a @ b
+                del a, b, _
                 torch.cuda.empty_cache()
                 return torch.device('cuda')
             except Exception as e:
-                logger.warning("CUDA available but unusable (%s) — falling back to CPU.", e)
+                logger.warning("CUDA cuBLAS probe failed (%s) — falling back to CPU.", e)
         if torch.backends.mps.is_available():
             return torch.device('mps')
         return torch.device('cpu')

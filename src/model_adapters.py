@@ -709,3 +709,157 @@ class MLPClassifierAdapter(ModelAdapter):
     def can_load(cls, output_dir) -> bool:
         out = Path(output_dir)
         return (out / cls.META_FILE).exists() and (out / cls.WEIGHTS_FILE).exists()
+
+
+# ─── FT-Transformer Classifier adapter ─────────────────────────────────────────
+
+class FTClassifierAdapter(ModelAdapter):
+    """Wraps FTClassifier (FT-Transformer with a single-logit binary classification head).
+
+    Sigmoid is applied at inference to produce probabilities ∈ [0, 1].
+    Training should use BCEWithLogitsLoss (no sigmoid in FTClassifier.forward()).
+
+    Files written by save():
+        ft_clf_weights.pt  — model state_dict (CPU)
+        ft_clf_meta.pkl    — architecture hyperparameters + decision threshold + arch_version
+    """
+
+    WEIGHTS_FILE  = 'ft_clf_weights.pt'
+    META_FILE     = 'ft_clf_meta.pkl'
+    _ARCH_VERSION = 1
+
+    def __init__(self, model, n_features: int, d_token: int = 128,
+                 n_heads: int = 8, n_layers: int = 4, d_ff: int = 256,
+                 tokenizer_type: str = 'mlp',
+                 feature_names: 'list | None' = None,
+                 threshold: float = 0.5,
+                 device: 'torch.device | None' = None):
+        self.model          = model
+        self.n_features     = n_features
+        self.d_token        = d_token
+        self.n_heads        = n_heads
+        self.n_layers       = n_layers
+        self.d_ff           = d_ff
+        self.tokenizer_type = tokenizer_type
+        self.feature_names  = feature_names
+        self.threshold      = float(threshold)
+        self.device         = device or torch.device('cpu')
+
+    def predict_proba(self, X: np.ndarray, batch_size: int = 4096) -> np.ndarray:
+        """Return predicted probabilities P(class=1) ∈ [0, 1], shape [N]."""
+        self.model.eval()
+        out = []
+        for start in range(0, len(X), batch_size):
+            Xb = torch.tensor(X[start:start + batch_size],
+                              dtype=torch.float32).to(self.device)
+            with torch.no_grad():
+                out.append(torch.sigmoid(self.model(Xb)).cpu().numpy())
+            del Xb
+        return np.concatenate(out)
+
+    def predict(self, X: np.ndarray, batch_size: int = 4096) -> np.ndarray:
+        """Return class predictions (0 or 1) using self.threshold."""
+        return (self.predict_proba(X, batch_size=batch_size) >= self.threshold).astype(np.int8)
+
+    def predict_quantiles(self, X: np.ndarray) -> tuple:
+        raise NotImplementedError(
+            "FTClassifierAdapter is a binary classifier — use predict_proba() instead."
+        )
+
+    def save(self, output_dir) -> None:
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        torch.save(self.model.cpu().state_dict(), out / self.WEIGHTS_FILE)
+        self.model.to(self.device)
+        meta = {
+            'n_features':     self.n_features,
+            'd_token':        self.d_token,
+            'n_heads':        self.n_heads,
+            'n_layers':       self.n_layers,
+            'd_ff':           self.d_ff,
+            'tokenizer_type': self.tokenizer_type,
+            'feature_names':  self.feature_names,
+            'threshold':      self.threshold,
+            'arch_version':   self._ARCH_VERSION,
+        }
+        with open(out / self.META_FILE, 'wb') as f:
+            pickle.dump(meta, f)
+        logger.info("FTClassifierAdapter saved → %s", out)
+
+    @classmethod
+    def load(cls, output_dir, device: 'torch.device | None' = None) -> 'FTClassifierAdapter':
+        out          = Path(output_dir)
+        meta_path    = out / cls.META_FILE
+        weights_path = out / cls.WEIGHTS_FILE
+
+        if not meta_path.exists():
+            raise FileNotFoundError(f"FTClassifierAdapter meta not found: {meta_path}")
+        if not weights_path.exists():
+            raise FileNotFoundError(f"FTClassifierAdapter weights not found: {weights_path}")
+
+        with open(meta_path, 'rb') as f:
+            meta = pickle.load(f)
+
+        saved_ver = meta.get('arch_version', 1)
+        if saved_ver != cls._ARCH_VERSION:
+            raise RuntimeError(
+                f"FTClassifierAdapter checkpoint arch_version={saved_ver} does not match "
+                f"current version={cls._ARCH_VERSION}.  "
+                f"Delete {out} and retrain to generate a compatible checkpoint."
+            )
+
+        device = device or torch.device(
+            'cuda' if torch.cuda.is_available() else
+            'mps'  if torch.backends.mps.is_available() else 'cpu'
+        )
+
+        import sys as _sys
+        _main = _sys.modules.get('__main__')
+        if _main is not None and hasattr(_main, 'FTClassifier'):
+            FTClassifier = _main.FTClassifier
+        else:
+            from transformer_cloud_classifier import FTClassifier
+
+        model = FTClassifier(
+            n_features=meta['n_features'],
+            d_token=meta['d_token'],
+            n_heads=meta['n_heads'],
+            n_layers=meta['n_layers'],
+            d_ff=meta['d_ff'],
+            tokenizer_type=meta.get('tokenizer_type', 'mlp'),
+            feature_names=meta.get('feature_names'),
+        ).to(device)
+        model.load_state_dict(torch.load(weights_path, map_location=device))
+        model.eval()
+        logger.info("FTClassifierAdapter loaded ← %s", out)
+        return cls(
+            model=model,
+            n_features=meta['n_features'],
+            d_token=meta['d_token'],
+            n_heads=meta['n_heads'],
+            n_layers=meta['n_layers'],
+            d_ff=meta['d_ff'],
+            tokenizer_type=meta.get('tokenizer_type', 'mlp'),
+            feature_names=meta.get('feature_names'),
+            threshold=meta.get('threshold', 0.5),
+            device=device,
+        )
+
+    @classmethod
+    def can_load(cls, output_dir) -> bool:
+        out = Path(output_dir)
+        if not ((out / cls.META_FILE).exists() and (out / cls.WEIGHTS_FILE).exists()):
+            return False
+        try:
+            with open(out / cls.META_FILE, 'rb') as f:
+                meta = pickle.load(f)
+            if meta.get('arch_version', 1) != cls._ARCH_VERSION:
+                logger.warning(
+                    "FTClassifierAdapter checkpoint at %s has arch_version=%s (current=%s) — "
+                    "will retrain from scratch.",
+                    out, meta.get('arch_version', 1), cls._ARCH_VERSION,
+                )
+                return False
+        except Exception:
+            return False
+        return True

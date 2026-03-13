@@ -33,24 +33,28 @@ logger = logging.getLogger(__name__)
 # (with \n for the heatmap axis labels).  Features absent from the active feature set
 # are silently ignored wherever this dict is consumed.
 _FEATURE_GROUPS: dict = {
-    'Spectral\nk-coeff':  ['o2a_k1', 'o2a_k2', 'wco2_k1', 'wco2_k2', 'sco2_k1', 'sco2_k2',
-                           'o2a_intercept', 'wco2_intercept', 'sco2_intercept'],
+    'Spectral\nk-coeff':  ['o2a_k1', 'o2a_k2', 'wco2_k1', 'wco2_k2', 'wco2_k3',
+                           'sco2_k1', 'sco2_k2',
+                           'o2a_intercept', 'wco2_intercept', 'sco2_intercept',
+                           'exp_o2a_intercept', 'o2a_exp_intercept-alb'],
     'Geometry':           ['mu_sza', 'mu_vza', 'cos_glint_angle', 'pol_ang_rad',
                            'sin_raa', 'cos_raa'],   # sin_raa/cos_raa: sfc_type=1 only
     'Pressure\n& Meteo':  ['log_P', 'dp', 'h2o_scale', 'delT', 'co2_grad_del',
-                           'ws', 's31', 's32', 'airmass_sq'],
+                           'ws', 's31', 's32', 'airmass_sq',
+                           'tcwv', 'dp_psfc_prior_ratio'],
     'Surface\nAlbedo':    ['alb_o2a', 'alb_wco2', 'alb_sco2',
                            'alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza'],
-    'CO\u2082\nRetrieval': ['xco2_raw_minus_apriori', 
-                            'xco2_bc_minus_raw', 
+    'CO\u2082\nRetrieval': ['xco2_raw_minus_apriori',
+                            'xco2_bc_minus_raw',
                             'co2_ratio_bc', 'h2o_ratio_bc',
                            'xco2_strong_idp', 'xco2_weak_idp'],
     'SNR &\nDetector':    ['csnr_o2a', 'csnr_wco2', 'csnr_sco2',
                            'snr_o2a', 'snr_wco2', 'snr_sco2',
                            'h_cont_o2a', 'h_cont_wco2', 'h_cont_sco2',
                            'max_declock_o2a', 'max_declock_wco2', 'max_declock_sco2'],
-    'AOD &\nAerosol':     ['aod_total'],
-    'Footprint':          [f'fp_{i}' for i in range(8)],
+    'AOD &\nAerosol':     ['aod_total', 'aod_dust', 'aod_oc', 'aod_seasalt',
+                           'aod_strataer', 'aod_sulfate'],
+    'Footprint':          [f'fp_{i}' for i in range(8)] + ['fp_area_km2'],
 }
 
 

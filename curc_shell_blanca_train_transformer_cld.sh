@@ -12,7 +12,7 @@
 #SBATCH --account=blanca-airs
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:a100:1
 
 
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8 cuda/12.1.1
@@ -33,14 +33,6 @@ fi
 # Without this, HDF5 ≥ 1.10 raises NC_EHDF (-101) on any open() call.
 export HDF5_USE_FILE_LOCKING=FALSE
 
-# Allow numpy/sklearn (MKL/OpenBLAS) and joblib to use all allocated cores.
-# MKL_THREADING_LAYER=GNU forces MKL to use GNU OpenMP (libgomp) instead of
-# Intel IOMP5, which otherwise grabs CUDA resources before PyTorch initialises
-# cuBLAS — causing CUBLAS_STATUS_NOT_INITIALIZED at the first cublasSgemm call.
-export OMP_NUM_THREADS=${SLURM_NTASKS:-4}
-export MKL_NUM_THREADS=${SLURM_NTASKS:-4}
-export MKL_THREADING_LAYER=GNU
-
 cd /projects/yuch8913/OCO_spectral_mitigation
 
 # Log GPU utilisation every 10 s in background; killed automatically when job ends
@@ -48,11 +40,10 @@ nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,
            --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}.csv &
 GPU_MONITOR_PID=$!
 
-# python src/mlp_lr_models.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
-#  --sfc_type 1 --suffix land_2016_2020_4
+# python src/models_transformer.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
+# --sfc_type 1 --suffix land_2016_2020_4
 
-python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
- --sfc_type 0 --suffix ocean_2016_2020_4
+python src/models_transformer.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
+--sfc_type 0 --suffix ocean_2016_2020_4
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
-
