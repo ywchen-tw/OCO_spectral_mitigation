@@ -283,7 +283,7 @@ def cloud_proximity_classification_ft(df: pd.DataFrame, output_dir,
         )
 
         n_epochs = 100 if platform.system() == "Darwin" else 300
-        optimizer = torch.optim.AdamW(ft_clf.parameters(), lr=5e-4, weight_decay=1e-3)
+        optimizer = torch.optim.AdamW(ft_clf.parameters(), lr=1e-3, weight_decay=1e-3)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=n_epochs, eta_min=1e-6
         )
