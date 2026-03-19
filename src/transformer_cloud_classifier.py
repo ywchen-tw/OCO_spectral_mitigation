@@ -28,7 +28,6 @@ Outputs (in results/model_ft_clf/<suffix>/):
 """
 
 import argparse
-import copy
 import gc
 import logging
 import os
@@ -279,7 +278,8 @@ def cloud_proximity_classification_ft(df: pd.DataFrame, output_dir,
             torch.tensor(y_train, dtype=torch.float32),
         )
         train_loader = torch.utils.data.DataLoader(
-            train_ds, batch_size=4096, shuffle=True
+            train_ds, batch_size=8192, shuffle=True,
+            num_workers=4, pin_memory=(device.type == 'cuda'),
         )
 
         n_epochs = 100 if platform.system() == "Darwin" else 300
@@ -312,7 +312,8 @@ def cloud_proximity_classification_ft(df: pd.DataFrame, output_dir,
             return bce, auroc
 
         train_losses, val_losses = [], []
-        best_val_loss, best_state, patience, no_improve = float('inf'), None, 30, 0
+        best_val_loss, patience, no_improve = float('inf'), 30, 0
+        ckpt_path = os.path.join(output_dir, 'ft_clf_best.pt')
 
         epoch_bar = tqdm(range(n_epochs), desc="FT clf training", unit="epoch")
         for epoch in epoch_bar:
@@ -336,8 +337,11 @@ def cloud_proximity_classification_ft(df: pd.DataFrame, output_dir,
             improved = val_bce < best_val_loss
             if improved:
                 best_val_loss = val_bce
-                best_state    = copy.deepcopy(ft_clf.state_dict())
                 no_improve    = 0
+                torch.save({'epoch': epoch,
+                            'model_state_dict': ft_clf.state_dict(),
+                            'val_bce': best_val_loss,
+                            'val_auroc': val_auroc}, ckpt_path)
             else:
                 no_improve += 1
 
@@ -345,6 +349,7 @@ def cloud_proximity_classification_ft(df: pd.DataFrame, output_dir,
                 train=f"{train_loss:.4f}",
                 val_bce=f"{val_bce:.4f}",
                 val_auroc=f"{val_auroc:.4f}",
+                best=f"{best_val_loss:.4f}",
                 patience=f"{no_improve}/{patience}",
                 saved="✓" if improved else "",
             )
@@ -353,7 +358,10 @@ def cloud_proximity_classification_ft(df: pd.DataFrame, output_dir,
                 tqdm.write(f"  Early stop epoch {epoch} (best val BCE={best_val_loss:.4f})")
                 break
 
-        ft_clf.load_state_dict(best_state)
+        best_ckpt = torch.load(ckpt_path, map_location=device)
+        ft_clf.load_state_dict(best_ckpt['model_state_dict'])
+        tqdm.write(f"  Best epoch  : {best_ckpt['epoch']}")
+        tqdm.write(f"  Best val BCE: {best_ckpt['val_bce']:.4f}  AUROC: {best_ckpt['val_auroc']:.4f}")
         ft_clf.eval()
 
         FTClassifierAdapter(
@@ -365,7 +373,7 @@ def cloud_proximity_classification_ft(df: pd.DataFrame, output_dir,
         ft_adapter = FTClassifierAdapter.load(output_dir, device=device)
         ft_clf = ft_adapter.model.to(device)
 
-        del train_ds, train_loader, best_state
+        del train_ds, train_loader, best_ckpt
         gc.collect()
 
     _ckpt("after FT training")
