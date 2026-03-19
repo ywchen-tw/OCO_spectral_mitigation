@@ -24,9 +24,10 @@ from ca_utils import _save, rolling_median_iqr, bin_by_cld_dist
 logger = logging.getLogger(__name__)
 
 
-def plot_xco2_anomaly_correlations(df, outdir):
+def plot_xco2_anomaly_correlations(df, outdir, target_cols=None):
     """Correlation matrix heat-map: xco2 anomaly against all key predictors."""
-    target_cols = ['xco2_bc_anomaly', 'xco2_raw_anomaly']
+    if target_cols is None:
+        target_cols = ['xco2_bc_anomaly', 'xco2_raw_anomaly']
     predictor_cols = [
         'cld_dist_km',
         'o2a_k1', 'o2a_k2', 'o2a_k2_over_k1',
@@ -66,8 +67,11 @@ def plot_xco2_anomaly_correlations(df, outdir):
     return target_corr
 
 
-def plot_xco2_anomaly_vs_key_vars(df, outdir, max_dist=50, n_roll=200):
-    """Scatter panels: xco2_bc_anomaly vs top predictors."""
+def plot_xco2_anomaly_vs_key_vars(df, outdir, target='xco2_bc_anomaly',
+                                   target_label=None, max_dist=50, n_roll=200):
+    """Scatter panels: target vs top predictors."""
+    if target_label is None:
+        target_label = 'XCO\u2082 BC anomaly (ppm)'
     key_pairs = [
         ('cld_dist_km',    'Cloud distance (km)'),
         ('o2a_k1',         'O2-A k\u2081'),
@@ -90,7 +94,6 @@ def plot_xco2_anomaly_vs_key_vars(df, outdir, max_dist=50, n_roll=200):
 
     sub = df[df['cld_dist_km'] <= max_dist] if 'cld_dist_km' in df.columns else df
 
-    target = 'xco2_bc_anomaly'
     ncols = 4
     nrows = int(np.ceil(len(avail) / ncols))
     fig, axes = plt.subplots(nrows, ncols, figsize=(4.5 * ncols, 4 * nrows))
@@ -112,26 +115,27 @@ def plot_xco2_anomaly_vs_key_vars(df, outdir, max_dist=50, n_roll=200):
         r, _ = stats.pearsonr(xm, ym)
         ax.set_title(f'vs {lbl}   r={r:.3f}', fontsize=9)
         ax.set_xlabel(lbl, fontsize=8)
-        ax.set_ylabel('XCO\u2082 BC anomaly (ppm)', fontsize=8)
+        ax.set_ylabel(target_label, fontsize=8)
         ax.legend(fontsize=7)
 
     for ax in axes[len(avail):]:
         ax.set_visible(False)
 
-    fig.suptitle('XCO\u2082 BC anomaly vs key predictors', fontsize=12, y=1.01)
+    fig.suptitle(f'{target_label} vs key predictors', fontsize=12, y=1.01)
     fig.tight_layout()
-    _save(fig, outdir, 'xco2_bc_anomaly_vs_predictors.png')
+    _save(fig, outdir, f'{target}_vs_predictors.png')
 
 
-def plot_xco2_anomaly_vs_cld_dist_binned(df, bins, labels, outdir):
-    """Mean XCO2 anomaly ± SEM as a function of cloud-distance bin."""
+def plot_xco2_anomaly_vs_cld_dist_binned(df, bins, labels, outdir, targets=None):
+    """Mean XCO2 quantity ± SEM as a function of cloud-distance bin."""
+    if targets is None:
+        targets = [
+            ('xco2_bc_anomaly',  'XCO\u2082 BC anomaly (ppm)',  'C0'),
+            ('xco2_raw_anomaly', 'XCO\u2082 raw anomaly (ppm)', 'C1'),
+        ]
     _bin = bin_by_cld_dist(df, bins, labels)
     x = np.arange(len(labels))
 
-    targets = [
-        ('xco2_bc_anomaly',  'XCO\u2082 BC anomaly (ppm)',  'C0'),
-        ('xco2_raw_anomaly', 'XCO\u2082 raw anomaly (ppm)', 'C1'),
-    ]
     avail = [(t, lbl, c) for t, lbl, c in targets if t in df.columns]
 
     for col, lbl, c in avail:
@@ -164,24 +168,20 @@ def plot_xco2_anomaly_vs_cld_dist_binned(df, bins, labels, outdir):
                         f'n={n:,}', ha='center', fontsize=7, color='gray')
         ax.grid(axis='y', alpha=0.3)
         fig.tight_layout()
-        fname = 'xco2_bc_anomaly_vs_cld_dist_binned.png' if 'bc' in col else 'xco2_raw_anomaly_vs_cld_dist_binned.png'
-        _save(fig, outdir, fname)
+        _save(fig, outdir, f'{col}_vs_cld_dist_binned.png')
 
 
 def plot_xco2_anomaly_partial(df: pd.DataFrame, bins, labels,
-                              outdir: str) -> None:
-    """Partial correlation of xco2_bc_anomaly with cloud distance after
-    OLS-removing the main confounders: albedo (all bands), airmass, cos(SZA),
-    AOD, ΔP, CO₂ gradient, H₂O scaling, dp fraction.
-
-    Confirms the null result: no meaningful cloud-proximity signal remains in
-    XCO₂ once retrieval state variables are controlled for (r_resid < 0.10).
-    Also shows the residual vs cloud-distance profile so the direction and
-    shape of any residual bias are visible.
+                              outdir: str, target: str = 'xco2_bc_anomaly',
+                              target_label: str = None) -> None:
+    """Partial correlation of target with cloud distance after OLS-removing
+    the main confounders: albedo (all bands), airmass, cos(SZA), AOD, ΔP,
+    CO₂ gradient, H₂O scaling, dp fraction.
     """
-    target = 'xco2_bc_anomaly'
+    if target_label is None:
+        target_label = 'XCO\u2082 BC anomaly (ppm)'
     if target not in df.columns:
-        logger.warning("xco2_bc_anomaly not found — skipping XCO₂ partial plot")
+        logger.warning(f"{target!r} not found — skipping XCO\u2082 partial plot")
         return
 
     confounders = [
@@ -229,7 +229,7 @@ def plot_xco2_anomaly_partial(df: pd.DataFrame, bins, labels,
         ax.set_xticks(xp)
         ax.set_xticklabels(labels, rotation=30, fontsize=8)
         ax.set_xlabel('Cloud distance (km)', fontsize=9)
-        ax.set_ylabel('XCO\u2082 BC anomaly residual (ppm)', fontsize=9)
+        ax.set_ylabel(f'{target_label} residual', fontsize=9)
         ax.set_title(
             f'{sfc_name} (n={len(sdf_m):,})\n'
             f'r_raw={r_raw:.3f} \u2192 r_resid={r_res:.3f}',
@@ -244,13 +244,12 @@ def plot_xco2_anomaly_partial(df: pd.DataFrame, bins, labels,
                         transform=ax.get_xaxis_transform(), clip_on=False)
 
     fig.suptitle(
-        'XCO\u2082 BC anomaly: partial correlation with cloud distance\n'
-        'after removing albedo + airmass + cos(SZA) + AOD + \u0394P + CO\u2082_grad + H\u2082O\n'
-        'Result: r_resid \u2248 0 — no detectable cloud-proximity signal remains in XCO\u2082',
+        f'{target_label}: partial correlation with cloud distance\n'
+        'after removing albedo + airmass + cos(SZA) + AOD + \u0394P + CO\u2082_grad + H\u2082O',
         fontsize=11)
     fig.tight_layout()
     fig.subplots_adjust(bottom=0.18)
-    _save(fig, outdir, 'xco2_anomaly_partial_vs_cld_dist.png')
+    _save(fig, outdir, f'{target}_partial_vs_cld_dist.png')
 
 
 # ── Section 5b: xco2_raw_minus_apriori & xco2_raw_minus_strong_idp analyses ──
@@ -629,3 +628,46 @@ def run_xco2_sign_analysis(
     if len(sdf_pos) >= _MIN_N and len(sdf_neg) >= _MIN_N:
         logger.info("  sign_comparison overlay …")
         plot_xco2_sign_comparison(sdf_pos, sdf_neg, bins, labels, sfc_outdir)
+
+
+# ── Per-target orchestrator ────────────────────────────────────────────────────
+
+# (col, human label, folder name)
+_XCO2_TARGET_CONFIG = [
+    ('xco2_bc_anomaly',  'XCO\u2082 BC anomaly (ppm)',  'xco2_bc_anomaly'),
+    ('xco2_raw_anomaly', 'XCO\u2082 raw anomaly (ppm)', 'xco2_raw_anomaly'),
+    ('xco2_bc',          'XCO\u2082 BC (ppm)',           'xco2_bc'),
+    ('xco2_raw',         'XCO\u2082 raw (ppm)',          'xco2_raw'),
+]
+
+
+def run_xco2_target_analysis(df: pd.DataFrame, bins, labels,
+                              base_outdir: str,
+                              target: str,
+                              target_label: str) -> None:
+    """Run the full XCO2 plot suite for a single target column.
+
+    Saves all figures into  {base_outdir}/{target}/
+    """
+    import os
+    if target not in df.columns:
+        logger.warning(f"{target!r} not in DataFrame — skipping")
+        return
+    outdir = os.path.join(base_outdir, target)
+    os.makedirs(outdir, exist_ok=True)
+
+    logger.info(f"  [{target}] correlation heatmap …")
+    plot_xco2_anomaly_correlations(df, outdir, target_cols=[target])
+
+    logger.info(f"  [{target}] scatter vs predictors …")
+    plot_xco2_anomaly_vs_key_vars(df, outdir, target=target,
+                                   target_label=target_label)
+
+    logger.info(f"  [{target}] binned profile vs cld_dist …")
+    plot_xco2_anomaly_vs_cld_dist_binned(
+        df, bins, labels, outdir,
+        targets=[(target, target_label, 'C0')])
+
+    logger.info(f"  [{target}] partial correlation …")
+    plot_xco2_anomaly_partial(df, bins, labels, outdir,
+                               target=target, target_label=target_label)

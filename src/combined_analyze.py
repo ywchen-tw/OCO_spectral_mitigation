@@ -185,10 +185,9 @@ from ca_k_coeff import (
 )
 from ca_stratified import STRAT_CONFIG, run_stratified_analysis
 from ca_xco2 import (
-    plot_xco2_anomaly_correlations, plot_xco2_anomaly_vs_key_vars,
-    plot_xco2_anomaly_vs_cld_dist_binned, plot_xco2_anomaly_partial,
     plot_xco2_derived_vs_cld_dist_binned, plot_xco2_derived_vs_bc_anomaly,
     run_xco2_sign_analysis,
+    _XCO2_TARGET_CONFIG, run_xco2_target_analysis,
 )
 from ca_ref_corrected import (
     _REF_PAIRS, _R25_PAIRS,
@@ -220,6 +219,7 @@ def main():
     # ── load ──────────────────────────────────────────────────────────────────
     if platform.system() == 'Darwin':
         df = load_data(csv_dir, parquet_fname='combined_2020-01-01_all_orbits.parquet')
+        # df = load_data(csv_dir, parquet_fname='combined_2016_2020_dates.parquet')
     elif platform.system() == 'Linux':
         df = load_data(csv_dir, parquet_fname='combined_2016_2020_dates.parquet')
 
@@ -423,7 +423,10 @@ def main():
 
         # ── Section 3f: cross-band k combinations ─────────────────────────────
         logger.info("Plotting cross-band k combination profiles and scatter matrix …")
-        plot_cross_band_k_combinations(sdf.copy(), bins, labels, sfc_outdir)
+        _k_cols = ['cld_dist_km'] + [c for c in sdf.columns
+                                     if c.rsplit('_', 1)[-1] in ('k1', 'k2', 'k3')]
+        plot_cross_band_k_combinations(sdf[_k_cols].copy(), bins, labels, sfc_outdir)
+        del _k_cols
 
         # ── R13: footprint area analysis ──────────────────────────────────────
         logger.info("R13: Footprint area vs spectral variables …")
@@ -433,18 +436,13 @@ def main():
         logger.info("Plotting albedo binned profiles …")
         plot_alb_binned_profile(sdf, bins, labels, sfc_outdir)
 
-        # ── Section 5: XCO2 anomaly ───────────────────────────────────────────
-        logger.info("Plotting XCO2 anomaly partial correlation (cld_dist) …")
-        plot_xco2_anomaly_partial(sdf, bins, labels, sfc_outdir)
-
-        logger.info("Plotting XCO2 anomaly vs predictors …")
-        plot_xco2_anomaly_vs_key_vars(sdf, sfc_outdir)
-
-        logger.info("Plotting XCO2 anomaly vs cld_dist binned …")
-        plot_xco2_anomaly_vs_cld_dist_binned(sdf, bins, labels, sfc_outdir)
-
-        logger.info("Plotting correlation heat-map …")
-        plot_xco2_anomaly_correlations(sdf, sfc_outdir)
+        # ── Section 5: XCO2 analyses (one subfolder per target) ──────────────
+        xco2_base = str(result_dir / 'figures' / 'cld_dist_analysis' / sfc_name / 'xco2')
+        for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
+            logger.info(f"Section 5 [{_col}]: running full XCO2 plot suite …")
+            run_xco2_target_analysis(sdf, bins, labels,
+                                     xco2_base, _col, _lbl)
+            gc.collect()
 
         # ── Section 5b: xco2_raw_minus_apriori / strong_idp analyses ─────────
         logger.info("Plotting xco2 derived quantities vs cld_dist binned …")
@@ -459,6 +457,7 @@ def main():
         logger.info(f"Running XCO2 sign-split analysis for {sfc_name.upper()} …")
         run_xco2_sign_analysis(sdf, bins, labels, sfc_outdir,
                                run_ref=_has_ref_data(sdf))
+        gc.collect()
 
         # ── Section 4: stratified analyses ────────────────────────────────────
         logger.info(f"Running stratified analyses for {sfc_name.upper()} …")

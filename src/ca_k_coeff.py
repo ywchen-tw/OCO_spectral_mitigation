@@ -864,7 +864,7 @@ def plot_fp_area_analysis(df: pd.DataFrame, bins, labels,
                    vmax= np.nanpercentile(np.abs(grid.values), 95))
     plt.colorbar(im, ax=ax, label='mean XCO\u2082 BC anomaly (ppm)')
     ax.set_xticks(np.arange(grid.shape[1]))
-    ax.set_xticklabels(fp_q_labels, rotation=40, ha='right', fontsize=8)
+    ax.set_xticklabels([str(c) for c in grid.columns], rotation=40, ha='right', fontsize=8)
     ax.set_yticks(np.arange(len(labels)))
     ax.set_yticklabels(labels, fontsize=8)
     ax.set_xlabel('fp_area_km2 (quantile bin)', fontsize=9)
@@ -925,9 +925,13 @@ def plot_fp_area_analysis(df: pd.DataFrame, bins, labels,
     fa_ser   = pd.Series(fa_ok)
 
     grp   = fa_ser.groupby(mu_bin, observed=True)
-    means = grp.mean().values
-    stds  = grp.std().values
-    cnts  = grp.count().values
+    _means = grp.mean()
+    _stds  = grp.std()
+    _cnts  = grp.count()
+    mu_mids = np.array([iv.mid for iv in _means.index])
+    means = _means.values
+    stds  = _stds.values
+    cnts  = _cnts.values
     sems  = np.where(cnts > 0, stds / np.sqrt(cnts), np.nan)
 
     fig, ax = plt.subplots(figsize=(8, 5))
