@@ -280,7 +280,10 @@ def cloud_proximity_classification_ft(df: pd.DataFrame, output_dir,
         train_loader = torch.utils.data.DataLoader(
             train_ds, batch_size=8192, shuffle=True,
             num_workers=4, pin_memory=(device.type == 'cuda'),
+            persistent_workers=True, prefetch_factor=4,
         )
+        if device.type == 'cuda':
+            torch.backends.cudnn.benchmark = True
 
         n_epochs = 100 if platform.system() == "Darwin" else 300
         optimizer = torch.optim.AdamW(ft_clf.parameters(), lr=1e-3, weight_decay=1e-3)
@@ -288,23 +291,22 @@ def cloud_proximity_classification_ft(df: pd.DataFrame, output_dir,
             optimizer, T_max=n_epochs, eta_min=1e-6
         )
 
+        X_test_t = torch.tensor(X_test, dtype=torch.float32).to(device)
+        y_test_t = torch.tensor(y_test, dtype=torch.float32).to(device)
+
         def _val_metrics(model_):
             model_.eval()
             all_logits = []
-            total_loss, n = 0.0, 0
+            total_loss = 0.0
             with torch.no_grad():
-                for start in range(0, len(X_test), 4096):
-                    Xb = torch.tensor(X_test[start:start + 4096],
-                                      dtype=torch.float32).to(device)
-                    yb = torch.tensor(y_test[start:start + 4096],
-                                      dtype=torch.float32).to(device)
+                for start in range(0, len(X_test_t), 8192):
+                    Xb = X_test_t[start:start + 8192]
+                    yb = y_test_t[start:start + 8192]
                     logits = model_(Xb)
                     total_loss += criterion(logits, yb).item() * len(Xb)
                     all_logits.append(torch.sigmoid(logits).cpu().numpy())
-                    n += len(Xb)
-                    del Xb, yb
             proba = np.concatenate(all_logits)
-            bce   = total_loss / n
+            bce   = total_loss / len(X_test_t)
             try:
                 auroc = roc_auc_score(y_test, proba)
             except Exception:
