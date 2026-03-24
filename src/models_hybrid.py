@@ -48,6 +48,8 @@ from models_transformer import (
     AdvancedTransformerBlock,
     huber_pinball_loss,
     quantile_loss,
+    variance_penalty,
+    mmd_loss_1d,
     _batched_predict,
     plot_permutation_importance,
     _FEATURE_GROUPS,
@@ -221,6 +223,8 @@ def train_hybrid_model(
     patience: int | None = 50,
     loss_fn: str = 'huber',
     huber_delta: float = 1.0,
+    range_loss_weight: float = 0.0,
+    range_loss_type: str = 'variance',
 ) -> HybridDualTower:
     """Train a HybridDualTower model. Returns the best model on CPU.
 
@@ -273,10 +277,22 @@ def train_hybrid_model(
 
     if loss_fn == 'huber':
         def _loss(preds, targets):
-            return huber_pinball_loss(preds, targets, _QUANTILES, delta=huber_delta) + 0.05 * preds[:, 1].abs().mean()
+            base = huber_pinball_loss(preds, targets, _QUANTILES, delta=huber_delta) + 0.05 * preds[:, 1].abs().mean()
+            if range_loss_weight > 0.0:
+                if range_loss_type == 'mmd':
+                    base = base + range_loss_weight * mmd_loss_1d(preds[:, 1], targets)
+                else:
+                    base = base + range_loss_weight * variance_penalty(preds[:, 1], targets)
+            return base
     else:
         def _loss(preds, targets):
-            return quantile_loss(preds, targets, _QUANTILES) + 0.05 * preds[:, 1].abs().mean()
+            base = quantile_loss(preds, targets, _QUANTILES) + 0.05 * preds[:, 1].abs().mean()
+            if range_loss_weight > 0.0:
+                if range_loss_type == 'mmd':
+                    base = base + range_loss_weight * mmd_loss_1d(preds[:, 1], targets)
+                else:
+                    base = base + range_loss_weight * variance_penalty(preds[:, 1], targets)
+            return base
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     ckpt_path = os.path.join(output_dir, 'model_hybrid_best.pt')
@@ -293,6 +309,7 @@ def train_hybrid_model(
     tqdm.write(f"  Early stop  : {'disabled' if patience is None else f'patience={patience}'}")
     tqdm.write(f"  LR schedule : OneCycleLR(max_lr=5e-4, warmup=5%, total_steps={n_epochs * len(train_loader):,})")
     tqdm.write(f"  Loss        : {loss_fn}" + (f"  (delta={huber_delta})" if loss_fn == 'huber' else ""))
+    tqdm.write(f"  Range loss  : {range_loss_type}  weight={range_loss_weight}" if range_loss_weight > 0.0 else f"  Range loss  : disabled")
     tqdm.write(f"  Checkpoint  : {ckpt_path}")
     tqdm.write("=" * 60)
 
@@ -338,11 +355,13 @@ def train_hybrid_model(
         avg_val    = val_loss      / len(val_loader)
         avg_gnorm  = grad_norm_sum / len(train_loader)
 
-        q50_np  = torch.cat(val_preds_q50).numpy()
-        tgt_np  = torch.cat(val_targets).numpy()
-        val_mae = float(np.abs(q50_np - tgt_np).mean())
-        val_r2  = float(1.0 - np.sum((tgt_np - q50_np) ** 2) /
-                        np.sum((tgt_np - tgt_np.mean()) ** 2))
+        q50_np   = torch.cat(val_preds_q50).numpy()
+        tgt_np   = torch.cat(val_targets).numpy()
+        val_mae  = float(np.abs(q50_np - tgt_np).mean())
+        val_r2   = float(1.0 - np.sum((tgt_np - q50_np) ** 2) /
+                         np.sum((tgt_np - tgt_np.mean()) ** 2))
+        pred_std = float(q50_np.std())
+        tgt_std  = float(tgt_np.std())
 
         improved = avg_val < best_val_loss
         if improved:
@@ -356,9 +375,10 @@ def train_hybrid_model(
                 "val_r2":   val_r2,
             }, ckpt_path)
             tqdm.write(f"  [epoch {epoch:4d}] ✓ saved  "
-                       f"val={avg_val:.5f}  MAE={val_mae:.4f}  R²={val_r2:.4f}")
-            logger.info("Epoch %d: new best val_loss=%.5f MAE=%.4f R²=%.4f",
-                        epoch, avg_val, val_mae, val_r2)
+                       f"val={avg_val:.5f}  MAE={val_mae:.4f}  R²={val_r2:.4f}  "
+                       f"pred_std={pred_std:.4f}  tgt_std={tgt_std:.4f}")
+            logger.info("Epoch %d: new best val_loss=%.5f MAE=%.4f R²=%.4f pred_std=%.4f tgt_std=%.4f",
+                        epoch, avg_val, val_mae, val_r2, pred_std, tgt_std)
         else:
             epochs_no_improve += 1
 
@@ -370,6 +390,8 @@ def train_hybrid_model(
             best=f"{best_val_loss:.5f}",
             MAE=f"{val_mae:.4f}",
             R2=f"{val_r2:.4f}",
+            pstd=f"{pred_std:.3f}",
+            tstd=f"{tgt_std:.3f}",
             gnorm=f"{avg_gnorm:.3f}",
             lr=f"{optimizer.param_groups[0]['lr']:.2e}",
             saved="✓" if improved else "",
@@ -386,11 +408,13 @@ def train_hybrid_model(
                 f"  [{ts}] epoch {epoch+1:4d}/{n_epochs}  "
                 f"train={avg_train:.5f}  val={avg_val:.5f}  "
                 f"best={best_val_loss:.5f}  MAE={val_mae:.4f}  R²={val_r2:.4f}  "
-                f"gnorm={avg_gnorm:.3f}"
+                f"pred_std={pred_std:.4f}  tgt_std={tgt_std:.4f}  gnorm={avg_gnorm:.3f}"
             )
             logger.info(
-                "Epoch %d/%d  train=%.5f  val=%.5f  best=%.5f  MAE=%.4f  R2=%.4f",
+                "Epoch %d/%d  train=%.5f  val=%.5f  best=%.5f  MAE=%.4f  R2=%.4f  "
+                "pred_std=%.4f  tgt_std=%.4f",
                 epoch + 1, n_epochs, avg_train, avg_val, best_val_loss, val_mae, val_r2,
+                pred_std, tgt_std,
             )
 
     # ── Restore best checkpoint ────────────────────────────────────────────────
@@ -510,6 +534,15 @@ def main():
                         help='Loss for q50: huber (default) or quantile (pinball).')
     parser.add_argument('--huber-delta', type=float, default=1.0,
                         help='Huber δ (ppm). Only used when --loss huber. Default: 1.0.')
+    parser.add_argument('--range-loss-weight', type=float, default=0.0,
+                        help='Weight λ for the distribution-matching range loss added to q50.  '
+                             '0.0 disables it (default).  Start with 0.1 for variance, '
+                             '0.05 for mmd.')
+    parser.add_argument('--range-loss-type', type=str, default='variance',
+                        choices=['variance', 'mmd'],
+                        help='Type of range loss: "variance" = one-sided std penalty (default, '
+                             'works at any batch size); "mmd" = Gaussian-kernel MMD '
+                             '(requires batch_size ≥ 256 for stable estimates).')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -616,6 +649,8 @@ def main():
             patience=50,
             loss_fn=args.loss,
             huber_delta=args.huber_delta,
+            range_loss_weight=args.range_loss_weight,
+            range_loss_type=args.range_loss_type,
         )
         HybridAdapter(
             model,

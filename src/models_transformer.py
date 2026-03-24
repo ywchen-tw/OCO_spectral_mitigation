@@ -558,6 +558,47 @@ def huber_pinball_loss(preds, targets, quantiles, delta: float = 1.0):
     return torch.mean(torch.cat(losses, dim=-1))
 
 
+def variance_penalty(preds_q50: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    """One-sided variance penalty: penalise std(preds_q50) < std(targets).
+
+    Fires only when predictions are under-dispersed relative to the target
+    distribution.  The one-sided clamp prevents fighting the pinball loss on
+    q05/q95, which already exerts an outward force on the prediction spread.
+
+    preds_q50 : [batch]  predicted median values
+    targets   : [batch]  ground-truth values (raw ppm, not normalised)
+    """
+    pred_std = preds_q50.std(unbiased=False)
+    tgt_std  = targets.std(unbiased=False).detach()   # fixed target; no gradient
+    return torch.clamp(tgt_std - pred_std, min=0.0) ** 2
+
+
+def mmd_loss_1d(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """Maximum Mean Discrepancy with Gaussian kernel for 1-D inputs.
+
+    Uses the median heuristic for bandwidth: σ = median(|xi − yj|) over all
+    N² cross-pairs (detached — σ is not part of the gradient graph).
+
+    Requires batch size ≥ 64 for a stable σ estimate.  The recommended
+    batch size at the call site is ≥ 1024.  For very small batches prefer
+    variance_penalty instead.
+
+    x : [N]  predicted q50 values within the mini-batch
+    y : [N]  corresponding target values
+    """
+    with torch.no_grad():
+        dists = (x.unsqueeze(1) - y.unsqueeze(0)).abs()   # [N, N]
+        sigma = dists.median().clamp(min=1e-4)
+
+    def _k(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        return torch.exp(-((a.unsqueeze(1) - b.unsqueeze(0)) ** 2) / (2.0 * sigma ** 2))
+
+    kxx = _k(x, x).mean()
+    kyy = _k(y, y).mean()
+    kxy = _k(x, y).mean()
+    return kxx - 2.0 * kxy + kyy
+
+
 # Training setup
 quantiles = [0.05, 0.5, 0.95]
 
@@ -828,7 +869,9 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
                                   batch_size=64, n_epochs=100,
                                   log_every=10, patience=None,
                                   loss_fn: str = 'quantile',
-                                  huber_delta: float = 1.0):
+                                  huber_delta: float = 1.0,
+                                  range_loss_weight: float = 0.0,
+                                  range_loss_type: str = 'variance'):
     train_ds = TensorDataset(
         torch.tensor(X_train, dtype=torch.float32),
         torch.tensor(y_train, dtype=torch.float32),
@@ -872,10 +915,22 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
 
     if loss_fn == 'huber':
         def _loss(preds, targets):
-            return huber_pinball_loss(preds, targets, q_levels, delta=huber_delta) + 0.05 * preds[:, 1].abs().mean()
+            base = huber_pinball_loss(preds, targets, q_levels, delta=huber_delta) + 0.05 * preds[:, 1].abs().mean()
+            if range_loss_weight > 0.0:
+                if range_loss_type == 'mmd':
+                    base = base + range_loss_weight * mmd_loss_1d(preds[:, 1], targets)
+                else:
+                    base = base + range_loss_weight * variance_penalty(preds[:, 1], targets)
+            return base
     else:
         def _loss(preds, targets):
-            return quantile_loss(preds, targets, q_levels) + 0.05 * preds[:, 1].abs().mean()
+            base = quantile_loss(preds, targets, q_levels) + 0.05 * preds[:, 1].abs().mean()
+            if range_loss_weight > 0.0:
+                if range_loss_type == 'mmd':
+                    base = base + range_loss_weight * mmd_loss_1d(preds[:, 1], targets)
+                else:
+                    base = base + range_loss_weight * variance_penalty(preds[:, 1], targets)
+            return base
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     tqdm.write("=" * 60)
@@ -891,6 +946,7 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
     tqdm.write(f"  LR schedule : OneCycleLR(max_lr=1e-3, warmup=5%, total_steps={n_epochs * len(train_loader):,})")
     tqdm.write(f"  Mixed prec. : {'GradScaler+autocast (CUDA)' if device.type == 'cuda' else 'autocast only (MPS)' if device.type == 'mps' else 'disabled (CPU)'}")
     tqdm.write(f"  Loss        : {loss_fn}" + (f"  (huber_delta={huber_delta})" if loss_fn == 'huber' else ""))
+    tqdm.write(f"  Range loss  : {range_loss_type}  weight={range_loss_weight}" if range_loss_weight > 0.0 else f"  Range loss  : disabled")
     ckpt_path = os.path.join(output_dir, 'model_best.pt')
     tqdm.write(f"  Checkpoint  : {ckpt_path}")
     tqdm.write("=" * 60)
@@ -940,11 +996,13 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
         avg_val    = val_loss      / len(val_loader)
         avg_gnorm  = grad_norm_sum / len(train_loader)
 
-        q50_np  = torch.cat(val_preds_q50).numpy()
-        tgt_np  = torch.cat(val_targets).numpy()
-        val_mae = float(np.abs(q50_np - tgt_np).mean())
-        val_r2  = float(1.0 - np.sum((tgt_np - q50_np) ** 2) /
-                        np.sum((tgt_np - tgt_np.mean()) ** 2))
+        q50_np   = torch.cat(val_preds_q50).numpy()
+        tgt_np   = torch.cat(val_targets).numpy()
+        val_mae  = float(np.abs(q50_np - tgt_np).mean())
+        val_r2   = float(1.0 - np.sum((tgt_np - q50_np) ** 2) /
+                         np.sum((tgt_np - tgt_np.mean()) ** 2))
+        pred_std = float(q50_np.std())
+        tgt_std  = float(tgt_np.std())
 
         improved = avg_val < best_val_loss
         if improved:
@@ -956,9 +1014,10 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
                         "val_mae": val_mae,
                         "val_r2": val_r2}, ckpt_path)
             tqdm.write(f"  [epoch {epoch:4d}] ✓ checkpoint saved  "
-                       f"val_loss={avg_val:.5f}  MAE={val_mae:.4f}  R²={val_r2:.4f}")
-            logger.info("Epoch %d: new best val_loss=%.5f MAE=%.4f R²=%.4f",
-                        epoch, avg_val, val_mae, val_r2)
+                       f"val_loss={avg_val:.5f}  MAE={val_mae:.4f}  R²={val_r2:.4f}  "
+                       f"pred_std={pred_std:.4f}  tgt_std={tgt_std:.4f}")
+            logger.info("Epoch %d: new best val_loss=%.5f MAE=%.4f R²=%.4f pred_std=%.4f tgt_std=%.4f",
+                        epoch, avg_val, val_mae, val_r2, pred_std, tgt_std)
         else:
             epochs_no_improve += 1
 
@@ -970,6 +1029,8 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
             best=f"{best_val_loss:.5f}",
             MAE=f"{val_mae:.4f}",
             R2=f"{val_r2:.4f}",
+            pstd=f"{pred_std:.3f}",
+            tstd=f"{tgt_std:.3f}",
             gnorm=f"{avg_gnorm:.3f}",
             lr=f"{optimizer.param_groups[0]['lr']:.2e}",
             saved="✓" if improved else "",
@@ -989,11 +1050,13 @@ def train_uncertainty_transformer(X_train, y_train, X_test, y_test,
                 f"  [{ts}] epoch {epoch+1:4d}/{n_epochs}  "
                 f"train={avg_train:.5f}  val={avg_val:.5f}  "
                 f"best={best_val_loss:.5f}  MAE={val_mae:.4f}  R²={val_r2:.4f}  "
-                f"gnorm={avg_gnorm:.3f}"
+                f"pred_std={pred_std:.4f}  tgt_std={tgt_std:.4f}  gnorm={avg_gnorm:.3f}"
             )
             logger.info(
-                "Epoch %d/%d  train=%.5f  val=%.5f  best=%.5f  MAE=%.4f  R2=%.4f  gnorm=%.3f",
-                epoch + 1, n_epochs, avg_train, avg_val, best_val_loss, val_mae, val_r2, avg_gnorm,
+                "Epoch %d/%d  train=%.5f  val=%.5f  best=%.5f  MAE=%.4f  R2=%.4f  "
+                "pred_std=%.4f  tgt_std=%.4f  gnorm=%.3f",
+                epoch + 1, n_epochs, avg_train, avg_val, best_val_loss, val_mae, val_r2,
+                pred_std, tgt_std, avg_gnorm,
             )
 
     # ── Restore best checkpoint ────────────────────────────────────────────────
@@ -1520,6 +1583,15 @@ def main():
                         help='Huber transition point δ (ppm).  Errors with |e| ≤ δ are '
                              'penalised quadratically, larger errors linearly.  '
                              'Only used when --loss huber.  Default: 1.0.')
+    parser.add_argument('--range-loss-weight', type=float, default=0.0,
+                        help='Weight λ for the distribution-matching range loss added to q50.  '
+                             '0.0 disables it (default).  Start with 0.1 for variance, '
+                             '0.05 for mmd.')
+    parser.add_argument('--range-loss-type', type=str, default='variance',
+                        choices=['variance', 'mmd'],
+                        help='Type of range loss: "variance" = one-sided std penalty (default, '
+                             'works at any batch size); "mmd" = Gaussian-kernel MMD '
+                             '(requires batch_size ≥ 256 for stable estimates).')
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()
@@ -1634,6 +1706,8 @@ def main():
             patience=50,   # None = run all epochs; int = early-stop after N epochs with no improvement
             loss_fn=args.loss,
             huber_delta=args.huber_delta,
+            range_loss_weight=args.range_loss_weight,
+            range_loss_type=args.range_loss_type,
         )
 
         # ── Persist adapter metadata (model_best.pt already written by training loop) ──
