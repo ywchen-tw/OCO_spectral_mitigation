@@ -186,6 +186,7 @@ from ca_k_coeff import (
 from ca_stratified import STRAT_CONFIG, run_stratified_analysis
 from ca_xco2 import (
     plot_xco2_derived_vs_cld_dist_binned, plot_xco2_derived_vs_bc_anomaly,
+    plot_xco2_anomaly_vs_cld_dist_binned,
     run_xco2_sign_analysis,
     _XCO2_TARGET_CONFIG, run_xco2_target_analysis,
 )
@@ -436,7 +437,17 @@ def main():
         logger.info("Plotting albedo binned profiles …")
         plot_alb_binned_profile(sdf, bins, labels, sfc_outdir)
 
-        # ── Section 5: XCO2 analyses (one subfolder per target) ──────────────
+        # ── Section 5: XCO2 binned profiles directly in sfc_outdir ──────────
+        logger.info("Plotting XCO2 binned profiles (all targets) …")
+        plot_xco2_anomaly_vs_cld_dist_binned(
+            sdf, bins, labels, sfc_outdir,
+            targets=[(col, lbl, clr)
+                     for (col, lbl, _), clr in zip(_XCO2_TARGET_CONFIG,
+                                                   ['C0', 'C1', 'C2', 'C3'])
+                     if col in sdf.columns])
+        gc.collect()
+
+        # ── Section 5: XCO2 full suite (one subfolder per target) ─────────────
         xco2_base = str(result_dir / 'figures' / 'cld_dist_analysis' / sfc_name / 'xco2')
         for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
             logger.info(f"Section 5 [{_col}]: running full XCO2 plot suite …")

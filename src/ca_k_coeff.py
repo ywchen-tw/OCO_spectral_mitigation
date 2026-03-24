@@ -103,7 +103,19 @@ def plot_xco2_anomaly_ocean_land(df, bins, labels, outdir,
         ref_val = np.median(groups[-1]) if len(groups[-1]) > 0 else np.nan
         ax.axhline(ref_val, color='tomato', lw=2.5, linestyle='--', zorder=5,
                    label=f'median @ {labels[-1]} km = {ref_val:.4f}')
-        ax.axhline(0, color='gray', lw=1, linestyle=':')
+
+        # Tighten y-axis to data range when data is far from zero
+        # (e.g. xco2_bc / xco2_raw ~ 400 ppm — including 0 hides the trend)
+        all_vals = np.concatenate([g for g in groups if len(g)])
+        if len(all_vals):
+            dmin, dmax = np.percentile(all_vals, 1), np.percentile(all_vals, 99)
+            margin = (dmax - dmin) * 0.3
+            if dmin > 0 and dmin / (dmax - dmin + 1e-9) > 5:
+                # data is far above zero: zoom in
+                ax.set_ylim(dmin - margin, dmax + margin)
+            else:
+                ax.axhline(0, color='gray', lw=1, linestyle=':')
+
         ax.legend(fontsize=7)
         ax.set_xlabel('Cloud distance (km)', fontsize=9)
         ax.set_ylabel(label, fontsize=9)

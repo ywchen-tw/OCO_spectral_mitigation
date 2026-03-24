@@ -219,10 +219,12 @@ def plot_intercept_overlay(df: pd.DataFrame, cld_bins, cld_labels,
 def plot_xco2_anomaly_binned_overlay(df: pd.DataFrame, cld_bins, cld_labels,
                                      outdir: str, strat_var: str,
                                      strat_labels: list) -> None:
-    """Mean XCO2 anomaly profiles for all strata overlaid on one figure."""
+    """Mean XCO2 profiles for all strata overlaid on one figure (one file per target)."""
     targets = [
         ('xco2_bc_anomaly',  'XCO\u2082 BC anomaly (ppm)',  'C0'),
         ('xco2_raw_anomaly', 'XCO\u2082 raw anomaly (ppm)', 'C1'),
+        ('xco2_bc',          'XCO\u2082 BC (ppm)',           'C2'),
+        ('xco2_raw',         'XCO\u2082 raw (ppm)',          'C3'),
     ]
     avail = [(t, lbl, c) for t, lbl, c in targets if t in df.columns]
     if not avail:
@@ -264,9 +266,7 @@ def plot_xco2_anomaly_binned_overlay(df: pd.DataFrame, cld_bins, cld_labels,
                 spread = max((vmax - vmin) * 1.5, 1e-9)
                 ax.set_ylim(vmin - spread, vmax + spread)
         fig.tight_layout()
-        fname = ('xco2_bc_anomaly_binned_overlay.png' if 'bc' in col
-                 else 'xco2_raw_anomaly_binned_overlay.png')
-        _save(fig, outdir, fname)
+        _save(fig, outdir, f'{col}_binned_overlay.png')
 
 
 def run_stratified_analysis(df: pd.DataFrame,
@@ -298,8 +298,21 @@ def run_stratified_analysis(df: pd.DataFrame,
         sdir = os.path.join(overlay_dir, _safe_label(slabel))
 
         plot_distributions_vs_cld_dist(sdf, cld_bins, cld_labels, sdir)
-        plot_xco2_anomaly_vs_cld_dist_binned(sdf, cld_bins, cld_labels, sdir)
-        plot_xco2_anomaly_vs_key_vars(sdf, sdir)
+        _XCO2_TARGETS = [
+            ('xco2_bc_anomaly',  'XCO\u2082 BC anomaly (ppm)'),
+            ('xco2_raw_anomaly', 'XCO\u2082 raw anomaly (ppm)'),
+            ('xco2_bc',          'XCO\u2082 BC (ppm)'),
+            ('xco2_raw',         'XCO\u2082 raw (ppm)'),
+        ]
+        plot_xco2_anomaly_vs_cld_dist_binned(
+            sdf, cld_bins, cld_labels, sdir,
+            targets=[(c, l, clr) for (c, l), clr in
+                     zip(_XCO2_TARGETS, ('C0', 'C1', 'C2', 'C3'))
+                     if c in sdf.columns])
+        for _tcol, _tlbl in _XCO2_TARGETS:
+            if _tcol in sdf.columns:
+                plot_xco2_anomaly_vs_key_vars(sdf, sdir, target=_tcol,
+                                              target_label=_tlbl)
         plot_k1_k2_binned_profile(sdf, cld_bins, cld_labels, sdir)
         plot_intercept_binned_profile(sdf, cld_bins, cld_labels, sdir)
 
