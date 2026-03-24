@@ -448,16 +448,21 @@ def main():
         logger.info("Plotting xco2 derived quantities vs cld_dist binned …")
         plot_xco2_derived_vs_cld_dist_binned(sdf, bins, labels, sfc_outdir)
 
-        logger.info("Plotting xco2 derived quantities vs xco2_bc_anomaly …")
-        plot_xco2_derived_vs_bc_anomaly(sdf, bins, labels, sfc_outdir)
+        for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
+            logger.info(f"Plotting xco2 derived quantities vs {_col} …")
+            plot_xco2_derived_vs_bc_anomaly(sdf, bins, labels, sfc_outdir,
+                                             y_col=_col, y_label=_lbl)
+            gc.collect()
 
         logger.info(f"All figures for {sfc_name} written to {sfc_outdir}")
 
         # ── Part 3: XCO2 sign-split analyses ──────────────────────────────────
-        logger.info(f"Running XCO2 sign-split analysis for {sfc_name.upper()} …")
-        run_xco2_sign_analysis(sdf, bins, labels, sfc_outdir,
-                               run_ref=_has_ref_data(sdf))
-        gc.collect()
+        for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
+            logger.info(f"Running XCO2 sign-split analysis [{_col}] for {sfc_name.upper()} …")
+            run_xco2_sign_analysis(sdf, bins, labels, sfc_outdir,
+                                   run_ref=_has_ref_data(sdf),
+                                   split_col=_col, split_label=_lbl)
+            gc.collect()
 
         # ── Section 4: stratified analyses ────────────────────────────────────
         logger.info(f"Running stratified analyses for {sfc_name.upper()} …")
@@ -470,10 +475,13 @@ def main():
         del sdf
         gc.collect()
 
-    # ── Ocean vs Land XCO2 anomaly boxplot (uses full df) ─────────────────────
+    # ── Ocean vs Land XCO2 boxplots for all targets (uses full df) ───────────
     combined_outdir = str(result_dir / 'figures' / 'cld_dist_analysis')
-    logger.info("Plotting XCO2 BC anomaly ocean vs land boxplot …")
-    plot_xco2_anomaly_ocean_land(df, bins, labels, combined_outdir)
+    for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
+        logger.info(f"Plotting {_col} ocean vs land boxplot …")
+        plot_xco2_anomaly_ocean_land(df, bins, labels, combined_outdir,
+                                     col=_col, label=_lbl)
+        gc.collect()
 
 
 if __name__ == '__main__':

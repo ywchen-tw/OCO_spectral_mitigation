@@ -47,12 +47,20 @@ from utils import get_storage_dir
 _CMAP = 'jet'
 
 _MODEL_CFGS = [
-    ('Ridge',   'ridge_corrected_xco2',  'orange'),
-    ('MLP',     'mlp_corrected_xco2',    'limegreen'),
-    ('FT',      'ft_corrected_xco2',     'purple'),
-    ('XGBoost', 'xgb_corrected_xco2',    'crimson'),
-    ('Hybrid',  'hybrid_corrected_xco2', 'deepskyblue'),
+    ('Ridge',   'ridge_cond_corrected_xco2',   'ridge_corrected_xco2',   'orange'),
+    ('MLP',     'mlp_cond_corrected_xco2',     'mlp_corrected_xco2',     'limegreen'),
+    ('FT',      'ft_cond_corrected_xco2',      'ft_corrected_xco2',      'purple'),
+    ('XGBoost', 'xgb_cond_corrected_xco2',     'xgb_corrected_xco2',     'crimson'),
+    ('Hybrid',  'hybrid_cond_corrected_xco2',  'hybrid_corrected_xco2',  'deepskyblue'),
 ]
+
+def _resolve_model_cfgs(df):
+    """Return (name, col, color) list, preferring cond_corrected_xco2 if present."""
+    out = []
+    for name, col_cond, col_reg, color in _MODEL_CFGS:
+        col = col_cond if col_cond in df.columns else col_reg
+        out.append((name, col, color))
+    return out
 
 
 # ── Data loaders ───────────────────────────────────────────────────────────────
@@ -386,7 +394,7 @@ def _scatter_map(ax, lon, lat, values, title, norm, cmap,
     if tccon_lon is not None and tccon_lat is not None:
         ax.scatter([tccon_lon], [tccon_lat], c='red', s=80, marker='*',
                    zorder=5, label='TCCON station')
-        ax.legend(fontsize=7, loc='lower right', markerscale=1.5)
+        ax.legend(fontsize=7, loc='lower left', markerscale=1.5)
     ax.set_title(title, fontsize=9)
     ax.set_xlabel('Lon (°E)', fontsize=8)
     ax.set_ylabel('Lat (°N)', fontsize=8)
@@ -496,7 +504,7 @@ def _histogram_panel(ax, oco_df: pd.DataFrame, tccon_df: pd.DataFrame,
 
     if 'xco2_bc' in oco_df.columns:
         _draw(ax, oco_df['xco2_bc'], 'OCO-2 original', 'steelblue')
-    for name, col, color in _MODEL_CFGS:
+    for name, col, color in _resolve_model_cfgs(oco_df):
         if col in oco_df.columns:
             _draw(ax, oco_df[col], f'{name} corrected', color)
     ax.set_xlabel('XCO₂ (ppm)', fontsize=9)
@@ -689,7 +697,7 @@ def main():
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
     # ── Active models (only those with data in plot_data.csv) ─────────────────
-    active = [(nm, col, clr) for nm, col, clr in _MODEL_CFGS if col in oco.columns]
+    active = [(nm, col, clr) for nm, col, clr in _resolve_model_cfgs(oco) if col in oco.columns]
 
     lon_arr = oco['lon'].values if 'lon' in oco.columns else np.full(len(oco), np.nan)
     lat_arr = oco['lat'].values if 'lat' in oco.columns else np.full(len(oco), np.nan)
@@ -889,9 +897,21 @@ def main():
     else:
         map_extent = None
 
+    # ── Cloud probability column (from apply_model_with_cld.py output) ───────
+    _cld_prob_col = next(
+        (c for c in ('cld_prob', 'cld_prob_ft_clf', 'cld_prob_mlp_clf', 'cld_prob_lr')
+         if c in oco.columns),
+        None,
+    )
+    if _cld_prob_col is not None:
+        print(f"  Cloud probability column detected: {_cld_prob_col}", flush=True)
+
     # ── Figure ────────────────────────────────────────────────────────────────
-    # n_map_cols: enough columns for all active models; row 2 always needs ≥3
+    # n_map_cols: enough columns for all active models; row 2 always needs ≥3;
+    # bump to ≥4 when a cloud probability panel is available (col 3).
     n_map_cols = max(len(active), 3)
+    if _cld_prob_col is not None:
+        n_map_cols = max(n_map_cols, 4)
     fig = plt.figure(figsize=(6 * n_map_cols + 2, 16))
     gs  = fig.add_gridspec(3, n_map_cols + 1, hspace=0.50, wspace=0.30,
                             height_ratios=[1.0, 1.0, 0.75],
@@ -942,7 +962,10 @@ def main():
         ax21.set_title('Ideal-corrected XCO₂', fontsize=9)
 
     # Row 2 cols 3+: hide any extra slots not used by fixed panels
+    # (col 3 is reserved for cloud probability when the column is present)
     for j in range(3, n_map_cols):
+        if j == 3 and _cld_prob_col is not None:
+            continue   # filled below
         fig.add_subplot(gs[1, j]).set_visible(False)
 
     # Row 2 col 2: nearest-cloud distance scatter
@@ -966,6 +989,40 @@ def main():
         ax22.text(0.5, 0.5, 'Cloud distance not available\n(no nearest_cloud_dist_km column)',
                   ha='center', va='center', transform=ax22.transAxes, fontsize=9)
         ax22.set_title('Nearest-cloud distance', fontsize=9)
+
+    # Row 2 col 3: cloud proximity probability — continuous RdBu_r scale
+    if _cld_prob_col is not None:
+        ax23 = fig.add_subplot(gs[1, 3])
+        _prob   = oco[_cld_prob_col].values.astype(float)
+        _finite = np.isfinite(_prob)
+        _prob_norm = mcolors.Normalize(vmin=0.0, vmax=1.0)
+        sc23 = ax23.scatter(
+            lon_arr[_finite], lat_arr[_finite], c=_prob[_finite],
+            cmap='RdBu_r', norm=_prob_norm,
+            s=5, alpha=0.6, rasterized=True,
+        )
+        _cb23 = plt.colorbar(sc23, ax=ax23, fraction=0.046, pad=0.04)
+        _cb23.set_label('P(cld_dist < 10 km)', fontsize=7)
+        _cb23.ax.tick_params(labelsize=6)
+        _cb23.ax.axhline(0.5, color='k', linewidth=1.0, linestyle='--')  # threshold line
+        # Count above/below threshold
+        _n_cld   = int((_finite & (_prob > 0.5)).sum())
+        _n_clear = int((_finite & (_prob <= 0.5)).sum())
+        ax23.set_title(
+            f'Cloud proximity probability\n({_cld_prob_col})\n'
+            f'P>0.5: {_n_cld:,}  P≤0.5: {_n_clear:,}',
+            fontsize=8,
+        )
+        if tccon_lon is not None and tccon_lat is not None:
+            ax23.scatter([tccon_lon], [tccon_lat], c='black', s=80, marker='*',
+                         zorder=5, label='TCCON station')
+            ax23.legend(fontsize=7, loc='lower left')
+        ax23.set_xlabel('Lon (°E)', fontsize=8)
+        ax23.set_ylabel('Lat (°N)', fontsize=8)
+        ax23.tick_params(labelsize=7)
+        if map_extent is not None:
+            ax23.set_xlim(map_extent[0], map_extent[1])
+            ax23.set_ylim(map_extent[2], map_extent[3])
 
     # Row 3: histogram (left portion) | TCCON time series (rightmost map column)
     ax3 = fig.add_subplot(gs[2, :n_map_cols - 1])

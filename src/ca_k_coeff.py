@@ -78,10 +78,13 @@ def plot_distributions_vs_cld_dist(df, bins, labels, outdir):
     _save(fig, outdir, 'dist_vs_cld_dist_boxplot.png')
 
 
-def plot_xco2_anomaly_ocean_land(df, bins, labels, outdir):
-    """Two-panel boxplot: xco2_bc_anomaly vs cloud-distance for ocean (left) and land (right)."""
-    if 'xco2_bc_anomaly' not in df.columns or 'sfc_type' not in df.columns:
-        logger.info("xco2_bc_anomaly or sfc_type missing — skipping ocean/land boxplot")
+def plot_xco2_anomaly_ocean_land(df, bins, labels, outdir,
+                                  col='xco2_bc_anomaly', label=None):
+    """Two-panel boxplot: *col* vs cloud-distance for ocean (left) and land (right)."""
+    if label is None:
+        label = col.replace('_', ' ')
+    if col not in df.columns or 'sfc_type' not in df.columns:
+        logger.info(f"{col!r} or sfc_type missing — skipping ocean/land boxplot")
         return
 
     _bin = bin_by_cld_dist(df, bins, labels)
@@ -93,8 +96,7 @@ def plot_xco2_anomaly_ocean_land(df, bins, labels, outdir):
     for ax, (title, mask) in zip(axes, subsets):
         sub  = df[mask]
         bsub = _bin[mask]
-        groups = [sub.loc[bsub == lbl, 'xco2_bc_anomaly'].dropna().values
-                  for lbl in labels]
+        groups = [sub.loc[bsub == lbl, col].dropna().values for lbl in labels]
         ax.boxplot(groups, labels=labels, showfliers=False, patch_artist=True,
                    boxprops=dict(facecolor='steelblue', alpha=0.6),
                    medianprops=dict(color='orange', lw=3))
@@ -104,17 +106,18 @@ def plot_xco2_anomaly_ocean_land(df, bins, labels, outdir):
         ax.axhline(0, color='gray', lw=1, linestyle=':')
         ax.legend(fontsize=7)
         ax.set_xlabel('Cloud distance (km)', fontsize=9)
-        ax.set_ylabel('XCO\u2082 BC anomaly (ppm)', fontsize=9)
+        ax.set_ylabel(label, fontsize=9)
         ax.tick_params(axis='x', rotation=30, labelsize=8)
-        ax.set_title(f'{title}: XCO\u2082 BC anomaly vs cloud distance', fontsize=10)
+        ax.set_title(f'{title}: {label} vs cloud distance', fontsize=10)
         for xi, g in enumerate(groups):
             ax.text(xi + 1, ax.get_ylim()[0], f'n={len(g):,}',
                     ha='center', va='bottom', fontsize=6.5, color='gray')
 
-    fig.suptitle('XCO\u2082 BC anomaly vs cloud distance — Ocean vs Land\n'
+    safe = col.replace(' ', '_')
+    fig.suptitle(f'{label} vs cloud distance — Ocean vs Land\n'
                  '(box = IQR, whiskers = 1.5\u00d7IQR)', fontsize=11, y=1.01)
     fig.tight_layout()
-    _save(fig, outdir, 'xco2_anomaly_ocean_land_boxplot.png')
+    _save(fig, outdir, f'{safe}_ocean_land_boxplot.png')
 
 
 def plot_k1_k2_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):

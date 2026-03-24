@@ -316,9 +316,11 @@ def plot_xco2_derived_vs_cld_dist_binned(df: pd.DataFrame, bins, labels,
 
 def plot_xco2_derived_vs_bc_anomaly(df: pd.DataFrame, bins, labels,
                                     outdir: str, max_dist: float = 50,
-                                    n_roll: int = 80) -> None:
-    """Analyses (2) & (4): scatter of xco2_raw_minus_apriori /
-    xco2_raw_minus-xco2_strong_idp_minus vs xco2_bc_anomaly.
+                                    n_roll: int = 80,
+                                    y_col: str = 'xco2_bc_anomaly',
+                                    y_label: str = None) -> None:
+    """Scatter of xco2_raw_minus_apriori / xco2_raw_minus-xco2_strong_idp_minus
+    vs *y_col* (default: xco2_bc_anomaly).
 
     Panel A  — hexbin scatter colored by log-density, rolling median overlaid.
     Panel B  — mean ± SEM per cld_dist bin, with one line per bin in Panel A
@@ -326,11 +328,13 @@ def plot_xco2_derived_vs_bc_anomaly(df: pd.DataFrame, bins, labels,
 
     Outputs (per derived column)
     ----------------------------
-    xco2_raw_minus_apriori_vs_bc_anomaly.png
-    xco2_raw_minus_strong_idp_vs_bc_anomaly.png
+    xco2_raw_minus_apriori_vs_{y_col}.png
+    xco2_raw_minus_strong_idp_vs_{y_col}.png
     """
-    if 'xco2_bc_anomaly' not in df.columns:
-        logger.warning("xco2_bc_anomaly not found — skipping derived vs bc_anomaly plots")
+    if y_label is None:
+        y_label = y_col.replace('_', ' ')
+    if y_col not in df.columns:
+        logger.warning(f"{y_col!r} not found — skipping derived vs anomaly plots")
         return
 
     sub = df[df['cld_dist_km'] <= max_dist].copy() if 'cld_dist_km' in df.columns else df.copy()
@@ -340,10 +344,9 @@ def plot_xco2_derived_vs_bc_anomaly(df: pd.DataFrame, bins, labels,
 
     for col, lbl, _ in _XCO2_DERIVED_TARGETS:
         if col not in df.columns:
-            logger.warning(f"Column {col!r} not found — skipping vs bc_anomaly plot")
+            logger.warning(f"Column {col!r} not found — skipping vs {y_col} plot")
             continue
 
-        y_col = 'xco2_bc_anomaly'
         mask = sub[col].notna() & sub[y_col].notna()
         xv = sub.loc[mask, col].values.astype(float)
         yv = sub.loc[mask, y_col].values.astype(float)
@@ -362,7 +365,7 @@ def plot_xco2_derived_vs_bc_anomaly(df: pd.DataFrame, bins, labels,
             r, p = stats.pearsonr(xv, yv)
             ax.set_title(f'Overall  r={r:.3f}  p={p:.2e}', fontsize=10)
         ax.set_xlabel(lbl, fontsize=9)
-        ax.set_ylabel('XCO\u2082 BC anomaly (ppm)', fontsize=9)
+        ax.set_ylabel(y_label, fontsize=9)
         ax.legend(fontsize=8)
         ax.grid(alpha=0.3)
 
@@ -394,22 +397,23 @@ def plot_xco2_derived_vs_bc_anomaly(df: pd.DataFrame, bins, labels,
 
         ax2.errorbar(bin_means_x, bin_means_y, yerr=bin_sems_y,
                      fmt='D', color='k', ms=6, capsize=4, zorder=10,
-                     label='bin mean ± SEM')
+                     label='bin mean \u00b1 SEM')
         ax2.set_xlabel(lbl, fontsize=9)
-        ax2.set_ylabel('XCO\u2082 BC anomaly (ppm)', fontsize=9)
+        ax2.set_ylabel(y_label, fontsize=9)
         ax2.set_title('Grouped by cloud-distance bin', fontsize=10)
         ax2.legend(fontsize=7, ncol=2)
         ax2.grid(alpha=0.3)
 
+        y_safe = y_col.replace(' ', '_')
         fig.suptitle(
-            f'{lbl} vs XCO\u2082 BC anomaly\n'
-            f'(left: all soundings ≤{max_dist} km from cloud; '
+            f'{lbl} vs {y_label}\n'
+            f'(left: all soundings \u2264{max_dist} km from cloud; '
             f'right: colored by cld_dist bin)',
             fontsize=11)
         fig.tight_layout()
 
         safe = col.replace('-', '_minus_').replace('__', '_')
-        _save(fig, outdir, f'{safe}_vs_bc_anomaly.png')
+        _save(fig, outdir, f'{safe}_vs_{y_safe}.png')
 
 
 # ── Part 3: XCO2 sign-split analyses ──────────────────────────────────────────
@@ -419,17 +423,22 @@ def plot_xco2_sign_comparison(
     df_neg: pd.DataFrame,
     bins, labels,
     outdir: str,
+    split_col: str = 'xco2_bc_anomaly',
+    split_label: str = None,
 ) -> None:
     """Overlay binned-mean profiles of ref-corrected delta variables for
-    positive vs negative xco2_bc_anomaly subsets.
+    positive vs negative *split_col* subsets.
 
     Four panels (one per delta variable type: dk1, dk2, dexp, dalb), each
     showing all three bands (o2a, wco2, sco2).  Solid lines = pos subset,
     dashed lines = neg subset.
 
-    Saved to  {outdir}/xco2_sign/sign_comparison.png
+    Saved to  {outdir}/xco2_sign_{split_col}/sign_comparison.png
     """
     import os
+
+    if split_label is None:
+        split_label = split_col.replace('_', ' ')
 
     _DELTA_VARS = [
         ('dk1',  'Δk\u2081'),
@@ -449,7 +458,7 @@ def plot_xco2_sign_comparison(
         logger.warning("No delta columns found — skipping sign comparison plot")
         return
 
-    sign_dir = os.path.join(outdir, 'xco2_sign')
+    sign_dir = os.path.join(outdir, f'xco2_sign_{split_col}')
     os.makedirs(sign_dir, exist_ok=True)
 
     x = np.arange(len(labels))
@@ -498,8 +507,8 @@ def plot_xco2_sign_comparison(
         ax.grid(axis='y', alpha=0.3)
 
     fig.suptitle(
-        'Ref-corrected Δvariables: xco2_bc_anomaly > 0  vs  < 0\n'
-        'Solid = positive anomaly subset · Dashed = negative anomaly subset',
+        f'Ref-corrected \u0394variables: {split_label} > 0  vs  < 0\n'
+        'Solid = positive subset \u00b7 Dashed = negative subset',
         fontsize=12)
     fig.tight_layout()
     _save(fig, sign_dir, 'sign_comparison.png')
@@ -512,14 +521,16 @@ def run_xco2_sign_analysis(
     run_ref: bool = False,
     ref_pairs=None,
     r25_pairs=None,
+    split_col: str = 'xco2_bc_anomaly',
+    split_label: str = None,
 ) -> None:
-    """Split df by sign of xco2_bc_anomaly and run core plots for each half.
+    """Split df by sign of *split_col* and run core plots for each half.
 
     Subdirectory layout::
 
-        {sfc_outdir}/xco2_sign/
-            pos/    (xco2_bc_anomaly >= 0)
-            neg/    (xco2_bc_anomaly <  0)
+        {sfc_outdir}/xco2_sign_{split_col}/
+            pos/    (split_col >= 0)
+            neg/    (split_col <  0)
             sign_comparison.png
 
     Parameters
@@ -530,6 +541,8 @@ def run_xco2_sign_analysis(
     run_ref     : if True and ref_* columns are present, run R0–R7 per subset
     ref_pairs   : _REF_PAIRS from ca_ref_corrected (pass-through)
     r25_pairs   : _R25_PAIRS from ca_ref_corrected (unused currently)
+    split_col   : column to split on (default: xco2_bc_anomaly)
+    split_label : human-readable label for split_col (default: derived from col name)
     """
     import os
 
@@ -543,14 +556,17 @@ def run_xco2_sign_analysis(
         plot_intercept_binned_profile, plot_alb_binned_profile,
     )
 
-    if 'xco2_bc_anomaly' not in df.columns:
-        logger.warning("xco2_bc_anomaly not found — skipping sign-split analysis")
+    if split_label is None:
+        split_label = split_col.replace('_', ' ')
+
+    if split_col not in df.columns:
+        logger.warning(f"{split_col!r} not found — skipping sign-split analysis")
         return
 
-    sign_dir = os.path.join(sfc_outdir, 'xco2_sign')
+    sign_dir = os.path.join(sfc_outdir, f'xco2_sign_{split_col}')
     subsets = [
-        ('pos', df[df['xco2_bc_anomaly'] >= 0]),
-        ('neg', df[df['xco2_bc_anomaly'] <  0]),
+        ('pos', df[df[split_col] >= 0]),
+        ('neg', df[df[split_col] <  0]),
     ]
 
     _MIN_N = 500
@@ -627,7 +643,8 @@ def run_xco2_sign_analysis(
     sdf_neg = subsets[1][1]
     if len(sdf_pos) >= _MIN_N and len(sdf_neg) >= _MIN_N:
         logger.info("  sign_comparison overlay …")
-        plot_xco2_sign_comparison(sdf_pos, sdf_neg, bins, labels, sfc_outdir)
+        plot_xco2_sign_comparison(sdf_pos, sdf_neg, bins, labels, sfc_outdir,
+                                   split_col=split_col, split_label=split_label)
 
 
 # ── Per-target orchestrator ────────────────────────────────────────────────────
