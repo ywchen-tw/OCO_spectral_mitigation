@@ -226,7 +226,7 @@ class PCAScoreAppender:
     }
 
     def __init__(self, pc_idx=None):
-        self._pca      = PCA(n_components=8, random_state=42)
+        self._pca      = PCA(n_components=8, random_state=42, svd_solver='randomized')
         self._robust   = RobustScaler()
         self._pc_idx   = pc_idx    # None → use _DEFAULT_PC_IDX[sfc_type]
         self._sfc_type = None
@@ -240,7 +240,11 @@ class PCAScoreAppender:
         """Fit PCA on already-QT-scaled features."""
         self._sfc_type = sfc_type
         X = np.asarray(X_scaled, dtype=float)
-        self._pca.fit(self._robust.fit_transform(X))
+        X_r = self._robust.fit_transform(X)
+        n_comp = min(8, X_r.shape[0], X_r.shape[1])
+        if n_comp != self._pca.n_components:
+            self._pca = PCA(n_components=n_comp, random_state=42, svd_solver='randomized')
+        self._pca.fit(X_r)
         return self
 
     def transform_append(self, X_scaled: np.ndarray, sfc_type: int) -> np.ndarray:
