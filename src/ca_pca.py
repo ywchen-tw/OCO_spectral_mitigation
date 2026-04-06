@@ -30,7 +30,7 @@ from ca_utils import _save, bin_by_cld_dist
 logger = logging.getLogger(__name__)
 
 # ── feature registry ──────────────────────────────────────────────────────────
-# Ordered by band then term; all xco2_* are intentionally absent.
+# Ordered by group; all xco2_* are intentionally absent.
 _CANDIDATE_FEATURES = [
     # k1
     'o2a_k1',  'wco2_k1', 'sco2_k1',
@@ -40,10 +40,25 @@ _CANDIDATE_FEATURES = [
     'o2a_k3',  'wco2_k3', 'sco2_k3',
     # exp intercepts
     'exp_o2a_intercept', 'exp_wco2_intercept', 'exp_sco2_intercept',
+    # exp − albedo differences (pipeline derived features)
+    'o2a_exp_intercept-alb', 'wco2_exp_intercept-alb',
     # albedo
     'alb_o2a', 'alb_wco2', 'alb_sco2',
+    # geometry / viewing angles
+    'cos_glint_angle',
+    '1_over_cos_sza', '1_over_cos_vza', 'sin_raa',
+    # atmosphere / retrieval state
+    'log_P', 'dp', 'dp_psfc_prior_ratio',
+    'h2o_scale', 'delT', 'co2_grad_del',
+    'co2_ratio_bc', 'h2o_ratio_bc',
+    # signal quality
+    'csnr_o2a', 'csnr_sco2',
+    'h_cont_o2a', 'h_cont_sco2',
+    # aerosol components
+    'aod_total',
+    'aod_dust', 'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate',
     # ancillary
-    'aod_total', 'dp', 'fp_area_km2',
+    'fp_area_km2', 'pol_ang_rad', 's31', 'tcwv',
 ]
 
 # Human-readable labels for plots
@@ -51,13 +66,38 @@ _FEATURE_LABELS = {
     'o2a_k1':  'O₂A k₁',  'wco2_k1': 'WCO₂ k₁', 'sco2_k1': 'SCO₂ k₁',
     'o2a_k2':  'O₂A k₂',  'wco2_k2': 'WCO₂ k₂', 'sco2_k2': 'SCO₂ k₂',
     'o2a_k3':  'O₂A k₃',  'wco2_k3': 'WCO₂ k₃', 'sco2_k3': 'SCO₂ k₃',
-    'exp_o2a_intercept':  'exp O₂A',
-    'exp_wco2_intercept': 'exp WCO₂',
-    'exp_sco2_intercept': 'exp SCO₂',
+    'exp_o2a_intercept':    'exp O₂A',
+    'exp_wco2_intercept':   'exp WCO₂',
+    'exp_sco2_intercept':   'exp SCO₂',
+    'o2a_exp_intercept-alb':  'exp−alb O₂A',
+    'wco2_exp_intercept-alb': 'exp−alb WCO₂',
     'alb_o2a':  'alb O₂A',  'alb_wco2': 'alb WCO₂', 'alb_sco2': 'alb SCO₂',
-    'aod_total': 'AOD',
-    'dp':        'ΔP',
-    'fp_area_km2': 'FP area',
+    'cos_glint_angle':    'cos(glint)',
+    '1_over_cos_sza':     '1/cos(SZA)',
+    '1_over_cos_vza':     '1/cos(VZA)',
+    'sin_raa':            'sin(RAA)',
+    'log_P':              'log P',
+    'dp':                 'ΔP',
+    'dp_psfc_prior_ratio':'ΔP/Psfc',
+    'h2o_scale':          'H₂O scale',
+    'delT':               'ΔT',
+    'co2_grad_del':       'CO₂ grad',
+    'co2_ratio_bc':       'CO₂ ratio',
+    'h2o_ratio_bc':       'H₂O ratio',
+    'csnr_o2a':           'cSNR O₂A',
+    'csnr_sco2':          'cSNR SCO₂',
+    'h_cont_o2a':         'h_cont O₂A',
+    'h_cont_sco2':        'h_cont SCO₂',
+    'aod_total':          'AOD total',
+    'aod_dust':           'AOD dust',
+    'aod_oc':             'AOD OC',
+    'aod_seasalt':        'AOD sea-salt',
+    'aod_strataer':       'AOD strat',
+    'aod_sulfate':        'AOD sulfate',
+    'fp_area_km2':        'FP area',
+    'pol_ang_rad':        'pol. angle',
+    's31':                's31',
+    'tcwv':               'TCWV',
 }
 
 

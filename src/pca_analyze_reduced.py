@@ -4,14 +4,18 @@ pca_analyze_reduced.py  —  ENTRY POINT
 PCA analysis using only k3, albedo, and ancillary variables.
 
 Excluded vs pca_analyze.py:
-  - k1 for all bands  (o2a_k1, wco2_k1, sco2_k1)
-  - k2 for all bands  (o2a_k2, wco2_k2, sco2_k2)
-  - exp_intercept for all bands  (exp_o2a_intercept, exp_wco2_intercept, exp_sco2_intercept)
+  - k1/k2/k3 for all bands  (o2a/wco2/sco2 × k1/k2/k3)
+  - exp_intercept for all bands  (exp_o2a/wco2/sco2_intercept)
+  - exp−albedo differences  (o2a_exp_intercept-alb, wco2_exp_intercept-alb)
 
-Retained features (9 candidates):
-  - k3:        o2a_k3, wco2_k3, sco2_k3
+Retained features (all non-k, non-exp pipeline features):
   - albedo:    alb_o2a, alb_wco2, alb_sco2
-  - ancillary: aod_total, dp, fp_area_km2
+  - geometry:  cos_glint_angle, 1_over_cos_sza, 1_over_cos_vza, sin_raa
+  - atmosphere: log_P, dp, dp_psfc_prior_ratio, h2o_scale, delT, co2_grad_del,
+               co2_ratio_bc, h2o_ratio_bc
+  - signal:    csnr_o2a, csnr_sco2, h_cont_o2a, h_cont_sco2
+  - aerosol:   aod_dust, aod_oc, aod_seasalt, aod_strataer, aod_sulfate
+  - ancillary: fp_area_km2, pol_ang_rad, s31, tcwv
 
 Input
 -----
@@ -52,11 +56,24 @@ from ca_pca import run_pca_analysis
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-# ── reduced feature set: no k1, k2, or exp_intercept ─────────────────────────
+# ── reduced feature set: no k1/k2/k3 or exp_intercept ────────────────────────
 _REDUCED_FEATURES = [
-    'o2a_k3',  'wco2_k3',  'sco2_k3',
+    # albedo
     'alb_o2a', 'alb_wco2', 'alb_sco2',
-    'aod_total', 'dp', 'fp_area_km2',
+    # geometry / viewing angles
+    'cos_glint_angle',
+    '1_over_cos_sza', '1_over_cos_vza', 'sin_raa',
+    # atmosphere / retrieval state
+    'log_P', 'dp', 'dp_psfc_prior_ratio',
+    'h2o_scale', 'delT', 'co2_grad_del',
+    'co2_ratio_bc', 'h2o_ratio_bc',
+    # signal quality
+    'csnr_o2a', 'csnr_sco2',
+    'h_cont_o2a', 'h_cont_sco2',
+    # aerosol components
+    'aod_dust', 'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate',
+    # ancillary
+    'fp_area_km2', 'pol_ang_rad', 's31', 'tcwv',
 ]
 
 
