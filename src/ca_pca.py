@@ -343,6 +343,173 @@ def plot_pca_correlation_with_cld_dist(pca: PCA,
     _save(fig, outdir, fname)
 
 
+# XCO2 target columns and display labels
+_XCO2_COLS = [
+    ('xco2_bc',           'XCO₂ BC (ppm)'),
+    ('xco2_raw',          'XCO₂ raw (ppm)'),
+    ('xco2_bc_anomaly',   'XCO₂ BC anomaly (ppm)'),
+    ('xco2_raw_anomaly',  'XCO₂ raw anomaly (ppm)'),
+]
+
+
+def plot_pca_scores_vs_xco2(pc_scores: pd.DataFrame,
+                              pca: PCA,
+                              df: pd.DataFrame,
+                              outdir: str,
+                              tag: str = '',
+                              n_pc_show: int = 3,
+                              max_points: int = 60_000) -> None:
+    """
+    Grid of hexbin scatter plots: rows = PC1–PC_n, columns = XCO2 variables.
+    Also shows Pearson r in each panel title.
+    """
+    from scipy import stats as scipy_stats
+
+    avail_xco2 = [(col, lbl) for col, lbl in _XCO2_COLS if col in df.columns]
+    if not avail_xco2:
+        logger.warning("No XCO2 columns found — skipping plot_pca_scores_vs_xco2")
+        return
+
+    n_show = min(n_pc_show, pc_scores.shape[1])
+    pcs = pc_scores.columns[:n_show].tolist()
+    n_rows, n_cols = n_show, len(avail_xco2)
+
+    # subsample once for all panels
+    n = len(pc_scores)
+    if n > max_points:
+        rng = np.random.default_rng(1)
+        idx = rng.choice(n, max_points, replace=False)
+    else:
+        idx = np.arange(n)
+
+    fig, axes = plt.subplots(n_rows, n_cols,
+                              figsize=(4.5 * n_cols, 4 * n_rows),
+                              squeeze=False)
+
+    for ri, pc in enumerate(pcs):
+        pc_vals_full = pc_scores[pc].values
+        for ci, (xco2_col, xco2_lbl) in enumerate(avail_xco2):
+            ax = axes[ri][ci]
+            xco2_vals_full = df.loc[pc_scores.index, xco2_col].values
+
+            # subsample
+            xs = xco2_vals_full[idx]
+            ys = pc_vals_full[idx]
+            mask = np.isfinite(xs) & np.isfinite(ys)
+            xs, ys = xs[mask], ys[mask]
+
+            if len(xs) < 10:
+                ax.set_visible(False)
+                continue
+
+            hb = ax.hexbin(xs, ys, gridsize=50, cmap='YlOrRd',
+                           mincnt=1, norm=mcolors.LogNorm())
+            fig.colorbar(hb, ax=ax, label='count')
+
+            r, p = scipy_stats.pearsonr(xs, ys)
+            sig = '***' if p < 0.001 else ('**' if p < 0.01 else ('*' if p < 0.05 else ''))
+            ax.set_xlabel(xco2_lbl, fontsize=9)
+            ax.set_ylabel(f'{pc} score\n({pca.explained_variance_ratio_[ri]*100:.1f}%)',
+                          fontsize=9)
+            ax.set_title(f'{pc} vs {xco2_col}  r={r:.3f}{sig}', fontsize=9)
+
+    fig.suptitle(f'PC scores vs XCO₂ variables{" — " + tag if tag else ""}',
+                 fontsize=12, y=1.01)
+    fig.tight_layout()
+    fname = f'pca_scores_vs_xco2{"_" + tag if tag else ""}.png'
+    _save(fig, outdir, fname)
+
+
+def plot_pca_scores_by_cld_dist_group(pc_scores: pd.DataFrame,
+                                       pca: PCA,
+                                       df: pd.DataFrame,
+                                       bins, labels,
+                                       outdir: str,
+                                       tag: str = '',
+                                       n_pc_show: int = 3) -> None:
+    """
+    Violin plots of PC score distributions split by cld_dist bin.
+    One subplot per PC; overlaid median markers.
+    Also shows the Pearson r(PC, cld_dist) in each subplot title.
+    """
+    from scipy import stats as scipy_stats
+
+    cld = df.loc[pc_scores.index, 'cld_dist_km']
+    bin_col = pd.cut(cld, bins=bins, labels=labels, right=False)
+
+    n_show = min(n_pc_show, pc_scores.shape[1])
+    pcs = pc_scores.columns[:n_show].tolist()
+    evr = pca.explained_variance_ratio_
+
+    fig, axes = plt.subplots(1, n_show, figsize=(5.5 * n_show, 5), squeeze=False)
+    axes = axes[0]
+
+    cld_vals = cld.values
+    valid_cld = np.isfinite(cld_vals)
+
+    palette = plt.cm.plasma_r(np.linspace(0.1, 0.9, len(labels)))
+
+    for ax, pc, ri in zip(axes, pcs, range(n_show)):
+        scores = pc_scores[pc].values
+
+        groups = []
+        positions = []
+        medians = []
+        for xi, lbl in enumerate(labels):
+            mask = (bin_col == lbl).values & np.isfinite(scores)
+            g = scores[mask]
+            if len(g) >= 5:
+                groups.append(g)
+                positions.append(xi)
+                medians.append(np.median(g))
+            else:
+                groups.append(np.array([np.nan]))
+                positions.append(xi)
+                medians.append(np.nan)
+
+        vp = ax.violinplot(
+            [g for g in groups if not (len(g) == 1 and np.isnan(g[0]))],
+            positions=[p for p, g in zip(positions, groups)
+                       if not (len(g) == 1 and np.isnan(g[0]))],
+            showmedians=False, showextrema=False,
+        )
+        for i_body, body in enumerate(vp['bodies']):
+            body.set_facecolor(palette[i_body])
+            body.set_alpha(0.75)
+
+        # overlay median markers
+        valid_med = [(xi, m) for xi, m in zip(positions, medians) if np.isfinite(m)]
+        if valid_med:
+            xs_med, ys_med = zip(*valid_med)
+            ax.plot(xs_med, ys_med, 'o-', color='white', ms=5, lw=1.5,
+                    zorder=5, label='median')
+
+        # Pearson r vs cld_dist
+        r, p = scipy_stats.pearsonr(
+            scores[valid_cld & np.isfinite(scores)],
+            cld_vals[valid_cld & np.isfinite(scores)],
+        )
+        sig = '***' if p < 0.001 else ('**' if p < 0.01 else ('*' if p < 0.05 else ''))
+
+        ax.set_xticks(range(len(labels)))
+        ax.set_xticklabels(labels, rotation=35, ha='right', fontsize=8)
+        ax.set_xlabel('Cloud distance (km)', fontsize=9)
+        ax.set_ylabel(f'{pc} score', fontsize=9)
+        ax.set_title(
+            f'{pc} ({evr[ri]*100:.1f}%) by cld_dist  r={r:.3f}{sig}',
+            fontsize=10,
+        )
+        ax.axhline(0, color='gray', lw=0.6, linestyle='--')
+        ax.set_facecolor('#1a1a2e')
+        ax.legend(fontsize=8)
+
+    fig.suptitle(f'PC score distributions by cloud distance group{" — " + tag if tag else ""}',
+                 fontsize=11)
+    fig.tight_layout()
+    fname = f'pca_scores_by_cld_dist_group{"_" + tag if tag else ""}.png'
+    _save(fig, outdir, fname)
+
+
 # ── orchestrator ──────────────────────────────────────────────────────────────
 
 def run_pca_analysis(df: pd.DataFrame, bins, labels,
@@ -383,5 +550,11 @@ def run_pca_analysis(df: pd.DataFrame, bins, labels,
 
     logger.info(f"[PCA{' ' + tag if tag else ''}] Correlation with cld_dist …")
     plot_pca_correlation_with_cld_dist(pca, pc_scores, df, outdir, tag=tag)
+
+    logger.info(f"[PCA{' ' + tag if tag else ''}] Scores vs XCO2 variables …")
+    plot_pca_scores_vs_xco2(pc_scores, pca, df, outdir, tag=tag)
+
+    logger.info(f"[PCA{' ' + tag if tag else ''}] Score distributions by cld_dist group …")
+    plot_pca_scores_by_cld_dist_group(pc_scores, pca, df, bins, labels, outdir, tag=tag)
 
     logger.info(f"[PCA{' ' + tag if tag else ''}] All figures written to {outdir}")
