@@ -513,22 +513,30 @@ def plot_pca_scores_by_cld_dist_group(pc_scores: pd.DataFrame,
 # ── orchestrator ──────────────────────────────────────────────────────────────
 
 def run_pca_analysis(df: pd.DataFrame, bins, labels,
-                     outdir: str, tag: str = '') -> None:
+                     outdir: str, tag: str = '',
+                     features: list[str] | None = None) -> None:
     """
     Run full PCA suite on *df* and write all figures to *outdir*.
 
     Parameters
     ----------
-    df      : filtered DataFrame (one surface type or combined)
-    bins    : cld_dist bin edges (list of numbers)
-    labels  : cld_dist bin labels (list of strings)
-    outdir  : output directory path
-    tag     : suffix added to each figure filename (e.g. 'ocean', 'land')
+    df       : filtered DataFrame (one surface type or combined)
+    bins     : cld_dist bin edges (list of numbers)
+    labels   : cld_dist bin labels (list of strings)
+    outdir   : output directory path
+    tag      : suffix added to each figure filename (e.g. 'ocean', 'land')
+    features : optional explicit list of feature columns; if None, uses
+               get_pca_features(df) (all available candidates)
     """
     import os
     os.makedirs(outdir, exist_ok=True)
 
-    features = get_pca_features(df)
+    if features is None:
+        features = get_pca_features(df)
+    else:
+        # keep only columns actually present in df
+        features = [f for f in features if f in df.columns]
+        logger.info(f"PCA features ({len(features)}): {features}")
     if len(features) < 2:
         logger.warning(f"Too few features for PCA ({len(features)}) — skipping")
         return

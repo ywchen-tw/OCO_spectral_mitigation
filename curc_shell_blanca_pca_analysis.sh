@@ -35,3 +35,5 @@ export HDF5_USE_FILE_LOCKING=FALSE
 cd /projects/yuch8913/OCO_spectral_mitigation
 
 python src/pca_analyze.py
+
+python src/pca_analyze_reduced.py
