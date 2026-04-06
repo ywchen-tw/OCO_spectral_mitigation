@@ -253,11 +253,20 @@ def plot_pca_biplot(pc_scores: pd.DataFrame,
         y_plot = pc_scores['PC2'].values
         c_plot = cld
 
+    # build a safe norm — LogNorm requires 0 < vmin < vmax with no NaN
+    finite_mask = np.isfinite(c_plot) & (c_plot > 0)
+    if finite_mask.sum() > 0:
+        vmin = float(np.nanmin(c_plot[finite_mask]))
+        vmax = float(np.nanmax(c_plot[finite_mask]))
+    else:
+        vmin, vmax = 0.1, 1.0
+    if vmin >= vmax:
+        vmax = vmin + 1.0
+    norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
+
     fig, ax = plt.subplots(figsize=(7, 6))
     sc = ax.scatter(x_plot, y_plot, c=c_plot, cmap='plasma_r',
-                    s=3, alpha=0.4, rasterized=True,
-                    norm=mcolors.LogNorm(vmin=max(c_plot.min(), 0.1),
-                                         vmax=c_plot.max()))
+                    s=3, alpha=0.4, rasterized=True, norm=norm)
     plt.colorbar(sc, ax=ax, label='Cloud distance (km)')
 
     # loading arrows — pick top-n by magnitude in PC1–PC2 plane
