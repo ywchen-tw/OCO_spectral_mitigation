@@ -262,7 +262,7 @@ class FTAdapter(ModelAdapter):
 
     CHECKPOINT_FILE = 'model_best.pt'
     META_FILE       = 'ft_meta.pkl'
-    _ARCH_VERSION   = 3   # bumped: added segment embeddings (group_emb + feature_to_group buffer)
+    _ARCH_VERSION   = 4   # bumped: _FEATURE_GROUPS 8→9 groups (added 'PCA\nScores'); group_emb shape changed
 
     def __init__(self, model, n_features: int, d_token: int = 128,
                  n_heads: int = 8, n_layers: int = 4, d_ff: int = 256,
@@ -455,7 +455,7 @@ class HybridAdapter(ModelAdapter):
 
     CHECKPOINT_FILE = 'model_hybrid_best.pt'
     META_FILE       = 'hybrid_meta.pkl'
-    _ARCH_VERSION   = 1
+    _ARCH_VERSION   = 2   # bumped: FT backbone inside HybridDualTower has 9-group group_emb
 
     def __init__(self, model, n_features: int,
                  d_token: int = 128, n_heads: int = 8, n_layers: int = 4,
@@ -726,7 +726,7 @@ class FTClassifierAdapter(ModelAdapter):
 
     WEIGHTS_FILE  = 'ft_clf_weights.pt'
     META_FILE     = 'ft_clf_meta.pkl'
-    _ARCH_VERSION = 1
+    _ARCH_VERSION = 2   # bumped: FTClassifier uses same FT backbone with 9-group group_emb
 
     def __init__(self, model, n_features: int, d_token: int = 128,
                  n_heads: int = 8, n_layers: int = 4, d_ff: int = 256,

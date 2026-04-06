@@ -28,6 +28,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+from sklearn.decomposition import PCA
 from sklearn.preprocessing import QuantileTransformer, RobustScaler, StandardScaler
 from utils import get_storage_dir
 
@@ -160,6 +161,105 @@ class RobustStandardScaler:
 
     def __repr__(self) -> str:
         return 'RobustStandardScaler()'
+
+
+class PCAWhitening:
+    """RobustScaler → PCA(n_components, whiten=True).
+
+    Output dimensionality = n_components (≤ n_qt_features).
+    Intended for MLP / Ridge / Logistic — models that treat input as a flat
+    vector and benefit from decorrelated, unit-variance features.
+    NOT suitable for FT-Transformer (destroys per-feature token identity).
+    """
+
+    __module__ = 'pipeline'
+
+    def __init__(self, n_components=0.90):
+        self._n_components = n_components
+        self._robust = RobustScaler()
+        self._pca    = PCA(n_components=n_components, whiten=True, random_state=42)
+
+    def fit(self, X: np.ndarray) -> 'PCAWhitening':
+        X = np.asarray(X, dtype=float)
+        self._pca.fit(self._robust.fit_transform(X))
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X)
+        if not np.issubdtype(X.dtype, np.floating):
+            X = X.astype(np.float64)
+        return self._pca.transform(self._robust.transform(X)).astype(np.float32)
+
+    def fit_transform(self, X: np.ndarray) -> np.ndarray:
+        return self.fit(X).transform(X)
+
+    @property
+    def n_components_(self) -> int:
+        return self._pca.n_components_
+
+    @property
+    def explained_variance_ratio_(self):
+        return self._pca.explained_variance_ratio_
+
+    def __repr__(self) -> str:
+        return f'PCAWhitening(n_components={self._n_components})'
+
+
+class PCAScoreAppender:
+    """Appends selected PCA score columns to the pipeline output.
+
+    After fitting, FeaturePipeline.transform() produces:
+      [qt_scaled_features | selected_pc_scores | fp_onehot]
+
+    Selected PCs are chosen per sfc_type based on their correlation with
+    cld_dist_km (from the PCA analysis):
+      sfc_type=1 (land):  PC1, PC4, PC8  (r = +0.36, +0.22, −0.21)
+      sfc_type=0 (ocean): PC3, PC6       (r = +0.20, −0.22)
+    """
+
+    __module__ = 'pipeline'
+
+    # 0-indexed PC columns to append, keyed by sfc_type
+    _DEFAULT_PC_IDX: dict = {
+        1: [0, 3, 7],   # land:  PC1, PC4, PC8
+        0: [2, 5],      # ocean: PC3, PC6
+    }
+
+    def __init__(self, pc_idx=None):
+        self._pca      = PCA(n_components=8, random_state=42)
+        self._robust   = RobustScaler()
+        self._pc_idx   = pc_idx    # None → use _DEFAULT_PC_IDX[sfc_type]
+        self._sfc_type = None
+
+    def _resolve_pc_idx(self, sfc_type: int) -> list:
+        if self._pc_idx is not None:
+            return list(self._pc_idx)
+        return list(self._DEFAULT_PC_IDX.get(sfc_type, self._DEFAULT_PC_IDX[1]))
+
+    def fit(self, X_scaled: np.ndarray, sfc_type: int) -> 'PCAScoreAppender':
+        """Fit PCA on already-QT-scaled features."""
+        self._sfc_type = sfc_type
+        X = np.asarray(X_scaled, dtype=float)
+        self._pca.fit(self._robust.fit_transform(X))
+        return self
+
+    def transform_append(self, X_scaled: np.ndarray, sfc_type: int) -> np.ndarray:
+        """Return [X_scaled | selected_pc_scores], shape [N, n_qt + len(pc_idx)]."""
+        X = np.asarray(X_scaled)
+        if not np.issubdtype(X.dtype, np.floating):
+            X = X.astype(np.float64)
+        scores   = self._pca.transform(self._robust.transform(X)).astype(np.float32)  # [N, 8]
+        selected = scores[:, self._resolve_pc_idx(sfc_type)]                           # [N, k]
+        return np.concatenate([X_scaled.astype(np.float32), selected], axis=1)
+
+    @property
+    def pc_names(self) -> list:
+        """Names of the appended PC columns, e.g. ['pca_pc1', 'pca_pc4', 'pca_pc8']."""
+        sfc = self._sfc_type if self._sfc_type is not None else 1
+        return [f'pca_pc{i + 1}' for i in self._resolve_pc_idx(sfc)]
+
+    def __repr__(self) -> str:
+        return f'PCAScoreAppender(pc_idx={self._pc_idx})'
 
 
 # ── Feature definitions (identical in both training files — single source of truth) ──
@@ -405,49 +505,95 @@ class FeaturePipeline:
 
     def __init__(self,
                  sfc_type: int,
-                 qt: 'QuantileTransformer | ClipFreeQuantileTransformer | RobustStandardScaler',
+                 qt: 'QuantileTransformer | ClipFreeQuantileTransformer | RobustStandardScaler | PCAWhitening',
                  qt_features: list,
                  fp_cols: list,
-                 features: list):
-        self.sfc_type   = sfc_type
-        self.qt         = qt
+                 features: list,
+                 *,
+                 scaler_type: str = 'robust_standard',
+                 pca_appender: 'PCAScoreAppender | None' = None,
+                 pc1_col_idx: 'int | None' = None):
+        self.sfc_type    = sfc_type
+        self.qt          = qt
         self.qt_features = qt_features
-        self.fp_cols    = fp_cols
-        self.features   = features   # qt_features + fp_cols
+        self.fp_cols     = fp_cols
+        self.features    = features      # full model input feature names
+        self.scaler_type = scaler_type
+        self.pca_appender  = pca_appender
+        self.pc1_col_idx   = pc1_col_idx
 
     # ── Construction ──────────────────────────────────────────────────────────
 
     @classmethod
-    def fit(cls, df: pd.DataFrame, sfc_type: int = 1) -> 'FeaturePipeline':
+    def fit(cls, df: pd.DataFrame, sfc_type: int = 1,
+            scaler: str = 'robust_standard',
+            pca_augment: bool = False) -> 'FeaturePipeline':
         """Fit a new pipeline on df.
 
-        df must contain all feature columns for the given sfc_type plus a
-        'fp' column (integer 0–7) for footprint one-hot encoding.
+        Parameters
+        ----------
+        df : DataFrame containing all feature columns for sfc_type plus 'fp'.
+        sfc_type : 0=ocean, 1=land.
+        scaler : 'robust_standard' (default) or 'pca_whitening'.
+            'pca_whitening' chains RobustScaler → PCA(whiten=True); output
+            dimensionality is reduced to explain 90% variance.  Not suitable
+            for FT-Transformer (destroys per-feature token identity).
+        pca_augment : if True, append selected PC scores after the scaled
+            features (land: PC1/PC4/PC8; ocean: PC3/PC6).  Compatible with
+            all model types; for FT-Transformer this is the only PCA mode.
         """
         if sfc_type not in _FEATURE_MAP:
             raise ValueError(f"sfc_type must be 0 or 1, got {sfc_type}")
+        if scaler not in ('robust_standard', 'pca_whitening'):
+            raise ValueError(
+                f"scaler must be 'robust_standard' or 'pca_whitening', got {scaler!r}"
+            )
 
         qt_features = list(_FEATURE_MAP[sfc_type])   # continuous features only
         fp_cols     = list(_FP_COLS)
-        features    = qt_features + fp_cols
 
         df = _ensure_derived_features(df)
         df = _ensure_fp_columns(df)
 
-        qt = RobustStandardScaler()
-        qt.fit(df[qt_features].to_numpy(dtype=float))
+        X_qt_raw = df[qt_features].to_numpy(dtype=float)
+
+        if scaler == 'pca_whitening':
+            qt = PCAWhitening()
+            qt.fit(X_qt_raw)
+            n_pca    = qt.n_components_
+            features = [f'pca_pc{i + 1}' for i in range(n_pca)] + fp_cols
+        else:
+            qt = RobustStandardScaler()
+            qt.fit(X_qt_raw)
+            features = qt_features + fp_cols
+
+        # Optionally fit PCAScoreAppender and insert PC score columns between
+        # the scaled block and fp_onehot.
+        pca_appender = None
+        pc1_col_idx  = None
+        if pca_augment:
+            X_scaled     = qt.transform(X_qt_raw).astype(np.float32)
+            pca_appender = PCAScoreAppender()
+            pca_appender.fit(X_scaled, sfc_type)
+            pc_names    = pca_appender.pc_names
+            # Insert PC names between scaled block and fp_cols
+            features    = [f for f in features if f not in fp_cols] + pc_names + fp_cols
+            # pc1_col_idx: column index of the first appended PC in transform() output
+            pc1_col_idx = len(features) - len(fp_cols) - len(pc_names)
 
         logger.info(
-            "FeaturePipeline fitted: sfc_type=%d, %d qt_features + 8 fp cols = %d total",
-            sfc_type, len(qt_features), len(features),
+            "FeaturePipeline fitted: sfc_type=%d, scaler=%s, pca_augment=%s, "
+            "%d qt_features + %d fp cols = %d total",
+            sfc_type, scaler, pca_augment, len(qt_features), len(fp_cols), len(features),
         )
         return cls(sfc_type=sfc_type, qt=qt,
-                   qt_features=qt_features, fp_cols=fp_cols, features=features)
+                   qt_features=qt_features, fp_cols=fp_cols, features=features,
+                   scaler_type=scaler, pca_appender=pca_appender, pc1_col_idx=pc1_col_idx)
 
     # ── Transformation ────────────────────────────────────────────────────────
 
     def transform(self, df: pd.DataFrame) -> np.ndarray:
-        """Apply QT to continuous features then append raw fp one-hots.
+        """Apply scaler to continuous features, optionally append PC scores, then fp one-hots.
 
         Returns
         -------
@@ -458,8 +604,12 @@ class FeaturePipeline:
         df = _ensure_fp_columns(df)
         # Extract as float32 — halves memory vs float64 (scalers handle float32 natively)
         X_qt_raw = df[self.qt_features].to_numpy(dtype=np.float32)
-        X_qt     = self.qt.transform(X_qt_raw)
+        X_qt     = self.qt.transform(X_qt_raw).astype(np.float32)
         del X_qt_raw   # free before concatenation
+        # Append PC scores if appender present (backward compat: old pickles lack this attr)
+        pca_appender = getattr(self, 'pca_appender', None)
+        if pca_appender is not None:
+            X_qt = pca_appender.transform_append(X_qt, self.sfc_type)
         X_fp = df[self.fp_cols].to_numpy(dtype=np.float32)
         result = np.concatenate([X_qt, X_fp], axis=1)
         del X_qt       # free before return
@@ -505,7 +655,10 @@ class FeaturePipeline:
         return obj
 
     def __repr__(self) -> str:
+        scaler_type = getattr(self, 'scaler_type', 'robust_standard')
+        pca_augment = getattr(self, 'pca_appender', None) is not None
         return (f"FeaturePipeline(sfc_type={self.sfc_type}, "
+                f"scaler={scaler_type!r}, pca_augment={pca_augment}, "
                 f"n_qt_features={len(self.qt_features)}, "
                 f"n_features={self.n_features})")
 
@@ -527,6 +680,13 @@ def main():
     parser.add_argument('--out',      default=None,
                         help='Output path for pipeline.pkl.  '
                              'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/pipeline.pkl')
+    parser.add_argument('--scaler',   default='robust_standard',
+                        choices=['robust_standard', 'pca_whitening'],
+                        help='Scaler type: robust_standard (default) or pca_whitening '
+                             '(RobustScaler → PCA(whiten=True)).  Not for FT-Transformer.')
+    parser.add_argument('--pca-augment', action='store_true',
+                        help='Append selected PC scores after scaled features '
+                             '(land: PC1/PC4/PC8; ocean: PC3/PC6).')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -555,7 +715,9 @@ def main():
     df = df[df['snow_flag'] == 0]
     print(f"  Rows after sfc_type={args.sfc_type} + snow_flag==0: {len(df):,}", flush=True)
 
-    pipeline = FeaturePipeline.fit(df, sfc_type=args.sfc_type)
+    pipeline = FeaturePipeline.fit(df, sfc_type=args.sfc_type,
+                                   scaler=args.scaler,
+                                   pca_augment=args.pca_augment)
     print(f"  {pipeline}", flush=True)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     pipeline.save(out_path)

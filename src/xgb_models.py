@@ -284,6 +284,11 @@ def main():
                         help='Path to a saved FeaturePipeline (.pkl). '
                              'If omitted, a new pipeline is fitted on the training data '
                              'and saved to <output_dir>/pipeline.pkl.')
+    parser.add_argument('--pca-augment', action='store_true',
+                        help='Append selected PC scores after scaled features '
+                             '(land: PC1/PC4/PC8; ocean: PC3/PC6).  '
+                             'Note: --scaler pca_whitening is not supported for XGBoost '
+                             '(collinearity immunity; SHAP interpretability would be lost).')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -323,7 +328,8 @@ def main():
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
     else:
-        pipeline = FeaturePipeline.fit(df, sfc_type=sfc_type)
+        pipeline = FeaturePipeline.fit(df, sfc_type=sfc_type,
+                                       pca_augment=args.pca_augment)
         pipeline_path = output_dir / 'pipeline.pkl'
         pipeline.save(pipeline_path)
         print(f"  Pipeline fitted and saved → {pipeline_path}", flush=True)
@@ -358,8 +364,15 @@ def main():
         y = y[feat_finite]
 
     print(f"X shape: {X.shape}  |  y shape: {y.shape}", flush=True)
+    _pc1_col = getattr(pipeline, 'pc1_col_idx', None)
+    if _pc1_col is not None:
+        _pc1_vals  = X[:, _pc1_col]
+        _pc1_strat = pd.qcut(_pc1_vals, q=5, labels=False, duplicates='drop')
+        _stratify  = _pc1_strat
+    else:
+        _stratify = None
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X, y, test_size=0.2, random_state=42, stratify=_stratify
     )
     del X, y
     gc.collect()
@@ -411,6 +424,20 @@ def main():
     print(f"\nTest R²: {r2:.4f}  |  MAE: {mae:.4f} ppm  "
           f"|  best_ntree_limit: {model.best_iteration}", flush=True)
     logger.info("Test R²=%.4f  MAE=%.4f  best_iteration=%d", r2, mae, model.best_iteration)
+    if _pc1_col is not None:
+        _pc1_test = X_test[:, _pc1_col]
+        _bins = pd.qcut(_pc1_test, q=5, labels=False, duplicates='drop')
+        _strat_rows = []
+        for _q in range(5):
+            _mask = _bins == _q
+            if _mask.sum() < 10:
+                continue
+            _rmse = float(np.sqrt(np.mean((y_test[_mask] - y_pred[_mask]) ** 2)))
+            _mae  = float(np.mean(np.abs(y_test[_mask] - y_pred[_mask])))
+            _strat_rows.append({'model': 'XGB', 'pc1_quintile': _q + 1,
+                                'n': int(_mask.sum()), 'rmse': _rmse, 'mae': _mae})
+            print(f"  XGB PC1-Q{_q+1}: RMSE={_rmse:.4f}  MAE={_mae:.4f}  n={_mask.sum():,}")
+        pd.DataFrame(_strat_rows).to_csv(output_dir / 'stratified_pc1_rmse_XGB.csv', index=False)
 
     # ── Save adapter ───────────────────────────────────────────────────────
     XGBoostAdapter(model, feature_names=features).save(output_dir)

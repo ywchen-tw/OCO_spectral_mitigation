@@ -41,6 +41,13 @@ def main():
                         help='Path to a saved FeaturePipeline (.pkl).  '
                              'If omitted, a new pipeline is fitted on the training data '
                              'and saved to <output_dir>/pipeline.pkl.')
+    parser.add_argument('--scaler', default='robust_standard',
+                        choices=['robust_standard', 'pca_whitening'],
+                        help='Scaler type: robust_standard (default) or pca_whitening '
+                             '(RobustScaler → PCA(whiten=True)).')
+    parser.add_argument('--pca-augment', action='store_true',
+                        help='Append selected PC scores after scaled features '
+                             '(land: PC1/PC4/PC8; ocean: PC3/PC6).')
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()
@@ -64,7 +71,9 @@ def main():
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
     else:
-        pipeline = FeaturePipeline.fit(df, sfc_type=sfc_type)
+        pipeline = FeaturePipeline.fit(df, sfc_type=sfc_type,
+                                       scaler=args.scaler,
+                                       pca_augment=args.pca_augment)
         pipeline_path = output_dir / 'pipeline.pkl'
         pipeline.save(pipeline_path)
         print(f"  Fitted and saved pipeline → {pipeline_path}", flush=True)
@@ -249,7 +258,17 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
 
     print("X shape (train-eligible):", X_for_train.shape)
     print("y shape (train-eligible):", y_for_train.shape)
-    X_train, X_test, y_train, y_test = train_test_split(X_for_train, y_for_train, test_size=0.2, random_state=42)
+    _pc1_col = getattr(pipeline, 'pc1_col_idx', None)
+    if _pc1_col is not None:
+        import pandas as _pd_strat
+        _pc1_vals  = X_for_train[:, _pc1_col]
+        _pc1_strat = _pd_strat.qcut(_pc1_vals, q=5, labels=False, duplicates='drop')
+        _stratify  = _pc1_strat
+    else:
+        _stratify = None
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_for_train, y_for_train, test_size=0.2, random_state=42, stratify=_stratify
+    )
     del X_for_train, y_for_train
     del y  # y_train + y_test contain all labels; drop the combined copy
     gc.collect()
@@ -316,11 +335,35 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     print("y_train", y_train.shape, "X_train shape:", X_train.shape)
     print("y_test", y_test.shape, "X_test shape:", X_test.shape)
 
+    # ── PC1-regime RMSE helper ─────────────────────────────────────
+    def _pc1_stratified_rmse(y_true, y_pred, pc1_vals, n_bins=5, label='model', out_dir=None):
+        """Print RMSE/MAE per PC1 quintile; optionally save CSV."""
+        import pandas as _pd_rmse
+        bins = _pd_rmse.qcut(pc1_vals, q=n_bins, labels=False, duplicates='drop')
+        rows = []
+        for q in range(n_bins):
+            mask = bins == q
+            if mask.sum() < 10:
+                continue
+            rmse = np.sqrt(np.mean((y_true[mask] - y_pred[mask]) ** 2))
+            mae  = np.mean(np.abs(y_true[mask] - y_pred[mask]))
+            rows.append({'model': label, 'pc1_quintile': q + 1,
+                         'n': int(mask.sum()), 'rmse': rmse, 'mae': mae})
+            print(f"  {label} PC1-Q{q+1}: RMSE={rmse:.4f}  MAE={mae:.4f}  n={mask.sum():,}")
+        if rows and out_dir is not None:
+            _pd_rmse.DataFrame(rows).to_csv(
+                out_dir / f'stratified_pc1_rmse_{label}.csv', index=False
+            )
+
     # ── Linear baseline ────────────────────────────────────────────
     _checkpoint("before LinearRegression fit")
     model = Ridge(alpha=1.0)
     model.fit(X_train, y_train)
     print(f"Test FP R² (linear) for predicting xco2_bc anomaly: {model.score(X_test, y_test):.3f}")
+    _pc1_col_eval = getattr(pipeline, 'pc1_col_idx', None)
+    if _pc1_col_eval is not None:
+        _pc1_stratified_rmse(y_test, model.predict(X_test),
+                             X_test[:, _pc1_col_eval], label='Ridge', out_dir=output_dir)
 
     df_X_mask     = np.all(np.isfinite(df_X), axis=1)
     y_pred_df   = model.predict(df_X[df_X_mask])
@@ -493,6 +536,9 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     ss_res = ((y_test - y_all_mlp) ** 2).sum()
     ss_tot = ((y_test - y_test.mean()) ** 2).sum()
     print(f"Test FP R² (MLP)    for predicting xco2_bc anomaly: {1 - ss_res/ss_tot:.3f}", flush=True)
+    if _pc1_col_eval is not None:
+        _pc1_stratified_rmse(y_test, y_all_mlp,
+                             X_test[:, _pc1_col_eval], label='MLP', out_dir=output_dir)
 
     _checkpoint("MLP infer: df_X (anomaly-valid subset)")
     y_pred_mlp = _mlp_infer(df_X[df_X_mask])

@@ -33,8 +33,31 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
+# baseline
+
 python src/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
 --sfc-type 0 --out results/train_data/pipeline_ocean_2016_2020.pkl
 
 python src/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
 --sfc-type 1 --out results/train_data/pipeline_land_2016_2020.pkl
+
+# PCA whitening (decorrelated input, MLP/Ridge only)
+python src/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
+--sfc-type 0 --out results/train_data/pipeline_ocean_2016_2020_pca_whitening.pkl --scaler pca_whitening
+
+python src/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
+--sfc-type 1 --out results/train_data/pipeline_land_2016_2020_pca_whitening.pkl --scaler pca_whitening
+
+# PCA score appender (extra PC tokens, all models)
+python src/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
+--sfc-type 0 --out results/train_data/pipeline_ocean_2016_2020_pca-augment.pkl --pca-augment
+
+python src/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
+--sfc-type 1 --out results/train_data/pipeline_land_2016_2020_pca-augment.pkl --pca-augment
+
+# Both (MLP/Ridge only)
+python src/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
+--sfc-type 0 --out results/train_data/pipeline_ocean_2016_2020_pca_whitening-augment.pkl --scaler pca_whitening --pca-augment
+
+python src/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
+--sfc-type 1 --out results/train_data/pipeline_land_2016_2020_pca_whitening-augment.pkl --scaler pca_whitening --pca-augment

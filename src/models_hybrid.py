@@ -543,6 +543,12 @@ def main():
                         help='Type of range loss: "variance" = one-sided std penalty (default, '
                              'works at any batch size); "mmd" = Gaussian-kernel MMD '
                              '(requires batch_size ≥ 256 for stable estimates).')
+    parser.add_argument('--scaler', default='robust_standard',
+                        choices=['robust_standard', 'pca_whitening'],
+                        help='Scaler for MLP branch: robust_standard (default) or pca_whitening.')
+    parser.add_argument('--pca-augment', action='store_true',
+                        help='Append selected PC scores after scaled features '
+                             '(land: PC1/PC4/PC8; ocean: PC3/PC6).')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -574,7 +580,9 @@ def main():
     elif pipeline_path.exists():
         pipeline = FeaturePipeline.load(pipeline_path)
     else:
-        pipeline = FeaturePipeline.fit(df, sfc_type=args.sfc_type)
+        pipeline = FeaturePipeline.fit(df, sfc_type=args.sfc_type,
+                                       scaler=args.scaler,
+                                       pca_augment=args.pca_augment)
         pipeline.save(pipeline_path)
         print(f"  Fitted and saved pipeline → {pipeline_path}", flush=True)
 
@@ -603,6 +611,10 @@ def main():
     del X_qt_raw
     gc.collect()
 
+    _pca_app = getattr(pipeline, 'pca_appender', None)
+    if _pca_app is not None:
+        X_qt_out = _pca_app.transform_append(X_qt_out, pipeline.sfc_type)
+
     X_all = np.concatenate([X_qt_out, X_fp_raw], axis=1)
     del X_qt_out, X_fp_raw
     gc.collect()
@@ -625,8 +637,14 @@ def main():
 
     print(f"  X shape: {X.shape}  y shape: {y.shape}", flush=True)
 
+    _pc1_col = getattr(pipeline, 'pc1_col_idx', None)
+    if _pc1_col is not None:
+        _pc1_strat = pd.qcut(X[:, _pc1_col], q=5, labels=False, duplicates='drop')
+        _stratify  = _pc1_strat
+    else:
+        _stratify = None
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X, y, test_size=0.2, random_state=42, stratify=_stratify
     )
     del X, y
     gc.collect()
@@ -663,6 +681,25 @@ def main():
 
     # ── Evaluate ───────────────────────────────────────────────────────────────
     evaluate_hybrid(model, X_test, y_test, str(output_dir))
+    if _pc1_col is not None:
+        from models_transformer import _batched_predict as _bp_eval
+        _preds_eval = _bp_eval(model, np.asarray(X_test, dtype=np.float32))
+        _q50_eval   = _preds_eval[:, 1]
+        _pc1_test   = X_test[:, _pc1_col]
+        _bins_eval  = pd.qcut(_pc1_test, q=5, labels=False, duplicates='drop')
+        _strat_rows_h = []
+        for _q in range(5):
+            _mask = _bins_eval == _q
+            if _mask.sum() < 10:
+                continue
+            _rmse = float(np.sqrt(np.mean((y_test[_mask] - _q50_eval[_mask]) ** 2)))
+            _mae  = float(np.mean(np.abs(y_test[_mask] - _q50_eval[_mask])))
+            _strat_rows_h.append({'model': 'Hybrid', 'pc1_quintile': _q + 1,
+                                  'n': int(_mask.sum()), 'rmse': _rmse, 'mae': _mae})
+            print(f"  Hybrid PC1-Q{_q+1}: RMSE={_rmse:.4f}  MAE={_mae:.4f}  n={_mask.sum():,}")
+        pd.DataFrame(_strat_rows_h).to_csv(
+            output_dir / 'stratified_pc1_rmse_Hybrid.csv', index=False
+        )
 
     # ── Permutation importance (reused from models_transformer) ───────────────
     plot_permutation_importance(model, X_test, y_test, features, str(output_dir))

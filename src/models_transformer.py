@@ -55,6 +55,9 @@ _FEATURE_GROUPS: dict = {
     'AOD &\nAerosol':     ['aod_total', 'aod_dust', 'aod_oc', 'aod_seasalt',
                            'aod_strataer', 'aod_sulfate'],
     'Footprint':          [f'fp_{i}' for i in range(8)] + ['fp_area_km2'],
+    'PCA\nScores':        ['pca_pc1', 'pca_pc2', 'pca_pc3',
+                           'pca_pc4', 'pca_pc5', 'pca_pc6',
+                           'pca_pc7', 'pca_pc8'],  # all possible PC names; absent ones ignored
 }
 
 

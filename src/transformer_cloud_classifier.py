@@ -237,8 +237,14 @@ def cloud_proximity_classification_ft(df: pd.DataFrame, output_dir,
     _ckpt("after pipeline.transform")
 
     # ── Train / test split ─────────────────────────────────────────────────────
+    _pc1_col = getattr(pipeline, 'pc1_col_idx', None)
+    if _pc1_col is not None:
+        _pc1_bins = pd.qcut(X_all[:, _pc1_col], q=5, labels=False, duplicates='drop').astype(str)
+        _stratify = (y_all.astype(int).astype(str) + '_' + _pc1_bins)
+    else:
+        _stratify = y_all
     X_train, X_test, y_train, y_test = train_test_split(
-        X_all, y_all, test_size=0.2, random_state=42, stratify=y_all
+        X_all, y_all, test_size=0.2, random_state=42, stratify=_stratify
     )
     print(f"  Train: {len(X_train):,}  Test: {len(X_test):,}", flush=True)
     _ckpt("after train_test_split")
@@ -585,6 +591,9 @@ def main():
     parser.add_argument('--pipeline', type=str, default=None,
                         help="Path to a saved FeaturePipeline (.pkl). "
                              "If omitted, a new pipeline is fitted and saved.")
+    parser.add_argument('--pca-augment', action='store_true',
+                        help='Append selected PC scores after scaled features '
+                             '(land: PC1/PC4/PC8; ocean: PC3/PC6).')
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()
@@ -614,7 +623,8 @@ def main():
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
     else:
-        pipeline = FeaturePipeline.fit(df, sfc_type=args.sfc_type)
+        pipeline = FeaturePipeline.fit(df, sfc_type=args.sfc_type,
+                                       pca_augment=args.pca_augment)
         pipeline_path = output_dir / 'pipeline.pkl'
         pipeline.save(pipeline_path)
         print(f"  Fitted and saved pipeline → {pipeline_path}", flush=True)
