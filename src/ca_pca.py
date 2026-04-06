@@ -212,6 +212,14 @@ def plot_pca_loadings(pca: PCA, features: list[str], outdir: str,
     fname = f'pca_loadings_heatmap{"_" + tag if tag else ""}.png'
     _save(fig, outdir, fname)
 
+    # ── CSV: loadings table (features × PCs) ──────────────────────────────────
+    import os
+    csv_df = pd.DataFrame(loadings, index=features, columns=pc_cols)
+    csv_df.index.name = 'feature'
+    csv_path = os.path.join(outdir, f'pca_loadings{"_" + tag if tag else ""}.csv')
+    csv_df.to_csv(csv_path, float_format='%.6f')
+    logger.info(f"  saved → {csv_path}")
+
 
 def plot_pca_scores_vs_cld_dist(pc_scores: pd.DataFrame,
                                  df: pd.DataFrame,
@@ -381,6 +389,23 @@ def plot_pca_correlation_with_cld_dist(pca: PCA,
     fig.tight_layout()
     fname = f'pca_correlation_with_cld_dist{"_" + tag if tag else ""}.png'
     _save(fig, outdir, fname)
+
+    # ── CSV: correlation table ─────────────────────────────────────────────────
+    import os
+    sig_labels = ['***' if p < 0.001 else ('**' if p < 0.01 else ('*' if p < 0.05 else ''))
+                  for p in ps]
+    corr_df = pd.DataFrame({
+        'pc':                  pcs,
+        'explained_var_pct':   [evr[i] * 100 for i in range(n_pc)],
+        'cumulative_var_pct':  np.cumsum(evr) * 100,
+        'pearson_r':           rs,
+        'p_value':             ps,
+        'significance':        sig_labels,
+    })
+    csv_path = os.path.join(outdir,
+                            f'pca_correlation_with_cld_dist{"_" + tag if tag else ""}.csv')
+    corr_df.to_csv(csv_path, index=False, float_format='%.6f')
+    logger.info(f"  saved → {csv_path}")
 
 
 # XCO2 target columns and display labels
