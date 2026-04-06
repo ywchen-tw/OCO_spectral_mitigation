@@ -116,7 +116,7 @@ def plot_xco2_anomaly_ocean_land(df, bins, labels, outdir,
             else:
                 ax.axhline(0, color='gray', lw=1, linestyle=':')
 
-        ax.legend(fontsize=7)
+        ax.legend(fontsize=7, loc='upper right')
         ax.set_xlabel('Cloud distance (km)', fontsize=9)
         ax.set_ylabel(label, fontsize=9)
         ax.tick_params(axis='x', rotation=30, labelsize=8)
@@ -719,7 +719,7 @@ def plot_fp_area_analysis(df: pd.DataFrame, bins, labels,
         return
 
     _bin = bin_by_cld_dist(sub, bins, labels)
-    FP_AREA_STEP = 0.5   # km² — change here to adjust bin width
+    FP_AREA_STEP = 1.0   # km² — change here to adjust bin width
     _fp_max = np.nanpercentile(sub['fp_area_km2'], 99)
     fp_edges = np.arange(0, _fp_max + FP_AREA_STEP, FP_AREA_STEP)
     sub['_fp_q'] = pd.cut(sub['fp_area_km2'], bins=fp_edges, right=False)
