@@ -126,6 +126,7 @@ class Config:
         'orbit_number',
         'viewing_mode',
         'nearest_cloud_dist_km',
+        'weighted_cloud_dist_km',
         'modis_time_diff_minutes',
         'cloud_classification'
     ]

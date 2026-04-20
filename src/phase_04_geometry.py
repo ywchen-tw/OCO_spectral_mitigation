@@ -106,6 +106,7 @@ class CollocationResult:
     nearest_cloud_lat: float
     nearest_cloud_lon: float
     cloud_classification: str  # 'Cloudy' or 'Uncertain'
+    weighted_cloud_dist_km: float = float('nan')
     
     def __repr__(self):
         return (f"CollocationResult(sounding_id={self.sounding_id}, "
@@ -214,6 +215,51 @@ class GeometryProcessor:
         lon = np.degrees(lon)
         
         return lat, lon, alt
+
+    def _compute_weighted_cloud_distance(
+        self,
+        footprint_ecef: np.ndarray,
+        cloud_ecef: np.ndarray,
+        max_distance_km: float = 50.0,
+    ) -> float:
+        """
+        Compute a weighted cloud distance within a fixed radius.
+
+        The weight is defined as 1 / d^2, and clouds farther than max_distance_km
+        contribute zero weight because they are excluded from the radius search.
+
+        Args:
+            footprint_ecef: ECEF coordinates for one footprint, shape (3,)
+            cloud_ecef: ECEF coordinates for candidate cloud pixels, shape (N, 3)
+            max_distance_km: Maximum contribution radius in kilometers
+
+        Returns:
+            Weighted cloud distance in kilometers. Returns max_distance_km when no
+            cloud pixels fall within the radius.
+        """
+        if cloud_ecef.size == 0:
+            return max_distance_km
+
+        distances_m = np.linalg.norm(cloud_ecef - footprint_ecef, axis=1)
+        if distances_m.size == 0:
+            return max_distance_km
+
+        if np.any(distances_m == 0):
+            return 0.0
+
+        distances_km = distances_m / 1000.0
+        within_mask = distances_km <= max_distance_km
+        if not np.any(within_mask):
+            return max_distance_km
+
+        distances_km = distances_km[within_mask]
+        weights = 1.0 / np.square(distances_km)
+        total_weight = np.sum(weights)
+        if total_weight <= 0:
+            return max_distance_km
+
+        weighted_distance = np.sum(distances_km * weights) / total_weight
+        return float(weighted_distance)
     
     # def integrate_myd03_geolocation(self,
     #                                 cloud_pixels_by_granule: Dict[str, List[MODISCloudPixel]],
@@ -534,6 +580,7 @@ class GeometryProcessor:
         band_width_deg: float = 5.0,
         band_overlap_deg: float = 1.0,
         max_distance_km: float = 30.0,
+        weighted_max_distance_km: float = 50.0,
         oco2_granule_id: str = "",
         cloud_lons = None,
         cloud_lats = None,
@@ -556,6 +603,7 @@ class GeometryProcessor:
             band_width_deg: Latitude band width in degrees (default: 10°)
             band_overlap_deg: Overlap buffer in degrees (default: 1°)
             max_distance_km: Maximum distance to report
+            weighted_max_distance_km: Radius used for weighted cloud distance
             cloud_lons: Numpy array of cloud longitudes (array mode)
             cloud_lats: Numpy array of cloud latitudes (array mode)
             cloud_flags: Numpy array of cloud flags (array mode)
@@ -570,6 +618,7 @@ class GeometryProcessor:
         logger.info(f"\n[Banded Distance Calculation] Using {band_width_deg}° latitude bands")
         logger.info(f"   Band overlap: ±{band_overlap_deg}°")
         logger.info(f"   Max distance cap: {max_distance_km} km")
+        logger.info(f"   Weighted distance radius: {weighted_max_distance_km} km")
         
         if len(footprints_by_granule[0]) == 0:
             logger.error("No footprints to process")
@@ -665,6 +714,7 @@ class GeometryProcessor:
                         nearest_cloud_lat=float('nan'),
                         nearest_cloud_lon=float('nan'),
                         cloud_classification='NoCloud',
+                        weighted_cloud_dist_km=weighted_max_distance_km,
                     )
                     all_results.append(result)
                 band_time = time.time() - band_start
@@ -684,6 +734,10 @@ class GeometryProcessor:
             # Convert footprints to ECEF
             band_fp_alts = np.zeros(band_fp_count)
             fp_ecef = self.convert_to_ecef(band_fp_lats, band_fp_lons, band_fp_alts)
+
+            # Find all clouds within the weighted-distance radius
+            cloud_search_radius_m = weighted_max_distance_km * 1000.0
+            footprint_neighbor_indices = band_tree.query_ball_point(fp_ecef, r=cloud_search_radius_m)
             
             # Query KD-Tree
             distances, indices = band_tree.query(fp_ecef, k=1)
@@ -707,6 +761,13 @@ class GeometryProcessor:
                 nearest_cloud_lon = float(band_cloud_lons[cloud_idx])
                 cloud_flag_val = int(band_cloud_flags[cloud_idx])
                 cloud_class = 'Cloudy' if cloud_flag_val == 1 else 'Uncertain'
+
+                neighbor_indices = footprint_neighbor_indices[i]
+                weighted_cloud_dist_km = self._compute_weighted_cloud_distance(
+                    fp_ecef[i],
+                    cloud_ecef[np.asarray(neighbor_indices, dtype=int)],
+                    max_distance_km=weighted_max_distance_km,
+                )
                 
                 result = CollocationResult(
                     sounding_id=footprint_id,
@@ -718,6 +779,7 @@ class GeometryProcessor:
                     nearest_cloud_lat=nearest_cloud_lat,
                     nearest_cloud_lon=nearest_cloud_lon,
                     cloud_classification=cloud_class,
+                    weighted_cloud_dist_km=weighted_cloud_dist_km,
                 )
                 
                 all_results.append(result)
@@ -754,6 +816,7 @@ class GeometryProcessor:
             f.create_dataset('cloud_latitude', data=[r.nearest_cloud_lat for r in results])
             f.create_dataset('cloud_longitude', data=[r.nearest_cloud_lon for r in results])
             f.create_dataset('cloud_classification', data=[r.cloud_classification.encode() for r in results])
+            f.create_dataset('weighted_cloud_distance_km', data=[r.weighted_cloud_dist_km for r in results])
             
             # Add metadata
             f.attrs['num_soundings'] = len(results)
