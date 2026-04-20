@@ -150,7 +150,12 @@ def load_shared_data(sat):
     with h5py.File(cld_dist_file, "r") as f:
         cld_snd_id  = f["sounding_id"][...].astype(np.int64)
         cld_dist_km = f["nearest_cloud_distance_km"][...].astype(np.float64)
+        if "weighted_cloud_distance_km" in f:
+            weighted_cld_dist_km = f["weighted_cloud_distance_km"][...].astype(np.float64)
+        else:
+            weighted_cld_dist_km = np.full_like(cld_dist_km, np.nan, dtype=np.float64)
     cld_dist_index = dict(zip(cld_snd_id.tolist(), cld_dist_km.tolist()))
+    weighted_cld_dist_index = dict(zip(cld_snd_id.tolist(), weighted_cld_dist_km.tolist()))
 
     # --- OCO-2 Lite file ---
     logger.info(f"Loading Lite file {sat['oco_lite']}")
@@ -234,7 +239,12 @@ def load_shared_data(sat):
         f"Shared data loaded: {len(cld_dist_index)} cloud-dist entries, "
         f"{len(lite_index)} Lite soundings."
     )
-    return {"cld_dist_index": cld_dist_index, "lite_index": lite_index, "lite": lite}
+    return {
+        "cld_dist_index": cld_dist_index,
+        "weighted_cld_dist_index": weighted_cld_dist_index,
+        "lite_index": lite_index,
+        "lite": lite,
+    }
 
 
 # ─── Per-orbit data loading ────────────────────────────────────────────────────
@@ -809,6 +819,8 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     # ── 5. Cloud distance per sounding (O(1) dict lookup) ─────────────────
     cld_idx     = shared_data["cld_dist_index"]
     fp_cld_dist = np.array([cld_idx.get(int(sid), np.nan) for sid in od["sounding_id"]])
+    weighted_cld_idx = shared_data.get("weighted_cld_dist_index", {})
+    fp_weighted_cld_dist = np.array([weighted_cld_idx.get(int(sid), np.nan) for sid in od["sounding_id"]])
 
     # ── 6. XCO2 anomaly (vectorised lat-window) ────────────────────────────
     logger.info(f"[{orbit_id}] Computing XCO2 anomalies...")
@@ -892,6 +904,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "fp_area_km2": fp_area_km2,
         # Cloud proximity
         "cld_dist_km":      fp_cld_dist,
+        "weighted_cloud_dist_km": fp_weighted_cld_dist,
         # XCO2
         "xco2_apriori":     _lite("xco2_apriori"),
         "xco2_bc":          lt_xco2_bc,

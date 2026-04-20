@@ -67,6 +67,7 @@ def load_output_dict(filepath):
         'lon', 'lat', 'sza', 'vza', 'mu_sza', 'mu_vza', 'fp_number', 'fp_id', 'fp_area_km2',
         # Cloud proximity
         'cld_dist_km',
+        'weighted_cloud_dist_km',
         # XCO2
         'xco2_apriori',
         'xco2_bc', 'xco2_raw', 'xco2_bc_anomaly', 'xco2_raw_anomaly',
@@ -106,7 +107,11 @@ def load_output_dict(filepath):
         'r25_exp_int_sco2_mean', 'r25_exp_int_sco2_std',
     ]
     with h5py.File(filepath, 'r') as f:
-        return {key: f[key][()] for key in keys if key in f}
+        out = {key: f[key][()] for key in keys if key in f}
+        if 'sounding_id' in f and 'weighted_cloud_dist_km' not in out:
+            n = len(f['sounding_id'])
+            out['weighted_cloud_dist_km'] = np.full(n, np.nan)
+        return out
 
 
 
@@ -161,6 +166,7 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     xco2_bc_anomaly  = combined['xco2_bc_anomaly']
     xco2_raw_anomaly = combined['xco2_raw_anomaly']
     cld_dist_km      = combined['cld_dist_km']
+    weighted_cloud_dist_km = combined.get('weighted_cloud_dist_km')
 
     # ── Build combined DataFrame ───────────────────────────────────────────────
     final_dict = {
@@ -202,6 +208,7 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
         'mu_vza': combined['mu_vza'],
         # Cloud distance
         'cld_dist_km': cld_dist_km,
+        'weighted_cloud_dist_km': weighted_cloud_dist_km,
         # Lite retrieval variables
         'psfc':    combined.get('psfc'),
         'airmass': combined.get('airmass'),
