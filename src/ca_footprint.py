@@ -13,7 +13,8 @@ def subset_for_fp(df, fp_idx: int, logger: logging.Logger | None = None):
     """Return one-footprint subset for fp_idx in [0..7].
 
     Supports either one-hot footprint columns (fp_0..fp_7) or a numeric
-    fp_number column that may be 0-based or 1-based.
+    footprint index column (fp_number/fp/footprint/footprint_id) that may
+    be 0-based or 1-based.
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -22,21 +23,26 @@ def subset_for_fp(df, fp_idx: int, logger: logging.Logger | None = None):
     if fp_col in df.columns:
         return df[df[fp_col] == 1]
 
-    if 'fp_number' in df.columns:
-        fp_vals = df['fp_number'].dropna().astype(int)
+    fp_num_col = next(
+        (c for c in ('fp_number', 'fp', 'footprint', 'footprint_id') if c in df.columns),
+        None,
+    )
+
+    if fp_num_col is not None:
+        fp_vals = df[fp_num_col].dropna().astype(int)
         if fp_vals.empty:
             return df.iloc[0:0]
 
         unique_vals = set(fp_vals.unique().tolist())
         if set(range(8)).issubset(unique_vals) or (unique_vals and min(unique_vals) == 0):
-            return df[df['fp_number'].astype(int) == fp_idx]
+            return df[df[fp_num_col].astype(int) == fp_idx]
 
         if set(range(1, 9)).issubset(unique_vals) or (unique_vals and min(unique_vals) == 1):
-            return df[df['fp_number'].astype(int) == (fp_idx + 1)]
+            return df[df[fp_num_col].astype(int) == (fp_idx + 1)]
 
-        return df[df['fp_number'].astype(int) == fp_idx]
+        return df[df[fp_num_col].astype(int) == fp_idx]
 
-    logger.warning("Neither fp_number nor fp_0..fp_7 columns found — cannot split by footprint")
+    logger.warning("No footprint index column found (expected fp_0..fp_7 or fp_number/fp/footprint/footprint_id)")
     return None
 
 
