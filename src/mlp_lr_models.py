@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import os
 import sys
+import json
+import traceback
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from sklearn.linear_model import Ridge
@@ -15,6 +17,7 @@ import gc
 from sklearn.model_selection import train_test_split
 from pipeline import FeaturePipeline
 from model_adapters import _ResBlock, _MLP, RidgeAdapter, MLPAdapter
+from experiment_tracking import RunSummary, get_git_commit_hash, write_run_summary
 import platform
 import logging
 from datetime import datetime
@@ -25,6 +28,76 @@ from joblib import Parallel, delayed
 
 
 logger = logging.getLogger(__name__)
+
+
+def _default_run_config() -> dict:
+    return {
+        'data': {
+            'sfc_type': 0,
+            'snow_flag_value': 0,
+            'linux_data_name': 'combined_2016_2020_dates.parquet',
+            'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
+        },
+        'split': {
+            'test_size': 0.2,
+            'random_state': 42,
+            'stratify_by_pc1': True,
+        },
+        'ridge': {
+            'alpha': 1.0,
+        },
+        'mlp': {
+            'batch_size': 8192,
+            'lr': 6e-4,
+            'weight_decay': 1e-3,
+            'max_epochs': 500,
+            'patience': 30,
+            'grad_clip_norm': 1.0,
+            'cosine_t_max': 150,
+            'cosine_eta_min': 1e-6,
+            'val_batch_size': 8192,
+            'infer_batch_size': 4096,
+            'target_scale_eps': 1e-8,
+        },
+        'loss': {
+            'huber_delta': 1.0,
+            'pred_l1_weight': 0.05,
+        },
+        'importance': {
+            'perm_max_rows': 5000,
+            'perm_repeats': 5,
+        },
+        'seeds': {
+            'plot_rng_seed': 1,
+            'perm_rng_seed': 42,
+            'perm_inner_rng_seed': 0,
+        },
+    }
+
+
+def _deep_update(base: dict, updates: dict) -> dict:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_update(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+def _load_run_config(config_path: str | None) -> dict:
+    cfg = _default_run_config()
+    if config_path is None:
+        return cfg
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(
+            f"Run config not found: {config_path}\n"
+            "Create the file first or run without --config to use defaults."
+        )
+    with open(config_path, 'r', encoding='utf-8') as f:
+        loaded = json.load(f)
+    if not isinstance(loaded, dict):
+        raise TypeError(f"Run config must be a JSON object, got {type(loaded)}")
+    return _deep_update(cfg, loaded)
 
 
 # ─── Main analysis entry point ─────────────────────────────────────────────────
@@ -48,25 +121,44 @@ def main():
     parser.add_argument('--pca-augment', action='store_true',
                         help='Append selected PC scores after scaled features '
                              '(land: PC1/PC4/PC8; ocean: PC3/PC6).')
+    parser.add_argument('--config', type=str, default=None,
+                        help='Path to a JSON config file that overrides training '
+                             'and model hyperparameters. Unspecified keys keep defaults.')
     args = parser.parse_args()
+
+    run_cfg = _load_run_config(args.config)
+    run_cfg['data']['sfc_type'] = int(args.sfc_type)
+    run_cfg['pipeline'] = {
+        'scaler': args.scaler,
+        'pca_augment': bool(args.pca_augment),
+        'pipeline_arg': args.pipeline,
+    }
 
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     if platform.system() == "Linux":
-        data_name = 'combined_2016_2020_dates.parquet'  # for full 2-year dataset
+        data_name = run_cfg['data']['linux_data_name']
     elif platform.system() == "Darwin":
-        data_name = 'combined_2020-02-01_all_orbits.parquet'  # for quick testing with one date's data
+        data_name = run_cfg['data']['darwin_data_name']
     base_dir   = storage_dir / 'results/model_mlp_lr'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    ledger_path = storage_dir / 'results' / 'autoresearch_ledger.tsv'
+    run_id = datetime.now().strftime('%Y%m%d-%H%M%S')
+    commit = get_git_commit_hash(storage_dir)
 
-    sfc_type = args.sfc_type
+    run_cfg_path = output_dir / 'mlp_run_config.json'
+    with open(run_cfg_path, 'w', encoding='utf-8') as f:
+        json.dump(run_cfg, f, indent=2, sort_keys=True)
+    print(f"  Saved resolved run config → {run_cfg_path}", flush=True)
+
+    sfc_type = run_cfg['data']['sfc_type']
     logger.info(f"Surface type filter: {sfc_type} (0=ocean only, 1=land only, 2=sea-ice only)")
 
     data_path = os.path.join(fdir, data_name)
     df = pd.read_parquet(data_path) if data_path.endswith('.parquet') else pd.read_csv(data_path)
     df = df[df['sfc_type'] == sfc_type]
-    df = df[df['snow_flag'] == 0]
+    df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
 
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
@@ -78,7 +170,40 @@ def main():
         pipeline.save(pipeline_path)
         print(f"  Fitted and saved pipeline → {pipeline_path}", flush=True)
 
-    mitigation_test(df, output_dir=output_dir, pipeline=pipeline, test_csv=None)
+    try:
+        mitigation_test(
+            df,
+            output_dir=output_dir,
+            pipeline=pipeline,
+            test_csv=None,
+            perm_max_rows=int(run_cfg['importance']['perm_max_rows']),
+            run_cfg=run_cfg,
+            ledger_path=ledger_path,
+            run_id=run_id,
+            commit=commit,
+            script_name=os.path.basename(__file__),
+        )
+    except Exception:
+        crash_summary = RunSummary(
+            run_id=run_id,
+            script_name=os.path.basename(__file__),
+            model_family='mlp_lr',
+            commit=commit,
+            status='crash',
+            primary_metric_name='mlp_test_rmse',
+            primary_metric_value=0.0,
+            secondary_metrics={'traceback': traceback.format_exc()},
+            peak_memory_mb=0.0,
+            runtime_seconds=0.0,
+            description='MLP+Ridge run crashed',
+            artifacts={
+                'output_dir': str(output_dir),
+                'run_config': str(run_cfg_path),
+            },
+            config=run_cfg,
+        )
+        write_run_summary(crash_summary, output_dir=output_dir, ledger_path=ledger_path)
+        raise
 
 def _compute_anomaly_group(idx_list, fp_lat, cld_dist_km, xco2,
                            lat_thres, std_thres, min_cld_dist, chunk_size):
@@ -189,7 +314,9 @@ def compute_xco2_anomaly_date_id(fp_date, fp_orbit_id, fp_lat, cld_dist_km, xco2
 # ─── LR mitigation test ────────────────────────────────────────────────────────
 
 def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
-                    perm_max_rows: int = 5000):
+                    perm_max_rows: int = 5000, run_cfg: dict | None = None,
+                    ledger_path=None, run_id: str | None = None,
+                    commit: str | None = None, script_name: str | None = None):
     """Train a per-footprint linear regression to predict XCO2 bias from kappas.
 
     Parameters
@@ -201,6 +328,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     """
     
     import resource as _res
+    run_start = datetime.now()
     _t0 = datetime.now()
     def _checkpoint(label):
         rss_raw = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss
@@ -222,7 +350,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         idx = rng.choice(N, size=_SCATTER_MAX, replace=False)
         return tuple(a[idx] for a in arrs)
 
-    rng_plot = np.random.default_rng(1)
+    cfg = _default_run_config() if run_cfg is None else run_cfg
+    rng_plot = np.random.default_rng(int(cfg['seeds']['plot_rng_seed']))
 
     # Keep only the 3 columns needed downstream — avoids copying all df columns for the filtered subset
     df_xco2_anomaly = df.loc[df['xco2_bc_anomaly'].notna(), ['xco2_bc', 'xco2_bc_anomaly', 'cld_dist_km']]
@@ -259,7 +388,8 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     print("X shape (train-eligible):", X_for_train.shape)
     print("y shape (train-eligible):", y_for_train.shape)
     _pc1_col = getattr(pipeline, 'pc1_col_idx', None)
-    if _pc1_col is not None:
+    stratify_by_pc1 = bool(cfg['split'].get('stratify_by_pc1', True))
+    if _pc1_col is not None and stratify_by_pc1:
         import pandas as _pd_strat
         _pc1_vals  = X_for_train[:, _pc1_col]
         _pc1_strat = _pd_strat.qcut(_pc1_vals, q=5, labels=False, duplicates='drop')
@@ -267,8 +397,14 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     else:
         _stratify = None
     X_train, X_test, y_train, y_test = train_test_split(
-        X_for_train, y_for_train, test_size=0.2, random_state=42, stratify=_stratify
+        X_for_train,
+        y_for_train,
+        test_size=float(cfg['split']['test_size']),
+        random_state=int(cfg['split']['random_state']),
+        stratify=_stratify,
     )
+    X_test_eval = X_test.copy()
+    y_test_eval = y_test.copy()
     del X_for_train, y_for_train
     del y  # y_train + y_test contain all labels; drop the combined copy
     gc.collect()
@@ -357,7 +493,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
 
     # ── Linear baseline ────────────────────────────────────────────
     _checkpoint("before LinearRegression fit")
-    model = Ridge(alpha=1.0)
+    model = Ridge(alpha=float(cfg['ridge']['alpha']))
     model.fit(X_train, y_train)
     print(f"Test FP R² (linear) for predicting xco2_bc anomaly: {model.score(X_test, y_test):.3f}")
     _pc1_col_eval = getattr(pipeline, 'pc1_col_idx', None)
@@ -383,7 +519,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     # from cloud-affected anomalies; IQR/1.349 ≈ σ for a Gaussian distribution)
     # 1.3490 = IQR of N(0,1) = 2 × Φ⁻¹(0.75) ≈ 2 × 0.6745, so IQR/1.3490 ≈ σ
     y_mean = float(np.median(y_train))
-    y_std  = float(np.percentile(y_train, 75) - np.percentile(y_train, 25)) / 1.3490 + 1e-8
+    y_std  = float(np.percentile(y_train, 75) - np.percentile(y_train, 25)) / 1.3490 + float(cfg['mlp']['target_scale_eps'])
     y_train_n = (y_train - y_mean) / y_std
     y_test_n  = (y_test  - y_mean) / y_std
 
@@ -397,8 +533,11 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
 
     train_ds = train_loader = best_state = None  # initialised here; set inside else-branch if training runs
 
+    loss_huber_delta = float(cfg['loss']['huber_delta'])
+    loss_pred_l1_weight = float(cfg['loss']['pred_l1_weight'])
+
     def _loss(pred, by):
-        return nn.functional.huber_loss(pred, by, delta=1.0) + 0.05 * pred.abs().mean()
+        return nn.functional.huber_loss(pred, by, delta=loss_huber_delta) + loss_pred_l1_weight * pred.abs().mean()
 
     if RidgeAdapter.can_load(output_dir) and MLPAdapter.can_load(output_dir):
         # ── Load from checkpoint, skip training ───────────────────────────
@@ -419,16 +558,21 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         )
         del y_train_n  # data copied into train_ds tensor; free the numpy array
         # Larger batch size for full dataset efficiency; 512 is fine for the local subset too
-        train_loader = torch.utils.data.DataLoader(train_ds, batch_size=8192, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(
+            train_ds,
+            batch_size=int(cfg['mlp']['batch_size']),
+            shuffle=True,
+        )
 
         # Val loss uses batched inference to keep peak memory bounded on the 76K-sample test set
         def _val_loss(model_):
             model_.eval()
             total, n = 0.0, 0
+            val_batch_size = int(cfg['mlp']['val_batch_size'])
             with torch.no_grad():
-                for start in range(0, len(X_test), 8192):
-                    Xb = torch.tensor(X_test[start:start + 8192], dtype=torch.float32).to(device)
-                    yb = torch.tensor(y_test_n[start:start + 8192], dtype=torch.float32).to(device)
+                for start in range(0, len(X_test), val_batch_size):
+                    Xb = torch.tensor(X_test[start:start + val_batch_size], dtype=torch.float32).to(device)
+                    yb = torch.tensor(y_test_n[start:start + val_batch_size], dtype=torch.float32).to(device)
                     pred = model_(Xb)
                     total += _loss(pred, yb).item() * len(Xb)
                     n += len(Xb)
@@ -440,12 +584,20 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         print(f"  MLP parameters: {n_params:,}  |  train samples: {len(X_train):,}  "
               f"|  ratio: {len(X_train)/n_params:.2f}", flush=True)
 
-        optimizer = torch.optim.AdamW(mlp.parameters(), lr=6e-4, weight_decay=1e-3)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=150, eta_min=1e-6)
+        optimizer = torch.optim.AdamW(
+            mlp.parameters(),
+            lr=float(cfg['mlp']['lr']),
+            weight_decay=float(cfg['mlp']['weight_decay']),
+        )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=int(cfg['mlp']['cosine_t_max']),
+            eta_min=float(cfg['mlp']['cosine_eta_min']),
+        )
 
         train_losses, val_losses = [], []
-        best_val_loss, best_state, patience, no_improve = float('inf'), None, 30, 0
-        epoch_bar = tqdm(range(500), desc="MLP training", unit="epoch")
+        best_val_loss, best_state, patience, no_improve = float('inf'), None, int(cfg['mlp']['patience']), 0
+        epoch_bar = tqdm(range(int(cfg['mlp']['max_epochs'])), desc="MLP training", unit="epoch")
         for epoch in epoch_bar:
             mlp.train()
             train_loss = 0.0
@@ -455,7 +607,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
                 pred = mlp(bx)
                 loss = _loss(pred, by)
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(mlp.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(mlp.parameters(), max_norm=float(cfg['mlp']['grad_clip_norm']))
                 optimizer.step()
                 train_loss += loss.item()
             scheduler.step()
@@ -521,8 +673,10 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     gc.collect()
     _checkpoint("after MLP training  (post-gc)")
 
-    def _mlp_infer(X_np, batch_size=4096):
+    def _mlp_infer(X_np, batch_size=None):
         """Batched inference; returns predictions in original (ppm) units."""
+        if batch_size is None:
+            batch_size = int(cfg['mlp']['infer_batch_size'])
         out = []
         for start in range(0, len(X_np), batch_size):
             Xb = torch.tensor(X_np[start:start + batch_size], dtype=torch.float32).to(device)
@@ -565,7 +719,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     gc.collect()
 
     # Permutation importance — subsample to cap memory/compute (perm_max_rows rows is enough for stable estimates)
-    rng_pi   = np.random.default_rng(42)
+    rng_pi   = np.random.default_rng(int(cfg['seeds']['perm_rng_seed']))
     pi_n     = min(perm_max_rows, X_test.shape[0])
     pi_idx   = rng_pi.choice(X_test.shape[0], size=pi_n, replace=False)
     X_pi     = X_test[pi_idx]
@@ -578,7 +732,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         ss_tot      = ((y_eval - y_eval.mean()) ** 2).sum()
         baseline_r2 = 1.0 - ((y_eval - predict_fn(X_eval)) ** 2).sum() / ss_tot
         importances = np.zeros(X_eval.shape[1])
-        rng_inner   = np.random.default_rng(0)
+        rng_inner   = np.random.default_rng(int(cfg['seeds']['perm_inner_rng_seed']))
         for col in range(X_eval.shape[1]):
             if col in skip_cols:
                 continue  # skip one-hot footprint columns
@@ -597,9 +751,10 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
         if f.startswith('fp_') and f[3:].isdigit()
     )
     _checkpoint("permutation importance: LR")
-    perm_imp_lr = _permutation_importance(model.predict, X_pi, y_pi, skip_cols=fp_skip_cols)
+    perm_repeats = int(cfg['importance']['perm_repeats'])
+    perm_imp_lr = _permutation_importance(model.predict, X_pi, y_pi, n_repeats=perm_repeats, skip_cols=fp_skip_cols)
     _checkpoint("permutation importance: MLP")
-    perm_imp_mlp = _permutation_importance(_mlp_infer, X_pi, y_pi, skip_cols=fp_skip_cols)
+    perm_imp_mlp = _permutation_importance(_mlp_infer, X_pi, y_pi, n_repeats=perm_repeats, skip_cols=fp_skip_cols)
     _checkpoint("permutation importance: complete")
 
     # Save importance to CSV
@@ -955,6 +1110,56 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
              if test_csv else "LR_MLP_correction_lt_xco2_map_all.png")
     fig.savefig(os.path.join(output_dir, fname), dpi=150, bbox_inches='tight')
     plt.close(fig)
+
+    if ledger_path is not None and run_id is not None and commit is not None and script_name is not None:
+        try:
+            import resource as _res_summary
+            rss_raw = _res_summary.getrusage(_res_summary.RUSAGE_SELF).ru_maxrss
+            peak_memory_mb = rss_raw / (1024 * 1024) if platform.system() == "Darwin" else rss_raw / 1024
+        except Exception:
+            peak_memory_mb = 0.0
+
+        runtime_seconds = (datetime.now() - run_start).total_seconds()
+        y_test_arr = np.asarray(y_test_eval, dtype=float)
+        ridge_pred = model.predict(X_test_eval)
+        mlp_pred = y_all_mlp
+
+        ridge_rmse = float(np.sqrt(np.mean((y_test_arr - ridge_pred) ** 2)))
+        ridge_mae = float(np.mean(np.abs(y_test_arr - ridge_pred)))
+        ridge_r2 = float(model.score(X_test_eval, y_test_arr))
+        mlp_rmse = float(np.sqrt(np.mean((y_test_arr - mlp_pred) ** 2)))
+        mlp_mae = float(np.mean(np.abs(y_test_arr - mlp_pred)))
+        denom = np.sum((y_test_arr - y_test_arr.mean()) ** 2)
+        mlp_r2 = float(1.0 - np.sum((y_test_arr - mlp_pred) ** 2) / denom) if denom > 0 else float('nan')
+
+        summary = RunSummary(
+            run_id=run_id,
+            script_name=script_name,
+            model_family='mlp_lr',
+            commit=commit,
+            status='success',
+            primary_metric_name='mlp_test_rmse',
+            primary_metric_value=mlp_rmse,
+            secondary_metrics={
+                'mlp_test_mae': mlp_mae,
+                'mlp_test_r2': mlp_r2,
+                'ridge_test_rmse': ridge_rmse,
+                'ridge_test_mae': ridge_mae,
+                'ridge_test_r2': ridge_r2,
+            },
+            peak_memory_mb=float(peak_memory_mb),
+            runtime_seconds=float(runtime_seconds),
+            description='MLP+Ridge mitigation test with shared feature pipeline',
+            artifacts={
+                'output_dir': str(output_dir),
+                'run_config': str(output_dir / 'mlp_run_config.json'),
+                'feature_importance_csv': str(output_dir / 'feature_importance_xco2_bc_anomaly.csv'),
+                'learning_curve_png': str(output_dir / 'mlp_learning_curve.png'),
+                'summary_json': str(output_dir / 'run_summary.json'),
+            },
+            config=cfg,
+        )
+        write_run_summary(summary, output_dir=output_dir, ledger_path=ledger_path)
 
 
     

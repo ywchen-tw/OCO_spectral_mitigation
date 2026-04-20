@@ -25,6 +25,7 @@ See log/hybrid_model_plan.md for the full architectural rationale.
 import argparse
 import copy
 import gc
+import json
 import logging
 import os
 import platform
@@ -59,6 +60,73 @@ from utils import get_storage_dir
 logger = logging.getLogger(__name__)
 
 _QUANTILES = [0.05, 0.5, 0.95]
+
+
+def _default_run_config() -> dict:
+    return {
+        'data': {
+            'sfc_type': 0,
+            'snow_flag_value': 0,
+            'linux_data_name': 'combined_2016_2020_dates.parquet',
+            'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
+        },
+        'split': {
+            'test_size': 0.2,
+            'random_state': 42,
+            'stratify_by_pc1': True,
+        },
+        'model': {
+            'd_token': 128,
+            'n_heads': 8,
+            'n_layers': 3,
+            'd_ff': 256,
+            'mlp_hidden': 256,
+            'fusion_dim': 128,
+        },
+        'train': {
+            'darwin_epochs': 100,
+            'linux_epochs': 500,
+            'darwin_batch_size': 1024,
+            'linux_batch_size': 16384,
+            'patience': 50,
+            'log_every': 10,
+        },
+        'loss': {
+            'loss': 'huber',
+            'huber_delta': 1.0,
+            'range_loss_weight': 0.0,
+            'range_loss_type': 'variance',
+        },
+        'pipeline': {
+            'scaler': 'robust_standard',
+            'pca_augment': False,
+        },
+    }
+
+
+def _deep_update(base: dict, updates: dict) -> dict:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_update(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+def _load_run_config(config_path: str | None) -> dict:
+    cfg = _default_run_config()
+    if config_path is None:
+        return cfg
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(
+            f"Run config not found: {config_path}\n"
+            "Create the file first or run without --config to use defaults."
+        )
+    with open(config_path, 'r', encoding='utf-8') as f:
+        loaded = json.load(f)
+    if not isinstance(loaded, dict):
+        raise TypeError(f"Run config must be a JSON object, got {type(loaded)}")
+    return _deep_update(cfg, loaded)
 
 
 # ─── MLP branch ────────────────────────────────────────────────────────────────
@@ -522,34 +590,57 @@ def main():
     parser = argparse.ArgumentParser(
         description="HybridDualTower (MLP + FT-Transformer) XCO2 bias correction"
     )
-    parser.add_argument('--sfc_type', type=int, default=0,
+    parser.add_argument('--sfc_type', type=int, default=None,
                         help="Surface type (0=ocean, 1=land, 2=sea-ice)")
     parser.add_argument('--suffix', type=str, default='',
                         help='Subfolder under results/model_hybrid/ (e.g. ocean_2016_2020)')
     parser.add_argument('--pipeline', type=str, default=None,
                         help='Path to a pre-fitted FeaturePipeline (.pkl).  '
                              'If not supplied, fitted from training data and saved.')
-    parser.add_argument('--loss', type=str, default='huber',
+    parser.add_argument('--loss', type=str, default=None,
                         choices=['quantile', 'huber'],
                         help='Loss for q50: huber (default) or quantile (pinball).')
-    parser.add_argument('--huber-delta', type=float, default=1.0,
+    parser.add_argument('--huber-delta', type=float, default=None,
                         help='Huber δ (ppm). Only used when --loss huber. Default: 1.0.')
-    parser.add_argument('--range-loss-weight', type=float, default=0.0,
+    parser.add_argument('--range-loss-weight', type=float, default=None,
                         help='Weight λ for the distribution-matching range loss added to q50.  '
                              '0.0 disables it (default).  Start with 0.1 for variance, '
                              '0.05 for mmd.')
-    parser.add_argument('--range-loss-type', type=str, default='variance',
+    parser.add_argument('--range-loss-type', type=str, default=None,
                         choices=['variance', 'mmd'],
                         help='Type of range loss: "variance" = one-sided std penalty (default, '
                              'works at any batch size); "mmd" = Gaussian-kernel MMD '
                              '(requires batch_size ≥ 256 for stable estimates).')
-    parser.add_argument('--scaler', default='robust_standard',
+    parser.add_argument('--scaler', default=None,
                         choices=['robust_standard', 'pca_whitening'],
                         help='Scaler for MLP branch: robust_standard (default) or pca_whitening.')
-    parser.add_argument('--pca-augment', action='store_true',
+    parser.add_argument('--pca-augment', dest='pca_augment', action='store_true',
                         help='Append selected PC scores after scaled features '
                              '(land: PC1/PC4/PC8; ocean: PC3/PC6).')
+    parser.add_argument('--no-pca-augment', dest='pca_augment', action='store_false',
+                        help='Disable PCA-score augmentation.')
+    parser.set_defaults(pca_augment=None)
+    parser.add_argument('--config', type=str, default=None,
+                        help='Path to a JSON config file that overrides data/model/training '
+                             'hyperparameters. Unspecified keys keep defaults.')
     args = parser.parse_args()
+
+    run_cfg = _load_run_config(args.config)
+    if args.sfc_type is not None:
+        run_cfg['data']['sfc_type'] = int(args.sfc_type)
+    if args.loss is not None:
+        run_cfg['loss']['loss'] = args.loss
+    if args.huber_delta is not None:
+        run_cfg['loss']['huber_delta'] = float(args.huber_delta)
+    if args.range_loss_weight is not None:
+        run_cfg['loss']['range_loss_weight'] = float(args.range_loss_weight)
+    if args.range_loss_type is not None:
+        run_cfg['loss']['range_loss_type'] = args.range_loss_type
+    if args.scaler is not None:
+        run_cfg['pipeline']['scaler'] = args.scaler
+    if args.pca_augment is not None:
+        run_cfg['pipeline']['pca_augment'] = bool(args.pca_augment)
+    run_cfg['pipeline']['pipeline_arg'] = args.pipeline
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)s %(message)s')
@@ -557,21 +648,27 @@ def main():
     storage_dir = get_storage_dir()
     fdir        = storage_dir / 'results/csv_collection'
     if platform.system() == "Linux":
-        data_name = 'combined_2016_2020_dates.parquet'
+        data_name = run_cfg['data']['linux_data_name']
     else:
-        data_name = 'combined_2020-02-01_all_orbits.parquet'
+        data_name = run_cfg['data']['darwin_data_name']
 
     base_dir   = storage_dir / 'results/model_hybrid'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Surface type: %d  output_dir: %s", args.sfc_type, output_dir)
+    run_cfg_path = output_dir / 'hybrid_run_config.json'
+    with open(run_cfg_path, 'w', encoding='utf-8') as f:
+        json.dump(run_cfg, f, indent=2, sort_keys=True)
+    print(f"  Saved resolved run config → {run_cfg_path}", flush=True)
+
+    sfc_type = int(run_cfg['data']['sfc_type'])
+    logger.info("Surface type: %d  output_dir: %s", sfc_type, output_dir)
 
     # ── Load data ──────────────────────────────────────────────────────────────
     _dp = str(fdir / data_name)
     df  = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
-    df  = df[df['sfc_type'] == args.sfc_type]
-    df  = df[df['snow_flag'] == 0]
+    df  = df[df['sfc_type'] == sfc_type]
+    df  = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
 
     # ── Pipeline: load or fit ──────────────────────────────────────────────────
     pipeline_path = output_dir / 'pipeline.pkl'
@@ -580,9 +677,9 @@ def main():
     elif pipeline_path.exists():
         pipeline = FeaturePipeline.load(pipeline_path)
     else:
-        pipeline = FeaturePipeline.fit(df, sfc_type=args.sfc_type,
-                                       scaler=args.scaler,
-                                       pca_augment=args.pca_augment)
+        pipeline = FeaturePipeline.fit(df, sfc_type=sfc_type,
+                                       scaler=run_cfg['pipeline']['scaler'],
+                                       pca_augment=bool(run_cfg['pipeline']['pca_augment']))
         pipeline.save(pipeline_path)
         print(f"  Fitted and saved pipeline → {pipeline_path}", flush=True)
 
@@ -638,13 +735,17 @@ def main():
     print(f"  X shape: {X.shape}  y shape: {y.shape}", flush=True)
 
     _pc1_col = getattr(pipeline, 'pc1_col_idx', None)
-    if _pc1_col is not None:
+    if bool(run_cfg['split']['stratify_by_pc1']) and _pc1_col is not None:
         _pc1_strat = pd.qcut(X[:, _pc1_col], q=5, labels=False, duplicates='drop')
         _stratify  = _pc1_strat
     else:
         _stratify = None
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=_stratify
+        X,
+        y,
+        test_size=float(run_cfg['split']['test_size']),
+        random_state=int(run_cfg['split']['random_state']),
+        stratify=_stratify,
     )
     del X, y
     gc.collect()
@@ -656,25 +757,48 @@ def main():
         model   = adapter.model
         print(f"  [checkpoint] Loaded from {output_dir}", flush=True)
     else:
-        epochs = 100 if platform.system() == "Darwin" else 500
+        if platform.system() == "Darwin":
+            epochs = int(run_cfg['train']['darwin_epochs'])
+            batch_size = int(run_cfg['train']['darwin_batch_size'])
+        else:
+            epochs = int(run_cfg['train']['linux_epochs'])
+            batch_size = int(run_cfg['train']['linux_batch_size'])
+
+        d_token = int(run_cfg['model']['d_token'])
+        n_heads = int(run_cfg['model']['n_heads'])
+        n_layers = int(run_cfg['model']['n_layers'])
+        d_ff = int(run_cfg['model']['d_ff'])
+        mlp_hidden = int(run_cfg['model']['mlp_hidden'])
+        fusion_dim = int(run_cfg['model']['fusion_dim'])
+
         model = train_hybrid_model(
             X_train, y_train, X_test, y_test,
             features=features,
             output_dir=str(output_dir),
-            d_token=128, n_heads=8, n_layers=3, d_ff=256,
-            mlp_hidden=256, fusion_dim=128,
-            batch_size=1024 if platform.system() == "Darwin" else 16384, n_epochs=epochs,
-            patience=50,
-            loss_fn=args.loss,
-            huber_delta=args.huber_delta,
-            range_loss_weight=args.range_loss_weight,
-            range_loss_type=args.range_loss_type,
+            d_token=d_token,
+            n_heads=n_heads,
+            n_layers=n_layers,
+            d_ff=d_ff,
+            mlp_hidden=mlp_hidden,
+            fusion_dim=fusion_dim,
+            batch_size=batch_size,
+            n_epochs=epochs,
+            log_every=int(run_cfg['train']['log_every']),
+            patience=int(run_cfg['train']['patience']),
+            loss_fn=run_cfg['loss']['loss'],
+            huber_delta=float(run_cfg['loss']['huber_delta']),
+            range_loss_weight=float(run_cfg['loss']['range_loss_weight']),
+            range_loss_type=run_cfg['loss']['range_loss_type'],
         )
         HybridAdapter(
             model,
             n_features=pipeline.n_features,
-            d_token=128, n_heads=8, n_layers=3, d_ff=256,
-            mlp_hidden=256, fusion_dim=128,
+            d_token=d_token,
+            n_heads=n_heads,
+            n_layers=n_layers,
+            d_ff=d_ff,
+            mlp_hidden=mlp_hidden,
+            fusion_dim=fusion_dim,
             feature_names=features,
         ).save(output_dir)
         print(f"  Saved adapter → {output_dir}", flush=True)
@@ -713,8 +837,8 @@ def main():
     # ── Regime comparison plot ─────────────────────────────────────────────────
     _dp2   = str(fdir / data_name)
     df_eval = pd.read_parquet(_dp2) if _dp2.endswith('.parquet') else pd.read_csv(_dp2)
-    df_eval = df_eval[df_eval['sfc_type'] == args.sfc_type]
-    df_eval = df_eval[df_eval['snow_flag'] == 0]
+    df_eval = df_eval[df_eval['sfc_type'] == sfc_type]
+    df_eval = df_eval[df_eval['snow_flag'] == run_cfg['data']['snow_flag_value']]
     plot_hybrid_evaluation_by_regime(model, df_eval, pipeline, str(output_dir))
     del df_eval
     gc.collect()

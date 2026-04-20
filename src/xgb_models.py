@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import gc
+import json
 import logging
 import os
 import platform
@@ -35,6 +36,75 @@ from utils import get_storage_dir
 logger = logging.getLogger(__name__)
 
 
+def _default_run_config() -> dict:
+    return {
+        'data': {
+            'sfc_type': 0,
+            'snow_flag_value': 0,
+            'linux_data_name': 'combined_2016_2020_dates.parquet',
+            'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
+        },
+        'split': {
+            'test_size': 0.2,
+            'random_state': 42,
+            'stratify_by_pc1': True,
+        },
+        'pipeline': {
+            'pca_augment': False,
+        },
+        'objective': {
+            'huber_delta': 1.0,
+            'pred_l1_weight': 0.05,
+        },
+        'xgb': {
+            'n_estimators': 12000,
+            'max_depth': 5,
+            'learning_rate': 0.1,
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+            'min_child_weight': 400,
+            'gamma': 1.0,
+            'reg_lambda': 5.0,
+            'reg_alpha': 0.5,
+            'tree_method': 'hist',
+            'early_stopping_rounds': 100,
+            'eval_metric': 'mae',
+            'n_jobs': -1,
+            'verbosity': 1,
+            'eval_verbose': 50,
+        },
+        'shap': {
+            'n_shap_full': 10000,
+            'n_shap_viz': 2000,
+        },
+    }
+
+
+def _deep_update(base: dict, updates: dict) -> dict:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_update(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+def _load_run_config(config_path: str | None) -> dict:
+    cfg = _default_run_config()
+    if config_path is None:
+        return cfg
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(
+            f"Run config not found: {config_path}\n"
+            "Create the file first or run without --config to use defaults."
+        )
+    with open(config_path, 'r', encoding='utf-8') as f:
+        loaded = json.load(f)
+    if not isinstance(loaded, dict):
+        raise TypeError(f"Run config must be a JSON object, got {type(loaded)}")
+    return _deep_update(cfg, loaded)
+
+
 # ─── Helpers ────────────────────────────────────────────────────────────────────
 
 def _cuda_available() -> bool:
@@ -47,27 +117,28 @@ def _cuda_available() -> bool:
 
 # ─── Custom objective ───────────────────────────────────────────────────────────
 
-def _huber_l1_pred_obj(y_true: np.ndarray, y_pred: np.ndarray) -> tuple:
-    """Custom XGBoost objective: Huber loss + λ·|ŷ| prediction shrinkage.
+def _build_huber_l1_pred_obj(delta: float, lam: float):
+    def _huber_l1_pred_obj(y_true: np.ndarray, y_pred: np.ndarray) -> tuple:
+        """Custom XGBoost objective: Huber loss + λ·|ŷ| prediction shrinkage.
 
-    XGBRegressor sklearn API calls custom objectives as fn(labels, preds).
+        XGBRegressor sklearn API calls custom objectives as fn(labels, preds).
 
-    Mirrors the `+ 0.05 * pred.abs().mean()` term added to the MLP/Transformer
-    training losses — pushing leaf weights toward zero when signal is weak so
-    that small anomalies near zero are not over-predicted.
+        Mirrors the `+ 0.05 * pred.abs().mean()` term added to the MLP/Transformer
+        training losses — pushing leaf weights toward zero when signal is weak so
+        that small anomalies near zero are not over-predicted.
 
-    Gradient = Huber'(ŷ − y) + λ·sign(ŷ)
-    Hessian  = Huber''(ŷ − y)   (L1 hessian is 0 a.e.; omitted)
-    """
-    delta = 1.0   # Huber transition point (ppm)
-    lam   = 0.05  # L1 penalty weight — same as neural net models
-    residual = y_pred - y_true          # sign convention: ŷ − y
-    abs_r    = np.abs(residual)
-    grad = np.where(abs_r <= delta, residual, delta * np.sign(residual))
-    hess = np.where(abs_r <= delta, np.ones_like(residual),
-                    delta / np.clip(abs_r, 1e-9, None))
-    grad += lam * np.sign(y_pred)
-    return grad, hess
+        Gradient = Huber'(ŷ − y) + λ·sign(ŷ)
+        Hessian  = Huber''(ŷ − y)   (L1 hessian is 0 a.e.; omitted)
+        """
+        residual = y_pred - y_true
+        abs_r = np.abs(residual)
+        grad = np.where(abs_r <= delta, residual, delta * np.sign(residual))
+        hess = np.where(abs_r <= delta, np.ones_like(residual),
+                        delta / np.clip(abs_r, 1e-9, None))
+        grad += lam * np.sign(y_pred)
+        return grad, hess
+
+    return _huber_l1_pred_obj
 
 
 # ─── Built-in importance ────────────────────────────────────────────────────────
@@ -274,7 +345,7 @@ def plot_xgb_learning_curve(model, output_dir: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description='XGBoost XCO2 bias correction')
-    parser.add_argument('--sfc_type', type=int, default=0,
+    parser.add_argument('--sfc_type', type=int, default=None,
                         help='Surface type filter (0=ocean, 1=land; default: 0)')
     parser.add_argument('--suffix', type=str, default='',
                         help='Subfolder appended to output base dir '
@@ -284,12 +355,25 @@ def main():
                         help='Path to a saved FeaturePipeline (.pkl). '
                              'If omitted, a new pipeline is fitted on the training data '
                              'and saved to <output_dir>/pipeline.pkl.')
-    parser.add_argument('--pca-augment', action='store_true',
+    parser.add_argument('--pca-augment', dest='pca_augment', action='store_true',
                         help='Append selected PC scores after scaled features '
                              '(land: PC1/PC4/PC8; ocean: PC3/PC6).  '
                              'Note: --scaler pca_whitening is not supported for XGBoost '
                              '(collinearity immunity; SHAP interpretability would be lost).')
+    parser.add_argument('--no-pca-augment', dest='pca_augment', action='store_false',
+                        help='Disable PCA-score augmentation.')
+    parser.set_defaults(pca_augment=None)
+    parser.add_argument('--config', type=str, default=None,
+                        help='Path to a JSON config file that overrides data/model/training '
+                             'hyperparameters. Unspecified keys keep defaults.')
     args = parser.parse_args()
+
+    run_cfg = _load_run_config(args.config)
+    if args.sfc_type is not None:
+        run_cfg['data']['sfc_type'] = int(args.sfc_type)
+    if args.pca_augment is not None:
+        run_cfg['pipeline']['pca_augment'] = bool(args.pca_augment)
+    run_cfg['pipeline']['pipeline_arg'] = args.pipeline
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
@@ -301,16 +385,20 @@ def main():
     storage_dir = get_storage_dir()
     fdir        = storage_dir / 'results/csv_collection'
     if platform.system() == 'Linux':
-        data_name = 'combined_2016_2020_dates.parquet'
+        data_name = run_cfg['data']['linux_data_name']
     else:
-        data_name = 'combined_2020-02-01_all_orbits.parquet'
-        # data_name = 'combined_2016_2020_dates.parquet'
+        data_name = run_cfg['data']['darwin_data_name']
 
     base_dir   = storage_dir / 'results/model_xgb'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    sfc_type = args.sfc_type
+    run_cfg_path = output_dir / 'xgb_run_config.json'
+    with open(run_cfg_path, 'w', encoding='utf-8') as f:
+        json.dump(run_cfg, f, indent=2, sort_keys=True)
+    print(f"Saved resolved run config → {run_cfg_path}", flush=True)
+
+    sfc_type = int(run_cfg['data']['sfc_type'])
     logger.info("Surface type: %d (0=ocean, 1=land)", sfc_type)
 
     # ── Load data ──────────────────────────────────────────────────────────
@@ -320,7 +408,7 @@ def main():
     df = (pd.read_parquet(data_path) if data_path.endswith('.parquet')
           else pd.read_csv(data_path))
     df = df[df['sfc_type'] == sfc_type]
-    df = df[df['snow_flag'] == 0]
+    df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
     print(f"  Rows after filter: {len(df):,}", flush=True)
     _checkpoint("after data load + filter")
 
@@ -329,7 +417,7 @@ def main():
         pipeline = FeaturePipeline.load(args.pipeline)
     else:
         pipeline = FeaturePipeline.fit(df, sfc_type=sfc_type,
-                                       pca_augment=args.pca_augment)
+                                       pca_augment=bool(run_cfg['pipeline']['pca_augment']))
         pipeline_path = output_dir / 'pipeline.pkl'
         pipeline.save(pipeline_path)
         print(f"  Pipeline fitted and saved → {pipeline_path}", flush=True)
@@ -365,14 +453,18 @@ def main():
 
     print(f"X shape: {X.shape}  |  y shape: {y.shape}", flush=True)
     _pc1_col = getattr(pipeline, 'pc1_col_idx', None)
-    if _pc1_col is not None:
+    if bool(run_cfg['split']['stratify_by_pc1']) and _pc1_col is not None:
         _pc1_vals  = X[:, _pc1_col]
         _pc1_strat = pd.qcut(_pc1_vals, q=5, labels=False, duplicates='drop')
         _stratify  = _pc1_strat
     else:
         _stratify = None
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=_stratify
+        X,
+        y,
+        test_size=float(run_cfg['split']['test_size']),
+        random_state=int(run_cfg['split']['random_state']),
+        stratify=_stratify,
     )
     del X, y
     gc.collect()
@@ -385,23 +477,28 @@ def main():
     device = 'cuda' if _cuda_available() else 'cpu'
     print(f"  Device: {device}", flush=True)
 
+    objective_fn = _build_huber_l1_pred_obj(
+        delta=float(run_cfg['objective']['huber_delta']),
+        lam=float(run_cfg['objective']['pred_l1_weight']),
+    )
+
     model = xgb.XGBRegressor(
-        n_estimators          = 12000,
-        max_depth             = 5,
-        learning_rate         = 0.1,
-        subsample             = 0.8,
-        colsample_bytree      = 0.8,
-        min_child_weight      = 400,
-        gamma                 = 1.0,
-        reg_lambda            = 5.0,
-        reg_alpha             = 0.5,
-        objective             = _huber_l1_pred_obj,
-        tree_method           = 'hist',
+        n_estimators          = int(run_cfg['xgb']['n_estimators']),
+        max_depth             = int(run_cfg['xgb']['max_depth']),
+        learning_rate         = float(run_cfg['xgb']['learning_rate']),
+        subsample             = float(run_cfg['xgb']['subsample']),
+        colsample_bytree      = float(run_cfg['xgb']['colsample_bytree']),
+        min_child_weight      = float(run_cfg['xgb']['min_child_weight']),
+        gamma                 = float(run_cfg['xgb']['gamma']),
+        reg_lambda            = float(run_cfg['xgb']['reg_lambda']),
+        reg_alpha             = float(run_cfg['xgb']['reg_alpha']),
+        objective             = objective_fn,
+        tree_method           = run_cfg['xgb']['tree_method'],
         device                = device,
-        early_stopping_rounds = 100,
-        eval_metric           = 'mae',
-        n_jobs                = -1,
-        verbosity             = 1,
+        early_stopping_rounds = int(run_cfg['xgb']['early_stopping_rounds']),
+        eval_metric           = run_cfg['xgb']['eval_metric'],
+        n_jobs                = int(run_cfg['xgb']['n_jobs']),
+        verbosity             = int(run_cfg['xgb']['verbosity']),
     )
 
     print("Training XGBoost …", flush=True)
@@ -410,7 +507,7 @@ def main():
     model.fit(
         X_train, y_train,
         eval_set=[(X_test, y_test)],
-        verbose=50,
+        verbose=int(run_cfg['xgb']['eval_verbose']),
     )
     del X_train, y_train   # no longer needed after fit
     gc.collect()
@@ -452,7 +549,15 @@ def main():
 
     plot_xgb_learning_curve(model, output_dir)
     plot_xgb_importance_builtin(model, plot_features, output_dir)
-    plot_xgb_shap(model, X_test, features, output_dir, display_features=plot_features)
+    plot_xgb_shap(
+        model,
+        X_test,
+        features,
+        output_dir,
+        n_shap_full=int(run_cfg['shap']['n_shap_full']),
+        n_shap_viz=int(run_cfg['shap']['n_shap_viz']),
+        display_features=plot_features,
+    )
 
     print(f"\nAll outputs written to {output_dir}", flush=True)
 

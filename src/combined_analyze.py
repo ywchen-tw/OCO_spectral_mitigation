@@ -210,6 +210,127 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
 
+def _run_subset_analysis(sdf, bins, labels, subset_name, subset_outdir):
+    logger.info(f"\n{'='*55}\nRunning analysis for subset: {subset_name.upper()}\n{'='*55}")
+    logger.info(f"  {subset_name} soundings: {len(sdf):,}")
+
+    print_summary_stats(sdf, bins, labels)
+
+    # ── Section 1 (per subset): distributions ───────────────────────────────
+    logger.info("Plotting distributions vs cloud distance …")
+    plot_distributions_vs_cld_dist(sdf, bins, labels, subset_outdir)
+
+    # ── Section 2c: exp_intercept binned profiles ───────────────────────────
+    logger.info("Plotting intercept binned profiles …")
+    plot_intercept_binned_profile(sdf, bins, labels, subset_outdir)
+
+    # ── Section 2a: albedo vs exp_intercept ─────────────────────────────────
+    logger.info("Plotting albedo vs exp_intercept …")
+    plot_alb_vs_exp_intercept(sdf, subset_outdir)
+
+    logger.info("Plotting albedo vs exp_intercept cross-band …")
+    plot_alb_vs_exp_intercept_cross(sdf, subset_outdir)
+
+    # ── Section 3a: k1/k2 profiles and scatter ──────────────────────────────
+    logger.info("Plotting k1/k2 binned profiles …")
+    plot_k1_k2_binned_profile(sdf, bins, labels, subset_outdir)
+
+    logger.info("Plotting k1/k2 scatter vs cloud distance …")
+    plot_k1_k2_vs_cld_dist(sdf, subset_outdir)
+
+    # ── Section 3b: k2/k1 ratio ──────────────────────────────────────────────
+    logger.info("Plotting k2/k1 ratio vs cloud distance …")
+    plot_k2_over_k1_vs_cld_dist(sdf, subset_outdir)
+
+    # ── Section 3d: k1 vs k2 joint scatter ──────────────────────────────────
+    logger.info("Plotting k1 vs k2 joint colored by cld_dist …")
+    plot_k1_k2_joint(sdf, subset_outdir)
+
+    # ── Section 3f: cross-band k combinations ───────────────────────────────
+    logger.info("Plotting cross-band k combination profiles and scatter matrix …")
+    _k_cols = ['cld_dist_km'] + [c for c in sdf.columns
+                                 if c.rsplit('_', 1)[-1] in ('k1', 'k2', 'k3')]
+    plot_cross_band_k_combinations(sdf[_k_cols].copy(), bins, labels, subset_outdir)
+    del _k_cols
+
+    # ── R13: footprint area analysis ─────────────────────────────────────────
+    logger.info("R13: Footprint area vs spectral variables …")
+    plot_fp_area_analysis(sdf, bins, labels, subset_outdir)
+
+    # ── Supplementary ────────────────────────────────────────────────────────
+    logger.info("Plotting albedo binned profiles …")
+    plot_alb_binned_profile(sdf, bins, labels, subset_outdir)
+
+    # ── Section 5: XCO2 binned profiles directly in subset_outdir ───────────
+    logger.info("Plotting XCO2 binned profiles (all targets) …")
+    plot_xco2_anomaly_vs_cld_dist_binned(
+        sdf, bins, labels, subset_outdir,
+        targets=[(col, lbl, clr)
+                 for (col, lbl, _), clr in zip(_XCO2_TARGET_CONFIG,
+                                               ['C0', 'C1', 'C2', 'C3'])
+                 if col in sdf.columns])
+    gc.collect()
+
+    # ── Section 5: XCO2 full suite (one subfolder per target) ───────────────
+    xco2_base = str(Path(subset_outdir) / 'xco2')
+    for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
+        logger.info(f"Section 5 [{_col}]: running full XCO2 plot suite …")
+        run_xco2_target_analysis(sdf, bins, labels,
+                                 xco2_base, _col, _lbl)
+        gc.collect()
+
+    # ── Section 5b: xco2_raw_minus_apriori / strong_idp analyses ────────────
+    logger.info("Plotting xco2 derived quantities vs cld_dist binned …")
+    plot_xco2_derived_vs_cld_dist_binned(sdf, bins, labels, subset_outdir)
+
+    for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
+        logger.info(f"Plotting xco2 derived quantities vs {_col} …")
+        plot_xco2_derived_vs_bc_anomaly(sdf, bins, labels, subset_outdir,
+                                         y_col=_col, y_label=_lbl)
+        gc.collect()
+
+    logger.info(f"All figures for {subset_name} written to {subset_outdir}")
+
+    # ── Part 3: XCO2 sign-split analyses ─────────────────────────────────────
+    for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
+        logger.info(f"Running XCO2 sign-split analysis [{_col}] for {subset_name.upper()} …")
+        run_xco2_sign_analysis(sdf, bins, labels, subset_outdir,
+                               run_ref=_has_ref_data(sdf),
+                               split_col=_col, split_label=_lbl)
+        gc.collect()
+
+    # ── Section 4: stratified analyses ───────────────────────────────────────
+    logger.info(f"Running stratified analyses for {subset_name.upper()} …")
+    for strat_var, (strat_edges, strat_unit) in STRAT_CONFIG.items():
+        if strat_var not in sdf.columns:
+            continue
+        run_stratified_analysis(sdf, bins, labels, subset_outdir,
+                                strat_var, strat_edges, strat_unit)
+
+
+def _subset_for_fp(df, fp_idx):
+    fp_col = f'fp_{fp_idx}'
+    if fp_col in df.columns:
+        return df[df[fp_col] == 1]
+
+    if 'fp_number' in df.columns:
+        fp_vals = df['fp_number'].dropna().astype(int)
+        if fp_vals.empty:
+            return df.iloc[0:0]
+
+        unique_vals = set(fp_vals.unique().tolist())
+        if set(range(8)).issubset(unique_vals) or (unique_vals and min(unique_vals) == 0):
+            return df[df['fp_number'].astype(int) == fp_idx]
+
+        if set(range(1, 9)).issubset(unique_vals) or (unique_vals and min(unique_vals) == 1):
+            return df[df['fp_number'].astype(int) == (fp_idx + 1)]
+
+        return df[df['fp_number'].astype(int) == fp_idx]
+
+    logger.warning("Neither fp_number nor fp_0..fp_7 columns found — cannot split by footprint")
+    return None
+
+
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
@@ -222,6 +343,8 @@ def main():
         df = load_data(csv_dir, parquet_fname='combined_2020-01-01_all_orbits.parquet')
         # df = load_data(csv_dir, parquet_fname='combined_2016_2020_dates.parquet')
     elif platform.system() == 'Linux':
+        df = load_data(csv_dir, parquet_fname='combined_2016_2020_dates.parquet')
+    else:
         df = load_data(csv_dir, parquet_fname='combined_2016_2020_dates.parquet')
 
     # ── quality filter (snow excluded, surface split done below) ──────────────
@@ -386,104 +509,24 @@ def main():
 
     for sfc_name, sfc_code in sfc_codes.items():
         sdf = df[df['sfc_type'] == sfc_code] if sfc_code is not None else df
-        logger.info(f"\n{'='*55}\nRunning analysis for surface type: {sfc_name.upper()}\n{'='*55}")
-        logger.info(f"  {sfc_name} soundings: {len(sdf):,}")
         sfc_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / sfc_name)
-
-        print_summary_stats(sdf, bins, labels)
-
-        # ── Section 1 (per surface): distributions ────────────────────────────
-        logger.info("Plotting distributions vs cloud distance …")
-        plot_distributions_vs_cld_dist(sdf, bins, labels, sfc_outdir)
-
-        # ── Section 2c: exp_intercept binned profiles ─────────────────────────
-        logger.info("Plotting intercept binned profiles …")
-        plot_intercept_binned_profile(sdf, bins, labels, sfc_outdir)
-
-        # ── Section 2a: albedo vs exp_intercept ──────────────────────────────
-        logger.info("Plotting albedo vs exp_intercept …")
-        plot_alb_vs_exp_intercept(sdf, sfc_outdir)
-
-        logger.info("Plotting albedo vs exp_intercept cross-band …")
-        plot_alb_vs_exp_intercept_cross(sdf, sfc_outdir)
-
-        # ── Section 3a: k1/k2 profiles and scatter ────────────────────────────
-        logger.info("Plotting k1/k2 binned profiles …")
-        plot_k1_k2_binned_profile(sdf, bins, labels, sfc_outdir)
-
-        logger.info("Plotting k1/k2 scatter vs cloud distance …")
-        plot_k1_k2_vs_cld_dist(sdf, sfc_outdir)
-
-        # ── Section 3b: k2/k1 ratio ───────────────────────────────────────────
-        logger.info("Plotting k2/k1 ratio vs cloud distance …")
-        plot_k2_over_k1_vs_cld_dist(sdf, sfc_outdir)
-
-        # ── Section 3d: k1 vs k2 joint scatter ───────────────────────────────
-        logger.info("Plotting k1 vs k2 joint colored by cld_dist …")
-        plot_k1_k2_joint(sdf, sfc_outdir)
-
-        # ── Section 3f: cross-band k combinations ─────────────────────────────
-        logger.info("Plotting cross-band k combination profiles and scatter matrix …")
-        _k_cols = ['cld_dist_km'] + [c for c in sdf.columns
-                                     if c.rsplit('_', 1)[-1] in ('k1', 'k2', 'k3')]
-        plot_cross_band_k_combinations(sdf[_k_cols].copy(), bins, labels, sfc_outdir)
-        del _k_cols
-
-        # ── R13: footprint area analysis ──────────────────────────────────────
-        logger.info("R13: Footprint area vs spectral variables …")
-        plot_fp_area_analysis(sdf, bins, labels, sfc_outdir)
-
-        # ── Supplementary ─────────────────────────────────────────────────────
-        logger.info("Plotting albedo binned profiles …")
-        plot_alb_binned_profile(sdf, bins, labels, sfc_outdir)
-
-        # ── Section 5: XCO2 binned profiles directly in sfc_outdir ──────────
-        logger.info("Plotting XCO2 binned profiles (all targets) …")
-        plot_xco2_anomaly_vs_cld_dist_binned(
-            sdf, bins, labels, sfc_outdir,
-            targets=[(col, lbl, clr)
-                     for (col, lbl, _), clr in zip(_XCO2_TARGET_CONFIG,
-                                                   ['C0', 'C1', 'C2', 'C3'])
-                     if col in sdf.columns])
+        _run_subset_analysis(sdf, bins, labels, sfc_name, sfc_outdir)
+        del sdf
         gc.collect()
 
-        # ── Section 5: XCO2 full suite (one subfolder per target) ─────────────
-        xco2_base = str(result_dir / 'figures' / 'cld_dist_analysis' / sfc_name / 'xco2')
-        for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
-            logger.info(f"Section 5 [{_col}]: running full XCO2 plot suite …")
-            run_xco2_target_analysis(sdf, bins, labels,
-                                     xco2_base, _col, _lbl)
-            gc.collect()
+    # ── footprint loop: fp_0 .. fp_7 (same suite as per-surface) ────────────
+    for fp_idx in range(8):
+        fp_name = f'fp_{fp_idx}'
+        fp_df = _subset_for_fp(df, fp_idx)
+        if fp_df is None:
+            break
+        if fp_df.empty:
+            logger.warning(f"No rows for {fp_name} — skipping")
+            continue
 
-        # ── Section 5b: xco2_raw_minus_apriori / strong_idp analyses ─────────
-        logger.info("Plotting xco2 derived quantities vs cld_dist binned …")
-        plot_xco2_derived_vs_cld_dist_binned(sdf, bins, labels, sfc_outdir)
-
-        for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
-            logger.info(f"Plotting xco2 derived quantities vs {_col} …")
-            plot_xco2_derived_vs_bc_anomaly(sdf, bins, labels, sfc_outdir,
-                                             y_col=_col, y_label=_lbl)
-            gc.collect()
-
-        logger.info(f"All figures for {sfc_name} written to {sfc_outdir}")
-
-        # ── Part 3: XCO2 sign-split analyses ──────────────────────────────────
-        for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
-            logger.info(f"Running XCO2 sign-split analysis [{_col}] for {sfc_name.upper()} …")
-            run_xco2_sign_analysis(sdf, bins, labels, sfc_outdir,
-                                   run_ref=_has_ref_data(sdf),
-                                   split_col=_col, split_label=_lbl)
-            gc.collect()
-
-        # ── Section 4: stratified analyses ────────────────────────────────────
-        logger.info(f"Running stratified analyses for {sfc_name.upper()} …")
-        for strat_var, (strat_edges, strat_unit) in STRAT_CONFIG.items():
-            if strat_var not in sdf.columns:
-                continue
-            run_stratified_analysis(sdf, bins, labels, sfc_outdir,
-                                    strat_var, strat_edges, strat_unit)
-
-        del sdf
+        fp_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'footprints' / fp_name)
+        _run_subset_analysis(fp_df, bins, labels, fp_name, fp_outdir)
+        del fp_df
         gc.collect()
 
     # ── Ocean vs Land XCO2 boxplots for all targets (uses full df) ───────────

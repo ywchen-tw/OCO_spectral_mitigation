@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 import os
 import sys
+import json
 import platform
+import time
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from pipeline import FeaturePipeline, _ensure_derived_features
@@ -23,9 +25,74 @@ import glob
 import logging
 from pathlib import Path
 from datetime import datetime
+from experiment_tracking import RunSummary, get_git_commit_hash
 from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
+
+
+def _default_run_config() -> dict:
+    return {
+        'data': {
+            'sfc_type': 0,
+            'snow_flag_value': 0,
+            'linux_data_name': 'combined_2016_2020_dates.parquet',
+            'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
+        },
+        'split': {
+            'test_size': 0.2,
+            'random_state': 42,
+            'stratify_by_pc1': True,
+        },
+        'model': {
+            'd_token': 128,
+            'n_heads': 8,
+            'n_layers': 4,
+            'd_ff': 256,
+        },
+        'train': {
+            'darwin_epochs': 100,
+            'linux_epochs': 500,
+            'darwin_batch_size': 1024,
+            'linux_batch_size': 16384,
+            'patience': 50,
+            'log_every': 10,
+        },
+        'loss': {
+            'loss': 'huber',
+            'huber_delta': 1.0,
+            'range_loss_weight': 0.0,
+            'range_loss_type': 'variance',
+        },
+        'pipeline': {
+            'pca_augment': False,
+        },
+    }
+
+
+def _deep_update(base: dict, updates: dict) -> dict:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_update(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+def _load_run_config(config_path: str | None) -> dict:
+    cfg = _default_run_config()
+    if config_path is None:
+        return cfg
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(
+            f"Run config not found: {config_path}\n"
+            "Create the file first or run without --config to use defaults."
+        )
+    with open(config_path, 'r', encoding='utf-8') as f:
+        loaded = json.load(f)
+    if not isinstance(loaded, dict):
+        raise TypeError(f"Run config must be a JSON object, got {type(loaded)}")
+    return _deep_update(cfg, loaded)
 
 # ── Feature group definitions ─────────────────────────────────────────────────
 # Single source of truth for both segment embeddings (UncertainFTTransformerRefined)
@@ -1567,7 +1634,7 @@ def plot_permutation_importance(model, X_test, y_test, features, output_dir,
 # ─── Main analysis entry point ─────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="FT-Transformer XCO2 bias correction")
-    parser.add_argument('--sfc_type', type=int, default=0,
+    parser.add_argument('--sfc_type', type=int, default=None,
                         help="Surface type filter for training and evaluation (default: 0 = ocean only).")
     parser.add_argument('--suffix', type=str, default='',
                         help='Subfolder name appended to the base output directory '
@@ -1577,47 +1644,76 @@ def main():
                         help='Path to a pre-fitted FeaturePipeline (.pkl).  '
                              'If not supplied, a new pipeline is fitted from the training data '
                              'and saved to <output_dir>/pipeline.pkl.')
-    parser.add_argument('--loss', type=str, default='huber',
+    parser.add_argument('--loss', type=str, default=None,
                         choices=['quantile', 'huber'],
                         help='Loss function for q50: "huber" = Huber for q50 + pinball for q05/q95 (default), '
                              '"quantile" = pinball for all outputs.  '
                              'Huber is robust to the heavy left tail of cloud-affected anomalies.')
-    parser.add_argument('--huber-delta', type=float, default=1.0,
+    parser.add_argument('--huber-delta', type=float, default=None,
                         help='Huber transition point δ (ppm).  Errors with |e| ≤ δ are '
                              'penalised quadratically, larger errors linearly.  '
                              'Only used when --loss huber.  Default: 1.0.')
-    parser.add_argument('--range-loss-weight', type=float, default=0.0,
+    parser.add_argument('--range-loss-weight', type=float, default=None,
                         help='Weight λ for the distribution-matching range loss added to q50.  '
                              '0.0 disables it (default).  Start with 0.1 for variance, '
                              '0.05 for mmd.')
-    parser.add_argument('--range-loss-type', type=str, default='variance',
+    parser.add_argument('--range-loss-type', type=str, default=None,
                         choices=['variance', 'mmd'],
                         help='Type of range loss: "variance" = one-sided std penalty (default, '
                              'works at any batch size); "mmd" = Gaussian-kernel MMD '
                              '(requires batch_size ≥ 256 for stable estimates).')
-    parser.add_argument('--pca-augment', action='store_true',
+    parser.add_argument('--pca-augment', dest='pca_augment', action='store_true',
                         help='Append selected PC scores after scaled features '
                              '(land: PC1/PC4/PC8; ocean: PC3/PC6).')
+    parser.add_argument('--no-pca-augment', dest='pca_augment', action='store_false',
+                        help='Disable PCA-score augmentation.')
+    parser.set_defaults(pca_augment=None)
+    parser.add_argument('--config', type=str, default=None,
+                        help='Path to a JSON config file that overrides data/model/training '
+                             'hyperparameters. Unspecified keys keep defaults.')
     args = parser.parse_args()
+
+    run_cfg = _load_run_config(args.config)
+    if args.sfc_type is not None:
+        run_cfg['data']['sfc_type'] = int(args.sfc_type)
+    if args.loss is not None:
+        run_cfg['loss']['loss'] = args.loss
+    if args.huber_delta is not None:
+        run_cfg['loss']['huber_delta'] = float(args.huber_delta)
+    if args.range_loss_weight is not None:
+        run_cfg['loss']['range_loss_weight'] = float(args.range_loss_weight)
+    if args.range_loss_type is not None:
+        run_cfg['loss']['range_loss_type'] = args.range_loss_type
+    if args.pca_augment is not None:
+        run_cfg['pipeline']['pca_augment'] = bool(args.pca_augment)
+    run_cfg['pipeline']['pipeline_arg'] = args.pipeline
 
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results/csv_collection'
     if platform.system() == "Linux":
-        data_name = 'combined_2016_2020_dates.parquet'  # for full 2-year dataset
+        data_name = run_cfg['data']['linux_data_name']
     elif platform.system() == "Darwin":
-        data_name = 'combined_2020-02-01_all_orbits.parquet'  # for quick testing with one date's data
+        data_name = run_cfg['data']['darwin_data_name']
     base_dir   = storage_dir / 'results/model_ft_transformer'
     output_dir = base_dir / args.suffix if args.suffix else base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    run_start = time.monotonic()
+    run_id = args.suffix if args.suffix else datetime.now().strftime('%Y%m%d-%H%M%S')
+    commit = get_git_commit_hash(storage_dir)
 
-    surface_type = args.sfc_type
+    run_cfg_path = output_dir / 'ft_run_config.json'
+    with open(run_cfg_path, 'w', encoding='utf-8') as f:
+        json.dump(run_cfg, f, indent=2, sort_keys=True)
+    print(f"Saved resolved run config → {run_cfg_path}")
+
+    surface_type = int(run_cfg['data']['sfc_type'])
     logger.info(f"Surface type filter: {surface_type} (0=ocean only, 1=land only, 2=sea-ice only)")
 
     # ── Load data ──────────────────────────────────────────────────────────────
     _dp = os.path.join(fdir, data_name)
     df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
     df = df[df['sfc_type'] == surface_type]
-    df = df[df['snow_flag'] == 0]
+    df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
 
     # ── Pipeline: load or fit ──────────────────────────────────────────────────
     pipeline_path = output_dir / 'pipeline.pkl'
@@ -1627,7 +1723,7 @@ def main():
         pipeline = FeaturePipeline.load(pipeline_path)
     else:
         pipeline = FeaturePipeline.fit(df, sfc_type=surface_type,
-                                       pca_augment=args.pca_augment)
+                                       pca_augment=bool(run_cfg['pipeline']['pca_augment']))
         pipeline.save(pipeline_path)
 
     features = pipeline.features
@@ -1689,13 +1785,18 @@ def main():
     print("y shape:", y.shape)
 
     _pc1_col = getattr(pipeline, 'pc1_col_idx', None)
-    if _pc1_col is not None:
+    if bool(run_cfg['split']['stratify_by_pc1']) and _pc1_col is not None:
         _pc1_strat = pd.qcut(X[:, _pc1_col], q=5, labels=False, duplicates='drop')
         _stratify  = _pc1_strat
     else:
         _stratify = None
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=_stratify)
+        X,
+        y,
+        test_size=float(run_cfg['split']['test_size']),
+        random_state=int(run_cfg['split']['random_state']),
+        stratify=_stratify,
+    )
     del X, y
     gc.collect()
     print("X_train shape", X_train.shape)
@@ -1706,26 +1807,30 @@ def main():
         model   = adapter.model
     else:
         if platform.system() == "Darwin":
-            epochs = 100  # Fewer epochs for local testing
+            epochs = int(run_cfg['train']['darwin_epochs'])
+            batch_size = int(run_cfg['train']['darwin_batch_size'])
         else:
-            epochs = 500  # More epochs for CURC training
+            epochs = int(run_cfg['train']['linux_epochs'])
+            batch_size = int(run_cfg['train']['linux_batch_size'])
 
-        d_token = 128
-        n_heads  = 8
-        n_layers = 4
-        d_ff    = 256
+        d_token = int(run_cfg['model']['d_token'])
+        n_heads = int(run_cfg['model']['n_heads'])
+        n_layers = int(run_cfg['model']['n_layers'])
+        d_ff = int(run_cfg['model']['d_ff'])
         
         model = train_uncertainty_transformer(
             X_train, y_train, X_test, y_test,
             features=features,
             output_dir=str(output_dir),
             d_token=d_token, n_heads=n_heads, n_layers=n_layers, d_ff=d_ff,
-            batch_size=1024 if platform.system() == "Darwin" else 16384, n_epochs=epochs,
-            patience=50,   # None = run all epochs; int = early-stop after N epochs with no improvement
-            loss_fn=args.loss,
-            huber_delta=args.huber_delta,
-            range_loss_weight=args.range_loss_weight,
-            range_loss_type=args.range_loss_type,
+            batch_size=batch_size,
+            n_epochs=epochs,
+            log_every=int(run_cfg['train']['log_every']),
+            patience=int(run_cfg['train']['patience']),
+            loss_fn=run_cfg['loss']['loss'],
+            huber_delta=float(run_cfg['loss']['huber_delta']),
+            range_loss_weight=float(run_cfg['loss']['range_loss_weight']),
+            range_loss_type=run_cfg['loss']['range_loss_type'],
         )
 
         # ── Persist adapter metadata (model_best.pt already written by training loop) ──
@@ -1733,14 +1838,22 @@ def main():
                   d_token=d_token, n_heads=n_heads, n_layers=n_layers, d_ff=d_ff,
                   tokenizer_type='mlp', feature_names=features).save(output_dir)
 
+    model.eval()
+    with torch.no_grad():
+        _q50_eval = model(
+            torch.tensor(X_test, dtype=torch.float32).to(next(model.parameters()).device)
+        )[:, 1].cpu().numpy()
+
+    _test_rmse = float(np.sqrt(np.mean((y_test - _q50_eval) ** 2)))
+    _test_mae = float(np.mean(np.abs(y_test - _q50_eval)))
+    _test_denom = np.sum((y_test - y_test.mean()) ** 2)
+    _test_r2 = float(1.0 - np.sum((y_test - _q50_eval) ** 2) / _test_denom) if _test_denom > 0 else float('nan')
+
+    _pc1_stratified_mean_rmse = None
+    _pc1_stratified_mean_mae = None
+
     # ── Evaluate: PC1-stratified RMSE ─────────────────────────────────────────
     if _pc1_col is not None:
-        import torch as _torch
-        model.eval()
-        with _torch.no_grad():
-            _q50_eval = model(
-                _torch.tensor(X_test, dtype=_torch.float32).to(next(model.parameters()).device)
-            )[:, 1].cpu().numpy()
         _pc1_test = pd.qcut(X_test[:, _pc1_col], q=5, labels=False, duplicates='drop')
         _strat_rows = []
         for _q in range(5):
@@ -1752,6 +1865,9 @@ def main():
             _strat_rows.append({'model': 'Transformer', 'pc1_quintile': _q + 1,
                                 'n': int(_mask.sum()), 'rmse': _rmse, 'mae': _mae})
             print(f"  FT-Transformer PC1-Q{_q+1}: RMSE={_rmse:.4f}  MAE={_mae:.4f}  n={_mask.sum():,}")
+        if _strat_rows:
+            _pc1_stratified_mean_rmse = float(np.mean([row['rmse'] for row in _strat_rows]))
+            _pc1_stratified_mean_mae = float(np.mean([row['mae'] for row in _strat_rows]))
         pd.DataFrame(_strat_rows).to_csv(
             output_dir / 'stratified_pc1_rmse_Transformer.csv', index=False
         )
@@ -1781,6 +1897,45 @@ def main():
     plot_evaluation_by_regime(model, df_eval, pipeline.qt, pipeline.features, str(output_dir))
     del df_eval
     gc.collect()
+
+    try:
+        import resource as _res_summary
+        rss_raw = _res_summary.getrusage(_res_summary.RUSAGE_SELF).ru_maxrss
+        peak_memory_mb = rss_raw / (1024 * 1024) if platform.system() == "Darwin" else rss_raw / 1024
+    except Exception:
+        peak_memory_mb = 0.0
+
+    summary = RunSummary(
+        run_id=run_id,
+        script_name=os.path.basename(__file__),
+        model_family='ft_transformer',
+        commit=commit,
+        status='success',
+        primary_metric_name='ft_test_rmse',
+        primary_metric_value=_test_rmse,
+        secondary_metrics={
+            'ft_test_mae': _test_mae,
+            'ft_test_r2': _test_r2,
+            **({'pc1_stratified_rmse_mean': _pc1_stratified_mean_rmse} if _pc1_stratified_mean_rmse is not None else {}),
+            **({'pc1_stratified_mae_mean': _pc1_stratified_mean_mae} if _pc1_stratified_mean_mae is not None else {}),
+        },
+        peak_memory_mb=float(peak_memory_mb),
+        runtime_seconds=float(time.monotonic() - run_start),
+        description='FT-Transformer test summary with q50 evaluation',
+        artifacts={
+            'output_dir': str(output_dir),
+            'run_config': str(run_cfg_path),
+            'pipeline': str(pipeline_path),
+            'model_best': str(output_dir / 'model_best.pt'),
+            'summary_json': str(output_dir / 'run_summary.json'),
+            'stratified_pc1_rmse_csv': str(output_dir / 'stratified_pc1_rmse_Transformer.csv'),
+        },
+        config=run_cfg,
+    )
+    summary_path = output_dir / 'run_summary.json'
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        json.dump(summary.to_dict(), f, indent=2, sort_keys=True)
+    print(f"Saved run summary → {summary_path}")
 
 
 
