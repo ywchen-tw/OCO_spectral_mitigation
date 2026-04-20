@@ -184,6 +184,7 @@ from ca_k_coeff import (
     plot_fp_area_analysis, plot_xco2_anomaly_ocean_land,
 )
 from ca_stratified import STRAT_CONFIG, run_stratified_analysis
+from ca_footprint import run_footprint_analysis
 from ca_xco2 import (
     plot_xco2_derived_vs_cld_dist_binned, plot_xco2_derived_vs_bc_anomaly,
     plot_xco2_anomaly_vs_cld_dist_binned,
@@ -306,30 +307,6 @@ def _run_subset_analysis(sdf, bins, labels, subset_name, subset_outdir):
             continue
         run_stratified_analysis(sdf, bins, labels, subset_outdir,
                                 strat_var, strat_edges, strat_unit)
-
-
-def _subset_for_fp(df, fp_idx):
-    fp_col = f'fp_{fp_idx}'
-    if fp_col in df.columns:
-        return df[df[fp_col] == 1]
-
-    if 'fp_number' in df.columns:
-        fp_vals = df['fp_number'].dropna().astype(int)
-        if fp_vals.empty:
-            return df.iloc[0:0]
-
-        unique_vals = set(fp_vals.unique().tolist())
-        if set(range(8)).issubset(unique_vals) or (unique_vals and min(unique_vals) == 0):
-            return df[df['fp_number'].astype(int) == fp_idx]
-
-        if set(range(1, 9)).issubset(unique_vals) or (unique_vals and min(unique_vals) == 1):
-            return df[df['fp_number'].astype(int) == (fp_idx + 1)]
-
-        return df[df['fp_number'].astype(int) == fp_idx]
-
-    logger.warning("Neither fp_number nor fp_0..fp_7 columns found — cannot split by footprint")
-    return None
-
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -515,19 +492,7 @@ def main():
         gc.collect()
 
     # ── footprint loop: fp_0 .. fp_7 (same suite as per-surface) ────────────
-    for fp_idx in range(8):
-        fp_name = f'fp_{fp_idx}'
-        fp_df = _subset_for_fp(df, fp_idx)
-        if fp_df is None:
-            break
-        if fp_df.empty:
-            logger.warning(f"No rows for {fp_name} — skipping")
-            continue
-
-        fp_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'footprints' / fp_name)
-        _run_subset_analysis(fp_df, bins, labels, fp_name, fp_outdir)
-        del fp_df
-        gc.collect()
+    run_footprint_analysis(df, bins, labels, result_dir, _run_subset_analysis, logger=logger)
 
     # ── Ocean vs Land XCO2 boxplots for all targets (uses full df) ───────────
     combined_outdir = str(result_dir / 'figures' / 'cld_dist_analysis')

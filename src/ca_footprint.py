@@ -1,0 +1,74 @@
+"""ca_footprint.py — Footprint-specific analysis orchestration.
+
+Extracts footprint slicing and per-footprint analysis loop from
+combined_analyze.py so the entrypoint stays focused on top-level flow.
+"""
+
+import gc
+import logging
+from pathlib import Path
+
+
+def subset_for_fp(df, fp_idx: int, logger: logging.Logger | None = None):
+    """Return one-footprint subset for fp_idx in [0..7].
+
+    Supports either one-hot footprint columns (fp_0..fp_7) or a numeric
+    fp_number column that may be 0-based or 1-based.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    fp_col = f'fp_{fp_idx}'
+    if fp_col in df.columns:
+        return df[df[fp_col] == 1]
+
+    if 'fp_number' in df.columns:
+        fp_vals = df['fp_number'].dropna().astype(int)
+        if fp_vals.empty:
+            return df.iloc[0:0]
+
+        unique_vals = set(fp_vals.unique().tolist())
+        if set(range(8)).issubset(unique_vals) or (unique_vals and min(unique_vals) == 0):
+            return df[df['fp_number'].astype(int) == fp_idx]
+
+        if set(range(1, 9)).issubset(unique_vals) or (unique_vals and min(unique_vals) == 1):
+            return df[df['fp_number'].astype(int) == (fp_idx + 1)]
+
+        return df[df['fp_number'].astype(int) == fp_idx]
+
+    logger.warning("Neither fp_number nor fp_0..fp_7 columns found — cannot split by footprint")
+    return None
+
+
+def run_footprint_analysis(df, bins, labels, result_dir: Path, run_subset_analysis, logger: logging.Logger | None = None):
+    """Run the same analysis suite for fp_0 .. fp_7 subsets.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Full filtered dataframe.
+    bins, labels : sequence
+        Cloud-distance bin edges and labels from cld_dist_bins().
+    result_dir : pathlib.Path
+        Base results directory.
+    run_subset_analysis : callable
+        Callback with signature (sdf, bins, labels, subset_name, subset_outdir).
+    logger : logging.Logger | None
+        Logger used for progress messages.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    for fp_idx in range(8):
+        fp_name = f'fp_{fp_idx}'
+        fp_df = subset_for_fp(df, fp_idx, logger=logger)
+        if fp_df is None:
+            break
+        if fp_df.empty:
+            logger.warning(f"No rows for {fp_name} — skipping")
+            continue
+
+        fp_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'footprints' / fp_name)
+        run_subset_analysis(fp_df, bins, labels, fp_name, fp_outdir)
+        del fp_df
+        gc.collect()

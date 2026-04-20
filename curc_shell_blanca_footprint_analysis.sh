@@ -8,7 +8,7 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
 #SBATCH --output=sbatch-output_%x_%j.txt
-#SBATCH --job-name=oco_spectral_anal
+#SBATCH --job-name=oco_fp_anal
 #SBATCH --account=blanca-airs
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
@@ -35,7 +35,7 @@ export HDF5_USE_FILE_LOCKING=FALSE
 cd /projects/yuch8913/OCO_spectral_mitigation
 
 # Run footprint-only analysis.
-# Optional: set FP_INDEX=0..7 to run one footprint, otherwise run all footprints.
+# Optional: set FP_INDEX=0..7 to run one footprint; default runs all footprints.
 if [[ -n "${FP_INDEX}" ]]; then
     python src/footprint_analyze.py --fp-index "${FP_INDEX}"
 else
