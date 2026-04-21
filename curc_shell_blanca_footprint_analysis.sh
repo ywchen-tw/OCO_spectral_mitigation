@@ -43,8 +43,8 @@ else
 fi
 
 
-# if [[ -n "${FP_INDEX}" ]]; then
-#     python src/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col cld_dist_km
-# else
-#     python src/footprint_analyze.py --distance-col cld_dist_km
-# fi
+if [[ -n "${FP_INDEX}" ]]; then
+    python src/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col cld_dist_km
+else
+    python src/footprint_analyze.py --distance-col cld_dist_km
+fi
