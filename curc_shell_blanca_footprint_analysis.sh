@@ -34,8 +34,13 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
+# Set footprint index here in this script.
+# - Empty value: run all footprints
+# - 0..7: run one footprint only
+FP_INDEX="1"
+
 # Run footprint-only analysis.
-# Optional: set FP_INDEX=0..7 to run one footprint; default runs all footprints.
+# Optional: set FP_INDEX=0..7 above to run one footprint; empty runs all footprints.
 if [[ -n "${FP_INDEX}" ]]; then
     python src/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col weighted_cloud_dist_km
 else
