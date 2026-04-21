@@ -37,7 +37,14 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # Run footprint-only analysis.
 # Optional: set FP_INDEX=0..7 to run one footprint; default runs all footprints.
 if [[ -n "${FP_INDEX}" ]]; then
-    python src/footprint_analyze.py --fp-index "${FP_INDEX}"
+    python src/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col weighted_cloud_dist_km
 else
-    python src/footprint_analyze.py
+    python src/footprint_analyze.py --distance-col weighted_cloud_dist_km
 fi
+
+
+# if [[ -n "${FP_INDEX}" ]]; then
+#     python src/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col cloud_dist_km
+# else
+#     python src/footprint_analyze.py --distance-col cloud_dist_km
+# fi

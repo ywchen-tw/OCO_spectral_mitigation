@@ -153,6 +153,7 @@ Entry point
 import gc
 import sys
 import logging
+import argparse
 from pathlib import Path
 import platform
 
@@ -209,6 +210,22 @@ from ca_ref_corrected import (
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def _select_distance_column(df, distance_col: str):
+    """Route selected distance column into cld_dist_km for downstream modules."""
+    if distance_col not in df.columns:
+        raise ValueError(
+            f"Distance column '{distance_col}' not found in dataframe. "
+            f"Available columns include: {', '.join(sorted(df.columns[:20]))} ..."
+        )
+
+    if distance_col == 'cld_dist_km':
+        return df
+
+    out = df.copy()
+    out['cld_dist_km'] = out[distance_col]
+    return out
 
 
 def _run_subset_analysis(sdf, bins, labels, subset_name, subset_outdir):
@@ -312,20 +329,47 @@ def _run_subset_analysis(sdf, bins, labels, subset_name, subset_outdir):
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    parser = argparse.ArgumentParser(
+        description='Run combined cloud-distance analysis plots.'
+    )
+    parser.add_argument(
+        '--distance-col',
+        type=str,
+        default='cld_dist_km',
+        choices=['cld_dist_km', 'weighted_cloud_dist_km'],
+        help='Distance variable to use for all cloud-distance plots.',
+    )
+    parser.add_argument(
+        '--parquet-fname',
+        type=str,
+        default=None,
+        help='Optional parquet filename inside results/csv_collection.',
+    )
+    args = parser.parse_args()
+
     storage_dir = get_storage_dir()
     result_dir  = storage_dir / 'results'
     csv_dir     = result_dir / 'csv_collection'
     # ── load ──────────────────────────────────────────────────────────────────
-    if platform.system() == 'Darwin':
-        df = load_data(csv_dir, parquet_fname='combined_2020-01-01_all_orbits.parquet')
-        # df = load_data(csv_dir, parquet_fname='combined_2016_2020_dates.parquet')
+    if args.parquet_fname is not None:
+        parquet_fname = args.parquet_fname
+    elif platform.system() == 'Darwin':
+        parquet_fname = 'combined_2020-01-01_all_orbits.parquet'
+        # parquet_fname = 'combined_2016_2020_dates.parquet'
     elif platform.system() == 'Linux':
-        df = load_data(csv_dir, parquet_fname='combined_2016_2020_dates.parquet')
+        parquet_fname = 'combined_2016_2020_dates.parquet'
     else:
-        df = load_data(csv_dir, parquet_fname='combined_2016_2020_dates.parquet')
+        parquet_fname = 'combined_2016_2020_dates.parquet'
+
+    logger.info(f"Loading parquet: {parquet_fname}")
+    df = load_data(csv_dir, parquet_fname=parquet_fname)
 
     # ── quality filter (snow excluded, surface split done below) ──────────────
     df = apply_quality_filter(df)
+
+    # ── select distance variable for all downstream analyses ──────────────────
+    logger.info(f"Using distance column: {args.distance_col}")
+    df = _select_distance_column(df, args.distance_col)
 
     # ── scale exp_intercept by π ──────────────────────────────────────────────
     # # TODO: remove this once the π factor is absorbed into oco_fp_spec_anal.py

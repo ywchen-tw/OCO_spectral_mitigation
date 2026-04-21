@@ -25,6 +25,22 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
 
+def _select_distance_column(df, distance_col: str):
+    """Route selected distance column into cld_dist_km for downstream modules."""
+    if distance_col not in df.columns:
+        raise ValueError(
+            f"Distance column '{distance_col}' not found in dataframe. "
+            f"Available columns include: {', '.join(sorted(df.columns[:20]))} ..."
+        )
+
+    if distance_col == 'cld_dist_km':
+        return df
+
+    out = df.copy()
+    out['cld_dist_km'] = out[distance_col]
+    return out
+
+
 def _default_parquet_name() -> str:
     if platform.system() == 'Darwin':
         return 'combined_2020-01-01_all_orbits.parquet'
@@ -47,6 +63,13 @@ def main():
         default=None,
         help='Optional single footprint index to run (0..7). If omitted, runs all footprints.',
     )
+    parser.add_argument(
+        '--distance-col',
+        type=str,
+        default='cld_dist_km',
+        choices=['cld_dist_km', 'weighted_cloud_dist_km'],
+        help='Distance variable to use for all cloud-distance plots.',
+    )
     args = parser.parse_args()
 
     if args.fp_index is not None and not (0 <= args.fp_index <= 7):
@@ -61,6 +84,8 @@ def main():
 
     df = load_data(csv_dir, parquet_fname=parquet_name)
     df = apply_quality_filter(df)
+    logger.info(f'Using distance column: {args.distance_col}')
+    df = _select_distance_column(df, args.distance_col)
 
     edges = [0, 2, 5, 10, 15, 20, 30, 50]
     bins, labels = cld_dist_bins(edges)

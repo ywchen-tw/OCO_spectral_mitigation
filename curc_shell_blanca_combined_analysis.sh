@@ -34,10 +34,6 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-# Run footprint-only analysis.
-# Optional: set FP_INDEX=0..7 to run one footprint, otherwise run all footprints.
-if [[ -n "${FP_INDEX}" ]]; then
-    python src/footprint_analyze.py --fp-index "${FP_INDEX}"
-else
-    python src/footprint_analyze.py
-fi
+
+# python src/combined_analyze.py --distance-col cloud_dist_km
+python src/combined_analyze.py --distance-col weighted_cloud_dist_km
