@@ -44,7 +44,7 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 
 
 if [[ -n "${FP_INDEX}" ]]; then
-    python src/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col cloud_dist_km
+    python src/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col cld_dist_km
 else
-    python src/footprint_analyze.py --distance-col cloud_dist_km
+    python src/footprint_analyze.py --distance-col cld_dist_km
 fi
