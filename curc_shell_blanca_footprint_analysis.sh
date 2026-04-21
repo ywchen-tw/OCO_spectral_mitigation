@@ -37,7 +37,7 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # Set footprint index here in this script.
 # - Empty value: run all footprints
 # - 0..7: run one footprint only
-FP_INDEX="1"
+FP_INDEX="0"
 
 # Run footprint-only analysis.
 # Optional: set FP_INDEX=0..7 above to run one footprint; empty runs all footprints.

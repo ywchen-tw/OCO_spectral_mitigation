@@ -41,13 +41,19 @@ def _select_distance_column(df, distance_col: str):
     return out
 
 
+def _analysis_dirname(distance_col: str) -> str:
+    if distance_col == 'weighted_cloud_dist_km':
+        return 'weighted_cloud_dist_analysis'
+    return 'cld_dist_analysis'
+
+
 def _default_parquet_name() -> str:
     if platform.system() == 'Darwin':
         return 'combined_2020-01-01_all_orbits.parquet'
     return 'combined_2016_2020_dates.parquet'
 
 
-def _run_footprint_surface_analysis(df, bins, labels, result_dir, fp_idx, logger):
+def _run_footprint_surface_analysis(df, bins, labels, result_dir, fp_idx, logger, analysis_dir):
     """Run fp_idx analysis separately for ocean and land subsets."""
     fp_name = f'fp_{fp_idx}'
     fp_df = subset_for_fp(df, fp_idx, logger=logger)
@@ -61,7 +67,7 @@ def _run_footprint_surface_analysis(df, bins, labels, result_dir, fp_idx, logger
     for sfc_name, sfc_code in (('ocean', 0), ('land', 1)):
         if 'sfc_type' not in fp_df.columns:
             logger.warning('No sfc_type column found. Skipping surface split.')
-            fp_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'footprints' / fp_name)
+            fp_outdir = str(result_dir / 'figures' / analysis_dir / 'footprints' / fp_name)
             _run_subset_analysis(fp_df, bins, labels, fp_name, fp_outdir)
             return 0
 
@@ -70,8 +76,11 @@ def _run_footprint_surface_analysis(df, bins, labels, result_dir, fp_idx, logger
             logger.warning(f'No rows for {fp_name}/{sfc_name}. Skipping.')
             continue
 
+        fp_outdir = str(result_dir / 'figures' / analysis_dir / 'footprints' / fp_name / sfc_name)
+        logger.info('=' * 70)
+        logger.info(f'OUTPUT DIR [{fp_name}/{sfc_name}]: {fp_outdir}')
+        logger.info('=' * 70)
         logger.info(f'Running footprint analysis for {fp_name}/{sfc_name}.')
-        fp_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'footprints' / fp_name / sfc_name)
         _run_subset_analysis(sdf, bins, labels, f'{fp_name}_{sfc_name}', fp_outdir)
 
     return 0
@@ -116,6 +125,8 @@ def main():
     df = apply_quality_filter(df)
     logger.info(f'Using distance column: {args.distance_col}')
     df = _select_distance_column(df, args.distance_col)
+    analysis_dir = _analysis_dirname(args.distance_col)
+    logger.info(f'Writing figures under: results/figures/{analysis_dir}')
 
     edges = [0, 2, 5, 10, 15, 20, 30, 50]
     bins, labels = cld_dist_bins(edges)
@@ -123,10 +134,10 @@ def main():
     if args.fp_index is None:
         logger.info('Running footprint analysis for all footprints (fp_0..fp_7), split by ocean/land.')
         for fp_idx in range(8):
-            _run_footprint_surface_analysis(df, bins, labels, result_dir, fp_idx, logger)
+            _run_footprint_surface_analysis(df, bins, labels, result_dir, fp_idx, logger, analysis_dir)
     else:
         logger.info(f'Running footprint analysis for fp_{args.fp_index}, split by ocean/land.')
-        return _run_footprint_surface_analysis(df, bins, labels, result_dir, args.fp_index, logger)
+        return _run_footprint_surface_analysis(df, bins, labels, result_dir, args.fp_index, logger, analysis_dir)
 
     logger.info('Footprint surface-split analysis complete.')
     return 0

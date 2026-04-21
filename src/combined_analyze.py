@@ -228,6 +228,12 @@ def _select_distance_column(df, distance_col: str):
     return out
 
 
+def _analysis_dirname(distance_col: str) -> str:
+    if distance_col == 'weighted_cloud_dist_km':
+        return 'weighted_cloud_dist_analysis'
+    return 'cld_dist_analysis'
+
+
 def _run_subset_analysis(sdf, bins, labels, subset_name, subset_outdir):
     logger.info(f"\n{'='*55}\nRunning analysis for subset: {subset_name.upper()}\n{'='*55}")
     logger.info(f"  {subset_name} soundings: {len(sdf):,}")
@@ -370,6 +376,8 @@ def main():
     # ── select distance variable for all downstream analyses ──────────────────
     logger.info(f"Using distance column: {args.distance_col}")
     df = _select_distance_column(df, args.distance_col)
+    analysis_dir = _analysis_dirname(args.distance_col)
+    logger.info(f"Writing figures under: results/figures/{analysis_dir}")
 
     # ── scale exp_intercept by π ──────────────────────────────────────────────
     # # TODO: remove this once the π factor is absorbed into oco_fp_spec_anal.py
@@ -388,7 +396,7 @@ def main():
     bins, labels = cld_dist_bins(edges)
 
     # ── Section 1: signal hierarchy (full df, internal ocean/land split) ─────
-    overall_outdir = str(result_dir / 'figures' / 'cld_dist_analysis')
+    overall_outdir = str(result_dir / 'figures' / analysis_dir)
     logger.info("Section 1: Plotting signal hierarchy (r vs cld_dist) …")
     plot_signal_hierarchy(df, overall_outdir)
 
@@ -422,7 +430,7 @@ def main():
 
     # ── Sections R1–R7: ref-corrected analyses ────────────────────────────────
     if _has_ref_data(df):
-        ref_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'ref_corrected')
+        ref_outdir = str(result_dir / 'figures' / analysis_dir / 'ref_corrected')
         logger.info("Adding ref-corrected anomaly columns …")
         df_r = add_ref_anomalies(df)
 
@@ -476,7 +484,7 @@ def main():
 
     # ── Sections R1–R7 (r25 reference, min_cld_dist=25 km) ───────────────────
     if 0:#_has_r25_data(df):
-        r25_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'r25_corrected')
+        r25_outdir = str(result_dir / 'figures' / analysis_dir / 'r25_corrected')
         logger.info("Adding r25-corrected anomaly columns …")
         df_r25 = add_r25_anomalies(df)
 
@@ -530,16 +538,19 @@ def main():
 
     for sfc_name, sfc_code in sfc_codes.items():
         sdf = df[df['sfc_type'] == sfc_code] if sfc_code is not None else df
-        sfc_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / sfc_name)
+        sfc_outdir = str(result_dir / 'figures' / analysis_dir / sfc_name)
         _run_subset_analysis(sdf, bins, labels, sfc_name, sfc_outdir)
         del sdf
         gc.collect()
 
     # ── footprint loop: fp_0 .. fp_7 (same suite as per-surface) ────────────
-    run_footprint_analysis(df, bins, labels, result_dir, _run_subset_analysis, logger=logger)
+    run_footprint_analysis(
+        df, bins, labels, result_dir, _run_subset_analysis,
+        logger=logger, analysis_subdir=analysis_dir,
+    )
 
     # ── Ocean vs Land XCO2 boxplots for all targets (uses full df) ───────────
-    combined_outdir = str(result_dir / 'figures' / 'cld_dist_analysis')
+    combined_outdir = str(result_dir / 'figures' / analysis_dir)
     for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
         logger.info(f"Plotting {_col} ocean vs land boxplot …")
         plot_xco2_anomaly_ocean_land(df, bins, labels, combined_outdir,

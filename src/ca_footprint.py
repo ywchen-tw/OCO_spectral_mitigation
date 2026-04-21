@@ -46,7 +46,15 @@ def subset_for_fp(df, fp_idx: int, logger: logging.Logger | None = None):
     return None
 
 
-def run_footprint_analysis(df, bins, labels, result_dir: Path, run_subset_analysis, logger: logging.Logger | None = None):
+def run_footprint_analysis(
+    df,
+    bins,
+    labels,
+    result_dir: Path,
+    run_subset_analysis,
+    logger: logging.Logger | None = None,
+    analysis_subdir: str = 'cld_dist_analysis',
+):
     """Run the same analysis suite for fp_0 .. fp_7 subsets.
 
     Parameters
@@ -74,7 +82,7 @@ def run_footprint_analysis(df, bins, labels, result_dir: Path, run_subset_analys
             logger.warning(f"No rows for {fp_name} — skipping")
             continue
 
-        fp_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'footprints' / fp_name)
+        fp_outdir = str(result_dir / 'figures' / analysis_subdir / 'footprints' / fp_name)
         run_subset_analysis(fp_df, bins, labels, fp_name, fp_outdir)
         del fp_df
         gc.collect()
