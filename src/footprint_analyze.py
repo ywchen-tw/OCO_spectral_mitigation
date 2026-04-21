@@ -17,7 +17,7 @@ matplotlib.use('Agg')
 sys.path.insert(0, str(Path(__file__).parent))
 
 from ca_utils import get_storage_dir, load_data, apply_quality_filter, cld_dist_bins
-from ca_footprint import run_footprint_analysis, subset_for_fp
+from ca_footprint import subset_for_fp
 from combined_analyze import _run_subset_analysis
 
 
@@ -45,6 +45,36 @@ def _default_parquet_name() -> str:
     if platform.system() == 'Darwin':
         return 'combined_2020-01-01_all_orbits.parquet'
     return 'combined_2016_2020_dates.parquet'
+
+
+def _run_footprint_surface_analysis(df, bins, labels, result_dir, fp_idx, logger):
+    """Run fp_idx analysis separately for ocean and land subsets."""
+    fp_name = f'fp_{fp_idx}'
+    fp_df = subset_for_fp(df, fp_idx, logger=logger)
+    if fp_df is None:
+        logger.error('Could not determine footprint columns. Aborting.')
+        return 1
+    if fp_df.empty:
+        logger.warning(f'No rows for {fp_name}. Nothing to plot.')
+        return 0
+
+    for sfc_name, sfc_code in (('ocean', 0), ('land', 1)):
+        if 'sfc_type' not in fp_df.columns:
+            logger.warning('No sfc_type column found. Skipping surface split.')
+            fp_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'footprints' / fp_name)
+            _run_subset_analysis(fp_df, bins, labels, fp_name, fp_outdir)
+            return 0
+
+        sdf = fp_df[fp_df['sfc_type'] == sfc_code]
+        if sdf.empty:
+            logger.warning(f'No rows for {fp_name}/{sfc_name}. Skipping.')
+            continue
+
+        logger.info(f'Running footprint analysis for {fp_name}/{sfc_name}.')
+        fp_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'footprints' / fp_name / sfc_name)
+        _run_subset_analysis(sdf, bins, labels, f'{fp_name}_{sfc_name}', fp_outdir)
+
+    return 0
 
 
 def main():
@@ -90,35 +120,15 @@ def main():
     edges = [0, 2, 5, 10, 15, 20, 30, 50]
     bins, labels = cld_dist_bins(edges)
 
-    # Run ocean/land split analyses (same behavior as combined_analyze.py)
-    sfc_codes = {'ocean': 0, 'land': 1} if 'sfc_type' in df.columns else {'all': None}
-    for sfc_name, sfc_code in sfc_codes.items():
-        sdf = df[df['sfc_type'] == sfc_code] if sfc_code is not None else df
-        if sdf.empty:
-            logger.warning(f'No rows for {sfc_name}. Skipping surface subset.')
-            continue
-        logger.info(f'Running surface analysis for {sfc_name}.')
-        sfc_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / sfc_name)
-        _run_subset_analysis(sdf, bins, labels, sfc_name, sfc_outdir)
-
     if args.fp_index is None:
-        logger.info('Running footprint analysis for all footprints (fp_0..fp_7).')
-        run_footprint_analysis(df, bins, labels, result_dir, _run_subset_analysis, logger=logger)
+        logger.info('Running footprint analysis for all footprints (fp_0..fp_7), split by ocean/land.')
+        for fp_idx in range(8):
+            _run_footprint_surface_analysis(df, bins, labels, result_dir, fp_idx, logger)
     else:
-        fp_name = f'fp_{args.fp_index}'
-        logger.info(f'Running footprint analysis for {fp_name}.')
-        fp_df = subset_for_fp(df, args.fp_index, logger=logger)
-        if fp_df is None:
-            logger.error('Could not determine footprint columns. Aborting.')
-            return 1
-        if fp_df.empty:
-            logger.warning(f'No rows for {fp_name}. Nothing to plot.')
-            return 0
+        logger.info(f'Running footprint analysis for fp_{args.fp_index}, split by ocean/land.')
+        return _run_footprint_surface_analysis(df, bins, labels, result_dir, args.fp_index, logger)
 
-        fp_outdir = str(result_dir / 'figures' / 'cld_dist_analysis' / 'footprints' / fp_name)
-        _run_subset_analysis(fp_df, bins, labels, fp_name, fp_outdir)
-
-    logger.info('Surface + footprint analysis complete.')
+    logger.info('Footprint surface-split analysis complete.')
     return 0
 
 
