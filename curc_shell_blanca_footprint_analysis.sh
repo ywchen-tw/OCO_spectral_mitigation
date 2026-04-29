@@ -42,14 +42,14 @@ FP_INDEX="0"
 # Run footprint-only analysis.
 # Optional: set FP_INDEX=0..7 above to run one footprint; empty runs all footprints.
 if [[ -n "${FP_INDEX}" ]]; then
-    python src/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col weighted_cloud_dist_km
+    python workspace/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col weighted_cloud_dist_km
 else
-    python src/footprint_analyze.py --distance-col weighted_cloud_dist_km
+    python workspace/footprint_analyze.py --distance-col weighted_cloud_dist_km
 fi
 
 
 if [[ -n "${FP_INDEX}" ]]; then
-    python src/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col cld_dist_km
+    python workspace/footprint_analyze.py --fp-index "${FP_INDEX}" --distance-col cld_dist_km
 else
-    python src/footprint_analyze.py --distance-col cld_dist_km
+    python workspace/footprint_analyze.py --distance-col cld_dist_km
 fi

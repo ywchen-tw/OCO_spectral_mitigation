@@ -134,6 +134,7 @@ python src/apply_model_with_cld.py \
   --hybrid-dir results/model_hybrid/land_2016_2020_4/ \
   --clf-dir    results/model_mlp_clf/land_2016_2020_4/ \
   --ft-clf-dir results/model_ft_clf/land_2016_2020_4/ \
+  --gate-clf   ft_clf \
   --input-dir  results/csv_collection \
   --input     combined_2021-12-29_all_orbits.parquet combined_2018-10-24_all_orbits.parquet combined_2020-01-15_all_orbits.parquet combined_2021-04-24_all_orbits.parquet combined_2019-07-10_all_orbits.parquet \
   --output    corrected.csv \

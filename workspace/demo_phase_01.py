@@ -16,7 +16,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from phase_01_metadata import OCO2MetadataRetriever
+from pipeline.phase_01_metadata import OCO2MetadataRetriever
 from utils import setup_logging
 from config import Config
 

@@ -29,10 +29,10 @@ import platform
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from phase_01_metadata import OCO2MetadataRetriever
-from phase_02_ingestion import DataIngestionManager
-from phase_03_processing import SpatialProcessor
-from phase_04_geometry import GeometryProcessor
+from pipeline.phase_01_metadata import OCO2MetadataRetriever
+from pipeline.phase_02_ingestion import DataIngestionManager
+from pipeline.phase_03_processing import SpatialProcessor
+from pipeline.phase_04_geometry import GeometryProcessor
 from config import Config
 
 # Configure logging
@@ -109,7 +109,7 @@ def main():
     geometry_processor = GeometryProcessor(data_dir=str(data_dir))
     
     # Import DownloadedFile before using it
-    from phase_02_ingestion import DownloadedFile
+    from pipeline.phase_02_ingestion import DownloadedFile
     
     # ========================================================================
     # Step 1: Get downloaded files from previous phases

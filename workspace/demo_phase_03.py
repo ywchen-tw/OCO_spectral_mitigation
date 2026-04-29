@@ -21,8 +21,8 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from phase_02_ingestion import DataIngestionManager
-from phase_03_processing import SpatialProcessor
+from pipeline.phase_02_ingestion import DataIngestionManager
+from pipeline.phase_03_processing import SpatialProcessor
 
 
 def main():
@@ -222,7 +222,7 @@ def main():
                             # Extract cloud masks from combined data
                             if combined_data.get('lon') is not None:
                                 # Reconstruct MODISCloudMask objects for backward compatibility
-                                from phase_03_processing import MODISCloudMask
+                                from pipeline.phase_03_processing import MODISCloudMask
                                 for modis_granule_id in combined_data.get('modis_granules', []):
                                     # Create a MODISCloudMask with the combined data
                                     # Note: We're creating a single mask with all data for simplicity

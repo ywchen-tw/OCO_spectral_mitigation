@@ -1,7 +1,17 @@
 import sys
 import numpy as np
 import bisect as bs
-from numba import njit
+try:
+    from numba import njit
+except ModuleNotFoundError:
+    def njit(*args, **kwargs):
+        if args and callable(args[0]) and len(args) == 1 and not kwargs:
+            return args[0]
+
+        def decorator(func):
+            return func
+
+        return decorator
 
 @njit(cache=True)
 def get_P_index(pobs_arr, hpa, trilinear=True):

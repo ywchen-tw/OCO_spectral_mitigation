@@ -7,7 +7,6 @@ if platform.system() == "Linux":
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
     os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 import sys
-import psutil
 import multiprocessing
 import h5py
 import numpy as np
@@ -261,12 +260,6 @@ def _process_track_all_bands(track_data):
 
     """Pickle-safe worker function for macOS and HPC."""
     # ACCESS GLOBAL STATE (Populated by _init_worker)
-    pid = os.getpid()
-    
-    # --- MANUAL MEMORY MONITORING ---
-    process = psutil.Process(pid)
-    mem_start = process.memory_info().rss / 1e9
-
     # Data shared across all bands
     absco_data_h2o   = s['absco_data_h2o']
     solar_h5_path    = s['solar_h5_path']
@@ -618,6 +611,7 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
         
     if platform.system() == "Darwin":
         print(f"Dispatching {n_tracks} tracks across {n_workers_actual} workers (all 3 bands) ...")
+        track_chunksize = max(1, int(os.environ.get("OCO_FP_TRACK_CHUNKSIZE", "4")))
         try:
             with ProcessPoolExecutor(
                 max_workers=n_workers_actual,
@@ -625,14 +619,17 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
                 initializer=_init_worker,
                 initargs=(shared_state,),
             ) as pool:
-                results = list(tqdm(pool.map(_process_track_all_bands, track_args), total=n_tracks, desc="Tracks"))
+                results = list(tqdm(
+                    pool.map(_process_track_all_bands, track_args, chunksize=track_chunksize),
+                    total=n_tracks,
+                    desc="Tracks",
+                ))
         finally:
             for shm in _shm_blocks:
                 shm.close()
                 shm.unlink()
-        results = []
-        print(f"Dispatching {n_tracks} tracks via imap (chunksize=20)...", flush=True)
     else:
+        track_chunksize = max(1, int(os.environ.get("OCO_FP_TRACK_CHUNKSIZE", "4")))
         try:
             with mp_ctx.Pool(
                 processes=n_workers_actual,
@@ -640,8 +637,8 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
                 initargs=(shared_state,),
             ) as pool:
 
-                # chunksize=1 is vital for heavy tasks to avoid 'clogging' the pipe
-                result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=20)
+                # Keep chunks small enough for progress feedback, but larger than 1 for throughput.
+                result_iterator = pool.imap(_process_track_all_bands, track_args, chunksize=track_chunksize)
                 
                 results = list(tqdm(
                     result_iterator, 

@@ -35,5 +35,5 @@ export HDF5_USE_FILE_LOCKING=FALSE
 cd /projects/yuch8913/OCO_spectral_mitigation
 
 
-# python src/combined_analyze.py --distance-col cld_dist_km
-python src/combined_analyze.py --distance-col weighted_cloud_dist_km
+# python src/analysis/run_all.py --distance-col cld_dist_km
+python src/analysis/run_all.py --distance-col weighted_cloud_dist_km

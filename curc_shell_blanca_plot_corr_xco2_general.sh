@@ -40,7 +40,7 @@ export OPENBLAS_NUM_THREADS=1
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-# python src/plot_corrected_xco2.py \
+# python workspace/plot_corrected_xco2.py \
 #     --plot-data   results/model_comparison/ocean_2017_2020_2020-05-17/plot_data.csv \
 #     --tccon       data/TCCON/ra20150301_20200718.public.qc.nc \
 #     --results-h5 results/results_2020-01-01.h5 \
@@ -51,7 +51,7 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 #     --date-plot  2020-05-17 \
 #     --vmin 400 --vmax 415
 
-# python src/plot_corrected_xco2.py \
+# python workspace/plot_corrected_xco2.py \
 #     --plot-data   results/model_comparison/land_2017_2020_2018-10-24/plot_data.csv \
 #     --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
 #     --results-h5 results/results_2018-10-24.h5 \
@@ -62,66 +62,68 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 #     --date-plot  2018-10-24 \
 #     --vmin 405 --vmax 410
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/ocean_2016_2020_2/combined_2020-04-15_all_orbits/plot_data.parquet \
-    --tccon       data/TCCON/ra20150301_20200718.public.qc.nc \
-    --results-h5  results/results_2020-04-15.h5 \
-    --output-dir  results/model_comparison/ocean_2016_2020_2/combined_2020-04-15_all_orbits/ \
-    --modis-auto \
-    --lon-range   54.98  55.72 \
-    --lat-range   -22.71 -20.32 \
-    --date-plot  2020-04-15 \
-    --vmin 406 --vmax 412
+# python workspace/plot_corrected_xco2.py \
+#     --plot-data   results/model_comparison/ocean_2016_2020_4_cld/combined_2020-04-15_all_orbits/plot_data.parquet \
+#     --tccon       data/TCCON/ra20150301_20200718.public.qc.nc \
+#     --results-h5  results/results_2020-04-15.h5 \
+#     --output-dir  results/model_comparison/ocean_2016_2020_4_cld/combined_2020-04-15_all_orbits/ \
+#     --modis-auto \
+#     --lon-range   54.98  55.72 \
+#     --lat-range   -22.71 -20.32 \
+#     --date-plot  2020-04-15 \
+#     --vmin 406 --vmax 412
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/ocean_2016_2020_2/combined_2020-03-30_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/ocean_2016_2020_4_cld/combined_2020-03-30_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
     --results-h5  results/results_2020-03-30.h5 \
-    --output-dir  results/model_comparison/ocean_2016_2020_2/combined_2020-03-30_all_orbits/ \
+    --output-dir  results/model_comparison/ocean_2016_2020_4_cld/combined_2020-03-30_all_orbits/ \
     --modis-auto \
     --lon-range   120.50  120.85 \
     --lat-range   18.43  19.30 \
     --date-plot  2020-03-30 \
-    --vmin 410 --vmax 417
+    --vmin 410 --vmax 417 \
+    --poster-model hybrid \
+    --poster-dpi 300
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/ocean_2016_2020_2/combined_2020-09-06_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/ocean_2016_2020_4_cld/combined_2020-09-06_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
     --results-h5 results/results_2020-09-06.h5 \
-    --output-dir  results/model_comparison/ocean_2016_2020_2/combined_2020-09-06_all_orbits/ \
+    --output-dir  results/model_comparison/ocean_2016_2020_4_cld/combined_2020-09-06_all_orbits/ \
     --modis-auto \
     --lon-range   120.40  120.75 \
     --lat-range   18.46  19.38 \
     --date-plot  2020-09-06 \
     --vmin 405 --vmax 412
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/ocean_2016_2020_2/combined_2018-02-21_all_orbits/plot_data.parquet \
-    --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
-    --results-h5 results/results_2018-02-21.h5 \
-    --output-dir  results/model_comparison/ocean_2016_2020_2/combined_2018-02-21_all_orbits/ \
-    --modis-auto \
-    --lon-range   120.24  120.78 \
-    --lat-range   18.21  19.24 \
-    --date-plot  2018-02-21 \
-    --vmin 402 --vmax 410
+# python workspace/plot_corrected_xco2.py \
+#     --plot-data   results/model_comparison/ocean_2016_2020_4_cld/combined_2018-02-21_all_orbits/plot_data.parquet \
+#     --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
+#     --results-h5 results/results_2018-02-21.h5 \
+#     --output-dir  results/model_comparison/ocean_2016_2020_4_cld/combined_2018-02-21_all_orbits/ \
+#     --modis-auto \
+#     --lon-range   120.24  120.78 \
+#     --lat-range   18.21  19.24 \
+#     --date-plot  2018-02-21 \
+#     --vmin 402 --vmax 410
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/ocean_2016_2020_2/combined_2018-09-01_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/ocean_2016_2020_4_cld/combined_2018-09-01_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
     --results-h5 results/results_2018-09-01.h5 \
-    --output-dir  results/model_comparison/ocean_2016_2020_2/combined_2018-09-01_all_orbits/ \
+    --output-dir  results/model_comparison/ocean_2016_2020_4_cld/combined_2018-09-01_all_orbits/ \
     --modis-auto \
     --lon-range   120.33  120.80 \
     --lat-range   18.37  19.71 \
     --date-plot  2018-09-01 \
     --vmin 402 --vmax 408
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/ocean_2016_2020_2/combined_2018-11-29_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/ocean_2016_2020_4_cld/combined_2018-11-29_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
     --results-h5 results/results_2018-11-29.h5 \
-    --output-dir  results/model_comparison/ocean_2016_2020_2/combined_2018-11-29_all_orbits/ \
+    --output-dir  results/model_comparison/ocean_2016_2020_4_cld/combined_2018-11-29_all_orbits/ \
     --modis-auto \
     --lon-range   120.65  121.15 \
     --lat-range   18.47 18.97 \
@@ -129,99 +131,107 @@ python src/plot_corrected_xco2.py \
     --vmin 405 --vmax 409
 
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/ocean_2016_2020_2/combined_2020-05-01_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/ocean_2016_2020_4_cld/combined_2020-05-01_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
     --results-h5 results/results_2020-05-01.h5 \
-    --output-dir  results/model_comparison/ocean_2016_2020_2/combined_2020-05-01_all_orbits/ \
+    --output-dir  results/model_comparison/ocean_2016_2020_4_cld/combined_2020-05-01_all_orbits/ \
     --modis-auto \
     --lon-range   120.10  120.98 \
     --lat-range   18.42 21.08 \
     --date-plot  2020-05-01 \
-    --vmin 412 --vmax 418
+    --vmin 412 --vmax 418 \
+    --poster-model hybrid \
+    --poster-dpi 300
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/ocean_2016_2020_2/combined_2018-09-02_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/ocean_2016_2020_4_cld/combined_2018-09-02_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/iz20140102_20230830.public.qc.nc \
     --results-h5 results/results_2018-09-02.h5 \
-    --output-dir  results/model_comparison/ocean_2016_2020_2/combined_2018-09-02_all_orbits/ \
+    --output-dir  results/model_comparison/ocean_2016_2020_4_cld/combined_2018-09-02_all_orbits/ \
     --modis-auto \
     --lon-range   -16.48 -16.1 \
     --lat-range   27.64  28.64 \
     --date-plot  2018-09-02 \
-    --vmin 402 --vmax 408
+    --vmin 402 --vmax 408 \
+    --poster-model hybrid \
+    --poster-dpi 300
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/ocean_2016_2020_2/combined_2018-11-30_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/ocean_2016_2020_4_cld/combined_2018-11-30_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/iz20140102_20230830.public.qc.nc \
     --results-h5 results/results_2018-11-30.h5 \
-    --output-dir  results/model_comparison/ocean_2016_2020_2/combined_2018-11-30_all_orbits/ \
+    --output-dir  results/model_comparison/ocean_2016_2020_4_cld/combined_2018-11-30_all_orbits/ \
     --modis-auto \
     --lon-range   -16.43 -15.92 \
     --lat-range   27.56  28.70 \
     --date-plot  2018-11-30 \
     --vmin 406.5 --vmax 409
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/ocean_2016_2020_2/combined_2019-03-13_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/ocean_2016_2020_4_cld/combined_2019-03-13_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/iz20140102_20230830.public.qc.nc \
     --results-h5 results/results_2019-03-13.h5 \
-    --output-dir  results/model_comparison/ocean_2016_2020_2/combined_2019-03-13_all_orbits/ \
+    --output-dir  results/model_comparison/ocean_2016_2020_4_cld/combined_2019-03-13_all_orbits/ \
     --modis-auto \
     --lon-range   -16.63 -16.26 \
     --lat-range   27.76  28.67 \
     --date-plot  2019-03-13 \
-    --vmin 408.5 --vmax 413
+    --vmin 408.5 --vmax 413 \
+    --poster-model hybrid \
+    --poster-dpi 300
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/land_2016_2020_2/combined_2018-10-24_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/land_2016_2020_4_cld/combined_2018-10-24_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
     --results-h5 results/results_2018-10-24.h5 \
-    --output-dir  results/model_comparison/land_2016_2020_2/combined_2018-10-24_all_orbits/ \
+    --output-dir  results/model_comparison/land_2016_2020_4_cld/combined_2018-10-24_all_orbits/ \
     --modis-auto \
     --lon-range   120.48  120.87 \
     --lat-range   18.27 18.61 \
     --date-plot  2018-10-24 \
-    --vmin 395 --vmax 415
+    --vmin 395 --vmax 415 \
+    --poster-model hybrid \
+    --poster-dpi 300
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/land_2016_2020_2/combined_2020-01-15_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/land_2016_2020_4_cld/combined_2020-01-15_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/bu20170303_20250221.public.qc.nc \
     --results-h5 results/results_2020-01-15.h5 \
-    --output-dir  results/model_comparison/land_2016_2020_2/combined_2020-01-15_all_orbits/ \
+    --output-dir  results/model_comparison/land_2016_2020_4_cld/combined_2020-01-15_all_orbits/ \
     --modis-auto \
     --lon-range   120.48  120.87 \
     --lat-range   18.27 18.61 \
     --date-plot  2020-01-15 \
     --vmin 408 --vmax 416
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/land_2016_2020_2/combined_2021-04-24_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/land_2016_2020_4_cld/combined_2021-04-24_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/oc20110416_20251023.public.qc.nc \
     --results-h5 results/results_2021-04-24.h5 \
-    --output-dir  results/model_comparison/land_2016_2020_2/combined_2021-04-24_all_orbits/ \
+    --output-dir  results/model_comparison/land_2016_2020_4_cld/combined_2021-04-24_all_orbits/ \
     --modis-auto \
     --lon-range   -97.86 -97.24 \
     --lat-range   35.82 37.26 \
     --date-plot  2021-04-24 \
     --vmin 412 --vmax 420
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/land_2016_2020_2/combined_2021-12-29_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/land_2016_2020_4_cld/combined_2021-12-29_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/oc20110416_20251023.public.qc.nc \
     --results-h5 results/results_2021-12-29.h5 \
-    --output-dir  results/model_comparison/land_2016_2020_2/combined_2021-12-29_all_orbits/ \
+    --output-dir  results/model_comparison/land_2016_2020_4_cld/combined_2021-12-29_all_orbits/ \
     --modis-auto \
     --lon-range   -97.86 -97.24 \
     --lat-range   35.82 37.26 \
     --date-plot  2021-12-29 \
     --vmin 415.5 --vmax 421
 
-python src/plot_corrected_xco2.py \
-    --plot-data   results/model_comparison/land_2016_2020_2/combined_2019-07-10_all_orbits/plot_data.parquet \
+python workspace/plot_corrected_xco2.py \
+    --plot-data   results/model_comparison/land_2016_2020_4_cld/combined_2019-07-10_all_orbits/plot_data.parquet \
     --tccon       data/TCCON/iz20140102_20230830.public.qc.nc \
     --results-h5 results/results_2019-07-10.h5 \
-    --output-dir  results/model_comparison/land_2016_2020_2/combined_2019-07-10_all_orbits/ \
+    --output-dir  results/model_comparison/land_2016_2020_4_cld/combined_2019-07-10_all_orbits/ \
     --modis-auto \
     --lon-range   -16.65 -16.40 \
     --lat-range   28.20  28.44 \

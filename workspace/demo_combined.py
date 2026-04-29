@@ -48,10 +48,10 @@ from typing import Dict, List, Optional, Tuple
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from phase_01_metadata import OCO2MetadataRetriever
-from phase_02_ingestion import DataIngestionManager, DownloadedFile
-from phase_03_processing import SpatialProcessor
-from phase_04_geometry import GeometryProcessor
+from pipeline.phase_01_metadata import OCO2MetadataRetriever
+from pipeline.phase_02_ingestion import DataIngestionManager, DownloadedFile
+from pipeline.phase_03_processing import SpatialProcessor
+from pipeline.phase_04_geometry import GeometryProcessor
 from config import Config
 from utils import setup_logging
 

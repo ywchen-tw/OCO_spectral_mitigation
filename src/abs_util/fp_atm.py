@@ -11,7 +11,7 @@ from abs_util.fp_abs_coeff import oco_fp_abs_all_bands
 from netCDF4 import Dataset
 
 
-def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5', 
+def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                    oco_files_dict=None,
                     oco_nc_file=None,
                    overwrite=False):
@@ -32,6 +32,10 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
     if sat == None:
         sys.exit("[Error] sat information must be provided!")
     elif sat != None:
+        if abs_skip:
+            print(f'[Warning] Output file {output} exists - skipping!')
+            return None
+
         print("oco_files_dict: ", oco_files_dict)
         # Get reanalysis from met and CO2 prior sounding data
         with h5py.File(oco_files_dict['oco_l1b'], 'r') as oco_l1b:
@@ -193,46 +197,22 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
             processing_length = 1000
         elif platform.system() == "Linux":
             processing_length = 3000
-        for i in range(0, final_length, processing_length):
-            print(f'Processing sounding {i} to {min(i+processing_length, final_length)} out of {final_length}...')
-            output_tmp = output.replace('.h5', '_tmp_{}.h5'.format(i))
-            id_select = np.where(id_select_all)[0][i:i+processing_length]
-            atm_dict = {'p_edge': P_edge[id_select, :], 'lat': lat_l1b_select[id_select],
-                        'p_lay': pprf_l[id_select, :z_last_layer_ind], 't_lay': tprf_l[id_select, :z_last_layer_ind], 'h_lay': (h_edge[id_select, :z_last_layer_ind] + h_edge[id_select, 1:])/2,
-                        'd_air_lay': air_layer[id_select, :z_last_layer_ind],
-                        'd_o2_lay': o2_layer[id_select, :z_last_layer_ind], 'd_co2_lay': co2_layer[id_select, :z_last_layer_ind], 'd_h2o_lay': h2o_layer[id_select, :z_last_layer_ind],
-                        'h2o_vmr': h2o_vmr[id_select, :z_last_layer_ind], 'dz': dz_hydrostatic[id_select, :z_last_layer_ind], 
-                        'v_solar': v_solar[id_select], 'v_inst': v_inst[id_select], 'dist_au': dist_au[id_select], 
-                        'wvl_coef': wvl_coef, 'del_lambda_all': del_lambda_all, 'rel_lresponse_all': rel_lresponse_all,
-                        'sza': sza_id[id_select], 'vza': vza_id[id_select], 'fp_number': fp_number[id_select], 'doy': doy}
-
-
-            need = (not os.path.isfile(output_tmp) or overwrite) and not abs_skip
-
-            if need:
-                (tau_o2a,  me_o2a,  sol_o2a), \
-                (tau_wco2, me_wco2, sol_wco2), \
-                (tau_sco2, me_sco2, sol_sco2) = oco_fp_abs_all_bands(atm_dict)
-
-                print('Saving to file ' + output_tmp)
-                with h5py.File(output_tmp, 'w') as h5f:
-                    h5f.create_dataset('sza',                   data=sza_id[id_select])
-                    h5f.create_dataset('vza',                   data=vza_id[id_select])
-                    h5f.create_dataset('sounding_id',           data=sounding_id[id_select])
-                    h5f.create_dataset('fp_number',             data=fp_number[id_select])
-                    h5f.create_dataset('o2a_tau_output',        data=tau_o2a)
-                    h5f.create_dataset('o2a_mean_ext_output',   data=me_o2a)
-                    h5f.create_dataset('o2a_toa_sol_output',    data=sol_o2a)
-                    h5f.create_dataset('wco2_tau_output',       data=tau_wco2)
-                    h5f.create_dataset('wco2_mean_ext_output',  data=me_wco2)
-                    h5f.create_dataset('wco2_toa_sol_output',   data=sol_wco2)
-                    h5f.create_dataset('sco2_tau_output',       data=tau_sco2)
-                    h5f.create_dataset('sco2_mean_ext_output',  data=me_sco2)
-                    h5f.create_dataset('sco2_toa_sol_output',   data=sol_sco2)
+        selected_inds = np.where(id_select_all)[0]
+        max_soundings_env = os.environ.get("OCO_FP_MAX_SOUNDINGS")
+        if max_soundings_env:
+            try:
+                max_soundings = int(max_soundings_env)
+            except ValueError:
+                print(f"[Warning] Ignoring invalid OCO_FP_MAX_SOUNDINGS={max_soundings_env!r}")
             else:
-                print(f'[Warning] Output file {output_tmp} exists - skipping!')
-        
-        
+                if max_soundings > 0 and max_soundings < len(selected_inds):
+                    print(f"Limiting benchmark to first {max_soundings} soundings (of {len(selected_inds)})")
+                    selected_inds = selected_inds[:max_soundings]
+                    final_length = len(selected_inds)
+                else:
+                    final_length = len(selected_inds)
+        else:
+            final_length = len(selected_inds)
         sza_select_all = np.empty(final_length)
         vza_select_all = np.empty(final_length)
         snd_id_select_all = np.empty(final_length)
@@ -246,52 +226,90 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
         sco2_tau_output_all = np.empty((final_length, 1016))
         sco2_mean_ext_output_all = np.empty((final_length, 1016))
         sco2_toa_sol_output_all = np.empty((final_length, 1016))
-        
-        
-        
-        tmp_files = [output.replace('.h5', '_tmp_{}.h5'.format(i))
-                     for i in range(0, final_length, processing_length)]
-        all_tmp_exist = all(os.path.isfile(f) for f in tmp_files)
 
-        for i, output_tmp in zip(range(0, final_length, processing_length), tmp_files):
-            id_select = np.where(id_select_all)[0][i:i+processing_length]
-            sza_select_all[i:i+processing_length] = sza_id[id_select]
-            vza_select_all[i:i+processing_length] = vza_id[id_select]
-            snd_id_select_all[i:i+processing_length] = sounding_id[id_select]
-            fp_number_select_all[i:i+processing_length] = fp_number[id_select]
-            if os.path.isfile(output_tmp) and not abs_skip:
-                with h5py.File(output_tmp, 'r') as h5_input:
-                    o2a_tau_output_all[i:i+processing_length]       = np.asarray(h5_input['o2a_tau_output'])
-                    o2a_mean_ext_output_all[i:i+processing_length]  = np.asarray(h5_input['o2a_mean_ext_output'])
-                    o2a_toa_sol_output_all[i:i+processing_length]   = np.asarray(h5_input['o2a_toa_sol_output'])
-                    wco2_tau_output_all[i:i+processing_length]      = np.asarray(h5_input['wco2_tau_output'])
-                    wco2_mean_ext_output_all[i:i+processing_length] = np.asarray(h5_input['wco2_mean_ext_output'])
-                    wco2_toa_sol_output_all[i:i+processing_length]  = np.asarray(h5_input['wco2_toa_sol_output'])
-                    sco2_tau_output_all[i:i+processing_length]      = np.asarray(h5_input['sco2_tau_output'])
-                    sco2_mean_ext_output_all[i:i+processing_length] = np.asarray(h5_input['sco2_mean_ext_output'])
-                    sco2_toa_sol_output_all[i:i+processing_length]  = np.asarray(h5_input['sco2_toa_sol_output'])
+        tmp_files = []
+        all_tmp_exist = True
+        for i in range(0, final_length, processing_length):
+            end = min(i + processing_length, final_length)
+            print(f'Processing sounding {i} to {end} out of {final_length}...')
+            output_tmp = os.path.splitext(output)[0] + f'_tmp_{i}.h5'
+            tmp_files.append(output_tmp)
+            id_select = selected_inds[i:end]
+
+            sza_select_all[i:end] = sza_id[id_select]
+            vza_select_all[i:end] = vza_id[id_select]
+            snd_id_select_all[i:end] = sounding_id[id_select]
+            fp_number_select_all[i:end] = fp_number[id_select]
+
+            need = (not os.path.isfile(output_tmp) or overwrite) and not abs_skip
+            if need:
+                atm_dict = {'p_edge': P_edge[id_select, :], 'lat': lat_l1b_select[id_select],
+                            'p_lay': pprf_l[id_select, :z_last_layer_ind], 't_lay': tprf_l[id_select, :z_last_layer_ind], 'h_lay': (h_edge[id_select, :z_last_layer_ind] + h_edge[id_select, 1:])/2,
+                            'd_air_lay': air_layer[id_select, :z_last_layer_ind],
+                            'd_o2_lay': o2_layer[id_select, :z_last_layer_ind], 'd_co2_lay': co2_layer[id_select, :z_last_layer_ind], 'd_h2o_lay': h2o_layer[id_select, :z_last_layer_ind],
+                            'h2o_vmr': h2o_vmr[id_select, :z_last_layer_ind], 'dz': dz_hydrostatic[id_select, :z_last_layer_ind],
+                            'v_solar': v_solar[id_select], 'v_inst': v_inst[id_select], 'dist_au': dist_au[id_select],
+                            'wvl_coef': wvl_coef, 'del_lambda_all': del_lambda_all, 'rel_lresponse_all': rel_lresponse_all,
+                            'sza': sza_id[id_select], 'vza': vza_id[id_select], 'fp_number': fp_number[id_select], 'doy': doy}
+
+                (tau_o2a,  me_o2a,  sol_o2a), \
+                (tau_wco2, me_wco2, sol_wco2), \
+                (tau_sco2, me_sco2, sol_sco2) = oco_fp_abs_all_bands(atm_dict)
+
+                print('Saving to file ' + output_tmp)
+                with h5py.File(output_tmp, 'w') as h5f:
+                    h5f.create_dataset('sza', data=sza_id[id_select])
+                    h5f.create_dataset('vza', data=vza_id[id_select])
+                    h5f.create_dataset('sounding_id', data=sounding_id[id_select])
+                    h5f.create_dataset('fp_number', data=fp_number[id_select])
+                    h5f.create_dataset('o2a_tau_output', data=tau_o2a)
+                    h5f.create_dataset('o2a_mean_ext_output', data=me_o2a)
+                    h5f.create_dataset('o2a_toa_sol_output', data=sol_o2a)
+                    h5f.create_dataset('wco2_tau_output', data=tau_wco2)
+                    h5f.create_dataset('wco2_mean_ext_output', data=me_wco2)
+                    h5f.create_dataset('wco2_toa_sol_output', data=sol_wco2)
+                    h5f.create_dataset('sco2_tau_output', data=tau_sco2)
+                    h5f.create_dataset('sco2_mean_ext_output', data=me_sco2)
+                    h5f.create_dataset('sco2_toa_sol_output', data=sol_sco2)
+            elif os.path.isfile(output_tmp):
+                print(f'[Info] Reusing temporary file {output_tmp}')
             else:
                 print(f'[Warning] Output file {output_tmp} does not exist - skipping!')
+                all_tmp_exist = False
+
+        if not abs_skip:
+            for i in range(0, final_length, processing_length):
+                end = min(i + processing_length, final_length)
+                output_tmp = os.path.splitext(output)[0] + f'_tmp_{i}.h5'
+                if os.path.isfile(output_tmp):
+                    with h5py.File(output_tmp, 'r') as h5_input:
+                        o2a_tau_output_all[i:end] = np.asarray(h5_input['o2a_tau_output'])
+                        o2a_mean_ext_output_all[i:end] = np.asarray(h5_input['o2a_mean_ext_output'])
+                        o2a_toa_sol_output_all[i:end] = np.asarray(h5_input['o2a_toa_sol_output'])
+                        wco2_tau_output_all[i:end] = np.asarray(h5_input['wco2_tau_output'])
+                        wco2_mean_ext_output_all[i:end] = np.asarray(h5_input['wco2_mean_ext_output'])
+                        wco2_toa_sol_output_all[i:end] = np.asarray(h5_input['wco2_toa_sol_output'])
+                        sco2_tau_output_all[i:end] = np.asarray(h5_input['sco2_tau_output'])
+                        sco2_mean_ext_output_all[i:end] = np.asarray(h5_input['sco2_mean_ext_output'])
+                        sco2_toa_sol_output_all[i:end] = np.asarray(h5_input['sco2_toa_sol_output'])
+                else:
+                    all_tmp_exist = False
 
         if not abs_skip and all_tmp_exist:
             print('Saving combined output to file ' + output)
             with h5py.File(output, 'w') as h5_output:
-                h5_output.create_dataset('sza',             data=sza_select_all)
-                h5_output.create_dataset('vza',             data=vza_select_all)
-                h5_output.create_dataset('sounding_id',     data=snd_id_select_all)
-                h5_output.create_dataset('fp_number',       data=fp_number_select_all)
-                h5_output.create_dataset('o2a_tau_output',       data=o2a_tau_output_all)
-                h5_output.create_dataset('o2a_mean_ext_output',  data=o2a_mean_ext_output_all)
-                h5_output.create_dataset('o2a_toa_sol_output',   data=o2a_toa_sol_output_all)
-                h5_output.create_dataset('wco2_tau_output',      data=wco2_tau_output_all)
+                h5_output.create_dataset('sza', data=sza_select_all)
+                h5_output.create_dataset('vza', data=vza_select_all)
+                h5_output.create_dataset('sounding_id', data=snd_id_select_all)
+                h5_output.create_dataset('fp_number', data=fp_number_select_all)
+                h5_output.create_dataset('o2a_tau_output', data=o2a_tau_output_all)
+                h5_output.create_dataset('o2a_mean_ext_output', data=o2a_mean_ext_output_all)
+                h5_output.create_dataset('o2a_toa_sol_output', data=o2a_toa_sol_output_all)
+                h5_output.create_dataset('wco2_tau_output', data=wco2_tau_output_all)
                 h5_output.create_dataset('wco2_mean_ext_output', data=wco2_mean_ext_output_all)
-                h5_output.create_dataset('wco2_toa_sol_output',  data=wco2_toa_sol_output_all)
-                h5_output.create_dataset('sco2_tau_output',      data=sco2_tau_output_all)
+                h5_output.create_dataset('wco2_toa_sol_output', data=wco2_toa_sol_output_all)
+                h5_output.create_dataset('sco2_tau_output', data=sco2_tau_output_all)
                 h5_output.create_dataset('sco2_mean_ext_output', data=sco2_mean_ext_output_all)
-                h5_output.create_dataset('sco2_toa_sol_output',  data=sco2_toa_sol_output_all)
-
-            print('Deleting temporary files...')
-            for output_tmp in tmp_files:
-                os.remove(output_tmp)
+                h5_output.create_dataset('sco2_toa_sol_output', data=sco2_toa_sol_output_all)
         
     return None

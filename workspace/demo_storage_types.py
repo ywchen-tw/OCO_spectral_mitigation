@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from config import Config
-from phase_02_ingestion import DataIngestionManager
+from pipeline.phase_02_ingestion import DataIngestionManager
 
 print("=" * 70)
 print("Storage Type Configuration Demo")

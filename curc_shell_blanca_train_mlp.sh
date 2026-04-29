@@ -48,16 +48,16 @@ nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,
            --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}.csv &
 GPU_MONITOR_PID=$!
 
-# python src/mlp_lr_models.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
+# python src/models/mlp_lr.py --pipeline results/train_data/pipeline_land_2016_2020.pkl \
 #  --sfc_type 1 --suffix land_2016_2020_4
 
-# python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
+# python src/models/mlp_lr.py --pipeline results/train_data/pipeline_ocean_2016_2020.pkl \
 #  --sfc_type 0 --suffix ocean_2016_2020_4
 
-python src/mlp_lr_models.py --pipeline results/train_data/pipeline_land_2016_2020_pca-augment.pkl \
+python src/models/mlp_lr.py --pipeline results/train_data/pipeline_land_2016_2020_pca-augment.pkl \
  --sfc_type 1 --suffix land_2016_2020_pca_1 --pca-augment
 
-python src/mlp_lr_models.py --pipeline results/train_data/pipeline_ocean_2016_2020_pca-augment.pkl \
+python src/models/mlp_lr.py --pipeline results/train_data/pipeline_ocean_2016_2020_pca-augment.pkl \
  --sfc_type 0 --suffix ocean_2016_2020_pca_1 --pca-augment
 
 kill $GPU_MONITOR_PID 2>/dev/null || true

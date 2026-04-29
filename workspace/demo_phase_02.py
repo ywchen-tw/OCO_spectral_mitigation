@@ -25,7 +25,7 @@ import argparse
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from phase_02_ingestion import DataIngestionManager
+from pipeline.phase_02_ingestion import DataIngestionManager
 
 # Configure logging
 logging.basicConfig(
