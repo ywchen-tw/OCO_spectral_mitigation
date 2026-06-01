@@ -333,5 +333,11 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                 h5_output.create_dataset('sco2_tau_output', data=sco2_tau_output_all)
                 h5_output.create_dataset('sco2_mean_ext_output', data=sco2_mean_ext_output_all)
                 h5_output.create_dataset('sco2_toa_sol_output', data=sco2_toa_sol_output_all)
+            for output_tmp in tmp_files:
+                try:
+                    os.remove(output_tmp)
+                    print(f'[Info] Removed temporary file {output_tmp}')
+                except OSError as exc:
+                    print(f'[Warning] Could not remove temporary file {output_tmp}: {exc}')
         
     return None

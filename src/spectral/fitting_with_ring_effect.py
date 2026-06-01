@@ -865,6 +865,44 @@ def plot_fitting_example(tag, fp, sounding_ind, wvl, rad, transmittance, tau, ln
     #     pass  # Gamma model may not converge for every sounding; skip quietly
 
 
+def plot_orbit_fitting_examples(od, fit_orders, output_dir):
+    """Save one representative fitting example per band for an orbit."""
+    os.makedirs(output_dir, exist_ok=True)
+    tags = ["o2a", "wco2", "sco2"]
+    T_all = compute_transmittance(od["radiances"], od["toa_sol"])
+    ln_T_all = np.where(T_all > 0, np.log(T_all), np.nan)
+    plot_done = {tag: False for tag in tags}
+
+    for j in range(len(od["sounding_id"])):
+        if all(plot_done.values()):
+            return
+        if not od["valid_l1b"][j]:
+            continue
+
+        for i_band, (tag, band_order) in enumerate(zip(tags, fit_orders)):
+            if plot_done[tag]:
+                continue
+
+            tau_j = od["tau"][i_band, j][1:-1]
+            ln_T_j = ln_T_all[i_band, j][1:-1]
+            mask = ~np.isnan(ln_T_j) & ~np.isnan(tau_j)
+            if mask.sum() < band_order + 2:
+                continue
+
+            try:
+                popt = fit_spectral_model(tau_j[mask], ln_T_j[mask], band_order)
+            except (RuntimeError, ValueError):
+                continue
+
+            plot_fitting_example(
+                tag, int(od["fp_number"][j]), int(od["sounding_id"][j]),
+                od["wvl"][i_band, od["fp_number"][j]],
+                od["radiances"][i_band, j], T_all[i_band, j],
+                tau_j[mask], ln_T_j[mask], popt, band_order, output_dir,
+            )
+            plot_done[tag] = True
+
+
 # ─── Orbit orchestration ───────────────────────────────────────────────────────
 
 def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=True):
@@ -993,6 +1031,8 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
             kappa_fitting[2, :, 4] = f["sco2_k5_fitting"][...]
             intercept_fitting[2]   = f["sco2_intercept_fitting"][...]
             logger.info(f"Loaded existing fitting results from {output_file}. Skipping fitting step.")
+        logger.info(f"[{orbit_id}] Writing example fitting plots from cached fitting input.")
+        plot_orbit_fitting_examples(od, fit_orders, output_dir)
         
     # ── 3b. Exponential of fitting intercepts ─────────────────────────────
     exp_intercept_o2a  = np.exp(intercept_fitting[0])
