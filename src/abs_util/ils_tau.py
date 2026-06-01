@@ -1,7 +1,7 @@
 import numpy as np
 
 
-TAU_CONVOLUTION_VERSION = "transmission_ils_rayleigh_hr_v1"
+TAU_CONVOLUTION_VERSION = "transmission_ils_rayleigh_hr_v2"
 
 
 def convolve_optical_depth_in_transmission(

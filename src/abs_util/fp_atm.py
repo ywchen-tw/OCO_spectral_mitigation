@@ -12,6 +12,19 @@ from abs_util.ils_tau import TAU_CONVOLUTION_VERSION
 from netCDF4 import Dataset
 
 
+def _tau_file_is_current(path, use_ring=False):
+    if not os.path.isfile(path):
+        return False
+    try:
+        with h5py.File(path, "r") as h5f:
+            return (
+                h5f.attrs.get("tau_convolution") == TAU_CONVOLUTION_VERSION
+                and bool(h5f.attrs.get("use_ring", False)) == bool(use_ring)
+            )
+    except OSError:
+        return False
+
+
 def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                    oco_files_dict=None,
                     oco_nc_file=None,
@@ -20,7 +33,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
 
     """
     
-    abs_skip = os.path.isfile(output) and not overwrite
+    abs_skip = _tau_file_is_current(output, use_ring=False) and not overwrite
     
     
     # --------- Constants ------------
@@ -242,7 +255,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
             snd_id_select_all[i:end] = sounding_id[id_select]
             fp_number_select_all[i:end] = fp_number[id_select]
 
-            need = (not os.path.isfile(output_tmp) or overwrite) and not abs_skip
+            need = (overwrite or not _tau_file_is_current(output_tmp, use_ring=False)) and not abs_skip
             if need:
                 atm_dict = {'p_edge': P_edge[id_select, :], 'lat': lat_l1b_select[id_select],
                             'p_lay': pprf_l[id_select, :z_last_layer_ind], 't_lay': tprf_l[id_select, :z_last_layer_ind], 'h_lay': (h_edge[id_select, :z_last_layer_ind] + h_edge[id_select, 1:])/2,
