@@ -26,6 +26,7 @@ from scipy.signal import savgol_filter
 
 from analysis.results import k1k2_analysis
 from abs_util.fp_atm_with_ring_effect import oco_fp_atm_abs
+from abs_util.ils_tau import TAU_CONVOLUTION_VERSION
 from abs_util.oco_util import timing
 import argparse
 import logging
@@ -1412,6 +1413,20 @@ def search_oco2_orbit(date, data_dir="data"):
     )
 
 
+def fp_tau_file_is_current(fp_tau_file, use_ring=False):
+    """Return True when cached tau uses the current ILS convolution physics."""
+    if not os.path.isfile(fp_tau_file):
+        return False
+    try:
+        with h5py.File(fp_tau_file, "r") as f:
+            return (
+                f.attrs.get("tau_convolution") == TAU_CONVOLUTION_VERSION
+                and bool(f.attrs.get("use_ring", False)) == bool(use_ring)
+            )
+    except OSError:
+        return False
+
+
 @timing
 def preprocess(target_date, data_dir="data", result_dir="results", limit_granules=-1, use_ring=False):
     """Discover orbit files and compute per-footprint optical depths.
@@ -1471,7 +1486,7 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
         date_str = date.strftime("%Y-%m-%d")
         fp_tau_file = os.path.abspath(f"{result_dir}/{date_str}/{orbit_id}/fp_tau_combined.h5")
         os.makedirs(os.path.abspath(f"{result_dir}/{date_str}/{orbit_id}"), exist_ok=True)
-        if not os.path.isfile(fp_tau_file):
+        if not fp_tau_file_is_current(fp_tau_file, use_ring=use_ring):
             print(f"Computing footprint optical depths for orbit {orbit_id}...")
             oco_fp_atm_abs(
                 sat=sat0,

@@ -50,6 +50,7 @@ from abs_util.abs.oco_convolve_absco import oco_conv_absco # reads OCO line shap
 from abs_util.abs.oco_wl_absco import oco_wv_absco  # reads OCO wavelengths
 from abs_util.abs.rdabs_gas_absco import rdabs_species_absco
 from abs_util.abs.rdabsco_gas_absco import rdabsco_species_absco  # read absorption coefficients O2 or CO2 for a given pressure, temperature, and H2O mixing ratio
+from abs_util.ils_tau import convolve_optical_depth_in_transmission
 from abs_util.oco_util import timing
 from scipy.interpolate import interp1d
 
@@ -289,16 +290,11 @@ def _process_track_all_bands(track_data):
         xx                 = bs['xx_fps'][fp]
         yy                 = bs['yy_fps'][fp]
         rdabs_gas          = bs['rdabs_gas']
-        # Rayleigh cross-section at atmosphere-frame wavelengths (wl_atm = wl_inst*(1+v_inst/c))
-        wloco_atm    = wloco# * (1.0 + v_inst / C_LIGHT) # already accounted for Doppler and thermo-mechanical shifts observed
-        molec_ext_fp = mol_ext_wvl(wloco_atm)
         sol_abs_nu         = bs['sol_nu']
         sol_abs_val        = bs['sol_abs_val']
         sol_cont_val       = bs['sol_cont_val']
 
         rdabs_gas_den = o2den if iband == 0 else co2den
-        tau_molec_ext_lays = np.sum(cal_mol_ext(molec_ext_fp, d_air_lay, dzf), axis=1)
-
         h2o_needs_padding = (nwav != nwavh2o)
         ext1 = np.zeros(nwav)
         ext = np.empty((nwav, nlay))
@@ -359,14 +355,21 @@ def _process_track_all_bands(track_data):
         indlr_sol  = oco_conv_absco(wloco, xx, yy, wvlsol_obs, len(wvlsol_obs))
     
         xx_wloco    = xx + wloco[:, np.newaxis]   # (1016, 200) — precomputed once per band
-        ext_profile = np.empty((nx, nlay))
+        rayleigh_tau_hr = np.sum(cal_mol_ext(mol_ext_wvl(wvlabsco), d_air_lay, dzf), axis=1)
+        tau         = np.empty(nx)
         toa_sol     = np.empty(nx)
+        airmass     = musolzen + muobszen
 
         for ind in range(nx):
             start, end = indlr[ind, 1], indlr[ind, 0] + 1
             ilg0     = np.interp(wvlabsco[start:end], xx_wloco[ind], yy[ind])
-            ilg0_sum = np.sum(ilg0)
-            ext_profile[ind, :] = ext[start:end, :].T @ ilg0 / ilg0_sum
+            tau[ind] = convolve_optical_depth_in_transmission(
+                ext[start:end, :],
+                dzf,
+                ilg0,
+                airmass,
+                rayleigh_tau_window=rayleigh_tau_hr[start:end],
+            )
             start_sol, end_sol = indlr_sol[ind, 1], indlr_sol[ind, 0] + 1
             ilg0_sol     = np.interp(wvlsol_obs[start_sol:end_sol], xx_wloco[ind], yy[ind])
             ilg0_sol_sum = np.sum(ilg0_sol)
@@ -386,8 +389,7 @@ def _process_track_all_bands(track_data):
             #     plt.show()
                 
 
-        tau      = (np.sum(ext_profile * dzf, axis=1) + tau_molec_ext_lays) * (musolzen + muobszen)
-        mean_ext = tau / (np.sum(dzf) * (musolzen + muobszen))
+        mean_ext = tau / (np.sum(dzf) * airmass)
         band_results.append((tau, mean_ext, toa_sol))
        
     # --- HEALTH LOGGING ---

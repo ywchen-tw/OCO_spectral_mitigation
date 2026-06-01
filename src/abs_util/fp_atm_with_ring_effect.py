@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import bisect as bs
 from abs_util.fp_abs_coeff_with_ring_effect import oco_fp_abs_all_bands
+from abs_util.ils_tau import TAU_CONVOLUTION_VERSION
 from netCDF4 import Dataset
 
 
@@ -259,6 +260,8 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
 
                 print('Saving to file ' + output_tmp)
                 with h5py.File(output_tmp, 'w') as h5f:
+                    h5f.attrs['tau_convolution'] = TAU_CONVOLUTION_VERSION
+                    h5f.attrs['use_ring'] = bool(use_ring)
                     h5f.create_dataset('sza', data=sza_id[id_select])
                     h5f.create_dataset('vza', data=vza_id[id_select])
                     h5f.create_dataset('sounding_id', data=sounding_id[id_select])
@@ -301,6 +304,8 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
         if not abs_skip and all_tmp_exist:
             print('Saving combined output to file ' + output)
             with h5py.File(output, 'w') as h5_output:
+                h5_output.attrs['tau_convolution'] = TAU_CONVOLUTION_VERSION
+                h5_output.attrs['use_ring'] = bool(use_ring)
                 h5_output.create_dataset('sza', data=sza_select_all)
                 h5_output.create_dataset('vza', data=vza_select_all)
                 h5_output.create_dataset('sounding_id', data=snd_id_select_all)
