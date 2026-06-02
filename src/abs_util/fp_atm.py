@@ -2,6 +2,7 @@ import h5py
 import sys
 import os
 import platform
+import glob
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
@@ -23,6 +24,19 @@ def _tau_file_is_current(path, use_ring=False):
             )
     except OSError:
         return False
+
+
+def _cleanup_tau_temp_files(output, use_ring=False):
+    if not _tau_file_is_current(output, use_ring=use_ring):
+        return
+
+    output_stem = os.path.splitext(output)[0]
+    for output_tmp in glob.glob(f"{output_stem}_tmp_*.h5"):
+        try:
+            os.remove(output_tmp)
+            print(f'[Info] Removed temporary file {output_tmp}')
+        except OSError as exc:
+            print(f'[Warning] Could not remove temporary file {output_tmp}: {exc}')
 
 
 def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
@@ -48,6 +62,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
     elif sat != None:
         if abs_skip:
             print(f'[Warning] Output file {output} exists - skipping!')
+            _cleanup_tau_temp_files(output, use_ring=False)
             return None
 
         print("oco_files_dict: ", oco_files_dict)
@@ -329,11 +344,6 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                 h5_output.create_dataset('sco2_tau_output', data=sco2_tau_output_all)
                 h5_output.create_dataset('sco2_mean_ext_output', data=sco2_mean_ext_output_all)
                 h5_output.create_dataset('sco2_toa_sol_output', data=sco2_toa_sol_output_all)
-            for output_tmp in tmp_files:
-                try:
-                    os.remove(output_tmp)
-                    print(f'[Info] Removed temporary file {output_tmp}')
-                except OSError as exc:
-                    print(f'[Warning] Could not remove temporary file {output_tmp}: {exc}')
+            _cleanup_tau_temp_files(output, use_ring=False)
         
     return None
