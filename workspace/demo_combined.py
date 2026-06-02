@@ -323,7 +323,10 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
         oco2_granules = set()
         if oco2_l1b_dir.exists():
             for subdir in oco2_l1b_dir.glob("*"):
-                if subdir.is_dir():
+                if subdir.is_dir() and any(
+                    p.is_file() and "L1BSC" in p.name.upper()
+                    for p in subdir.glob("*.h5")
+                ):
                     oco2_granules.add(subdir.name)
         
         if oco2_granules:

@@ -65,6 +65,8 @@ class OCO2MetadataRetriever:
     CMR_SEARCH_URL = "https://cmr.earthdata.nasa.gov/search/granules.xml"
     CMR_COLLECTION_OLD = "OCO2_L1B_Science_11r"
     CMR_COLLECTION_NEW = "OCO2_L1B_Science_11.2r"
+    CMR_CONCEPT_OLD = "C2248652600-GES_DISC"
+    CMR_CONCEPT_NEW = "C3090438902-GES_DISC"
     
     def __init__(self, earthdata_username: Optional[str] = None, 
                  earthdata_password: Optional[str] = None):
@@ -177,6 +179,12 @@ class OCO2MetadataRetriever:
             return self.CMR_COLLECTION_NEW
         else:
             return self.CMR_COLLECTION_OLD
+
+    def _get_cmr_collection_concept_id(self, target_date: datetime) -> str:
+        """Return the CMR collection concept id for the L1B collection version."""
+        if target_date >= self.VERSION_CHANGE_DATE:
+            return self.CMR_CONCEPT_NEW
+        return self.CMR_CONCEPT_OLD
     
     def fetch_oco2_xml_from_directory(self, target_date: datetime) -> List[str]:
         """
@@ -270,35 +278,46 @@ class OCO2MetadataRetriever:
         end_time   = start_time + timedelta(days=1)
         temporal   = f"{start_time.isoformat()}Z,{end_time.isoformat()}Z"
 
-        # Candidate parameter sets — tried in order until granules are found
+        # Candidate parameter sets — tried in order until granules are found.
+        # Querying by collection_concept_id is the most deterministic CMR path;
+        # the short_name variants are kept as fallbacks if concept ids change.
         candidate_params = [
+            {
+                'collection_concept_id': self._get_cmr_collection_concept_id(target_date),
+                'temporal[]': temporal,
+                'page_size': 100,
+                'sort_key': '-start_date',
+            },
             {   # Most specific: version + provider
                 'short_name': 'OCO2_L1B_Science',
                 'version':    version,
                 'provider':   'GES_DISC',
-                'temporal':   temporal,
+                'temporal[]': temporal,
                 'page_size':  100,
                 'sort_key':   '-start_date',
             },
             {   # Fallback: any version at GES DISC
                 'short_name': 'OCO2_L1B_Science',
                 'provider':   'GES_DISC',
-                'temporal':   temporal,
+                'temporal[]': temporal,
                 'page_size':  100,
                 'sort_key':   '-start_date',
             },
             {   # Last resort: no provider or version filter
                 'short_name': 'OCO2_L1B_Science',
-                'temporal':   temporal,
+                'temporal[]': temporal,
                 'page_size':  100,
                 'sort_key':   '-start_date',
             },
         ]
 
         for params in candidate_params:
-            desc = (f"short_name=OCO2_L1B_Science"
-                    + (f", version={params['version']}" if 'version' in params else '')
-                    + (f", provider={params['provider']}" if 'provider' in params else ''))
+            if 'collection_concept_id' in params:
+                desc = f"collection_concept_id={params['collection_concept_id']}"
+            else:
+                desc = (f"short_name=OCO2_L1B_Science"
+                        + (f", version={params['version']}" if 'version' in params else '')
+                        + (f", provider={params['provider']}" if 'provider' in params else ''))
             logger.info("Querying CMR for OCO-2 L1B on %s (%s)", target_date.date(), desc)
             try:
                 response = requests.get(self.CMR_SEARCH_URL, params=params, timeout=30)
@@ -613,6 +632,8 @@ class OCO2MetadataRetriever:
             # Extract granule ID
             title = entry.find('atom:title', namespaces)
             granule_id = title.text if title is not None else "Unknown"
+            if ':' in granule_id:
+                granule_id = granule_id.rsplit(':', 1)[-1]
             
             # Parse granule ID to extract orbit and mode
             orbit_str, view_mode, version = self._parse_granule_id(granule_id)
@@ -671,6 +692,8 @@ class OCO2MetadataRetriever:
             Tuple of (orbit_str, viewing_mode, version)
         """
         try:
+            if ':' in granule_id:
+                granule_id = granule_id.rsplit(':', 1)[-1]
             parts = granule_id.split('_')
             
             # Extract viewing mode (GL or ND from L1bScGL or L1bScND)
