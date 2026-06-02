@@ -139,6 +139,13 @@ class OCO2MetadataRetriever:
         resp.raise_for_status()
         return resp
 
+    def _gesdisc_data_base_url(self) -> str:
+        """Return GES DISC /data base URL, optionally with an auth token path."""
+        token = os.environ.get("GESDISC_DATA_TOKEN", "").strip().strip("/")
+        if token:
+            return f"{self.GESDISC_BASE_URL}/{token}"
+        return self.GESDISC_BASE_URL
+
     def _get_collection_version(self, target_date: datetime) -> str:
         """
         Get the appropriate collection version based on the date.
@@ -196,7 +203,7 @@ class OCO2MetadataRetriever:
         
         # Build directory URL (without session ID, relying on direct HTTP access)
         collection_path = f"{self.GESDISC_COLLECTION_BASE}.{version}"
-        directory_url = f"{self.GESDISC_BASE_URL}/{collection_path}/{year}/{doy_str}/"
+        directory_url = f"{self._gesdisc_data_base_url()}/{collection_path}/{year}/{doy_str}/"
         
         logger.info(f"Querying GES DISC directory: {directory_url}")
         logger.info(f"Target date: {target_date.date()} (DOY: {doy_str}, Version: {version})")

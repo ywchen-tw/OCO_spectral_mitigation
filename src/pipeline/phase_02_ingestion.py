@@ -366,6 +366,20 @@ class DataIngestionManager:
         if match:
             return match.group(1)
         return '/'
+
+    def _with_gesdisc_data_token(self, product_url: str) -> str:
+        """Insert optional GES DISC /data token into collection URLs."""
+        token = os.environ.get("GESDISC_DATA_TOKEN", "").strip().strip("/")
+        if not token:
+            return product_url
+
+        data_root = "https://oco2.gesdisc.eosdis.nasa.gov/data/"
+        token_root = f"{data_root}{token}/"
+        if product_url.startswith(token_root):
+            return product_url
+        if product_url.startswith(data_root):
+            return product_url.replace(data_root, token_root, 1)
+        return product_url
     
     def _query_ges_disc_directory(self,
                                   product_url: str,
@@ -405,6 +419,8 @@ class DataIngestionManager:
                     version = '11r'
             
             product_url = product_url.replace('{VERSION}', version)
+
+        product_url = self._with_gesdisc_data_token(product_url)
         
         # Build directory URL
         if 'L2_Lite' in product_url:
