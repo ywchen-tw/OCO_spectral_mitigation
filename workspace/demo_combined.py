@@ -31,6 +31,7 @@ Usage:
 """
 
 import sys
+import os
 import logging
 import argparse
 import re
@@ -51,6 +52,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from pipeline.phase_01_metadata import OCO2MetadataRetriever
 from pipeline.phase_02_ingestion import DataIngestionManager, DownloadedFile
 from pipeline.phase_03_processing import SpatialProcessor
+run_phase_035 = None  # lazy import — only loaded when --gcp-project is supplied
 from pipeline.phase_04_geometry import GeometryProcessor
 from config import Config
 from utils import setup_logging
@@ -1100,13 +1102,40 @@ Examples:
                        help='Viewing mode filter (GL=Glint, ND=Nadir, TG=Target)')
     parser.add_argument('--limit-granules', type=int,
                        help='Limit to first N granules (for testing, Phase 2)')
-    
+
+    # Phase 3.5: GEE embedding
+    parser.add_argument('--gcp-project', type=str, nargs='?', const='', default=None,
+                       help='Enable GEE embedding (Phase 3.5). '
+                            'Provide a GCP project ID (--gcp-project my-id) or supply '
+                            'the flag alone to read from the GEE_PROJECT env var. '
+                            'Omitting the flag entirely skips Phase 3.5.')
+    parser.add_argument('--embedding-batch', action='store_true',
+                       help='Use GEE batch export to Drive instead of synchronous getInfo '
+                            '(needed for large runs; requires --gcp-project)')
+    parser.add_argument('--embedding-limit-orbits', type=int, default=None, metavar='N',
+                       help='Test mode: restrict Phase 3.5 to the first N granules. '
+                            'Output goes to embedding_stats_{date}_test.parquet.')
+
     args = parser.parse_args()
-    
+
+    # Phase 3.5: resolve GCP project ID
+    # --gcp-project not given  → None  → Phase 3.5 skipped
+    # --gcp-project            → ''    → read GEE_PROJECT env var
+    # --gcp-project my-id      → str   → use that ID directly
+    if args.gcp_project is None:
+        gcp_project = None
+    elif args.gcp_project == '':
+        gcp_project = os.environ.get('GEE_PROJECT')
+        if not gcp_project:
+            logger.error("--gcp-project flag given but GEE_PROJECT env var is not set")
+            return 1
+    else:
+        gcp_project = args.gcp_project
+
     # ========================================================================
     # Initialization
     # ========================================================================
-    
+
     skip_phases = set(args.skip_phase) if args.skip_phase else set()
 
     try:
@@ -1202,6 +1231,30 @@ Examples:
         logger.info("[STEP 3] SKIPPED - Using cached data")
         processing_info = {}
     
+    # ========================================================================
+    # Phase 3.5: GEE Satellite Embedding Extraction
+    # ========================================================================
+    if gcp_project and 3 not in skip_phases:
+        logger.info("\n[STEP 3.5] GEE Satellite Embedding Extraction")
+        try:
+            from pipeline.phase_035_embedding import run_phase_035 as _run_phase_035
+            df_emb = _run_phase_035(
+                target_date=target_date,
+                data_dir=data_dir,
+                gcp_project=gcp_project,
+                use_batch=args.embedding_batch,
+                limit_orbits=args.embedding_limit_orbits,
+            )
+            if df_emb is not None:
+                logger.info(f"✓ Step 3.5 Complete: {len(df_emb)} footprints embedded")
+            else:
+                logger.info("✓ Step 3.5 Complete: batch task submitted to GEE")
+        except Exception as e:
+            logger.warning(f"⚠ Step 3.5 failed (non-fatal): {e}")
+            logger.warning("  Pipeline continues without embedding features")
+    else:
+        logger.info("[STEP 3.5] SKIPPED - pass --gcp-project <id> to enable GEE embedding")
+
     # ========================================================================
     # Phase 4: Geometry
     # ========================================================================

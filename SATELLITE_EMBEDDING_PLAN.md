@@ -61,9 +61,21 @@ ee.Initialize(project='<your-gcp-project-id>')  # free GCP project, no billing n
 
 ---
 
+## Implementation Status
+
+| Phase | Status |
+|---|---|
+| A — OCO2Footprint vertex geometry | ✅ Complete |
+| B — Phase 3.5 GEE extraction module | ⚠ Blocked (see Known Issues) |
+| C — demo_combined.py wiring | ✅ Complete |
+| C — FeaturePipeline integration (pipeline.py / transformer.py) | ⬜ Pending |
+| C — Dimensionality reduction (PCA / projection) | ⬜ Pending (after permutation importance) |
+
+---
+
 ## Implementation Phases
 
-### Phase A — Extend `OCO2Footprint` with vertex geometry
+### Phase A — Extend `OCO2Footprint` with vertex geometry ✅
 **File**: `src/pipeline/phase_03_processing.py`
 
 #### A1. Add vertex fields to the dataclass
@@ -121,7 +133,7 @@ for sid, fp in footprints.items():
 
 ---
 
-### Phase B — Phase 3.5: GEE Embedding Extraction
+### Phase B — Phase 3.5: GEE Embedding Extraction ✅
 **New file**: `src/pipeline/phase_035_embedding.py`
 
 Runs once per date after Phase 3, before Phase 4.  Reads `footprints.pkl`, extracts
@@ -135,9 +147,10 @@ features = []
 for sid, fp in footprints.items():
     if fp.vertex_lon is None:
         continue
-    poly = ee.Geometry.Polygon(
-        [list(zip(fp.vertex_lon.tolist(), fp.vertex_lat.tolist()))]
-    )
+    coords = list(zip(fp.vertex_lon.tolist(), fp.vertex_lat.tolist()))
+    # geodesic=False (3rd positional arg): planar geometry prevents GEE from
+    # misreading a small polygon as its global complement due to winding order.
+    poly = ee.Geometry.Polygon([coords], None, False)
     features.append(ee.Feature(poly, {'sounding_id': sid,
                                       'year': obs_year}))
 fc = ee.FeatureCollection(features)
@@ -145,14 +158,21 @@ fc = ee.FeatureCollection(features)
 
 #### B2. Load annual embedding image
 
+The collection uses `system:time_start` (standard GEE temporal property), **not** a
+custom `year` metadata field.  Use `filterDate()`:
+
 ```python
 obs_year = max(int(date[:4]), 2017)   # 2016 obs → 2017 embedding
 embedding = (
     ee.ImageCollection('GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL')
-    .filter(ee.Filter.eq('year', obs_year))
+    .filterDate(f'{obs_year}-01-01', f'{obs_year + 1}-01-01')
     .first()
 )
 ```
+
+> **Bug fixed**: `.filter(ee.Filter.eq('year', obs_year))` returns an empty collection
+> (no images have a `year` property) → `.first()` returns GEE null →
+> `"Parameter 'image' is required and may not be null"` at map time.
 
 #### B3. `reduceRegion` — mean + std per footprint
 
@@ -163,7 +183,7 @@ def add_stats(feat):
                     ee.Reducer.stdDev(), sharedInputs=True),
         geometry=feat.geometry(),
         scale=10,
-        maxPixels=1000,        # ~300 pixels per ~1.3×2.25 km footprint
+        maxPixels=50000,   # ~29 000 pixels per ~1.3×2.25 km footprint at 10 m
     )
     return feat.set(stats)
 
@@ -172,6 +192,9 @@ result_fc = fc.map(add_stats)
 
 Output columns per footprint: `A00_mean … A63_mean`, `A00_stdDev … A63_stdDev`
 (128 values total).
+
+> **Bug fixed**: original `maxPixels=1000` was too small (~300 was wrong by 100×;
+> correct count is ~29 000 pixels at native 10 m resolution).
 
 #### B4. Export strategy (scale-aware)
 
@@ -201,6 +224,18 @@ Saved to: `data/processing/{year}/{doy:03d}/embedding_stats_{date}.parquet`
 
 ### Phase C — Integrate into FeaturePipeline
 **File**: `src/models/pipeline.py`
+
+> **demo_combined.py wiring** ✅ complete — `run_phase_035()` is called between
+> Phase 3 and Phase 4 **only when `--gcp-project` is explicitly supplied**.
+> Non-fatal: a failed GEE call logs a warning and the pipeline continues
+> without embeddings.
+>
+> **`--gcp-project` flag behaviour** (three modes):
+> - *(flag omitted)* → Phase 3.5 skipped entirely
+> - `--gcp-project` (flag, no value) → reads `GEE_PROJECT` env var; errors if unset
+> - `--gcp-project my-id` → uses `my-id` directly
+>
+> The `GEE_PROJECT` env var alone (without the flag) does **not** trigger Phase 3.5.
 
 #### C1. Load and merge embedding stats
 
@@ -247,22 +282,54 @@ After integration, run the following to confirm marginal value:
 
 ## File Change Summary
 
-| File | Change |
-|---|---|
-| `src/pipeline/phase_03_processing.py` | Add `vertex_lon/lat` to `OCO2Footprint`; new `_extract_vertex_data_from_lite`; attach in `extract_oco2_footprints` |
-| `src/pipeline/phase_035_embedding.py` | **New file** — GEE extraction script |
-| `workspace/demo_combined.py` | Wire Phase 3.5 into the pipeline runner |
-| `src/models/pipeline.py` | Load and merge embedding stats parquet |
-| `src/models/transformer.py` | Add `'Surface\nEmbedding'` to `_FEATURE_GROUPS` |
+| File | Change | Status |
+|---|---|---|
+| `src/pipeline/phase_03_processing.py` | Add `vertex_lon/lat` to `OCO2Footprint`; new `_extract_vertex_data_from_lite`; attach in `extract_oco2_footprints` | ✅ Done |
+| `src/pipeline/phase_035_embedding.py` | **New file** — GEE extraction script; `filterDate` fix; `geodesic=False`; `maxPixels=50000` | ✅ Done |
+| `workspace/demo_combined.py` | Wire Phase 3.5 (lazy import); `--gcp-project` flag with env-var fallback only when flag is present | ✅ Done |
+| `src/models/pipeline.py` | Load and merge embedding stats parquet | ⬜ Pending |
+| `src/models/transformer.py` | Add `'Surface\nEmbedding'` to `_FEATURE_GROUPS` | ⬜ Pending |
+
+---
+
+## Known Issues
+
+### B3 — `reduceRegion` reports ~783 M pixels (unresolved)
+
+After switching to `filterDate` and `geodesic=False`, GEE still reports
+~783 million pixels for the first footprint in granule 22845a
+(`"Too many pixels in the region. Found 783477249, but maxPixels allows only 50000"`).
+
+Vertex data for this footprint is correct (lon span ~0.05°, lat span ~0.02°,
+expected ~29 000 pixels at 10 m). Root cause unknown. Hypotheses investigated
+and ruled out:
+- **Anti-meridian crossing** — no footprints with `lon_span > 90°` in the dataset
+- **Wrong filter property** — fixed by switching to `filterDate()`
+- **Geodesic winding-order complement** — `geodesic=False` applied but did not
+  reduce pixel count
+
+**Current workaround**: Phase 3.5 is left as an opt-in step (requires explicit
+`--gcp-project` flag). The main pipeline runs Phase 4 without embedding features.
+
+**Next debugging steps** when revisiting:
+1. Run `poly.area(1).getInfo()` on the first GEE polygon to confirm whether GEE
+   sees a small or globe-sized area — this will determine if the issue is in the
+   polygon geometry or in the image/scale interaction.
+2. Try `bestEffort=True` in `reduceRegion` to let GEE auto-select scale.
+3. Check whether the embedding image has data over the Southern Ocean
+   (granule 22845a is near −62° latitude); the image may behave unexpectedly
+   over areas with no data.
 
 ---
 
 ## Open Questions
 
 - [ ] Does the free GEE account quota cover ~84K `reduceRegion` calls per batch export?
-      (Expected: yes — each call covers ~300 pixels; well within free-tier limits)
-- [ ] Anti-meridian handling: footprint polygons crossing ±180° need `geodesic=True`
-      in `ee.Geometry.Polygon`
+      (Expected: yes — well within free-tier limits once the pixel-count issue is resolved)
+- [x] Anti-meridian handling: `geodesic=True` causes a CRS type error in current
+      GEE Python API (the kwarg lands in the `proj` slot). Fixed: use
+      `ee.Geometry.Polygon([coords], None, False)` (positional args).
+- [ ] Root cause of 783 M pixel count in `reduceRegion` (see Known Issues above)
 - [ ] For `sfc_type=0` open ocean: confirm embedding variance is near-zero and
       consider masking these features to zero rather than letting them add noise
 - [ ] PCA reduction threshold: TBD after first permutation importance run

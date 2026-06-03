@@ -524,10 +524,6 @@ def main():
     #              '20201005', '20201224', 
     #              '20210210', '20210424', '20211229']  
     
-    # date_list = [
-    #              '20161101', '20161201'
-    #              ]  
-    
         
     for date in date_list:
         date_dt = datetime.strptime(date, '%Y%m%d')

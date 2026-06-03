@@ -72,7 +72,9 @@ class OCO2Footprint:
     longitude: float
     sounding_time: datetime
     viewing_mode: str  # 'GL' (Glint) or 'ND' (Nadir)
-    
+    vertex_lon: np.ndarray = None  # shape (4,) — from L2 Lite vertex_longitude
+    vertex_lat: np.ndarray = None  # shape (4,) — from L2 Lite vertex_latitude
+
     def __repr__(self):
         return (f"OCO2Footprint(sounding_id={self.sounding_id}, "
                 f"lat={self.latitude:.4f}, lon={self.longitude:.4f}, "
@@ -343,9 +345,23 @@ class SpatialProcessor:
                                                               target_doy=target_doy)
                             self._save_cached_result(cache_path, l1b_footprints)
         
+        # A3: Attach vertex data from Lite file to all footprints (including cached ones)
+        if lite_files:
+            for file_obj in lite_files:
+                vertex_data = self._extract_vertex_data_from_lite(
+                    file_obj.filepath, use_cache=use_cache
+                )
+                if vertex_data:
+                    attached = 0
+                    for sid, fp in footprints.items():
+                        if sid in vertex_data:
+                            fp.vertex_lon, fp.vertex_lat = vertex_data[sid]
+                            attached += 1
+                    logger.info(f"    Attached vertex data to {attached}/{len(footprints)} footprints")
+
         logger.info(f"✓ Total footprints extracted: {len(footprints)}")
         return footprints
-    
+
     def filter_footprints_by_date(self,
                                   footprints: Dict[int, OCO2Footprint],
                                   target_date: datetime,
@@ -782,9 +798,72 @@ class SpatialProcessor:
         if use_cache and cache_path and sounding_ids:
             self._save_cached_result(cache_path, sounding_ids)
             logger.info(f"    💾 Cached Lite sounding_ids: {len(sounding_ids)} ids")
-        
+
         return sounding_ids
-    
+
+    def _extract_vertex_data_from_lite(self,
+                                       filepath: Path,
+                                       use_cache: bool = True) -> dict:
+        """
+        Extract footprint vertex coordinates from L2 Lite file.
+
+        Reads vertex_longitude and vertex_latitude (shape [N, 4]) and returns
+        a sounding_id-keyed dict of (lon_arr, lat_arr) pairs.
+
+        Cache: data/processing/{year}/{doy:03d}/lite_vertex_data.pkl
+        Kept separate from lite_sounding_ids.pkl to avoid cache invalidation.
+        """
+        if not NC4_AVAILABLE:
+            logger.warning("netCDF4 not available — cannot extract vertex data")
+            return {}
+
+        # Build cache path (day-level, same directory as lite_sounding_ids.pkl)
+        cache_path = None
+        if use_cache:
+            match = re.search(r'_(\d{6})_B', filepath.name)
+            if match:
+                date_str = match.group(1)
+                year = 2000 + int(date_str[0:2])
+                month = int(date_str[2:4])
+                day = int(date_str[4:6])
+                file_date = datetime(year, month, day)
+                year_str = file_date.strftime('%Y')
+                doy = file_date.timetuple().tm_yday
+                cache_dir = self.processing_dir / year_str / f"{doy:03d}"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_path = cache_dir / "lite_vertex_data.pkl"
+
+                cached = self._load_cached_result(cache_path)
+                if cached is not None:
+                    logger.info(f"    📂 Loaded vertex data from cache: {len(cached)} entries")
+                    return cached
+
+        # Cache miss — read from file
+        vertex_data = {}
+        try:
+            with nc.Dataset(filepath, 'r') as ds:
+                if 'sounding_id' not in ds.variables:
+                    logger.warning(f"    No sounding_id in {filepath.name}")
+                    return {}
+                ids = ds.variables['sounding_id'][:]
+                vlon = ds.variables['vertex_longitude'][:]  # [N, 4]
+                vlat = ds.variables['vertex_latitude'][:]   # [N, 4]
+                for i, sid in enumerate(ids):
+                    vertex_data[int(sid)] = (
+                        np.array(vlon[i], dtype=np.float32),
+                        np.array(vlat[i], dtype=np.float32),
+                    )
+            logger.info(f"    Extracted vertex data for {len(vertex_data)} soundings")
+        except Exception as e:
+            logger.error(f"    Failed to read vertex data from {filepath.name}: {e}")
+            return {}
+
+        if use_cache and cache_path and vertex_data:
+            self._save_cached_result(cache_path, vertex_data)
+            logger.info(f"    💾 Cached vertex data: {len(vertex_data)} entries")
+
+        return vertex_data
+
     def _extract_footprints_from_l1b(self,
                                     filepath: Path,
                                     granule_id: str,
