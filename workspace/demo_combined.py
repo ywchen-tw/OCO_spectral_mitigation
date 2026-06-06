@@ -300,6 +300,37 @@ def run_phase_2(target_date: datetime, data_dir: Path,
                 len(granules)
             )
             return {}, False
+
+        lite_files = [
+            file
+            for file in oco2_files
+            if file.product_type in {"OCO2_L2_Lite", "L2_Lite"}
+            and Path(file.filepath).suffix == ".nc4"
+        ]
+        if not lite_files:
+            year = target_date.year
+            doy = target_date.timetuple().tm_yday
+            expected_dir = data_dir / "OCO2" / str(year) / f"{doy:03d}"
+            failed_lite = [
+                failure
+                for failure in result.get("stats", {}).get("failed_downloads", [])
+                if failure.get("product_type") == "L2_Lite"
+            ]
+            logger.error(
+                "✗ Step 2 did not produce the required OCO-2 L2 Lite .nc4 file "
+                "for %s. Spectral fitting requires a day-level Lite file in:\n  %s",
+                target_date.date(),
+                expected_dir,
+            )
+            if failed_lite:
+                logger.error("  L2 Lite failed download/query records:")
+                for failure in failed_lite[:5]:
+                    logger.error(
+                        "    granule_id=%s url=%s",
+                        failure.get("granule_id"),
+                        failure.get("url"),
+                    )
+            return {}, False
         
         file_info = {
             'oco2_files': oco2_files,

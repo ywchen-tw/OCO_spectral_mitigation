@@ -424,6 +424,25 @@ class DataIngestionManager:
         urls = [self._with_gesdisc_data_token(product_url), product_url]
         return list(dict.fromkeys(urls))
 
+    def _versioned_oco2_product_urls(self, product_url: str, year: int, doy: int) -> List[str]:
+        """Return candidate collection URLs with concrete OCO-2 version strings."""
+        if '{VERSION}' not in product_url:
+            return [product_url]
+
+        if 'L2_Lite_FP' in product_url:
+            # The current retrospective Lite collection can contain historical
+            # dates, while older collections remain useful fallbacks on GES DISC.
+            versions = ['11.2r', '11.1r', '11r', '10r']
+        elif year > 2024 or (year == 2024 and doy >= 92):
+            versions = ['11.2r', '11r']
+        else:
+            versions = ['11r', '11.2r']
+
+        return list(dict.fromkeys(
+            product_url.replace('{VERSION}', version)
+            for version in versions
+        ))
+
     def _query_ges_disc_directory(self,
                                   product_url: str,
                                   year: int,
@@ -445,143 +464,127 @@ class DataIngestionManager:
         Returns:
             Full URL to the first matching file, or None if not found
         """
-        # Replace version placeholder with actual version
-        if '{VERSION}' in product_url:
-            # For dates before DOY 92 (2024-04-01), use base version
-            # For dates on/after DOY 92, use .2r version
-            # Check if year is 2024 and doy >= 92
-            if year == 2024 and doy >= 92:
-                version = '11.2r'
-            elif year > 2024:
-                version = '11.2r'
-            else:
-                # For years before 2024, determine version
-                # L2_Lite uses 11.1r before DOY 92
-                if 'L2_Lite_FP' in product_url:
-                    version = '11.1r'
-                else:
-                    version = '11r'
-            
-            product_url = product_url.replace('{VERSION}', version)
+        product_urls = self._versioned_oco2_product_urls(product_url, year, doy)
 
-        for candidate_product_url in self._gesdisc_url_candidates(product_url):
-            # Build directory URL
-            if 'L2_Lite' in candidate_product_url:
-                # L2_Lite has different directory structure: /YYYY/ instead of /YYYY/DOY/
-                dir_url = f"{candidate_product_url}{year}/"
-            else:
-                dir_url = f"{candidate_product_url}{year}/{doy:03d}/"
-
-            logger.debug(f"Querying directory: {dir_url}")
-
-            try:
-                response = self._get_with_retry(dir_url, self.gesdisc_session, timeout=30)
-                if self._looks_like_auth_page(response):
-                    logger.warning(
-                        "GES DISC returned an Earthdata login page for %s; "
-                        "authentication or GESDISC_DATA_TOKEN may be invalid.",
-                        dir_url
-                    )
-                    continue
-
-                # Parse HTML directory listing for .hdf or .nc4 files
-                import re
-                # Match href attributes
+        for versioned_product_url in product_urls:
+            for candidate_product_url in self._gesdisc_url_candidates(versioned_product_url):
+                # Build directory URL
                 if 'L2_Lite' in candidate_product_url:
-                    # L2_Lite uses .nc4 format
-                    # Try to construct a date-specific pattern if we have granule info
-                    if granule_id:
-                        # Extract date from granule ID (format: oco2_L1bScGL_22845a_181018_*)
-                        # Date is YYMMDD in the granule ID
-                        parts = granule_id.split('_')
-                        if len(parts) >= 4:
-                            # Use target_date_str if provided so cross-midnight granules
-                            # (whose granule_id encodes the previous day) still resolve
-                            # to the correct target date's Lite file.
-                            date_str = target_date_str if target_date_str is not None else parts[3]
-                            # Anchor date_str to the data-date slot (right after "LtCO2_") so
-                            # the processing timestamp at the end of the filename cannot produce
-                            # a false match (e.g. oco2_LtCO2_200306_..._200615xxxs.nc4 must NOT
-                            # match a search for date 200615).
-                            pattern = rf'href=["\']+(oco2_LtCO2_{date_str}[\w._-]*\.nc4)["\']+'
-                        else:
-                            # Fallback to generic pattern
-                            pattern = r'href=["\']+(oco2_LtCO2[\w._-]+\.nc4)["\']+'
-                    else:
-                        # Generic pattern
-                        pattern = r'href=["\']+(oco2_LtCO2[\w._-]+\.nc4)["\']+'
+                    # L2_Lite has different directory structure: /YYYY/ instead of /YYYY/DOY/
+                    dir_url = f"{candidate_product_url}{year}/"
                 else:
-                    # Other products use .h5 format - match only valid filename characters
-                    pattern = r'href=["\']+([\w._-]+\.h5)["\']+'
+                    dir_url = f"{candidate_product_url}{year}/{doy:03d}/"
 
-                matches = re.findall(pattern, response.text)
-                # remove duplicates and sort
-                matches = sorted(set(matches))
+                logger.debug(f"Querying directory: {dir_url}")
 
-                if matches:
-                    # For L2_Lite with specific date pattern, prefer exact match
-                    filename = None
-                    if 'L2_Lite' in candidate_product_url and granule_id:
-                        # Check if we found a date-specific file
-                        parts = granule_id.split('_')
-                        if len(parts) >= 4:
-                            # Consistent with the pattern built above: prefer target_date_str
-                            date_str = target_date_str if target_date_str is not None else parts[3]
-                            # Match only files where date_str is in the data-date position,
-                            # not in the processing timestamp at the end of the filename.
-                            date_matches = [m for m in matches if f'LtCO2_{date_str}_' in m]
-                            if date_matches:
-                                filename = date_matches[0]
-                                logger.debug(f"Found date-specific L2 Lite file: {filename}")
-                            else:
-                                # No date-specific file, use first match (might be yearly aggregate)
-                                filename = matches[0]
-                                logger.warning(f"No date-specific L2 Lite file found, using: {filename}")
-                                logger.warning(f"  This file may contain data from multiple dates")
-                        else:
-                            filename = matches[0]
-                    elif granule_id:
-                        # For Met/CO2Prior: filter by orbit ID (e.g., "22845a") so each orbit
-                        # gets its own file instead of always getting the first in the directory
-                        parts = granule_id.split('_')
-                        if len(parts) >= 3:
-                            orbit_id = parts[2]  # e.g., "22845a"
-                            viewing_mode = parts[1][-2:]  # e.g., "GL", "ND", "TG"
-                            if viewing_mode not in ['GL', 'ND', 'TG']:
-                                viewing_mode = None
-                            orbit_matches = [m for m in matches if orbit_id in m]
-                            if not orbit_matches:
-                                logger.warning(
-                                    f"No file found for orbit {orbit_id} in:\n"
-                                    f"  URL: {dir_url}\n"
-                                    f"  Available files: {matches[:5]}"
-                                )
-                                continue
-                            if viewing_mode:
-                                mode_matches = [m for m in orbit_matches if viewing_mode+'_' in m.upper()]
-                                if not mode_matches:
-                                    logger.warning(
-                                        f"No {viewing_mode}-mode file found for orbit {orbit_id} in:\n"
-                                        f"  URL: {dir_url}\n"
-                                        f"  Orbit matches: {orbit_matches}"
-                                    )
-                                    continue
-                                filename = mode_matches[0]
-                            else:
-                                filename = orbit_matches[0]
-                            logger.debug(f"Found orbit-specific file for {orbit_id} mode {viewing_mode}: {filename}")
-                    else:
-                        logger.debug(f"No matching files found for {granule_id}")
+                try:
+                    response = self._get_with_retry(dir_url, self.gesdisc_session, timeout=30)
+                    if self._looks_like_auth_page(response):
+                        logger.warning(
+                            "GES DISC returned an Earthdata login page for %s; "
+                            "authentication or GESDISC_DATA_TOKEN may be invalid.",
+                            dir_url
+                        )
                         continue
 
-                    # Construct full URL
-                    file_url = f"{dir_url}{filename}"
-                    return file_url
+                    # Parse HTML directory listing for .hdf or .nc4 files
+                    import re
+                    # Match href attributes
+                    if 'L2_Lite' in candidate_product_url:
+                        # L2_Lite uses .nc4 format
+                        # Try to construct a date-specific pattern if we have granule info
+                        if granule_id:
+                            # Extract date from granule ID (format: oco2_L1bScGL_22845a_181018_*)
+                            # Date is YYMMDD in the granule ID
+                            parts = granule_id.split('_')
+                            if len(parts) >= 4:
+                                # Use target_date_str if provided so cross-midnight granules
+                                # (whose granule_id encodes the previous day) still resolve
+                                # to the correct target date's Lite file.
+                                date_str = target_date_str if target_date_str is not None else parts[3]
+                                # Anchor date_str to the data-date slot (right after "LtCO2_") so
+                                # the processing timestamp at the end of the filename cannot produce
+                                # a false match (e.g. oco2_LtCO2_200306_..._200615xxxs.nc4 must NOT
+                                # match a search for date 200615).
+                                pattern = rf'href=["\']+(oco2_LtCO2_{date_str}[\w._-]*\.nc4)["\']+'
+                            else:
+                                # Fallback to generic pattern
+                                pattern = r'href=["\']+(oco2_LtCO2[\w._-]+\.nc4)["\']+'
+                        else:
+                            # Generic pattern
+                            pattern = r'href=["\']+(oco2_LtCO2[\w._-]+\.nc4)["\']+'
+                    else:
+                        # Other products use .h5 format - match only valid filename characters
+                        pattern = r'href=["\']+([\w._-]+\.h5)["\']+'
 
-                logger.debug(f"No matching files found in {dir_url}")
+                    matches = re.findall(pattern, response.text)
+                    # remove duplicates and sort
+                    matches = sorted(set(matches))
 
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"Unable to query directory {dir_url}: {e}")
+                    if matches:
+                        # For L2_Lite with specific date pattern, prefer exact match
+                        filename = None
+                        if 'L2_Lite' in candidate_product_url and granule_id:
+                            # Check if we found a date-specific file
+                            parts = granule_id.split('_')
+                            if len(parts) >= 4:
+                                # Consistent with the pattern built above: prefer target_date_str
+                                date_str = target_date_str if target_date_str is not None else parts[3]
+                                # Match only files where date_str is in the data-date position,
+                                # not in the processing timestamp at the end of the filename.
+                                date_matches = [m for m in matches if f'LtCO2_{date_str}_' in m]
+                                if date_matches:
+                                    filename = date_matches[0]
+                                    logger.debug(f"Found date-specific L2 Lite file: {filename}")
+                                else:
+                                    # No date-specific file, use first match (might be yearly aggregate)
+                                    filename = matches[0]
+                                    logger.warning(f"No date-specific L2 Lite file found, using: {filename}")
+                                    logger.warning(f"  This file may contain data from multiple dates")
+                            else:
+                                filename = matches[0]
+                        elif granule_id:
+                            # For Met/CO2Prior: filter by orbit ID (e.g., "22845a") so each orbit
+                            # gets its own file instead of always getting the first in the directory
+                            parts = granule_id.split('_')
+                            if len(parts) >= 3:
+                                orbit_id = parts[2]  # e.g., "22845a"
+                                viewing_mode = parts[1][-2:]  # e.g., "GL", "ND", "TG"
+                                if viewing_mode not in ['GL', 'ND', 'TG']:
+                                    viewing_mode = None
+                                orbit_matches = [m for m in matches if orbit_id in m]
+                                if not orbit_matches:
+                                    logger.warning(
+                                        f"No file found for orbit {orbit_id} in:\n"
+                                        f"  URL: {dir_url}\n"
+                                        f"  Available files: {matches[:5]}"
+                                    )
+                                    continue
+                                if viewing_mode:
+                                    mode_matches = [m for m in orbit_matches if viewing_mode+'_' in m.upper()]
+                                    if not mode_matches:
+                                        logger.warning(
+                                            f"No {viewing_mode}-mode file found for orbit {orbit_id} in:\n"
+                                            f"  URL: {dir_url}\n"
+                                            f"  Orbit matches: {orbit_matches}"
+                                        )
+                                        continue
+                                    filename = mode_matches[0]
+                                else:
+                                    filename = orbit_matches[0]
+                                logger.debug(f"Found orbit-specific file for {orbit_id} mode {viewing_mode}: {filename}")
+                        else:
+                            logger.debug(f"No matching files found for {granule_id}")
+                            continue
+
+                        # Construct full URL
+                        file_url = f"{dir_url}{filename}"
+                        return file_url
+
+                    logger.debug(f"No matching files found in {dir_url}")
+
+                except requests.exceptions.RequestException as e:
+                    logger.warning(f"Unable to query directory {dir_url}: {e}")
 
         if product_type in {"L2_Lite", "L2_Met", "L2_CO2Prior"}:
             return self._query_oco2_product_cmr(
@@ -604,17 +607,25 @@ class DataIngestionManager:
         product_cmr = {
             "L2_Lite": {
                 "short_name": "OCO2_L2_Lite_FP",
-                "version": "11.2r" if (year > 2024 or (year == 2024 and doy >= 92)) else "11.1r",
+                "versions": ["11.2r", "11.1r", "11r", "10r"],
                 "versioned_short_name": Config.OCO2_L2_LITE.short_name,
             },
             "L2_Met": {
                 "short_name": "OCO2_L2_Met",
-                "version": "11.2r" if (year > 2024 or (year == 2024 and doy >= 92)) else "11r",
+                "versions": (
+                    ["11.2r", "11r"]
+                    if (year > 2024 or (year == 2024 and doy >= 92))
+                    else ["11r", "11.2r"]
+                ),
                 "versioned_short_name": Config.OCO2_L2_MET.short_name,
             },
             "L2_CO2Prior": {
                 "short_name": "OCO2_L2_CO2Prior",
-                "version": "11.2r" if (year > 2024 or (year == 2024 and doy >= 92)) else "11r",
+                "versions": (
+                    ["11.2r", "11r"]
+                    if (year > 2024 or (year == 2024 and doy >= 92))
+                    else ["11r", "11.2r"]
+                ),
                 "versioned_short_name": Config.OCO2_L2_CO2PRIOR.short_name,
             },
         }
@@ -627,22 +638,26 @@ class DataIngestionManager:
             f"{target_date.strftime('%Y-%m-%dT00:00:00')}Z,"
             f"{(target_date + timedelta(days=1)).strftime('%Y-%m-%dT00:00:00')}Z"
         )
-        params_candidates = [
-            {
-                "short_name": config["short_name"],
-                "version": config["version"],
-                "provider": "GES_DISC",
-                "temporal[]": temporal,
-                "page_size": 100,
-                "sort_key": "-start_date",
-            },
-            {
-                "short_name": config["short_name"],
-                "version": config["version"],
-                "temporal[]": temporal,
-                "page_size": 100,
-                "sort_key": "-start_date",
-            },
+        params_candidates = []
+        for version in config["versions"]:
+            params_candidates.extend([
+                {
+                    "short_name": config["short_name"],
+                    "version": version,
+                    "provider": "GES_DISC",
+                    "temporal[]": temporal,
+                    "page_size": 100,
+                    "sort_key": "-start_date",
+                },
+                {
+                    "short_name": config["short_name"],
+                    "version": version,
+                    "temporal[]": temporal,
+                    "page_size": 100,
+                    "sort_key": "-start_date",
+                },
+            ])
+        params_candidates.extend([
             {
                 "short_name": config["versioned_short_name"],
                 "provider": "GES_DISC",
@@ -663,7 +678,7 @@ class DataIngestionManager:
                 "page_size": 100,
                 "sort_key": "-start_date",
             },
-        ]
+        ])
 
         for params in params_candidates:
             desc = ", ".join(
