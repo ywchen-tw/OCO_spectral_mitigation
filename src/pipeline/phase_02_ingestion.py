@@ -40,6 +40,20 @@ from .phase_01_metadata import OCO2Granule, OCO2MetadataRetriever
 logger = logging.getLogger(__name__)
 
 
+def _is_readable_hdf5(path: Path) -> bool:
+    """Return True only if an HDF5/NetCDF4 file can be opened successfully."""
+    import h5py
+
+    try:
+        if not h5py.is_hdf5(str(path)):
+            return False
+        with h5py.File(path, "r") as h5f:
+            list(h5f.keys())
+        return True
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 @dataclass
 class DownloadedFile:
     """Represents a successfully downloaded file."""
@@ -961,13 +975,12 @@ class DataIngestionManager:
             
             # Check if already downloaded (local file exists)
             if output_path.exists():
-                # For HDF5/NetCDF4 files, validate the header to catch corrupted or
-                # partially-downloaded files (e.g. HTML auth redirects saved as .nc4).
+                # For HDF5/NetCDF4 files, validate by opening the file. Header-only
+                # checks can miss truncated downloads with a valid superblock.
                 if output_path.suffix in ('.nc4', '.h5', '.hdf5') and not self.dry_run:
-                    import h5py
-                    if not h5py.is_hdf5(str(output_path)):
+                    if not _is_readable_hdf5(output_path):
                         logger.warning(
-                            f"  ⚠️  {filename} exists but is not valid HDF5 "
+                            f"  ⚠️  {filename} exists but is not readable HDF5 "
                             f"(possibly corrupted or incomplete download) — re-downloading"
                         )
                         output_path.unlink()

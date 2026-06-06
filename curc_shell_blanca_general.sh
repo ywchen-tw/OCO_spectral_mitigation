@@ -72,6 +72,13 @@ for year in $(seq $start_year $end_year); do
                 echo "Failed to process date: $date"
             else
                 echo "Successfully processed: $date"
+                storage_root="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"
+                cloud_distance_file="${storage_root%/}/results/results_${date}.h5"
+                if [[ ! -s "$cloud_distance_file" ]]; then
+                    echo "Missing cloud-distance file: $cloud_distance_file"
+                    echo "Skipping spectral fitting for date: $date"
+                    continue
+                fi
                 python src/spectral/fitting.py --date "$date" #--delete-ocofiles
             fi
             echo ""

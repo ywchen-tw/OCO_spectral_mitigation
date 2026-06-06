@@ -153,7 +153,8 @@ def load_shared_data(sat):
     date = sat['date'].strftime("%Y-%m-%d")
 
     # --- Cloud distances (output of demo_combined.py) ---
-    cld_dist_file = f"{sat['result_dir']}/results_{date}.h5"
+    cld_dist_file = cloud_distance_file_path(sat["result_dir"], date)
+    validate_cloud_distance_file(cld_dist_file, date)
     logger.info(f"Loading cloud distances from {cld_dist_file}")
     with h5py.File(cld_dist_file, "r") as f:
         cld_snd_id  = f["sounding_id"][...].astype(np.int64)
@@ -253,6 +254,43 @@ def load_shared_data(sat):
         "lite_index": lite_index,
         "lite": lite,
     }
+
+
+def cloud_distance_file_path(result_dir, date):
+    """Return the date-level cloud-distance HDF5 path produced by demo_combined.py."""
+    if isinstance(date, datetime):
+        date = date.strftime("%Y-%m-%d")
+    return os.path.join(str(result_dir), f"results_{date}.h5")
+
+
+def validate_cloud_distance_file(cld_dist_file, date):
+    """Fail before expensive tau work if demo_combined.py did not finish."""
+    if isinstance(date, datetime):
+        date = date.strftime("%Y-%m-%d")
+
+    if not os.path.isfile(cld_dist_file):
+        raise FileNotFoundError(
+            "Cloud-distance HDF5 is missing; spectral fitting cannot continue:\n"
+            f"  expected: {cld_dist_file}\n"
+            "This file is produced by workspace/demo_combined.py Step 5. "
+            f"Run workspace/demo_combined.py --date {date} and ensure it completes, "
+            "or pass --output-dir to fitting_with_ring_effect.py if demo_combined.py "
+            "wrote results elsewhere."
+        )
+
+    try:
+        with h5py.File(cld_dist_file, "r") as h5f:
+            required = ("sounding_id", "nearest_cloud_distance_km")
+            missing = [name for name in required if name not in h5f]
+            if missing:
+                raise KeyError(f"missing dataset(s): {', '.join(missing)}")
+    except (OSError, RuntimeError, ValueError, KeyError) as exc:
+        raise OSError(
+            "Cloud-distance HDF5 is corrupted or incomplete:\n"
+            f"  {cld_dist_file}\n"
+            f"Re-run workspace/demo_combined.py --date {date} --force-recompute "
+            "to regenerate it."
+        ) from exc
 
 
 # ─── Per-orbit data loading ────────────────────────────────────────────────────
@@ -1486,6 +1524,23 @@ def _discover_orbit_files(orbit_dir):
     return orbit_files
 
 
+def _validate_readable_hdf5(filepath, label, date):
+    """Fail early for truncated or otherwise unreadable HDF5/NetCDF4 inputs."""
+    try:
+        if not h5py.is_hdf5(filepath):
+            raise OSError("not an HDF5 file")
+        with h5py.File(filepath, "r") as h5f:
+            list(h5f.keys())
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise OSError(
+            f"{label} file is corrupted or not readable:\n"
+            f"  {filepath}\n"
+            f"Delete this file and re-run "
+            f"workspace/demo_combined.py --date {date.strftime('%Y-%m-%d')} "
+            f"--force-download to re-download it."
+        ) from exc
+
+
 def fp_tau_file_is_current(fp_tau_file, use_ring=False):
     """Return True when cached tau uses the current ILS convolution physics."""
     if not os.path.isfile(fp_tau_file):
@@ -1529,12 +1584,7 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
             f"Re-run demo_combined.py for this date to download it."
         )
     lite_nc_file = nc4_matches[0]
-    if not h5py.is_hdf5(lite_nc_file):
-        raise OSError(
-            f"L2 Lite file is corrupted or not a valid HDF5/NetCDF4 file:\n"
-            f"  {lite_nc_file}\n"
-            f"Delete this file and re-run demo_combined.py --date {date.date()} to re-download."
-        )
+    _validate_readable_hdf5(lite_nc_file, "L2 Lite", date)
 
     sat0 = {
         "date":       date,
@@ -1549,6 +1599,8 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
     for orbit_id in oco2_orbit_list:
         orbit_dir = f"{OCO2_data_dir}/{orbit_id}"
         sat0[orbit_id] = _discover_orbit_files(orbit_dir)
+        for product_key, product_path in sat0[orbit_id].items():
+            _validate_readable_hdf5(product_path, product_key, date)
         
         date_str = date.strftime("%Y-%m-%d")
         fp_tau_file = os.path.abspath(f"{result_dir}/{date_str}/{orbit_id}/fp_tau_combined.h5")
@@ -1577,6 +1629,10 @@ def run_simulation(target_date, data_dir, result_dir,
                    delete_ocofiles=False,
                    use_ring=False):
     """Top-level pipeline: preprocess → fit → analyse."""
+    validate_cloud_distance_file(
+        cloud_distance_file_path(result_dir, target_date),
+        target_date,
+    )
     sat0 = preprocess(target_date, data_dir, result_dir, limit_granules, use_ring=use_ring)
 
     fit_order = (5, 3, 7)  # (o2a_order, wco2_order, sco2_order)
