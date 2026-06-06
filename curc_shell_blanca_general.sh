@@ -41,6 +41,11 @@ export OPENBLAS_NUM_THREADS=1
 # Browser-derived GES DISC /data/.TOKEN paths can be stale or context-specific.
 # Your CURC curl test showed the plain /data/OCO2_DATA/... route is healthy.
 unset GESDISC_DATA_TOKEN
+# Prefer ~/.netrc / anonymous-readable GES DISC routes for this smoke test.
+# Stale EARTHDATA_* environment values force the downloader into a failing
+# auth path, even when the plain file URLs are reachable from CURC.
+unset EARTHDATA_USERNAME
+unset EARTHDATA_PASSWORD
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
@@ -51,7 +56,7 @@ RUN_FITTING=true
 LIMIT_GRANULES=1
 # Use a target-day orbit for the smoke test to avoid the previous-day Lite
 # warning from the cross-midnight 11733a granule.
-ORBIT_FILTER=11733a
+ORBIT_FILTER=11734a
 
 # Specify year, month, and day ranges
 start_year=2016
