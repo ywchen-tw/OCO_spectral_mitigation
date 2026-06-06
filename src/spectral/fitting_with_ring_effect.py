@@ -1541,6 +1541,86 @@ def _validate_readable_hdf5(filepath, label, date):
         ) from exc
 
 
+def _decode_hdf5_attr(value):
+    """Return a readable string for scalar or one-element HDF5 attributes."""
+    arr = np.asarray(value)
+    if arr.shape:
+        value = arr.flat[0]
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _lite_version_label(filepath):
+    """Infer the GES DISC Lite collection version from metadata, then filename."""
+    text_parts = [os.path.basename(filepath)]
+
+    try:
+        with h5py.File(filepath, "r") as h5f:
+            for attr_name in (
+                "gesdisc_collection",
+                "BuildId",
+                "CollectionLabel",
+                "lite_definition_module",
+                "bc_function",
+            ):
+                if attr_name in h5f.attrs:
+                    text_parts.append(_decode_hdf5_attr(h5f.attrs[attr_name]))
+    except (OSError, RuntimeError, ValueError):
+        return "unreadable"
+
+    text = " ".join(text_parts).lower()
+    version_markers = (
+        ("11.3r", ("11.3r", "b11.3", "b113", "lite_b113", "b11_3")),
+        ("11.2r", ("11.2r", "b11.2", "b112", "lite_b112", "b11_2")),
+        ("11.1r", ("11.1r", "b11.1", "b111", "lite_b111", "b11_1")),
+        ("11r", ("11r", "b11.0", "b110", "lite_b110")),
+        ("10r", ("10r", "b10")),
+    )
+    for version, markers in version_markers:
+        if any(marker in text for marker in markers):
+            return version
+    return "unknown"
+
+
+def select_lite_file(nc4_matches, date):
+    """Select one Lite file deterministically when multiple versions are present."""
+    version_priority = {
+        "11.3r": 0,
+        "11.2r": 1,
+        "11.1r": 2,
+        "11r": 3,
+        "10r": 4,
+        "unknown": 99,
+    }
+    candidates = []
+
+    for filepath in sorted(nc4_matches):
+        version = _lite_version_label(filepath)
+        if version == "unreadable":
+            logger.warning("Ignoring unreadable Lite file candidate: %s", filepath)
+            continue
+        candidates.append((version_priority.get(version, 99), filepath, version))
+
+    if not candidates:
+        raise OSError(
+            "No readable L2 Lite .nc4 file found among candidates:\n"
+            + "\n".join(f"  {path}" for path in sorted(nc4_matches))
+        )
+
+    candidates.sort(key=lambda item: (item[0], os.path.basename(item[1])))
+    _, selected, selected_version = candidates[0]
+    if len(candidates) > 1:
+        logger.warning(
+            "Multiple L2 Lite files found for %s; selected %s (%s). Candidates: %s",
+            date.strftime("%Y-%m-%d"),
+            selected,
+            selected_version,
+            ", ".join(f"{path} ({version})" for _, path, version in candidates),
+        )
+    return selected
+
+
 def fp_tau_file_is_current(fp_tau_file, use_ring=False):
     """Return True when cached tau uses the current ILS convolution physics."""
     if not os.path.isfile(fp_tau_file):
@@ -1583,7 +1663,7 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
             f"No L2 Lite .nc4 file found in {OCO2_data_dir}. "
             f"Re-run demo_combined.py for this date to download it."
         )
-    lite_nc_file = nc4_matches[0]
+    lite_nc_file = select_lite_file(nc4_matches, date)
     _validate_readable_hdf5(lite_nc_file, "L2 Lite", date)
 
     sat0 = {

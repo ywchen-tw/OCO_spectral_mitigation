@@ -446,11 +446,11 @@ class DataIngestionManager:
         if 'L2_Lite_FP' in product_url:
             # The current retrospective Lite collection can contain historical
             # dates, while older collections remain useful fallbacks on GES DISC.
-            versions = ['11.2r', '11.1r', '11r', '10r']
+            versions = ['11.2r', '11.1r', '10r']
         elif year > 2024 or (year == 2024 and doy >= 92):
-            versions = ['11.2r', '11r']
+            versions = ['11.3r', '11.2r', '11.1r']
         else:
-            versions = ['11r', '11.2r']
+            versions = ['11.3r', '11.2r', '11.1r']
 
         return list(dict.fromkeys(
             product_url.replace('{VERSION}', version)
