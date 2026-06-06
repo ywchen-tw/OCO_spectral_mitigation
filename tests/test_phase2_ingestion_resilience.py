@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest import mock
 
@@ -112,6 +113,35 @@ class Phase2IngestionResilienceTests(unittest.TestCase):
 
         self.assertFalse(OCO2MetadataRetriever._looks_like_auth_page(response))
         self.assertFalse(DataIngestionManager._looks_like_auth_page(response))
+
+    def test_cmr_atom_entry_parses_time_namespace(self) -> None:
+        entry_xml = """<entry
+            xmlns="http://www.w3.org/2005/Atom"
+            xmlns:echo="http://www.echo.nasa.gov/esip"
+            xmlns:time="http://a9.com/-/opensearch/extensions/time/1.0/">
+          <title>oco2_L1bScGL_11734a_160915_B11006r_221129020008.h5</title>
+          <echo:producerGranuleId>oco2_L1bScGL_11734a_160915_B11006r_221129020008.h5</echo:producerGranuleId>
+          <time:start>2016-09-15T00:00:00.000Z</time:start>
+          <time:end>2016-09-15T00:06:00.000Z</time:end>
+          <link rel="http://esipfed.org/ns/fedsearch/1.1/data#"
+                href="https://oco2.gesdisc.eosdis.nasa.gov/data/OCO2_DATA/OCO2_L1B_Science.11r/2016/259/oco2_L1bScGL_11734a_160915_B11006r_221129020008.h5"/>
+        </entry>"""
+        namespaces = {
+            "atom": "http://www.w3.org/2005/Atom",
+            "echo": "http://www.echo.nasa.gov/esip",
+            "time": "http://a9.com/-/opensearch/extensions/time/1.0/",
+        }
+        env = {"EARTHDATA_USERNAME": "", "EARTHDATA_PASSWORD": "", "LAADS_TOKEN": ""}
+        with mock.patch.dict(os.environ, env):
+            retriever = OCO2MetadataRetriever()
+
+        granule = retriever._parse_atom_entry(ET.fromstring(entry_xml), namespaces)
+
+        self.assertIsNotNone(granule)
+        self.assertEqual(granule.orbit_str, "11734a")
+        self.assertEqual(granule.viewing_mode, "GL")
+        self.assertEqual(granule.start_time.year, 2016)
+        self.assertTrue(granule.download_url.endswith(".h5"))
 
     def test_status_file_requires_l1b_and_no_failed_downloads(self) -> None:
         granule_id = "oco2_L1bScGL_12345a_160915_B11006r_000000.h5"

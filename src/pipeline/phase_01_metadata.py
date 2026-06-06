@@ -488,7 +488,8 @@ class OCO2MetadataRetriever:
         namespaces = {
             'atom': 'http://www.w3.org/2005/Atom',
             'gml': 'http://www.opengis.net/gml',
-            'echo': 'http://www.echo.nasa.gov/esip'
+            'echo': 'http://www.echo.nasa.gov/esip',
+            'time': 'http://a9.com/-/opensearch/extensions/time/1.0/'
         }
         
         # Process each XML file
@@ -717,31 +718,62 @@ class OCO2MetadataRetriever:
             OCO2Granule object or None if parsing failed
         """
         try:
-            # Extract granule ID
+            def _text_from(paths: List[str]) -> Optional[str]:
+                for path in paths:
+                    elem = entry.find(path, namespaces)
+                    if elem is not None and elem.text:
+                        return elem.text.strip()
+                return None
+
+            # Extract granule ID. In CMR Atom this is usually the title, but
+            # producerGranuleId is the more explicit granule filename when present.
             title = entry.find('atom:title', namespaces)
-            granule_id = title.text if title is not None else "Unknown"
+            granule_id = _text_from(['echo:producerGranuleId'])
+            if not granule_id:
+                granule_id = title.text.strip() if title is not None and title.text else "Unknown"
             if ':' in granule_id:
                 granule_id = granule_id.rsplit(':', 1)[-1]
             
             # Parse granule ID to extract orbit and mode
             orbit_str, view_mode, version = self._parse_granule_id(granule_id)
             
-            # Extract temporal bounds
-            time_start = entry.find('.//echo:temporal/echo:RangeDateTime/echo:BeginningDateTime', 
-                                   namespaces)
-            time_end = entry.find('.//echo:temporal/echo:RangeDateTime/echo:EndingDateTime', 
-                                 namespaces)
-            
-            start_dt = datetime.fromisoformat(time_start.text.replace('Z', '+00:00')) if time_start is not None else None
-            end_dt = datetime.fromisoformat(time_end.text.replace('Z', '+00:00')) if time_end is not None else None
+            # Extract temporal bounds. CMR Atom exposes these as time:start/time:end;
+            # older ECHO-style feeds may embed RangeDateTime under echo:temporal.
+            start_text = _text_from([
+                'time:start',
+                './/time:start',
+                './/echo:temporal/echo:RangeDateTime/echo:BeginningDateTime',
+                './/echo:BeginningDateTime',
+            ])
+            end_text = _text_from([
+                'time:end',
+                './/time:end',
+                './/echo:temporal/echo:RangeDateTime/echo:EndingDateTime',
+                './/echo:EndingDateTime',
+            ])
+
+            start_dt = datetime.fromisoformat(start_text.replace('Z', '+00:00')) if start_text else None
+            end_dt = datetime.fromisoformat(end_text.replace('Z', '+00:00')) if end_text else None
             
             # Extract download URL
             links = entry.findall('atom:link', namespaces)
             download_url = None
             for link in links:
-                if link.get('rel') == 'http://esipfed.org/ns/fedsearch/1.1/data#':
+                href = link.get('href')
+                rel = link.get('rel')
+                if rel == 'http://esipfed.org/ns/fedsearch/1.1/data#':
+                    download_url = href
+                    break
+                if href and granule_id in href and href.startswith('http'):
                     download_url = link.get('href')
                     break
+
+            if not download_url and start_dt and granule_id != "Unknown":
+                year = start_dt.year
+                doy = str(start_dt.timetuple().tm_yday).zfill(3)
+                target_date_naive = start_dt.replace(tzinfo=None) if start_dt.tzinfo is not None else start_dt
+                version_str = self._get_collection_version(target_date_naive)
+                download_url = f"https://oco2.gesdisc.eosdis.nasa.gov/data/OCO2_DATA/OCO2_L1B_Science.{version_str}/{year}/{doy}/{granule_id}"
             
             if all([orbit_str, view_mode, version, start_dt, end_dt]):
                 granule = OCO2Granule(
@@ -756,7 +788,18 @@ class OCO2MetadataRetriever:
                 )
                 return granule
             else:
-                logger.warning(f"Incomplete granule data for {granule_id}")
+                missing_fields = []
+                if not orbit_str:
+                    missing_fields.append("orbit_str")
+                if not view_mode:
+                    missing_fields.append("viewing_mode")
+                if not version:
+                    missing_fields.append("version")
+                if not start_dt:
+                    missing_fields.append("start_time")
+                if not end_dt:
+                    missing_fields.append("end_time")
+                logger.warning(f"Incomplete granule data for {granule_id}: missing {missing_fields}")
                 return None
                 
         except Exception as e:
