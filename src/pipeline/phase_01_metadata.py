@@ -16,6 +16,7 @@ import requests
 import xml.etree.ElementTree as ET
 import re
 import time
+import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
@@ -63,6 +64,7 @@ class OCO2MetadataRetriever:
     
     # CMR search URL as fallback
     CMR_SEARCH_URL = "https://cmr.earthdata.nasa.gov/search/granules.xml"
+    CMR_COLLECTION = "OCO2_L1B_Science"
     CMR_COLLECTION_OLD = "OCO2_L1B_Science_11r"
     CMR_COLLECTION_NEW = "OCO2_L1B_Science_11.2r"
     CMR_CONCEPT_OLD = "C2248652600-GES_DISC"
@@ -113,28 +115,29 @@ class OCO2MetadataRetriever:
         })
 
     def _get_with_retry(self, url: str, timeout: int = 30,
-                        max_retries: int = 4, backoff_base: float = 2.0) -> requests.Response:
-        """GET with exponential backoff, retrying on 5xx or connection errors.
-
-        Waits backoff_base^attempt seconds between retries (2, 4, 8, 16 s).
-        Raises the last exception if all retries are exhausted.
-        """
+                        max_retries: int = 6, backoff_base: float = 2.0) -> requests.Response:
+        """GET with bounded jittered backoff for transient server failures."""
         last_exc: Optional[Exception] = None
+        retry_statuses = {429, 500, 502, 503, 504}
         for attempt in range(max_retries):
             try:
                 resp = self.session.get(url, timeout=timeout)
-                if resp.status_code < 500:
+                if resp.status_code not in retry_statuses:
                     resp.raise_for_status()   # let 4xx propagate immediately
                     return resp
-                # 5xx: log and retry
-                logger.warning("GES DISC returned %d for %s (attempt %d/%d) — retrying in %.0fs",
+                delay = min(backoff_base ** attempt, 60.0) + random.uniform(0.0, 0.5)
+                logger.warning("GES DISC returned %d for %s (attempt %d/%d) — retrying in %.1fs",
                                resp.status_code, url, attempt + 1, max_retries,
-                               backoff_base ** attempt)
+                               delay)
             except requests.RequestException as exc:
-                logger.warning("Request error for %s (attempt %d/%d): %s",
-                               url, attempt + 1, max_retries, exc)
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                if status is not None and status not in retry_statuses:
+                    raise
                 last_exc = exc
-            time.sleep(backoff_base ** attempt)
+                delay = min(backoff_base ** attempt, 60.0) + random.uniform(0.0, 0.5)
+                logger.warning("Request error for %s (attempt %d/%d): %s — retrying in %.1fs",
+                               url, attempt + 1, max_retries, exc, delay)
+            time.sleep(delay)
         # All retries exhausted — raise so the caller can decide what to do
         if last_exc:
             raise last_exc
@@ -147,6 +150,23 @@ class OCO2MetadataRetriever:
         if token:
             return f"{self.GESDISC_BASE_URL}/{token}"
         return self.GESDISC_BASE_URL
+
+    def _gesdisc_data_base_urls(self) -> List[str]:
+        """Return tokenized and plain GES DISC base URLs, in retry order."""
+        bases = [self._gesdisc_data_base_url(), self.GESDISC_BASE_URL]
+        return list(dict.fromkeys(bases))
+
+    @staticmethod
+    def _looks_like_auth_page(response: requests.Response) -> bool:
+        """Detect OAuth/login HTML returned instead of directory or data content."""
+        response_url = response.url.lower()
+        if "urs.earthdata.nasa.gov" in response_url:
+            return True
+        content_type = response.headers.get("Content-Type", "").lower()
+        if "text/html" not in content_type:
+            return False
+        text = response.text[:4096].lower()
+        return "earthdata login" in text or "urs.earthdata" in text or "oauth" in text
 
     def _get_collection_version(self, target_date: datetime) -> str:
         """
@@ -209,48 +229,58 @@ class OCO2MetadataRetriever:
         day_of_year = target_date.timetuple().tm_yday
         doy_str = str(day_of_year).zfill(3)  # Zero-padded, e.g., "008"
         
-        # Build directory URL (without session ID, relying on direct HTTP access)
+        # Build directory URL. If GESDISC_DATA_TOKEN is configured, try it first
+        # but fall back to the plain /data path; browser-derived tokens can expire.
         collection_path = f"{self.GESDISC_COLLECTION_BASE}.{version}"
-        directory_url = f"{self._gesdisc_data_base_url()}/{collection_path}/{year}/{doy_str}/"
-        
-        logger.info(f"Querying GES DISC directory: {directory_url}")
         logger.info(f"Target date: {target_date.date()} (DOY: {doy_str}, Version: {version})")
-        
-        xml_files = []
-        
-        try:
-            # Try to list directory contents (retry on transient 5xx)
-            response = self._get_with_retry(directory_url)
 
-            # Parse HTML directory listing to find .xml files
-            xml_pattern = r'href=["\']?([^"\'>\s]*\.xml)["\']?'
-            matches = re.findall(xml_pattern, response.text, re.IGNORECASE)
-            # Remove duplicates and ensure full URLs with sorrting
-            matches = list(sorted(set(matches)))
+        for base_url in self._gesdisc_data_base_urls():
+            directory_url = f"{base_url}/{collection_path}/{year}/{doy_str}/"
+            logger.info(f"Querying GES DISC directory: {directory_url}")
 
-            for xml_filename in matches:
-                try:
-                    xml_url = directory_url.rstrip('/') + '/' + xml_filename.strip('/')
-                    logger.debug(f"Fetching: {xml_url}")
-
-                    xml_response = self._get_with_retry(xml_url)
-                    xml_files.append(xml_response.text)
-                    logger.debug(f"Retrieved {xml_filename} ({len(xml_response.text)} bytes)")
-
-                except requests.RequestException as e:
-                    logger.warning(f"Failed to fetch {xml_filename} after retries: {e}")
+            try:
+                response = self._get_with_retry(directory_url)
+                if self._looks_like_auth_page(response):
+                    logger.warning(
+                        "GES DISC returned an Earthdata login page for %s; "
+                        "authentication or GESDISC_DATA_TOKEN may be invalid.",
+                        directory_url
+                    )
                     continue
-            
-            if xml_files:
-                logger.info(f"Successfully retrieved {len(xml_files)} XML files")
-            else:
-                logger.warning("No XML files retrieved from directory")
-            
-            return xml_files
-            
-        except requests.RequestException as e:
-            logger.error(f"Failed to access GES DISC directory: {e}")
-            return []
+
+                xml_pattern = r'href=["\']?([^"\'>\s]*\.xml)["\']?'
+                matches = list(sorted(set(re.findall(xml_pattern, response.text, re.IGNORECASE))))
+                xml_files = []
+
+                for xml_filename in matches:
+                    try:
+                        xml_url = directory_url.rstrip('/') + '/' + xml_filename.strip('/')
+                        logger.debug(f"Fetching: {xml_url}")
+
+                        xml_response = self._get_with_retry(xml_url)
+                        if self._looks_like_auth_page(xml_response):
+                            logger.warning(
+                                "GES DISC returned an Earthdata login page while fetching %s",
+                                xml_url
+                            )
+                            continue
+                        xml_files.append(xml_response.text)
+                        logger.debug(f"Retrieved {xml_filename} ({len(xml_response.text)} bytes)")
+
+                    except requests.RequestException as e:
+                        logger.warning(f"Failed to fetch {xml_filename} after retries: {e}")
+                        continue
+
+                if xml_files:
+                    logger.info(f"Successfully retrieved {len(xml_files)} XML files")
+                    return xml_files
+
+                logger.warning("No XML files retrieved from directory: %s", directory_url)
+
+            except requests.RequestException as e:
+                logger.error(f"Failed to access GES DISC directory: {e}")
+
+        return []
     
     def fetch_oco2_xml_from_cmr(self, target_date: datetime) -> Optional[str]:
         """
@@ -270,58 +300,78 @@ class OCO2MetadataRetriever:
         Returns:
             XML string containing granule metadata, or None if all queries failed
         """
-        # e.g. "OCO2_L1B_Science_11r" or "OCO2_L1B_Science_11.2r" depending on date
-        short_name = self._get_cmr_collection(target_date)
+        version = self._get_collection_version(target_date)
+        versioned_short_name = self._get_cmr_collection(target_date)
 
         start_time = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_time   = start_time + timedelta(days=1)
         temporal   = f"{start_time.isoformat()}Z,{end_time.isoformat()}Z"
 
-        # Candidate parameter sets — tried in order until granules are found.
-        # Querying by collection_concept_id is the most deterministic CMR path;
-        # the short_name variants are kept as fallbacks if concept ids change.
-        # NOTE: CMR short_name for OCO-2 L1B includes the version suffix
-        # (e.g. "OCO2_L1B_Science_11r"), not "OCO2_L1B_Science" with a
-        # separate version= field.
+        # CMR's durable collection identity is short_name + version. Concept ids
+        # are useful but can change during reprocessing/publication updates, so
+        # they are kept as a fallback rather than the only deterministic path.
         candidate_params = [
+            {
+                'short_name': self.CMR_COLLECTION,
+                'version': version,
+                'provider': 'GES_DISC',
+                'temporal[]': temporal,
+                'page_size': 100,
+                'sort_key': '-start_date',
+            },
+            {
+                'short_name': self.CMR_COLLECTION,
+                'version': version,
+                'temporal[]': temporal,
+                'page_size': 100,
+                'sort_key': '-start_date',
+            },
             {
                 'collection_concept_id': self._get_cmr_collection_concept_id(target_date),
                 'temporal[]': temporal,
                 'page_size': 100,
                 'sort_key': '-start_date',
             },
-            {   # Versioned short_name + provider (most specific after concept_id)
-                'short_name': short_name,
-                'provider':   'GES_DISC',
+            {
+                'short_name': versioned_short_name,
+                'provider': 'GES_DISC',
                 'temporal[]': temporal,
-                'page_size':  100,
-                'sort_key':   '-start_date',
+                'page_size': 100,
+                'sort_key': '-start_date',
             },
-            {   # Versioned short_name, no provider filter
-                'short_name': short_name,
+            {
+                'short_name': versioned_short_name,
                 'temporal[]': temporal,
-                'page_size':  100,
-                'sort_key':   '-start_date',
+                'page_size': 100,
+                'sort_key': '-start_date',
             },
-            {   # Last resort: base name without version suffix
-                'short_name': 'OCO2_L1B_Science',
+            {
+                'short_name': self.CMR_COLLECTION,
+                'provider': 'GES_DISC',
                 'temporal[]': temporal,
-                'page_size':  100,
-                'sort_key':   '-start_date',
+                'page_size': 100,
+                'sort_key': '-start_date',
+            },
+            {
+                'short_name': self.CMR_COLLECTION,
+                'temporal[]': temporal,
+                'page_size': 100,
+                'sort_key': '-start_date',
             },
         ]
 
         for params in candidate_params:
-            if 'collection_concept_id' in params:
-                desc = f"collection_concept_id={params['collection_concept_id']}"
-            else:
-                desc = (f"short_name=OCO2_L1B_Science"
-                        + (f", version={params['version']}" if 'version' in params else '')
-                        + (f", provider={params['provider']}" if 'provider' in params else ''))
+            desc = ", ".join(
+                f"{key}={value}" for key, value in params.items()
+                if key not in {"temporal[]", "page_size", "sort_key"}
+            )
             logger.info("Querying CMR for OCO-2 L1B on %s (%s)", target_date.date(), desc)
             try:
                 response = requests.get(self.CMR_SEARCH_URL, params=params, timeout=30)
-                response.raise_for_status()
+                if response.status_code in {429, 500, 502, 503, 504}:
+                    response = self._get_cmr_with_retry(params)
+                else:
+                    response.raise_for_status()
             except requests.RequestException as e:
                 logger.error("CMR request failed (%s): %s", desc, e)
                 continue
@@ -345,6 +395,40 @@ class OCO2MetadataRetriever:
 
         logger.error("All CMR query variants returned 0 granules for %s", target_date.date())
         return None
+
+    def _get_cmr_with_retry(self, params: Dict[str, object],
+                            max_retries: int = 4) -> requests.Response:
+        """Retry CMR requests on transient API errors."""
+        retry_statuses = {429, 500, 502, 503, 504}
+        last_exc: Optional[Exception] = None
+        resp = None
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(self.CMR_SEARCH_URL, params=params, timeout=30)
+                if resp.status_code not in retry_statuses:
+                    resp.raise_for_status()
+                    return resp
+                delay = min(2.0 ** attempt, 30.0) + random.uniform(0.0, 0.5)
+                logger.warning(
+                    "CMR returned %d (attempt %d/%d) — retrying in %.1fs",
+                    resp.status_code, attempt + 1, max_retries, delay
+                )
+            except requests.RequestException as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                if status is not None and status not in retry_statuses:
+                    raise
+                last_exc = exc
+                delay = min(2.0 ** attempt, 30.0) + random.uniform(0.0, 0.5)
+                logger.warning(
+                    "CMR request error (attempt %d/%d): %s — retrying in %.1fs",
+                    attempt + 1, max_retries, exc, delay
+                )
+            time.sleep(delay)
+
+        if last_exc:
+            raise last_exc
+        resp.raise_for_status()
+        return resp
     
     def fetch_oco2_xml(self, target_date: datetime, 
                        orbit_str: Optional[str] = None,

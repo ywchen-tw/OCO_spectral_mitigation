@@ -30,8 +30,8 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 import time
+import random
 import xml.etree.ElementTree as ET
-from urllib.parse import urljoin
 
 from config import Config
 from .phase_01_metadata import OCO2Granule, OCO2MetadataRetriever
@@ -188,6 +188,13 @@ class DataIngestionManager:
                 response = session.get(test_url, timeout=10)
                 if response.status_code == 200:
                     logger.info("GES DISC authentication configured and verified")
+                elif response.status_code in {401, 403}:
+                    logger.warning(
+                        "GES DISC authentication test returned status %d. "
+                        "OCO-2 downloads may fail; check EARTHDATA_USERNAME/"
+                        "EARTHDATA_PASSWORD, ~/.netrc, and GES DISC app authorization.",
+                        response.status_code
+                    )
                 else:
                     logger.warning(f"GES DISC authentication test returned status {response.status_code}")
             except Exception as e:
@@ -204,35 +211,48 @@ class DataIngestionManager:
         self.gesdisc_session = self._create_earthdata_session()
 
     def _get_with_retry(self, url: str, session: requests.Session,
-                        timeout: int = 30, max_retries: int = 4,
+                        timeout: int = 30, max_retries: int = 6,
                         backoff_base: float = 2.0, **kwargs) -> requests.Response:
-        """GET with exponential backoff on 5xx or connection errors.
-
-        Waits backoff_base^attempt seconds between retries (1, 2, 4, 8 s).
-        Raises the last exception if all retries are exhausted.
-        """
+        """GET with bounded jittered backoff on transient server errors."""
         last_exc: Optional[Exception] = None
         resp = None
+        retry_statuses = {429, 500, 502, 503, 504}
         for attempt in range(max_retries):
             try:
                 resp = session.get(url, timeout=timeout, **kwargs)
-                if resp.status_code < 500:
+                if resp.status_code not in retry_statuses:
                     resp.raise_for_status()   # let 4xx propagate immediately
                     return resp
-                # 5xx: log, close, and retry
-                logger.warning("Server returned %d for %s (attempt %d/%d) — retrying in %.0fs",
+                delay = min(backoff_base ** attempt, 60.0) + random.uniform(0.0, 0.5)
+                logger.warning("Server returned %d for %s (attempt %d/%d) — retrying in %.1fs",
                                resp.status_code, url, attempt + 1, max_retries,
-                               backoff_base ** attempt)
+                               delay)
                 resp.close()
             except requests.RequestException as exc:
-                logger.warning("Request error for %s (attempt %d/%d): %s",
-                               url, attempt + 1, max_retries, exc)
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                if status is not None and status not in retry_statuses:
+                    raise
                 last_exc = exc
-            time.sleep(backoff_base ** attempt)
+                delay = min(backoff_base ** attempt, 60.0) + random.uniform(0.0, 0.5)
+                logger.warning("Request error for %s (attempt %d/%d): %s — retrying in %.1fs",
+                               url, attempt + 1, max_retries, exc, delay)
+            time.sleep(delay)
         if last_exc:
             raise last_exc
         resp.raise_for_status()
         return resp
+
+    @staticmethod
+    def _looks_like_auth_page(response: requests.Response) -> bool:
+        """Detect OAuth/login HTML returned instead of data or a directory listing."""
+        response_url = response.url.lower()
+        if "urs.earthdata.nasa.gov" in response_url:
+            return True
+        content_type = response.headers.get("Content-Type", "").lower()
+        if "text/html" not in content_type:
+            return False
+        text = response.text[:4096].lower()
+        return "earthdata login" in text or "urs.earthdata" in text or "oauth" in text
 
     def _check_file_exists_remote(self,
                                    url: str,
@@ -394,7 +414,12 @@ class DataIngestionManager:
         if product_url.startswith(data_root):
             return product_url.replace(data_root, token_root, 1)
         return product_url
-    
+
+    def _gesdisc_url_candidates(self, product_url: str) -> List[str]:
+        """Return tokenized and plain GES DISC URLs, in retry order."""
+        urls = [self._with_gesdisc_data_token(product_url), product_url]
+        return list(dict.fromkeys(urls))
+
     def _query_ges_disc_directory(self,
                                   product_url: str,
                                   year: int,
@@ -434,122 +459,126 @@ class DataIngestionManager:
             
             product_url = product_url.replace('{VERSION}', version)
 
-        product_url = self._with_gesdisc_data_token(product_url)
-        
-        # Build directory URL
-        if 'L2_Lite' in product_url:
-            # L2_Lite has different directory structure: /YYYY/ instead of /YYYY/DOY/
-            dir_url = f"{product_url}{year}/"
-        else:
-            dir_url = f"{product_url}{year}/{doy:03d}/"
-        
-        logger.debug(f"Querying directory: {dir_url}")
-        
-        try:
-            response = self._get_with_retry(dir_url, self.gesdisc_session, timeout=30)
+        for candidate_product_url in self._gesdisc_url_candidates(product_url):
+            # Build directory URL
+            if 'L2_Lite' in candidate_product_url:
+                # L2_Lite has different directory structure: /YYYY/ instead of /YYYY/DOY/
+                dir_url = f"{candidate_product_url}{year}/"
+            else:
+                dir_url = f"{candidate_product_url}{year}/{doy:03d}/"
 
-            # Parse HTML directory listing for .hdf or .nc4 files
-            import re
-            from datetime import datetime, timedelta
-            
-            # Match href attributes
-            if 'L2_Lite' in product_url:
-                # L2_Lite uses .nc4 format
-                # Try to construct a date-specific pattern if we have granule info
-                if granule_id:
-                    # Extract date from granule ID (format: oco2_L1bScGL_22845a_181018_*)
-                    # Date is YYMMDD in the granule ID
-                    parts = granule_id.split('_')
-                    if len(parts) >= 4:
-                        # Use target_date_str if provided so cross-midnight granules
-                        # (whose granule_id encodes the previous day) still resolve
-                        # to the correct target date's Lite file.
-                        date_str = target_date_str if target_date_str is not None else parts[3]
-                        # Anchor date_str to the data-date slot (right after "LtCO2_") so
-                        # the processing timestamp at the end of the filename cannot produce
-                        # a false match (e.g. oco2_LtCO2_200306_..._200615xxxs.nc4 must NOT
-                        # match a search for date 200615).
-                        pattern = rf'href=["\']+(oco2_LtCO2_{date_str}[\w._-]*\.nc4)["\']+'
+            logger.debug(f"Querying directory: {dir_url}")
+
+            try:
+                response = self._get_with_retry(dir_url, self.gesdisc_session, timeout=30)
+                if self._looks_like_auth_page(response):
+                    logger.warning(
+                        "GES DISC returned an Earthdata login page for %s; "
+                        "authentication or GESDISC_DATA_TOKEN may be invalid.",
+                        dir_url
+                    )
+                    continue
+
+                # Parse HTML directory listing for .hdf or .nc4 files
+                import re
+                # Match href attributes
+                if 'L2_Lite' in candidate_product_url:
+                    # L2_Lite uses .nc4 format
+                    # Try to construct a date-specific pattern if we have granule info
+                    if granule_id:
+                        # Extract date from granule ID (format: oco2_L1bScGL_22845a_181018_*)
+                        # Date is YYMMDD in the granule ID
+                        parts = granule_id.split('_')
+                        if len(parts) >= 4:
+                            # Use target_date_str if provided so cross-midnight granules
+                            # (whose granule_id encodes the previous day) still resolve
+                            # to the correct target date's Lite file.
+                            date_str = target_date_str if target_date_str is not None else parts[3]
+                            # Anchor date_str to the data-date slot (right after "LtCO2_") so
+                            # the processing timestamp at the end of the filename cannot produce
+                            # a false match (e.g. oco2_LtCO2_200306_..._200615xxxs.nc4 must NOT
+                            # match a search for date 200615).
+                            pattern = rf'href=["\']+(oco2_LtCO2_{date_str}[\w._-]*\.nc4)["\']+'
+                        else:
+                            # Fallback to generic pattern
+                            pattern = r'href=["\']+(oco2_LtCO2[\w._-]+\.nc4)["\']+'
                     else:
-                        # Fallback to generic pattern
+                        # Generic pattern
                         pattern = r'href=["\']+(oco2_LtCO2[\w._-]+\.nc4)["\']+'
                 else:
-                    # Generic pattern
-                    pattern = r'href=["\']+(oco2_LtCO2[\w._-]+\.nc4)["\']+'
-            else:
-                # Other products use .h5 format - match only valid filename characters
-                pattern = r'href=["\']+([\w._-]+\.h5)["\']+'
-            
-            matches = re.findall(pattern, response.text)
-            # remove duplicates and sort
-            matches = sorted(set(matches))
-            
-            if matches:
-                # For L2_Lite with specific date pattern, prefer exact match
-                filename = None
-                if 'L2_Lite' in product_url and granule_id:
-                    # Check if we found a date-specific file
-                    parts = granule_id.split('_')
-                    if len(parts) >= 4:
-                        # Consistent with the pattern built above: prefer target_date_str
-                        date_str = target_date_str if target_date_str is not None else parts[3]
-                        # Match only files where date_str is in the data-date position,
-                        # not in the processing timestamp at the end of the filename.
-                        date_matches = [m for m in matches if f'LtCO2_{date_str}_' in m]
-                        if date_matches:
-                            filename = date_matches[0]
-                            logger.debug(f"Found date-specific L2 Lite file: {filename}")
+                    # Other products use .h5 format - match only valid filename characters
+                    pattern = r'href=["\']+([\w._-]+\.h5)["\']+'
+
+                matches = re.findall(pattern, response.text)
+                # remove duplicates and sort
+                matches = sorted(set(matches))
+
+                if matches:
+                    # For L2_Lite with specific date pattern, prefer exact match
+                    filename = None
+                    if 'L2_Lite' in candidate_product_url and granule_id:
+                        # Check if we found a date-specific file
+                        parts = granule_id.split('_')
+                        if len(parts) >= 4:
+                            # Consistent with the pattern built above: prefer target_date_str
+                            date_str = target_date_str if target_date_str is not None else parts[3]
+                            # Match only files where date_str is in the data-date position,
+                            # not in the processing timestamp at the end of the filename.
+                            date_matches = [m for m in matches if f'LtCO2_{date_str}_' in m]
+                            if date_matches:
+                                filename = date_matches[0]
+                                logger.debug(f"Found date-specific L2 Lite file: {filename}")
+                            else:
+                                # No date-specific file, use first match (might be yearly aggregate)
+                                filename = matches[0]
+                                logger.warning(f"No date-specific L2 Lite file found, using: {filename}")
+                                logger.warning(f"  This file may contain data from multiple dates")
                         else:
-                            # No date-specific file, use first match (might be yearly aggregate)
                             filename = matches[0]
-                            logger.warning(f"No date-specific L2 Lite file found, using: {filename}")
-                            logger.warning(f"  This file may contain data from multiple dates")
-                    else:
-                        filename = matches[0]
-                elif granule_id:
-                    # For Met/CO2Prior: filter by orbit ID (e.g., "22845a") so each orbit
-                    # gets its own file instead of always getting the first in the directory
-                    parts = granule_id.split('_')
-                    if len(parts) >= 3:
-                        orbit_id = parts[2]  # e.g., "22845a"
-                        viewing_mode = parts[1][-2:]  # e.g., "GL", "ND", "TG"
-                        if viewing_mode not in ['GL', 'ND', 'TG']:
-                            viewing_mode = None
-                        orbit_matches = [m for m in matches if orbit_id in m]
-                        if not orbit_matches:
-                            logger.warning(
-                                f"No file found for orbit {orbit_id} in:\n"
-                                f"  URL: {dir_url}\n"
-                                f"  Available files: {matches[:5]}"
-                            )
-                            return None
-                        if viewing_mode:
-                            mode_matches = [m for m in orbit_matches if viewing_mode+'_' in m.upper()]
-                            if not mode_matches:
+                    elif granule_id:
+                        # For Met/CO2Prior: filter by orbit ID (e.g., "22845a") so each orbit
+                        # gets its own file instead of always getting the first in the directory
+                        parts = granule_id.split('_')
+                        if len(parts) >= 3:
+                            orbit_id = parts[2]  # e.g., "22845a"
+                            viewing_mode = parts[1][-2:]  # e.g., "GL", "ND", "TG"
+                            if viewing_mode not in ['GL', 'ND', 'TG']:
+                                viewing_mode = None
+                            orbit_matches = [m for m in matches if orbit_id in m]
+                            if not orbit_matches:
                                 logger.warning(
-                                    f"No {viewing_mode}-mode file found for orbit {orbit_id} in:\n"
+                                    f"No file found for orbit {orbit_id} in:\n"
                                     f"  URL: {dir_url}\n"
-                                    f"  Orbit matches: {orbit_matches}"
+                                    f"  Available files: {matches[:5]}"
                                 )
-                                return None
-                            filename = mode_matches[0]
-                        else:
-                            filename = orbit_matches[0]
-                        logger.debug(f"Found orbit-specific file for {orbit_id} mode {viewing_mode}: {filename}")
-                else:
-                    logger.debug(f"No matching files found for {granule_id}")
-                    return None
-                
-                # Construct full URL
-                file_url = f"{dir_url}{filename}"
-                return file_url
-            else:
+                                continue
+                            if viewing_mode:
+                                mode_matches = [m for m in orbit_matches if viewing_mode+'_' in m.upper()]
+                                if not mode_matches:
+                                    logger.warning(
+                                        f"No {viewing_mode}-mode file found for orbit {orbit_id} in:\n"
+                                        f"  URL: {dir_url}\n"
+                                        f"  Orbit matches: {orbit_matches}"
+                                    )
+                                    continue
+                                filename = mode_matches[0]
+                            else:
+                                filename = orbit_matches[0]
+                            logger.debug(f"Found orbit-specific file for {orbit_id} mode {viewing_mode}: {filename}")
+                    else:
+                        logger.debug(f"No matching files found for {granule_id}")
+                        continue
+
+                    # Construct full URL
+                    file_url = f"{dir_url}{filename}"
+                    return file_url
+
                 logger.debug(f"No matching files found in {dir_url}")
-                return None
-            
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"Unable to query directory {dir_url}: {e}")
-            return None
+
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Unable to query directory {dir_url}: {e}")
+
+        return None
 
     def download_oco2_granule(self,
                               granule: OCO2Granule,
@@ -1295,6 +1324,12 @@ class DataIngestionManager:
         """
         try:
             doy = target_date.timetuple().tm_yday
+            l1b_granule_ids = {
+                f.granule_id
+                for f in oco2_files
+                if f.product_type in {"OCO2_L1B", "L1B"}
+            }
+            failed_count = len(self.download_stats.get('failed_downloads', []))
             
             # Write one status file per granule
             for granule_id in granule_ids:
@@ -1321,8 +1356,11 @@ class DataIngestionManager:
                 status_dir.mkdir(parents=True, exist_ok=True)
 
                 status_file = status_dir / "sat_data_status.json"
+                l1b_ready = granule_id in l1b_granule_ids
                 status_data = {
-                    'downloading_completed': True,
+                    'downloading_completed': l1b_ready and failed_count == 0,
+                    'l1b_ready': l1b_ready,
+                    'failed_download_count': failed_count,
                     'download_timestamp': datetime.now().isoformat(),
                     'target_date': target_date.isoformat(),
                     'granule_id': granule_id,
@@ -1330,7 +1368,8 @@ class DataIngestionManager:
                     'oco2_file_count': sum(1 for f in oco2_files if f.filepath.parent.name == folder_name),
                     'modis_file_count': len(modis_files),
                     'total_oco2_files': len(oco2_files),
-                    'total_modis_files': len(modis_files)
+                    'total_modis_files': len(modis_files),
+                    'expected_minimum_oco2_products': ['OCO2_L1B']
                 }
                 
                 with open(status_file, 'w') as f:

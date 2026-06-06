@@ -279,9 +279,27 @@ def run_phase_2(target_date: datetime, data_dir: Path,
         
         oco2_files = result.get('oco2_files', [])
         modis_files = result.get('modis_files', [])
+        granules = result.get('granules', [])
         
         logger.info(f"\n✓ Downloaded/loaded {len(oco2_files)} OCO-2 file(s)")
         logger.info(f"✓ Downloaded/loaded {len(modis_files)} MODIS file(s)")
+
+        if not granules:
+            logger.error(
+                "✗ Step 2 found zero OCO-2 granules for %s. "
+                "This is an ingestion/metadata failure or a true no-data date; "
+                "Phase 3 will not be started.",
+                target_date.date()
+            )
+            return {}, False
+
+        if not oco2_files:
+            logger.error(
+                "✗ Step 2 found %d granule(s) but no OCO-2 files were ready. "
+                "Check GES DISC authentication, CMR fallback results, and failed download logs.",
+                len(granules)
+            )
+            return {}, False
         
         file_info = {
             'oco2_files': oco2_files,
