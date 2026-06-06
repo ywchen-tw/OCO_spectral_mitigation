@@ -194,6 +194,38 @@ def invalidate_lite_downstream_cache(data_dir: Path, target_date: datetime) -> i
     return removed
 
 
+def delete_lite_files_before(data_dir: Path, target_date: datetime, minimum_version: str) -> int:
+    """Delete recognized local Lite files older than the requested minimum version."""
+    lite_dir = data_dir / "OCO2" / str(target_date.year) / f"{target_date.timetuple().tm_yday:03d}"
+    if not lite_dir.exists():
+        return 0
+
+    removed = 0
+    minimum_rank = LITE_VERSION_RANK[minimum_version]
+    for path in sorted(lite_dir.glob("*.nc4")):
+        version = infer_lite_version(path)
+        if version not in LITE_VERSION_RANK:
+            logger.warning(
+                "Keeping Lite file with unknown/unreadable version: %s (%s)",
+                path,
+                version,
+            )
+            continue
+        if LITE_VERSION_RANK[version] >= minimum_rank:
+            continue
+
+        try:
+            path.unlink()
+            removed += 1
+            logger.info("Deleted old Lite file: %s (%s)", path, version)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            logger.warning("Could not delete old Lite file %s: %s", path, exc)
+
+    return removed
+
+
 def validate_date(date_str: str) -> datetime:
     """Validate and parse date string."""
     try:
@@ -1414,6 +1446,18 @@ Examples:
         else:
             logger.warning(
                 "No local Lite file found after ingestion; downstream phases may fail"
+            )
+
+        deleted_lite = delete_lite_files_before(
+            data_dir,
+            target_date,
+            args.force_recompute_if_lite_before,
+        )
+        if deleted_lite:
+            logger.info(
+                "Deleted %d local Lite file(s) older than %s",
+                deleted_lite,
+                args.force_recompute_if_lite_before,
             )
 
         stale_before = (
