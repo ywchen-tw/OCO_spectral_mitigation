@@ -250,9 +250,7 @@ class OCO2MetadataRetriever:
             
         except requests.RequestException as e:
             logger.error(f"Failed to access GES DISC directory: {e}")
-            logger.info("Falling back to CMR API query...")
-            xml_content = self.fetch_oco2_xml_from_cmr(target_date)
-            return [xml_content] if xml_content else []
+            return []
     
     def fetch_oco2_xml_from_cmr(self, target_date: datetime) -> Optional[str]:
         """
@@ -272,7 +270,8 @@ class OCO2MetadataRetriever:
         Returns:
             XML string containing granule metadata, or None if all queries failed
         """
-        version = self._get_collection_version(target_date)
+        # e.g. "OCO2_L1B_Science_11r" or "OCO2_L1B_Science_11.2r" depending on date
+        short_name = self._get_cmr_collection(target_date)
 
         start_time = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_time   = start_time + timedelta(days=1)
@@ -281,6 +280,9 @@ class OCO2MetadataRetriever:
         # Candidate parameter sets — tried in order until granules are found.
         # Querying by collection_concept_id is the most deterministic CMR path;
         # the short_name variants are kept as fallbacks if concept ids change.
+        # NOTE: CMR short_name for OCO-2 L1B includes the version suffix
+        # (e.g. "OCO2_L1B_Science_11r"), not "OCO2_L1B_Science" with a
+        # separate version= field.
         candidate_params = [
             {
                 'collection_concept_id': self._get_cmr_collection_concept_id(target_date),
@@ -288,22 +290,20 @@ class OCO2MetadataRetriever:
                 'page_size': 100,
                 'sort_key': '-start_date',
             },
-            {   # Most specific: version + provider
-                'short_name': 'OCO2_L1B_Science',
-                'version':    version,
+            {   # Versioned short_name + provider (most specific after concept_id)
+                'short_name': short_name,
                 'provider':   'GES_DISC',
                 'temporal[]': temporal,
                 'page_size':  100,
                 'sort_key':   '-start_date',
             },
-            {   # Fallback: any version at GES DISC
-                'short_name': 'OCO2_L1B_Science',
-                'provider':   'GES_DISC',
+            {   # Versioned short_name, no provider filter
+                'short_name': short_name,
                 'temporal[]': temporal,
                 'page_size':  100,
                 'sort_key':   '-start_date',
             },
-            {   # Last resort: no provider or version filter
+            {   # Last resort: base name without version suffix
                 'short_name': 'OCO2_L1B_Science',
                 'temporal[]': temporal,
                 'page_size':  100,
