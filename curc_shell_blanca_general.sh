@@ -50,41 +50,34 @@ unset EARTHDATA_PASSWORD
 cd /projects/yuch8913/OCO_spectral_mitigation
 
 # ============================================================================
-# Option 1: Loop with year, month, day (ACTIVE)
+# Single date processing
 # ============================================================================
-# Specify year, month, and day ranges
-start_year=2020
-end_year=2020
-start_month=7
-end_month=7
-start_day=15
-end_day=15
+target_year=2019
+target_month=4
+target_day=1
 
-# Loop through year, month, day
-for year in $(seq $start_year $end_year); do
-    for month in $(seq $start_month $end_month); do
-        for day in $(seq $start_day $end_day); do
-            # Format date as YYYY-MM-DD with zero-padding
-            date=$(printf "%04d-%02d-%02d" $year $month $day)
-            echo "Processing date: $date"
-            python workspace/demo_combined.py --date "$date" #--delete-modis --force-recompute
-            if [ $? -ne 0 ]; then
-                echo "Failed to process date: $date"
-            else
-                echo "Successfully processed: $date"
-                storage_root="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"
-                cloud_distance_file="${storage_root%/}/results/results_${date}.h5"
-                if [[ ! -s "$cloud_distance_file" ]]; then
-                    echo "Missing cloud-distance file: $cloud_distance_file"
-                    echo "Skipping spectral fitting for date: $date"
-                    continue
-                fi
-                python src/spectral/fitting.py --date "$date" #--delete-ocofiles
-            fi
-            echo ""
-        done
-    done
-done
+date=$(printf "%04d-%02d-%02d" "$target_year" "$target_month" "$target_day")
+echo "Processing date: $date"
+
+python workspace/demo_combined.py \
+    --date "$date" \
+    --force-recompute-if-lite-before 11.2r
+
+if [ $? -ne 0 ]; then
+    echo "Failed to process date: $date"
+else
+    echo "Successfully processed: $date"
+    storage_root="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"
+    cloud_distance_file="${storage_root%/}/results/results_${date}.h5"
+    if [[ ! -s "$cloud_distance_file" ]]; then
+        echo "Missing cloud-distance file: $cloud_distance_file"
+        echo "Skipping spectral fitting for date: $date"
+        exit 1
+    fi
+    python src/spectral/fitting.py --date "$date" #--delete-ocofiles
+fi
+
+echo ""
 
 
 

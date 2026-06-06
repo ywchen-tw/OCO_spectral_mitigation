@@ -1585,14 +1585,13 @@ def _lite_version_label(filepath):
 
 def select_lite_file(nc4_matches, date):
     """Select one Lite file deterministically when multiple versions are present."""
-    version_priority = {
-        "11.3r": 0,
-        "11.2r": 1,
-        "11.1r": 2,
-        "11r": 3,
-        "10r": 4,
-        "unknown": 99,
-    }
+    preferred_versions = (
+        ["11.3r", "11.2r", "11.1r", "11r", "10r"]
+        if date.year >= 2024
+        else ["11.2r", "11.1r", "11r", "10r", "11.3r"]
+    )
+    version_priority = {version: rank for rank, version in enumerate(preferred_versions)}
+    version_priority["unknown"] = 99
     candidates = []
 
     for filepath in sorted(nc4_matches):

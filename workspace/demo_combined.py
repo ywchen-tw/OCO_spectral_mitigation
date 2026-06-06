@@ -44,6 +44,7 @@ import pickle
 import platform
 import shutil
 import traceback
+import h5py
 from typing import Dict, List, Optional, Tuple
 
 # Add src to path
@@ -82,6 +83,115 @@ def print_step_header(step_num: int, title: str):
     logger.info(f"\n{'='*70}")
     logger.info(f"STEP {step_num}: {title}".ljust(70))
     logger.info(f"{'='*70}")
+
+
+LITE_VERSION_RANK = {
+    "10r": 0,
+    "11r": 1,
+    "11.1r": 2,
+    "11.2r": 3,
+    "11.3r": 4,
+}
+
+
+def _decode_hdf5_attr(value) -> str:
+    """Return a readable string for scalar or one-element HDF5 attributes."""
+    arr = np.asarray(value)
+    if arr.shape:
+        value = arr.flat[0]
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def infer_lite_version(filepath: Path) -> str:
+    """Infer the Lite collection version from metadata, then filename."""
+    text_parts = [filepath.name]
+    try:
+        with h5py.File(filepath, "r") as h5f:
+            for attr_name in (
+                "gesdisc_collection",
+                "BuildId",
+                "CollectionLabel",
+                "lite_definition_module",
+                "bc_function",
+            ):
+                if attr_name in h5f.attrs:
+                    text_parts.append(_decode_hdf5_attr(h5f.attrs[attr_name]))
+    except (OSError, RuntimeError, ValueError):
+        return "unreadable"
+
+    text = " ".join(text_parts).lower()
+    version_markers = (
+        ("11.3r", ("11.3r", "b11.3", "b113", "lite_b113", "b11_3")),
+        ("11.2r", ("11.2r", "b11.2", "b112", "lite_b112", "b11_2")),
+        ("11.1r", ("11.1r", "b11.1", "b111", "lite_b111", "b11_1")),
+        ("11r", ("11r", "b11.0", "b110", "lite_b110")),
+        ("10r", ("10r", "b10")),
+    )
+    for version, markers in version_markers:
+        if any(marker in text for marker in markers):
+            return version
+    return "unknown"
+
+
+def lite_version_is_before(version: Optional[str], minimum_version: str) -> bool:
+    """Treat unknown/unreadable Lite versions as stale for recompute decisions."""
+    if not version or version in {"unknown", "unreadable"}:
+        return True
+    return LITE_VERSION_RANK.get(version, -1) < LITE_VERSION_RANK[minimum_version]
+
+
+def select_local_lite_file(data_dir: Path, target_date: datetime) -> Tuple[Optional[Path], Optional[str]]:
+    """Select the local Lite file using the same date-aware policy as fitting.py."""
+    lite_dir = data_dir / "OCO2" / str(target_date.year) / f"{target_date.timetuple().tm_yday:03d}"
+    nc4_files = sorted(lite_dir.glob("*.nc4"))
+    if not nc4_files:
+        return None, None
+
+    preferred_versions = (
+        ["11.3r", "11.2r", "11.1r", "11r", "10r"]
+        if target_date.year >= 2024
+        else ["11.2r", "11.1r", "11r", "10r", "11.3r"]
+    )
+    version_priority = {version: rank for rank, version in enumerate(preferred_versions)}
+    version_priority["unknown"] = 99
+    version_priority["unreadable"] = 100
+
+    candidates = []
+    for path in nc4_files:
+        version = infer_lite_version(path)
+        candidates.append((version_priority.get(version, 99), path.name, path, version))
+    candidates.sort()
+    _, _, selected_path, selected_version = candidates[0]
+    return selected_path, selected_version
+
+
+def invalidate_lite_downstream_cache(data_dir: Path, target_date: datetime) -> int:
+    """Remove derived per-date caches that depend on Lite sounding IDs/vertices."""
+    processing_day_dir = data_dir / "processing" / str(target_date.year) / f"{target_date.timetuple().tm_yday:03d}"
+    if not processing_day_dir.exists():
+        return 0
+
+    patterns = (
+        "lite_sounding_ids.pkl",
+        "lite_vertex_data.pkl",
+        "*/footprints.pkl",
+        "*/granule_combined_*.pkl",
+        "*/phase4_results.pkl",
+    )
+    removed = 0
+    for pattern in patterns:
+        for path in processing_day_dir.glob(pattern):
+            try:
+                path.unlink()
+                removed += 1
+                logger.info("Removed Lite-stale cache: %s", path)
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                logger.warning("Could not remove stale cache %s: %s", path, exc)
+    return removed
 
 
 def validate_date(date_str: str) -> datetime:
@@ -1137,6 +1247,13 @@ Examples:
                        help='Skip specific step(s) (can use multiple times)')
     parser.add_argument('--force-recompute', action='store_true',
                        help='Force recomputation (ignore Phase 4 cache)')
+    parser.add_argument('--force-recompute-if-lite-before',
+                       choices=sorted(LITE_VERSION_RANK, key=LITE_VERSION_RANK.get),
+                       default=None,
+                       metavar='VERSION',
+                       help='If the selected local L2 Lite file is older than VERSION, '
+                            'invalidate Lite-derived processing caches and force Phase 4 '
+                            'recompute. Example: --force-recompute-if-lite-before 11.2r')
     parser.add_argument('--force-download', action='store_true',
                        help='Force re-download all files (ignore Phase 2 download status)')
     parser.add_argument('--delete-modis', action='store_true',
@@ -1229,7 +1346,25 @@ Examples:
         logger.info("Mode: FORCE DOWNLOAD (ignore existing download status)")
     if args.force_recompute:
         logger.info("Mode: FORCE RECOMPUTE (recalculate Phase 4 distances)")
+    if args.force_recompute_if_lite_before:
+        logger.info(
+            "Mode: FORCE RECOMPUTE IF LITE BEFORE %s",
+            args.force_recompute_if_lite_before,
+        )
     logger.info("")
+
+    lite_before_path: Optional[Path] = None
+    lite_before_version: Optional[str] = None
+    if args.force_recompute_if_lite_before:
+        lite_before_path, lite_before_version = select_local_lite_file(data_dir, target_date)
+        if lite_before_path:
+            logger.info(
+                "Existing selected Lite file before ingestion: %s (%s)",
+                lite_before_path,
+                lite_before_version,
+            )
+        else:
+            logger.info("No existing local Lite file found before ingestion")
     
     # ========================================================================
     # Phase 1: Metadata
@@ -1267,6 +1402,55 @@ Examples:
     else:
         logger.info("[STEP 2] SKIPPED - Using existing data")
         file_info = {}
+
+    if args.force_recompute_if_lite_before:
+        lite_after_path, lite_after_version = select_local_lite_file(data_dir, target_date)
+        if lite_after_path:
+            logger.info(
+                "Selected Lite file after ingestion: %s (%s)",
+                lite_after_path,
+                lite_after_version,
+            )
+        else:
+            logger.warning(
+                "No local Lite file found after ingestion; downstream phases may fail"
+            )
+
+        stale_before = (
+            lite_before_path is not None
+            and lite_version_is_before(lite_before_version, args.force_recompute_if_lite_before)
+        )
+        stale_after = (
+            lite_after_path is not None
+            and lite_version_is_before(lite_after_version, args.force_recompute_if_lite_before)
+        )
+        lite_changed = (
+            lite_before_path is not None
+            and lite_after_path is not None
+            and lite_before_path != lite_after_path
+        )
+
+        if stale_before or stale_after or lite_changed:
+            reasons = []
+            if stale_before:
+                reasons.append(f"previous Lite version was {lite_before_version}")
+            if stale_after:
+                reasons.append(f"selected Lite version is {lite_after_version}")
+            if lite_changed:
+                reasons.append("selected Lite file changed during ingestion")
+            logger.warning(
+                "Lite-derived caches are stale relative to minimum %s (%s)",
+                args.force_recompute_if_lite_before,
+                "; ".join(reasons),
+            )
+            removed = invalidate_lite_downstream_cache(data_dir, target_date)
+            logger.info("Removed %d Lite-derived cache file(s)", removed)
+            args.force_recompute = True
+            if 3 in skip_phases:
+                logger.warning(
+                    "--skip-phase 3 was requested, but Lite-derived Phase 3 caches "
+                    "were invalidated. Remove --skip-phase 3 to rebuild them."
+                )
     
     # ========================================================================
     # Phase 3: Spatial Processing

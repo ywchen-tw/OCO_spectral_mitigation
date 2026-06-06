@@ -444,13 +444,18 @@ class DataIngestionManager:
             return [product_url]
 
         if 'L2_Lite_FP' in product_url:
-            # The current retrospective Lite collection can contain historical
-            # dates, while older collections remain useful fallbacks on GES DISC.
-            versions = ['11.2r', '11.1r', '10r']
+            # Lite has its own collection cadence. 11.2r covers the historical
+            # dates used here; 11.3r is preferred only for 2024+ until its
+            # retrospective coverage policy is explicitly adopted.
+            versions = (
+                ['11.3r', '11.2r', '11.1r', '11r', '10r']
+                if year >= 2024
+                else ['11.2r', '11.1r', '11r', '10r']
+            )
         elif year > 2024 or (year == 2024 and doy >= 92):
-            versions = ['11.3r', '11.2r', '11.1r']
+            versions = ['11.2r', '11r']
         else:
-            versions = ['11.3r', '11.2r', '11.1r']
+            versions = ['11r', '11.2r']
 
         return list(dict.fromkeys(
             product_url.replace('{VERSION}', version)
@@ -621,7 +626,11 @@ class DataIngestionManager:
         product_cmr = {
             "L2_Lite": {
                 "short_name": "OCO2_L2_Lite_FP",
-                "versions": ["11.2r", "11.1r", "11r", "10r"],
+                "versions": (
+                    ["11.3r", "11.2r", "11.1r", "11r", "10r"]
+                    if year >= 2024
+                    else ["11.2r", "11.1r", "11r", "10r"]
+                ),
                 "versioned_short_name": Config.OCO2_L2_LITE.short_name,
             },
             "L2_Met": {
