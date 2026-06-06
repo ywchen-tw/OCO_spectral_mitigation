@@ -63,7 +63,7 @@ class OCO2MetadataRetriever:
     L1B_VERSION_NEW = "11.2r"
     
     # CMR search URL as fallback
-    CMR_SEARCH_URL = "https://cmr.earthdata.nasa.gov/search/granules.xml"
+    CMR_SEARCH_URL = "https://cmr.earthdata.nasa.gov/search/granules.atom"
     CMR_COLLECTION = "OCO2_L1B_Science"
     CMR_COLLECTION_OLD = "OCO2_L1B_Science_11r"
     CMR_COLLECTION_NEW = "OCO2_L1B_Science_11.2r"
@@ -166,7 +166,11 @@ class OCO2MetadataRetriever:
         if "text/html" not in content_type:
             return False
         text = response.text[:4096].lower()
-        return "earthdata login" in text or "urs.earthdata" in text or "oauth" in text
+        if "earthdata login" in text:
+            return True
+        if "urs.earthdata.nasa.gov/oauth" in text and "<form" in text:
+            return True
+        return "name=\"username\"" in text and "name=\"password\"" in text
 
     def _get_collection_version(self, target_date: datetime) -> str:
         """

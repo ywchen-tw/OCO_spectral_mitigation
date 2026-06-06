@@ -100,6 +100,19 @@ class Phase2IngestionResilienceTests(unittest.TestCase):
         self.assertTrue(any("/data/.expired-token/" in url for url in calls))
         self.assertTrue(any("/data/OCO2_DATA/" in url for url in calls))
 
+    def test_gesdisc_directory_with_oauth_text_is_not_login_page(self) -> None:
+        response = FakeResponse(
+            text=(
+                '<html><a href="oco2_L1bScGL_11734a_160915_B11006r_221129020008.h5.xml">'
+                "metadata</a><!-- references urs.earthdata.nasa.gov/oauth docs --></html>"
+            ),
+            status_code=200,
+            url="https://oco2.gesdisc.eosdis.nasa.gov/data/OCO2_DATA/OCO2_L1B_Science.11r/2016/259/",
+        )
+
+        self.assertFalse(OCO2MetadataRetriever._looks_like_auth_page(response))
+        self.assertFalse(DataIngestionManager._looks_like_auth_page(response))
+
     def test_status_file_requires_l1b_and_no_failed_downloads(self) -> None:
         granule_id = "oco2_L1bScGL_12345a_160915_B11006r_000000.h5"
         with tempfile.TemporaryDirectory() as tmpdir:

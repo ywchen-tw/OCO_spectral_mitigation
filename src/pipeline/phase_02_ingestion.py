@@ -252,7 +252,11 @@ class DataIngestionManager:
         if "text/html" not in content_type:
             return False
         text = response.text[:4096].lower()
-        return "earthdata login" in text or "urs.earthdata" in text or "oauth" in text
+        if "earthdata login" in text:
+            return True
+        if "urs.earthdata.nasa.gov/oauth" in text and "<form" in text:
+            return True
+        return "name=\"username\"" in text and "name=\"password\"" in text
 
     def _check_file_exists_remote(self,
                                    url: str,
