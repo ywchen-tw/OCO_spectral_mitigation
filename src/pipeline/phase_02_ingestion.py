@@ -197,7 +197,12 @@ class DataIngestionManager:
             logger.warning("No Earthdata credentials - OCO-2 downloads may fail")
         
         return session
-    
+
+    def _refresh_gesdisc_session(self) -> None:
+        """Re-create the GES DISC session when the OAuth cookie has expired."""
+        logger.warning("GES DISC session expired — re-authenticating")
+        self.gesdisc_session = self._create_earthdata_session()
+
     def _get_with_retry(self, url: str, session: requests.Session,
                         timeout: int = 30, max_retries: int = 4,
                         backoff_base: float = 2.0, **kwargs) -> requests.Response:
@@ -308,17 +313,26 @@ class DataIngestionManager:
         try:
             start_time = time.time()
             
-            # Make request with stream=True for large files; retry on transient 5xx
-            response = self._get_with_retry(url, session, timeout=30, stream=True)
+            # Make request with stream=True for large files; retry on transient 5xx.
+            # Use a (connect, read) tuple so stalled mid-stream reads also time out.
+            response = self._get_with_retry(url, session, timeout=(30, 120), stream=True)
 
             # Detect HTML auth redirect: GES DISC returns 200 + HTML login page
             # when the session cookie has expired instead of a proper 401/403.
             content_type = response.headers.get('Content-Type', '')
             if 'text/html' in content_type:
-                raise requests.exceptions.RequestException(
-                    f"Server returned HTML instead of data (authentication may have failed "
-                    f"or URL is incorrect): {url}"
-                )
+                if session is self.gesdisc_session:
+                    # Session cookie expired — refresh and retry once
+                    response.close()
+                    self._refresh_gesdisc_session()
+                    session = self.gesdisc_session
+                    response = self._get_with_retry(url, session, timeout=(30, 120), stream=True)
+                    content_type = response.headers.get('Content-Type', '')
+                if 'text/html' in content_type:
+                    raise requests.exceptions.RequestException(
+                        f"Server returned HTML instead of data (authentication may have failed "
+                        f"or URL is incorrect): {url}"
+                    )
 
             # Get file size if available
             total_size = int(response.headers.get('content-length', 0))
@@ -534,9 +548,9 @@ class DataIngestionManager:
                 return None
             
         except requests.exceptions.RequestException as e:
-            logger.debug(f"Unable to query directory {dir_url}: {e}")
+            logger.warning(f"Unable to query directory {dir_url}: {e}")
             return None
-    
+
     def download_oco2_granule(self,
                               granule: OCO2Granule,
                               target_year: int,

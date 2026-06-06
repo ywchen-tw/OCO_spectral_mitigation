@@ -33,6 +33,4 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
-export CURC_DATA_ROOT=/projects/yuch8913/OCO_spectral_mitigation
-
 python src/analysis/fitting_correction.py

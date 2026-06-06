@@ -138,7 +138,6 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     if date is not None and orbit_id is None:
         h5_output_dir = f"{result_dir}/fitting_details"
         h5_files = glob.glob(os.path.join(h5_output_dir, f"fitting_details_{date}_*.h5"))
-        print(f"  Searching: {h5_output_dir}  →  {len(h5_files)} file(s) found")
         for filepath in h5_files:
             if os.path.exists(filepath):
                 all_data.append(load_output_dict(filepath))
