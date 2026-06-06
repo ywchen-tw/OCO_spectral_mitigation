@@ -38,32 +38,42 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
+# Browser-derived GES DISC /data/.TOKEN paths can be stale or context-specific.
+# Your CURC curl test showed the plain /data/OCO2_DATA/... route is healthy.
+unset GESDISC_DATA_TOKEN
+
 cd /projects/yuch8913/OCO_spectral_mitigation
 
 # ============================================================================
-# Option 1: Loop with year, month, day (ACTIVE)
+# Testing configuration
 # ============================================================================
+RUN_FITTING=false
+LIMIT_GRANULES=1
+
 # Specify year, month, and day ranges
-start_year=2020
-end_year=2020
+start_year=2016
+end_year=2016
 start_month=9
 end_month=9
-start_day=3
-end_day=3
+start_day=15
+end_day=15
 
-# Loop through year, month, day
+# Loop through year, month, day.
 for year in $(seq $start_year $end_year); do
     for month in $(seq $start_month $end_month); do
         for day in $(seq $start_day $end_day); do
             # Format date as YYYY-MM-DD with zero-padding
             date=$(printf "%04d-%02d-%02d" $year $month $day)
             echo "Processing date: $date"
-            python workspace/demo_combined.py --date "$date" #--delete-modis --force-recompute
-            if [ $? -ne 0 ]; then
-                echo "Failed to process date: $date"
-            else
+            if python workspace/demo_combined.py --date "$date" --limit-granules "$LIMIT_GRANULES"; then
                 echo "Successfully processed: $date"
-                python src/spectral/fitting.py --date "$date" #--delete-ocofiles
+                if [[ "$RUN_FITTING" == "true" ]]; then
+                    python src/spectral/fitting.py --date "$date" #--delete-ocofiles
+                else
+                    echo "Skipping fitting.py because RUN_FITTING=false"
+                fi
+            else
+                echo "Failed to process date: $date"
             fi
             echo ""
         done
