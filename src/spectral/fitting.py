@@ -1271,6 +1271,39 @@ def search_oco2_orbit(date, data_dir="data"):
     )
 
 
+def _discover_orbit_files(orbit_dir):
+    """Return required OCO-2 product files for one orbit directory."""
+    product_patterns = {
+        "oco_l1b": "L1b",
+        "oco_met": "Met",
+        "oco_co2prior": "CPr",
+    }
+    entries = sorted(glob.glob(f"{orbit_dir}/*"))
+    files = [path for path in entries if os.path.isfile(path)]
+    orbit_files = {}
+
+    for filepath in files:
+        basename = os.path.basename(filepath)
+        for key, pattern in product_patterns.items():
+            if pattern in basename:
+                orbit_files[key] = filepath
+
+    missing = [key for key in product_patterns if key not in orbit_files]
+    if missing:
+        present = "\n".join(f"  {os.path.basename(path)}" for path in entries) or "  <empty>"
+        raise FileNotFoundError(
+            "Orbit directory is missing required OCO-2 product files:\n"
+            f"  orbit_dir: {orbit_dir}\n"
+            f"  missing: {', '.join(missing)}\n"
+            "  present files:\n"
+            f"{present}\n"
+            "Re-run ingestion/download for this date, or remove incomplete orbit "
+            "directories before fitting."
+        )
+
+    return orbit_files
+
+
 def fp_tau_file_is_current(fp_tau_file):
     """Return True when cached tau uses the current ILS convolution physics."""
     if not os.path.isfile(fp_tau_file):
@@ -1332,14 +1365,8 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
     # randomize oco2_orbit_list for multiple runs to avoid always processing orbits in the same order (which may bias results if some orbits are more likely to fail or have issues)
     # oco2_orbit_list = np.random.RandomState().permutation(oco2_orbit_list)
     for orbit_id in oco2_orbit_list:
-        sat0[orbit_id] = {}
-        for file in glob.glob(f"{OCO2_data_dir}/{orbit_id}/*"):
-            if "L1b" in file:
-                sat0[orbit_id]["oco_l1b"] = file
-            if "Met" in file:
-                sat0[orbit_id]["oco_met"] = file
-            if "CPr" in file:
-                sat0[orbit_id]["oco_co2prior"] = file
+        orbit_dir = f"{OCO2_data_dir}/{orbit_id}"
+        sat0[orbit_id] = _discover_orbit_files(orbit_dir)
         
         date_str = date.strftime("%Y-%m-%d")
         fp_tau_file = os.path.abspath(f"{result_dir}/{date_str}/{orbit_id}/fp_tau_combined.h5")
