@@ -3,6 +3,7 @@ import sys
 import os
 import platform
 import glob
+import tempfile
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
@@ -13,16 +14,44 @@ from abs_util.ils_tau import TAU_CONVOLUTION_VERSION
 from netCDF4 import Dataset
 
 
-def _tau_file_is_current(path, use_ring=False):
+_TAU_BASE_DATASETS = (
+    "sza",
+    "vza",
+    "sounding_id",
+    "fp_number",
+    "o2a_tau_output",
+    "o2a_mean_ext_output",
+    "o2a_toa_sol_output",
+    "wco2_tau_output",
+    "wco2_mean_ext_output",
+    "wco2_toa_sol_output",
+    "sco2_tau_output",
+    "sco2_mean_ext_output",
+    "sco2_toa_sol_output",
+)
+_TAU_RING_DATASETS = _TAU_BASE_DATASETS + ("ring_o2a_output",)
+
+
+def _required_tau_datasets():
+    return _TAU_RING_DATASETS
+
+
+def _tau_file_is_current(path, use_ring=False, expected_rows=None):
     if not os.path.isfile(path):
         return False
     try:
         with h5py.File(path, "r") as h5f:
-            return (
-                h5f.attrs.get("tau_convolution") == TAU_CONVOLUTION_VERSION
-                and bool(h5f.attrs.get("use_ring", False)) == bool(use_ring)
-            )
-    except OSError:
+            if h5f.attrs.get("tau_convolution") != TAU_CONVOLUTION_VERSION:
+                return False
+            if bool(h5f.attrs.get("use_ring", False)) != bool(use_ring):
+                return False
+            for dataset in _required_tau_datasets():
+                if dataset not in h5f:
+                    return False
+                if expected_rows is not None and h5f[dataset].shape[0] != expected_rows:
+                    return False
+            return True
+    except (OSError, KeyError, RuntimeError, ValueError):
         return False
 
 
@@ -37,6 +66,47 @@ def _cleanup_tau_temp_files(output, use_ring=False):
             print(f'[Info] Removed temporary file {output_tmp}')
         except OSError as exc:
             print(f'[Warning] Could not remove temporary file {output_tmp}: {exc}')
+
+
+def _write_tau_file_atomic(path, datasets, use_ring=False):
+    output_dir = os.path.dirname(os.path.abspath(path)) or "."
+    output_name = os.path.basename(path)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{output_name}.",
+        suffix=".writing",
+        dir=output_dir,
+    )
+    os.close(fd)
+
+    try:
+        with h5py.File(tmp_path, "w") as h5f:
+            h5f.attrs["tau_convolution"] = TAU_CONVOLUTION_VERSION
+            h5f.attrs["use_ring"] = bool(use_ring)
+            for name, data in datasets.items():
+                h5f.create_dataset(name, data=data)
+            h5f.flush()
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def _read_tau_file(path, expected_rows, use_ring=False):
+    datasets = _required_tau_datasets()
+    if not _tau_file_is_current(path, use_ring=use_ring, expected_rows=expected_rows):
+        raise RuntimeError(
+            f"Temporary tau file is incomplete, corrupt, or outdated: {path}. "
+            "Delete the matching fp_tau_combined_tmp_*.h5 files and rerun."
+        )
+
+    try:
+        with h5py.File(path, "r") as h5f:
+            return {dataset: np.asarray(h5f[dataset]) for dataset in datasets}
+    except (OSError, KeyError, RuntimeError, ValueError) as exc:
+        raise RuntimeError(
+            f"Could not read temporary tau file {path}. "
+            "The file may have been written by an interrupted or concurrent job."
+        ) from exc
 
 
 def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
@@ -287,23 +357,26 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                 (tau_sco2, me_sco2, sol_sco2) = oco_fp_abs_all_bands(atm_dict, use_ring=use_ring)
 
                 print('Saving to file ' + output_tmp)
-                with h5py.File(output_tmp, 'w') as h5f:
-                    h5f.attrs['tau_convolution'] = TAU_CONVOLUTION_VERSION
-                    h5f.attrs['use_ring'] = bool(use_ring)
-                    h5f.create_dataset('sza', data=sza_id[id_select])
-                    h5f.create_dataset('vza', data=vza_id[id_select])
-                    h5f.create_dataset('sounding_id', data=sounding_id[id_select])
-                    h5f.create_dataset('fp_number', data=fp_number[id_select])
-                    h5f.create_dataset('o2a_tau_output', data=tau_o2a)
-                    h5f.create_dataset('o2a_mean_ext_output', data=me_o2a)
-                    h5f.create_dataset('o2a_toa_sol_output', data=sol_o2a)
-                    h5f.create_dataset('ring_o2a_output', data=ring_o2a)
-                    h5f.create_dataset('wco2_tau_output', data=tau_wco2)
-                    h5f.create_dataset('wco2_mean_ext_output', data=me_wco2)
-                    h5f.create_dataset('wco2_toa_sol_output', data=sol_wco2)
-                    h5f.create_dataset('sco2_tau_output', data=tau_sco2)
-                    h5f.create_dataset('sco2_mean_ext_output', data=me_sco2)
-                    h5f.create_dataset('sco2_toa_sol_output', data=sol_sco2)
+                _write_tau_file_atomic(
+                    output_tmp,
+                    {
+                        "sza": sza_id[id_select],
+                        "vza": vza_id[id_select],
+                        "sounding_id": sounding_id[id_select],
+                        "fp_number": fp_number[id_select],
+                        "o2a_tau_output": tau_o2a,
+                        "o2a_mean_ext_output": me_o2a,
+                        "o2a_toa_sol_output": sol_o2a,
+                        "ring_o2a_output": ring_o2a,
+                        "wco2_tau_output": tau_wco2,
+                        "wco2_mean_ext_output": me_wco2,
+                        "wco2_toa_sol_output": sol_wco2,
+                        "sco2_tau_output": tau_sco2,
+                        "sco2_mean_ext_output": me_sco2,
+                        "sco2_toa_sol_output": sol_sco2,
+                    },
+                    use_ring=use_ring,
+                )
             elif os.path.isfile(output_tmp):
                 print(f'[Info] Reusing temporary file {output_tmp}')
             else:
@@ -315,39 +388,46 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                 end = min(i + processing_length, final_length)
                 output_tmp = os.path.splitext(output)[0] + f'_tmp_{i}.h5'
                 if os.path.isfile(output_tmp):
-                    with h5py.File(output_tmp, 'r') as h5_input:
-                        o2a_tau_output_all[i:end] = np.asarray(h5_input['o2a_tau_output'])
-                        o2a_mean_ext_output_all[i:end] = np.asarray(h5_input['o2a_mean_ext_output'])
-                        o2a_toa_sol_output_all[i:end] = np.asarray(h5_input['o2a_toa_sol_output'])
-                        ring_o2a_output_all[i:end] = np.asarray(h5_input['ring_o2a_output'])
-                        wco2_tau_output_all[i:end] = np.asarray(h5_input['wco2_tau_output'])
-                        wco2_mean_ext_output_all[i:end] = np.asarray(h5_input['wco2_mean_ext_output'])
-                        wco2_toa_sol_output_all[i:end] = np.asarray(h5_input['wco2_toa_sol_output'])
-                        sco2_tau_output_all[i:end] = np.asarray(h5_input['sco2_tau_output'])
-                        sco2_mean_ext_output_all[i:end] = np.asarray(h5_input['sco2_mean_ext_output'])
-                        sco2_toa_sol_output_all[i:end] = np.asarray(h5_input['sco2_toa_sol_output'])
+                    tau_chunk = _read_tau_file(
+                        output_tmp,
+                        expected_rows=end - i,
+                        use_ring=use_ring,
+                    )
+                    o2a_tau_output_all[i:end] = tau_chunk['o2a_tau_output']
+                    o2a_mean_ext_output_all[i:end] = tau_chunk['o2a_mean_ext_output']
+                    o2a_toa_sol_output_all[i:end] = tau_chunk['o2a_toa_sol_output']
+                    ring_o2a_output_all[i:end] = tau_chunk['ring_o2a_output']
+                    wco2_tau_output_all[i:end] = tau_chunk['wco2_tau_output']
+                    wco2_mean_ext_output_all[i:end] = tau_chunk['wco2_mean_ext_output']
+                    wco2_toa_sol_output_all[i:end] = tau_chunk['wco2_toa_sol_output']
+                    sco2_tau_output_all[i:end] = tau_chunk['sco2_tau_output']
+                    sco2_mean_ext_output_all[i:end] = tau_chunk['sco2_mean_ext_output']
+                    sco2_toa_sol_output_all[i:end] = tau_chunk['sco2_toa_sol_output']
                 else:
                     all_tmp_exist = False
 
         if not abs_skip and all_tmp_exist:
             print('Saving combined output to file ' + output)
-            with h5py.File(output, 'w') as h5_output:
-                h5_output.attrs['tau_convolution'] = TAU_CONVOLUTION_VERSION
-                h5_output.attrs['use_ring'] = bool(use_ring)
-                h5_output.create_dataset('sza', data=sza_select_all)
-                h5_output.create_dataset('vza', data=vza_select_all)
-                h5_output.create_dataset('sounding_id', data=snd_id_select_all)
-                h5_output.create_dataset('fp_number', data=fp_number_select_all)
-                h5_output.create_dataset('o2a_tau_output', data=o2a_tau_output_all)
-                h5_output.create_dataset('o2a_mean_ext_output', data=o2a_mean_ext_output_all)
-                h5_output.create_dataset('o2a_toa_sol_output', data=o2a_toa_sol_output_all)
-                h5_output.create_dataset('ring_o2a_output', data=ring_o2a_output_all)
-                h5_output.create_dataset('wco2_tau_output', data=wco2_tau_output_all)
-                h5_output.create_dataset('wco2_mean_ext_output', data=wco2_mean_ext_output_all)
-                h5_output.create_dataset('wco2_toa_sol_output', data=wco2_toa_sol_output_all)
-                h5_output.create_dataset('sco2_tau_output', data=sco2_tau_output_all)
-                h5_output.create_dataset('sco2_mean_ext_output', data=sco2_mean_ext_output_all)
-                h5_output.create_dataset('sco2_toa_sol_output', data=sco2_toa_sol_output_all)
+            _write_tau_file_atomic(
+                output,
+                {
+                    "sza": sza_select_all,
+                    "vza": vza_select_all,
+                    "sounding_id": snd_id_select_all,
+                    "fp_number": fp_number_select_all,
+                    "o2a_tau_output": o2a_tau_output_all,
+                    "o2a_mean_ext_output": o2a_mean_ext_output_all,
+                    "o2a_toa_sol_output": o2a_toa_sol_output_all,
+                    "ring_o2a_output": ring_o2a_output_all,
+                    "wco2_tau_output": wco2_tau_output_all,
+                    "wco2_mean_ext_output": wco2_mean_ext_output_all,
+                    "wco2_toa_sol_output": wco2_toa_sol_output_all,
+                    "sco2_tau_output": sco2_tau_output_all,
+                    "sco2_mean_ext_output": sco2_mean_ext_output_all,
+                    "sco2_toa_sol_output": sco2_toa_sol_output_all,
+                },
+                use_ring=use_ring,
+            )
             _cleanup_tau_temp_files(output, use_ring=use_ring)
         
     return None
