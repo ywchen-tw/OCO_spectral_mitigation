@@ -51,7 +51,7 @@ RUN_FITTING=true
 LIMIT_GRANULES=1
 # Use a target-day orbit for the smoke test to avoid the previous-day Lite
 # warning from the cross-midnight 11733a granule.
-ORBIT_FILTER=11734a
+ORBIT_FILTER=11733a
 
 # Specify year, month, and day ranges
 start_year=2016

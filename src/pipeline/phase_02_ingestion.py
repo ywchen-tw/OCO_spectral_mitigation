@@ -430,7 +430,8 @@ class DataIngestionManager:
                                   doy: int,
                                   filename_pattern: str = None,
                                   granule_id: str = None,
-                                  target_date_str: str = None) -> Optional[str]:
+                                  target_date_str: str = None,
+                                  product_type: str = None) -> Optional[str]:
         """
         Query GES DISC directory to find the actual filename for a product.
         
@@ -582,7 +583,237 @@ class DataIngestionManager:
             except requests.exceptions.RequestException as e:
                 logger.warning(f"Unable to query directory {dir_url}: {e}")
 
+        if product_type in {"L2_Lite", "L2_Met", "L2_CO2Prior"}:
+            return self._query_oco2_product_cmr(
+                product_type=product_type,
+                year=year,
+                doy=doy,
+                granule_id=granule_id,
+                target_date_str=target_date_str,
+            )
+
         return None
+
+    def _query_oco2_product_cmr(self,
+                                product_type: str,
+                                year: int,
+                                doy: int,
+                                granule_id: Optional[str] = None,
+                                target_date_str: Optional[str] = None) -> Optional[str]:
+        """Find secondary OCO-2 product files through CMR when directory listing fails."""
+        product_cmr = {
+            "L2_Lite": {
+                "short_name": "OCO2_L2_Lite_FP",
+                "version": "11.2r" if (year > 2024 or (year == 2024 and doy >= 92)) else "11.1r",
+                "versioned_short_name": Config.OCO2_L2_LITE.short_name,
+            },
+            "L2_Met": {
+                "short_name": "OCO2_L2_Met",
+                "version": "11.2r" if (year > 2024 or (year == 2024 and doy >= 92)) else "11r",
+                "versioned_short_name": Config.OCO2_L2_MET.short_name,
+            },
+            "L2_CO2Prior": {
+                "short_name": "OCO2_L2_CO2Prior",
+                "version": "11.2r" if (year > 2024 or (year == 2024 and doy >= 92)) else "11r",
+                "versioned_short_name": Config.OCO2_L2_CO2PRIOR.short_name,
+            },
+        }
+        config = product_cmr.get(product_type)
+        if not config:
+            return None
+
+        target_date = datetime(year, 1, 1) + timedelta(days=doy - 1)
+        temporal = (
+            f"{target_date.strftime('%Y-%m-%dT00:00:00')}Z,"
+            f"{(target_date + timedelta(days=1)).strftime('%Y-%m-%dT00:00:00')}Z"
+        )
+        params_candidates = [
+            {
+                "short_name": config["short_name"],
+                "version": config["version"],
+                "provider": "GES_DISC",
+                "temporal[]": temporal,
+                "page_size": 100,
+                "sort_key": "-start_date",
+            },
+            {
+                "short_name": config["short_name"],
+                "version": config["version"],
+                "temporal[]": temporal,
+                "page_size": 100,
+                "sort_key": "-start_date",
+            },
+            {
+                "short_name": config["versioned_short_name"],
+                "provider": "GES_DISC",
+                "temporal[]": temporal,
+                "page_size": 100,
+                "sort_key": "-start_date",
+            },
+            {
+                "short_name": config["short_name"],
+                "provider": "GES_DISC",
+                "temporal[]": temporal,
+                "page_size": 100,
+                "sort_key": "-start_date",
+            },
+            {
+                "short_name": config["short_name"],
+                "temporal[]": temporal,
+                "page_size": 100,
+                "sort_key": "-start_date",
+            },
+        ]
+
+        for params in params_candidates:
+            desc = ", ".join(
+                f"{key}={value}" for key, value in params.items()
+                if key not in {"temporal[]", "page_size", "sort_key"}
+            )
+            logger.info("Querying CMR for OCO-2 %s on %s (%s)",
+                        product_type, target_date.date(), desc)
+            try:
+                response = self._get_cmr_with_retry(params)
+            except requests.RequestException as exc:
+                logger.warning("CMR request failed for %s (%s): %s", product_type, desc, exc)
+                continue
+
+            urls = self._extract_matching_product_urls_from_cmr(
+                response.text,
+                product_type=product_type,
+                granule_id=granule_id,
+                target_date_str=target_date_str or target_date.strftime("%y%m%d"),
+            )
+            if urls:
+                logger.info("CMR found %s file for %s: %s", product_type, granule_id, urls[0].split("/")[-1])
+                return urls[0]
+
+            logger.warning("CMR returned no matching %s files (%s)", product_type, desc)
+
+        return None
+
+    def _get_cmr_with_retry(self, params: Dict[str, object],
+                            max_retries: int = 4) -> requests.Response:
+        """GET CMR granule search with bounded retry on transient failures."""
+        url = "https://cmr.earthdata.nasa.gov/search/granules.atom"
+        retry_statuses = {429, 500, 502, 503, 504}
+        last_exc: Optional[Exception] = None
+        resp = None
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(url, params=params, timeout=30)
+                if resp.status_code not in retry_statuses:
+                    resp.raise_for_status()
+                    return resp
+                delay = min(2.0 ** attempt, 30.0) + random.uniform(0.0, 0.5)
+                logger.warning(
+                    "CMR returned %d (attempt %d/%d) — retrying in %.1fs",
+                    resp.status_code, attempt + 1, max_retries, delay
+                )
+            except requests.RequestException as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                if status is not None and status not in retry_statuses:
+                    raise
+                last_exc = exc
+                delay = min(2.0 ** attempt, 30.0) + random.uniform(0.0, 0.5)
+                logger.warning(
+                    "CMR request error (attempt %d/%d): %s — retrying in %.1fs",
+                    attempt + 1, max_retries, exc, delay
+                )
+            time.sleep(delay)
+        if last_exc:
+            raise last_exc
+        resp.raise_for_status()
+        return resp
+
+    def _extract_matching_product_urls_from_cmr(self,
+                                                atom_xml: str,
+                                                product_type: str,
+                                                granule_id: Optional[str],
+                                                target_date_str: str) -> List[str]:
+        """Extract CMR data links matching a requested secondary OCO-2 product."""
+        namespaces = {
+            "atom": "http://www.w3.org/2005/Atom",
+            "echo": "http://www.echo.nasa.gov/esip",
+        }
+        try:
+            root = ET.fromstring(atom_xml)
+        except ET.ParseError as exc:
+            logger.warning("Failed to parse CMR %s response: %s", product_type, exc)
+            return []
+
+        orbit_id = None
+        viewing_mode = None
+        if granule_id:
+            parts = granule_id.split("_")
+            if len(parts) >= 3:
+                orbit_id = parts[2]
+                viewing_mode = parts[1].upper()[-2:]
+                if viewing_mode not in {"GL", "ND", "TG"}:
+                    viewing_mode = None
+
+        matches = []
+        for entry in root.findall(".//atom:entry", namespaces):
+            filenames_and_urls = []
+            for path in ["atom:title", "echo:producerGranuleId"]:
+                elem = entry.find(path, namespaces)
+                if elem is not None and elem.text:
+                    value = elem.text.strip()
+                    filenames_and_urls.append((value.split("/")[-1], None))
+            for link in entry.findall("atom:link", namespaces):
+                href = link.get("href")
+                if href and href.startswith("http"):
+                    filenames_and_urls.append((href.split("/")[-1], href))
+
+            for filename, href in filenames_and_urls:
+                if not self._product_filename_matches(
+                    filename,
+                    product_type=product_type,
+                    orbit_id=orbit_id,
+                    viewing_mode=viewing_mode,
+                    target_date_str=target_date_str,
+                ):
+                    continue
+
+                if href:
+                    matches.append(href)
+                    continue
+
+                # If CMR gave a matching filename but no data href, use a link
+                # in the same entry that points to that filename.
+                for link in entry.findall("atom:link", namespaces):
+                    candidate = link.get("href")
+                    if candidate and candidate.startswith("http") and filename in candidate:
+                        matches.append(candidate)
+                        break
+
+        return list(dict.fromkeys(matches))
+
+    @staticmethod
+    def _product_filename_matches(filename: str,
+                                  product_type: str,
+                                  orbit_id: Optional[str],
+                                  viewing_mode: Optional[str],
+                                  target_date_str: str) -> bool:
+        """Return True when a CMR filename belongs to the requested product/granule."""
+        name_upper = filename.upper()
+        if product_type == "L2_Lite":
+            return filename.endswith(".nc4") and f"LtCO2_{target_date_str}_" in filename
+
+        if product_type == "L2_Met":
+            if not filename.endswith(".h5") or "L2MET" not in name_upper:
+                return False
+        elif product_type == "L2_CO2Prior":
+            if not filename.endswith(".h5") or ("L2CPR" not in name_upper and "CO2PRIOR" not in name_upper):
+                return False
+        else:
+            return False
+
+        if orbit_id and orbit_id not in filename:
+            return False
+        if viewing_mode and f"{viewing_mode}_" not in name_upper:
+            return False
+        return True
 
     def download_oco2_granule(self,
                               granule: OCO2Granule,
@@ -665,7 +896,8 @@ class DataIngestionManager:
                     query_year,
                     query_doy,
                     granule_id=granule.granule_id,
-                    target_date_str=target_date_str_yymmdd if product_type == 'L2_Lite' else None
+                    target_date_str=target_date_str_yymmdd if product_type == 'L2_Lite' else None,
+                    product_type=product_type,
                 )
                 
                 if not url:

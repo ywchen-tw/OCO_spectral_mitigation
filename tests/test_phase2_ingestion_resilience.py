@@ -181,6 +181,57 @@ class Phase2IngestionResilienceTests(unittest.TestCase):
             self.assertFalse(status["downloading_completed"])
             self.assertEqual(status["failed_download_count"], 1)
 
+    def test_cmr_product_link_matching_for_lite_met_and_prior(self) -> None:
+        atom = """<feed xmlns="http://www.w3.org/2005/Atom"
+                       xmlns:echo="http://www.echo.nasa.gov/esip">
+          <entry>
+            <title>oco2_LtCO2_180101_B11100Ar_230602044234s.nc4</title>
+            <link rel="http://esipfed.org/ns/fedsearch/1.1/data#"
+                  href="https://oco2.gesdisc.eosdis.nasa.gov/data/OCO2_DATA/OCO2_L2_Lite_FP.11.1r/2018/oco2_LtCO2_180101_B11100Ar_230602044234s.nc4"/>
+          </entry>
+          <entry>
+            <title>oco2_L2MetGL_18636a_180101_B11006r_221009082010.h5</title>
+            <link rel="http://esipfed.org/ns/fedsearch/1.1/data#"
+                  href="https://oco2.gesdisc.eosdis.nasa.gov/data/OCO2_DATA/OCO2_L2_Met.11r/2018/001/oco2_L2MetGL_18636a_180101_B11006r_221009082010.h5"/>
+          </entry>
+          <entry>
+            <title>oco2_L2CPrGL_18636a_180101_B11006r_221009082010.h5</title>
+            <link rel="http://esipfed.org/ns/fedsearch/1.1/data#"
+                  href="https://oco2.gesdisc.eosdis.nasa.gov/data/OCO2_DATA/OCO2_L2_CO2Prior.11r/2018/001/oco2_L2CPrGL_18636a_180101_B11006r_221009082010.h5"/>
+          </entry>
+        </feed>"""
+        granule_id = "oco2_L1bScGL_18636a_180101_B11006r_221009082010.h5"
+        env = {"EARTHDATA_USERNAME": "", "EARTHDATA_PASSWORD": "", "LAADS_TOKEN": ""}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch.dict(os.environ, env):
+                manager = DataIngestionManager(output_dir=tmpdir)
+
+            lite_urls = manager._extract_matching_product_urls_from_cmr(
+                atom,
+                product_type="L2_Lite",
+                granule_id=granule_id,
+                target_date_str="180101",
+            )
+            met_urls = manager._extract_matching_product_urls_from_cmr(
+                atom,
+                product_type="L2_Met",
+                granule_id=granule_id,
+                target_date_str="180101",
+            )
+            prior_urls = manager._extract_matching_product_urls_from_cmr(
+                atom,
+                product_type="L2_CO2Prior",
+                granule_id=granule_id,
+                target_date_str="180101",
+            )
+
+        self.assertEqual(len(lite_urls), 1)
+        self.assertIn("LtCO2_180101", lite_urls[0])
+        self.assertEqual(len(met_urls), 1)
+        self.assertIn("L2MetGL_18636a", met_urls[0])
+        self.assertEqual(len(prior_urls), 1)
+        self.assertIn("L2CPrGL_18636a", prior_urls[0])
+
 
 if __name__ == "__main__":
     unittest.main()
