@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import Config
 import pickle
 
