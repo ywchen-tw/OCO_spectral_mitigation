@@ -47,8 +47,11 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # ============================================================================
 # Testing configuration
 # ============================================================================
-RUN_FITTING=false
+RUN_FITTING=true
 LIMIT_GRANULES=1
+# Use a target-day orbit for the smoke test to avoid the previous-day Lite
+# warning from the cross-midnight 11733a granule.
+ORBIT_FILTER=11734a
 
 # Specify year, month, and day ranges
 start_year=2016
@@ -65,7 +68,15 @@ for year in $(seq $start_year $end_year); do
             # Format date as YYYY-MM-DD with zero-padding
             date=$(printf "%04d-%02d-%02d" $year $month $day)
             echo "Processing date: $date"
-            if python workspace/demo_combined.py --date "$date" --limit-granules "$LIMIT_GRANULES"; then
+            demo_args=(--date "$date")
+            if [[ -n "$ORBIT_FILTER" ]]; then
+                demo_args+=(--orbit "$ORBIT_FILTER")
+            fi
+            if [[ -n "$LIMIT_GRANULES" ]]; then
+                demo_args+=(--limit-granules "$LIMIT_GRANULES")
+            fi
+
+            if python workspace/demo_combined.py "${demo_args[@]}"; then
                 echo "Successfully processed: $date"
                 if [[ "$RUN_FITTING" == "true" ]]; then
                     python src/spectral/fitting.py --date "$date" #--delete-ocofiles
