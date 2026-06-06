@@ -30,6 +30,12 @@ fi
 # Without this, HDF5 ≥ 1.10 raises NC_EHDF (-101) on any open() call.
 export HDF5_USE_FILE_LOCKING=FALSE
 
+# Browser-derived GES DISC /data/.TOKEN paths can be stale or context-specific.
+# Bad Earthdata env credentials also override a valid ~/.netrc and produce 401s.
+unset GESDISC_DATA_TOKEN
+unset EARTHDATA_USERNAME
+unset EARTHDATA_PASSWORD
+
 
 cd /projects/yuch8913/OCO_spectral_mitigation
 
