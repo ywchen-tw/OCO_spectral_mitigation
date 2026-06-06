@@ -41,7 +41,7 @@ export OPENBLAS_NUM_THREADS=1
 # Browser-derived GES DISC /data/.TOKEN paths can be stale or context-specific.
 # Your CURC curl test showed the plain /data/OCO2_DATA/... route is healthy.
 unset GESDISC_DATA_TOKEN
-# Prefer ~/.netrc / anonymous-readable GES DISC routes for this smoke test.
+# Prefer ~/.netrc / anonymous-readable GES DISC routes for batch runs.
 # Stale EARTHDATA_* environment values force the downloader into a failing
 # auth path, even when the plain file URLs are reachable from CURC.
 unset EARTHDATA_USERNAME
@@ -50,14 +50,8 @@ unset EARTHDATA_PASSWORD
 cd /projects/yuch8913/OCO_spectral_mitigation
 
 # ============================================================================
-# Testing configuration
+# Option 1: Loop with year, month, day (ACTIVE)
 # ============================================================================
-RUN_FITTING=true
-LIMIT_GRANULES=1
-# Use a target-day orbit for the smoke test to avoid the previous-day Lite
-# warning from the cross-midnight 11733a granule.
-ORBIT_FILTER=11734a
-
 # Specify year, month, and day ranges
 start_year=2016
 end_year=2016
@@ -66,30 +60,19 @@ end_month=9
 start_day=15
 end_day=15
 
-# Loop through year, month, day.
+# Loop through year, month, day
 for year in $(seq $start_year $end_year); do
     for month in $(seq $start_month $end_month); do
         for day in $(seq $start_day $end_day); do
             # Format date as YYYY-MM-DD with zero-padding
             date=$(printf "%04d-%02d-%02d" $year $month $day)
             echo "Processing date: $date"
-            demo_args=(--date "$date")
-            if [[ -n "$ORBIT_FILTER" ]]; then
-                demo_args+=(--orbit "$ORBIT_FILTER")
-            fi
-            if [[ -n "$LIMIT_GRANULES" ]]; then
-                demo_args+=(--limit-granules "$LIMIT_GRANULES")
-            fi
-
-            if python workspace/demo_combined.py "${demo_args[@]}"; then
-                echo "Successfully processed: $date"
-                if [[ "$RUN_FITTING" == "true" ]]; then
-                    python src/spectral/fitting.py --date "$date" #--delete-ocofiles
-                else
-                    echo "Skipping fitting.py because RUN_FITTING=false"
-                fi
-            else
+            python workspace/demo_combined.py --date "$date" --delete-modis --force-recompute
+            if [ $? -ne 0 ]; then
                 echo "Failed to process date: $date"
+            else
+                echo "Successfully processed: $date"
+                python src/spectral/fitting.py --date "$date" #--delete-ocofiles
             fi
             echo ""
         done
