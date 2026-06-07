@@ -1,6 +1,6 @@
 """
-ca_signal.py
-============
+signal_hierarchy.py
+===================
 Signal-hierarchy plot functions extracted from combined_analyze.py.
 
 Contents

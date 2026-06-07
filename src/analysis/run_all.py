@@ -4,7 +4,7 @@ combined_analyze.py  —  ENTRY POINT ONLY
 Run all analysis sections.  All plot functions live in the ca_* modules:
 
   ca_utils.py          shared helpers (I/O, binning, rolling stats)
-  ca_signal.py         Section 1: signal hierarchy
+  signal_hierarchy.py  Section 1: signal hierarchy
   ca_exp_alb.py        Section 2: exp_intercept / albedo analyses
   ca_k_coeff.py        Section 3: k1 / k2 / k3 analyses
   ca_stratified.py     Section 4: stratified analyses
@@ -157,44 +157,49 @@ import argparse
 from pathlib import Path
 import platform
 
+# ── path setup ────────────────────────────────────────────────────────────────
+# Support the SLURM entry point `python src/analysis/run_all.py` while keeping
+# imports package-qualified.  This must happen before importing matplotlib so
+# local analysis modules cannot shadow standard-library modules during import.
+SRC_DIR = Path(__file__).resolve().parent.parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 import matplotlib
 import numpy as np
 import pandas as pd
 matplotlib.use('Agg')
 
-# ── path setup ────────────────────────────────────────────────────────────────
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 # ── module imports ─────────────────────────────────────────────────────────────
-from .utils import (
+from analysis.utils import (
     get_storage_dir, load_data, apply_quality_filter,
     cld_dist_bins, bin_by_cld_dist, print_summary_stats,
 )
-from .signal import (
+from analysis.signal_hierarchy import (
     plot_signal_hierarchy, plot_residual_signal_hierarchy,
 )
-from .albedo import (
+from analysis.albedo import (
     plot_alb_vs_exp_intercept, plot_alb_vs_exp_intercept_cross,
     plot_intercept_binned_profile, plot_exp_intercept_interband_coherence,
     plot_alb_exp_divergence, plot_exp_intercept_albedo_residuals,
     plot_exp_alb_ratio_residuals, plot_alb_binned_profile,
 )
-from .k_coeff import (
+from analysis.k_coeff import (
     plot_distributions_vs_cld_dist, plot_k1_k2_vs_cld_dist,
     plot_k2_over_k1_vs_cld_dist, plot_k1_k2_binned_profile,
     plot_k1_k2_joint, plot_higher_order_k_profiles,
     plot_k_albedo_residuals, plot_cross_band_k_combinations,
     plot_fp_area_analysis, plot_xco2_anomaly_ocean_land,
 )
-from .stratified import STRAT_CONFIG, run_stratified_analysis
-from .footprint import run_footprint_analysis
-from .xco2 import (
+from analysis.stratified import STRAT_CONFIG, run_stratified_analysis
+from analysis.footprint import run_footprint_analysis
+from analysis.xco2 import (
     plot_xco2_derived_vs_cld_dist_binned, plot_xco2_derived_vs_bc_anomaly,
     plot_xco2_anomaly_vs_cld_dist_binned,
     run_xco2_sign_analysis,
     _XCO2_TARGET_CONFIG, run_xco2_target_analysis,
 )
-from .ref_corrected import (
+from analysis.ref_corrected import (
     _REF_PAIRS, _R25_PAIRS,
     _has_ref_data, _has_r25_data,
     add_ref_anomalies, add_r25_anomalies,
