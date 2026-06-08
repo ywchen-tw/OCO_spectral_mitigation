@@ -34,11 +34,23 @@ from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
 
-# When pipeline.py is executed directly (as __main__), register it under the
-# canonical module name so pickle can resolve ClipFreeQuantileTransformer via
-# 'pipeline.ClipFreeQuantileTransformer' on both save and load.
+# The scaler/transformer classes below force ``__module__ = 'pipeline'`` so that
+# pickles are portable across however this file gets imported.  For that to work
+# at *save* and *load* time, a module named ``pipeline`` must exist in
+# sys.modules.  Register this module under that canonical name regardless of how
+# it was imported:
+#   - directly as __main__  (python src/models/pipeline.py)
+#   - as models.pipeline    (python -m models.tabm, which fits+saves inline)
+# setdefault avoids clobbering a real top-level ``pipeline`` module when
+# src/models is already on sys.path (legacy CURC launch layout).
 if __name__ == '__main__':
-    sys.modules.setdefault('pipeline', sys.modules['__main__'])
+    # Force-overwrite: pipeline.py may have already been imported as models.pipeline
+    # (via __init__.py → tabm → pipeline) before Python re-executes it as __main__,
+    # leaving a stale entry. setdefault would silently keep the old module, causing
+    # the two class objects to diverge and breaking pickle.
+    sys.modules['pipeline'] = sys.modules['__main__']
+else:
+    sys.modules.setdefault('pipeline', sys.modules[__name__])
 
 
 class ClipFreeQuantileTransformer:
@@ -414,6 +426,67 @@ _FEATURES_SFC1 = [
 _FEATURE_MAP = {0: _FEATURES_SFC0, 1: _FEATURES_SFC1}
 _FP_COLS     = [f'fp_{i}' for i in range(8)]
 
+# ── Feature-set ablations (see src/models/TABM_PLAN.md "Feature set ablations") ──
+# Named groups of continuous features that can be dropped from _FEATURE_MAP[sfc_type]
+# before fitting.  Dropping is applied identically across all models (TabM,
+# FT-Transformer, GBDT baselines) so the active set is explicit and reproducible.
+# Names are listed for both surface types; any name absent from the active
+# sfc_type's list is silently ignored.
+
+# Set 2 — drop xco2-derived features (retrieval-model bias that may leak target info)
+XCO2_FEATURES = frozenset([
+    'xco2_raw_minus_apriori',
+])
+
+# Set 3 — drop k1/k2/k3 spectroscopic coefficients and exp_intercept / exp_intercept-alb
+SPEC_FEATURES = frozenset([
+    'exp_o2a_intercept',
+    'o2a_exp_intercept-alb',
+    'wco2_exp_intercept-alb',     # sfc_type=1 only
+    'o2a_k1', 'o2a_k2',
+    'wco2_k1', 'wco2_k2', 'wco2_k3',
+    'sco2_k1', 'sco2_k2',
+])
+
+# Maps --feature_set name → drop spec.  'full' = sentinel (no drop).
+_FEATURE_SETS: dict = {
+    'full':    None,
+    'no_xco2': {'drop': XCO2_FEATURES},
+    'no_spec': {'drop': SPEC_FEATURES},
+}
+
+
+def _resolve_feature_set(qt_features: list, feature_set: str) -> list:
+    """Return qt_features with the named ablation's features dropped (order preserved)."""
+    if feature_set not in _FEATURE_SETS:
+        raise ValueError(
+            f"feature_set must be one of {sorted(_FEATURE_SETS)}, got {feature_set!r}"
+        )
+    spec = _FEATURE_SETS[feature_set]
+    if spec is None:                      # 'full' — unchanged
+        return list(qt_features)
+    drop = spec['drop']
+    return [f for f in qt_features if f not in drop]
+
+# Features with heavy right tails (orders-of-magnitude spread) that benefit
+# from log1p compression before the scaler. Covers all possible AOD components
+# plus footprint area; inactive/commented-out features are harmless to list here.
+_LOG1P_FEATURES = frozenset([
+    'fp_area_km2',
+    'aod_total', 'aod_bc',
+    'aod_dust', 'aod_ice', 'aod_water',
+    'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate',
+])
+
+
+def _apply_log1p(X: np.ndarray, idx: list) -> np.ndarray:
+    """log1p-transform selected column indices in-place (clamps negatives to 0)."""
+    if not idx:
+        return X
+    X = X.copy()
+    X[:, idx] = np.log1p(np.clip(X[:, idx], 0.0, None))
+    return X
+
 
 def _ensure_fp_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Add fp_{0..7} one-hot columns from df['fp'] if not already present."""
@@ -516,7 +589,9 @@ class FeaturePipeline:
                  *,
                  scaler_type: str = 'robust_standard',
                  pca_appender: 'PCAScoreAppender | None' = None,
-                 pc1_col_idx: 'int | None' = None):
+                 pc1_col_idx: 'int | None' = None,
+                 log1p_cols: 'list | None' = None,
+                 feature_set: str = 'full'):
         self.sfc_type    = sfc_type
         self.qt          = qt
         self.qt_features = qt_features
@@ -525,13 +600,16 @@ class FeaturePipeline:
         self.scaler_type = scaler_type
         self.pca_appender  = pca_appender
         self.pc1_col_idx   = pc1_col_idx
+        self.log1p_cols    = log1p_cols or []   # qt_feature names pre-transformed by log1p
+        self.feature_set   = feature_set        # named ablation set ('full', 'no_xco2', 'no_spec')
 
     # ── Construction ──────────────────────────────────────────────────────────
 
     @classmethod
     def fit(cls, df: pd.DataFrame, sfc_type: int = 1,
             scaler: str = 'robust_standard',
-            pca_augment: bool = False) -> 'FeaturePipeline':
+            pca_augment: bool = False,
+            feature_set: str = 'full') -> 'FeaturePipeline':
         """Fit a new pipeline on df.
 
         Parameters
@@ -545,6 +623,17 @@ class FeaturePipeline:
         pca_augment : if True, append selected PC scores after the scaled
             features (land: PC1/PC4/PC8; ocean: PC3/PC6).  Compatible with
             all model types; for FT-Transformer this is the only PCA mode.
+        feature_set : named ablation set selecting which continuous features
+            survive: 'full' (default, no drop), 'no_xco2' (drop
+            xco2_raw_minus_apriori), or 'no_spec' (drop k1/k2/k3 and
+            exp_intercept / exp_intercept-alb).  See _FEATURE_SETS.  The
+            resulting ``n_features`` / ``features`` remain the single
+            authoritative source — callers must never hard-code feature counts.
+
+        IMPORTANT (leakage discipline): for blocked-split validation, fit on the
+        train split only.  Call ``split_dataframe(df, mode=...)`` first, then
+        ``FeaturePipeline.fit(train_df, ...)``; never fit on the full dataset
+        before splitting (leaks scaler/quantile statistics into the held-out set).
         """
         if sfc_type not in _FEATURE_MAP:
             raise ValueError(f"sfc_type must be 0 or 1, got {sfc_type}")
@@ -553,13 +642,18 @@ class FeaturePipeline:
                 f"scaler must be 'robust_standard' or 'pca_whitening', got {scaler!r}"
             )
 
-        qt_features = list(_FEATURE_MAP[sfc_type])   # continuous features only
+        # Continuous features for this sfc_type, with the named ablation applied.
+        qt_features = _resolve_feature_set(_FEATURE_MAP[sfc_type], feature_set)
         fp_cols     = list(_FP_COLS)
 
         df = _ensure_derived_features(df)
         df = _ensure_fp_columns(df)
 
+        log1p_cols = [f for f in qt_features if f in _LOG1P_FEATURES]
+        log1p_idx  = [qt_features.index(f) for f in log1p_cols]
+
         X_qt_raw = df[qt_features].to_numpy(dtype=float)
+        X_qt_raw = _apply_log1p(X_qt_raw, log1p_idx)
 
         if scaler == 'pca_whitening':
             qt = PCAWhitening()
@@ -587,12 +681,17 @@ class FeaturePipeline:
 
         logger.info(
             "FeaturePipeline fitted: sfc_type=%d, scaler=%s, pca_augment=%s, "
-            "%d qt_features + %d fp cols = %d total",
-            sfc_type, scaler, pca_augment, len(qt_features), len(fp_cols), len(features),
+            "feature_set=%s, %d qt_features + %d fp cols = %d total",
+            sfc_type, scaler, pca_augment, feature_set,
+            len(qt_features), len(fp_cols), len(features),
+        )
+        logger.info(
+            "FeaturePipeline log1p pre-transform: %s", log1p_cols or "none"
         )
         return cls(sfc_type=sfc_type, qt=qt,
                    qt_features=qt_features, fp_cols=fp_cols, features=features,
-                   scaler_type=scaler, pca_appender=pca_appender, pc1_col_idx=pc1_col_idx)
+                   scaler_type=scaler, pca_appender=pca_appender, pc1_col_idx=pc1_col_idx,
+                   log1p_cols=log1p_cols, feature_set=feature_set)
 
     # ── Transformation ────────────────────────────────────────────────────────
 
@@ -608,6 +707,12 @@ class FeaturePipeline:
         df = _ensure_fp_columns(df)
         # Extract as float32 — halves memory vs float64 (scalers handle float32 natively)
         X_qt_raw = df[self.qt_features].to_numpy(dtype=np.float32)
+        # log1p pre-transform for skewed AOD / area features (backward compat: old
+        # pickles without log1p_cols skip this step transparently)
+        log1p_cols = getattr(self, 'log1p_cols', [])
+        if log1p_cols:
+            log1p_idx = [self.qt_features.index(f) for f in log1p_cols]
+            X_qt_raw  = _apply_log1p(X_qt_raw, log1p_idx)
         X_qt     = self.qt.transform(X_qt_raw).astype(np.float32)
         del X_qt_raw   # free before concatenation
         # Append PC scores if appender present (backward compat: old pickles lack this attr)
@@ -661,8 +766,12 @@ class FeaturePipeline:
     def __repr__(self) -> str:
         scaler_type = getattr(self, 'scaler_type', 'robust_standard')
         pca_augment = getattr(self, 'pca_appender', None) is not None
+        log1p_cols  = getattr(self, 'log1p_cols', [])
+        feature_set = getattr(self, 'feature_set', 'full')
         return (f"FeaturePipeline(sfc_type={self.sfc_type}, "
                 f"scaler={scaler_type!r}, pca_augment={pca_augment}, "
+                f"feature_set={feature_set!r}, "
+                f"log1p={log1p_cols or 'none'}, "
                 f"n_qt_features={len(self.qt_features)}, "
                 f"n_features={self.n_features})")
 
@@ -691,6 +800,11 @@ def main():
     parser.add_argument('--pca-augment', action='store_true',
                         help='Append selected PC scores after scaled features '
                              '(land: PC1/PC4/PC8; ocean: PC3/PC6).')
+    parser.add_argument('--feature-set', default='full',
+                        choices=sorted(_FEATURE_SETS),
+                        help="Feature ablation set: 'full' (default), 'no_xco2' "
+                             "(drop xco2_raw_minus_apriori), or 'no_spec' (drop "
+                             "k1/k2/k3 + exp_intercept/exp_intercept-alb).")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -721,7 +835,8 @@ def main():
 
     pipeline = FeaturePipeline.fit(df, sfc_type=args.sfc_type,
                                    scaler=args.scaler,
-                                   pca_augment=args.pca_augment)
+                                   pca_augment=args.pca_augment,
+                                   feature_set=args.feature_set)
     print(f"  {pipeline}", flush=True)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     pipeline.save(out_path)

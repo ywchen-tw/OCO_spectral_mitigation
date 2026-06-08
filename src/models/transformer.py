@@ -1,3 +1,16 @@
+"""FT-Transformer for OCO-2 XCO2 anomaly prediction (quantile regression).
+
+Architecture reference:
+  Gorishniy, Rubachev, Khrulkov, Babenko. "Revisiting Deep Learning Models
+  for Tabular Data." NeurIPS 2021.  arXiv:2106.11959.
+
+This implementation deviates from the reference as follows:
+  - Three-quantile (q05, q50, q95) head for uncertainty, not scalar regression.
+  - Huber-on-q50 + pinball-on-tails loss option for robustness to the heavy
+    left tail of cloud-affected anomalies.
+  - Feature-group segment embeddings and an MLP tokenizer variant.
+"""
+
 import argparse
 import h5py
 import numpy as np
@@ -691,8 +704,13 @@ def _batched_predict(model, X_np, batch_size=2048):
     with torch.no_grad():
         for start in range(0, len(X_np), batch_size):
             Xb = torch.tensor(X_np[start:start + batch_size], dtype=torch.float32)
-            parts.append(model(Xb).numpy())
-            del Xb
+            out = model(Xb)
+            # Multi-head models (e.g. TabM with the auxiliary cloud head active)
+            # return a dict; unwrap the always-present "quantiles" tensor so
+            # evaluation code does not break when switching head configurations.
+            preds = out["quantiles"] if isinstance(out, dict) else out
+            parts.append(preds.numpy())
+            del Xb, out
     return np.concatenate(parts, axis=0)
 
 
@@ -1527,18 +1545,26 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
 
 # ─── Permutation importance ────────────────────────────────────────────────────
 def plot_permutation_importance(model, X_test, y_test, features, output_dir,
-                                n_repeats=5, subsample=3000, batch_size=1024):
-    """Permutation importance for the FT-Transformer (q50 head).
+                                n_repeats=5, subsample=3000, batch_size=1024,
+                                output_prefix: str = "ft"):
+    """Permutation importance for a quantile model (q50 head).
 
     For each feature in turn, shuffles that column of X_sub **in-place**
     (restoring it afterward) so no full-array copy is needed per iteration —
     only a single column (shape [n]) is duplicated.  `batch_size` is kept
     small to bound the peak attention-tensor memory [batch, n_feat, n_feat].
 
+    Parameters
+    ----------
+    output_prefix : str
+        Filename / title prefix.  Use "ft" for the FT-Transformer (default)
+        and "tabm" for TabM so each model writes its own files instead of
+        overwriting a shared ``ft_`` artifact.
+
     Outputs
     -------
-    ft_permutation_importance.csv   – feature, mean_importance, std_importance
-    ft_permutation_importance.png   – horizontal bar chart (all features)
+    {output_prefix}_permutation_importance.csv – feature, mean_importance, std_importance
+    {output_prefix}_permutation_importance.png – horizontal bar chart (all features)
     """
     model.eval()
     features = list(features)
@@ -1558,7 +1584,9 @@ def plot_permutation_importance(model, X_test, y_test, features, output_dir,
         for start in range(0, len(X_np), batch_size):
             Xb = torch.tensor(X_np[start:start + batch_size], dtype=torch.float32)
             with torch.no_grad():
-                preds = model(Xb)          # [batch, 3]
+                preds = model(Xb)          # [batch, 3]  (or dict for multi-head models)
+            if isinstance(preds, dict):
+                preds = preds["quantiles"]
             out.append(preds[:, 1].numpy())  # q50
             del Xb, preds
         return np.concatenate(out)
@@ -1599,9 +1627,9 @@ def plot_permutation_importance(model, X_test, y_test, features, output_dir,
         'mean_importance':  mean_imp,
         'std_importance':   std_imp,
     }).sort_values('mean_importance', ascending=False)
-    csv_path = os.path.join(output_dir, 'ft_permutation_importance.csv')
+    csv_path = os.path.join(output_dir, f'{output_prefix}_permutation_importance.csv')
     imp_df.to_csv(csv_path, index=False)
-    logger.info("Saved ft_permutation_importance.csv")
+    logger.info("Saved %s_permutation_importance.csv", output_prefix)
 
     # ── Bar chart ────────────────────────────────────────────────────────────────
     n_feat   = len(non_fp_names)
@@ -1621,14 +1649,14 @@ def plot_permutation_importance(model, X_test, y_test, features, output_dir,
     ax.axvline(0, color='k', linewidth=0.8, linestyle='--')
     ax.set_xlabel('Mean R² drop when feature is permuted')
     ax.set_title(
-        f'FT-Transformer Permutation Importance ({n_feat} features)\n'
+        f'{output_prefix.upper()} Permutation Importance ({n_feat} features)\n'
         f'(baseline R²={baseline_r2:.3f}, {n_repeats} repeats, n={n} samples)'
     )
     plt.tight_layout()
-    fig.savefig(os.path.join(output_dir, 'ft_permutation_importance.png'),
+    fig.savefig(os.path.join(output_dir, f'{output_prefix}_permutation_importance.png'),
                 dpi=150, bbox_inches='tight')
     plt.close(fig)
-    logger.info("Saved ft_permutation_importance.png")
+    logger.info("Saved %s_permutation_importance.png", output_prefix)
 
 
 # ─── Main analysis entry point ─────────────────────────────────────────────────
