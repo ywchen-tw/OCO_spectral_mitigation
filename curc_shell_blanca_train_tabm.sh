@@ -57,14 +57,14 @@ GPU_MONITOR_PID=$!
 # discipline) — do NOT pass a pre-fitted full-data --pipeline for blocked splits.
 
 # ── Primary result: TabM K=16, ocean (sfc 0), huber loss ──────────────────────
-# Random split (comparable to FT-Transformer)
-python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_random  --K 16
-# Date-block split (temporal leakage probe)
-python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_date    --K 16 --val_split date
+# # Random split (comparable to FT-Transformer)
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_random  --K 16
+# # Date-block split (temporal leakage probe)
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_date    --K 16 --val_split date
 
 # ── Land (sfc 1) ──────────────────────────────────────────────────────────────
-# python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_random  --K 16
-# python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_date    --K 16 --val_split date
+python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_random  --K 16
+python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_date    --K 16 --val_split date
 
 # ── K-sweep ablation (K=1 degenerate MLP / 8 / 32) ────────────────────────────
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k1   --K 1
