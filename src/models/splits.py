@@ -58,10 +58,13 @@ def _split_date(df: pd.DataFrame, test_size: float) -> tuple:
             "date-block split requires a 'date' column in the DataFrame; "
             "none found.  Use --val_split random or add the column."
         )
-    # Sort unique dates chronologically.  Values may be strings ('2020-02-01')
-    # or datetimes; pandas sorts both correctly, and pd.to_datetime normalises
-    # mixed representations without mutating the original column.
-    dates = pd.to_datetime(df['date'])
+    # Sort unique dates chronologically.  Values may be strings ('2020-02-01'),
+    # datetimes, or bytes (parquet written on Python 2 / certain HDF5 paths);
+    # decode bytes first so pd.to_datetime can parse them.
+    col = df['date']
+    if col.dtype == object and len(col) > 0 and isinstance(col.iloc[0], bytes):
+        col = col.str.decode('utf-8')
+    dates = pd.to_datetime(col)
     unique_dates = np.sort(dates.unique())
     n_dates = len(unique_dates)
     if n_dates < 2:
