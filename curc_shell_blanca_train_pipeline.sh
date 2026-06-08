@@ -32,32 +32,33 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 
 cd /projects/yuch8913/OCO_spectral_mitigation
+export PYTHONPATH=src:$PYTHONPATH
 mkdir -p results/pipelines
 
 DATA=results/csv_collection/combined_2016_2020_dates.parquet
 
 # ── ocean (sfc_type=0) ────────────────────────────────────────────────────────
-python src/models/pipeline.py \
+python -m models.pipeline \
   --data $DATA --sfc-type 0 --feature-set full \
   --out results/pipelines/pipeline_ocean_full.pkl
 
-python src/models/pipeline.py \
+python -m models.pipeline \
   --data $DATA --sfc-type 0 --feature-set no_xco2 \
   --out results/pipelines/pipeline_ocean_no_xco2.pkl
 
-python src/models/pipeline.py \
+python -m models.pipeline \
   --data $DATA --sfc-type 0 --feature-set no_spec \
   --out results/pipelines/pipeline_ocean_no_spec.pkl
 
 # ── land (sfc_type=1) ─────────────────────────────────────────────────────────
-python src/models/pipeline.py \
+python -m models.pipeline \
   --data $DATA --sfc-type 1 --feature-set full \
   --out results/pipelines/pipeline_land_full.pkl
 
-python src/models/pipeline.py \
+python -m models.pipeline \
   --data $DATA --sfc-type 1 --feature-set no_xco2 \
   --out results/pipelines/pipeline_land_no_xco2.pkl
 
-python src/models/pipeline.py \
+python -m models.pipeline \
   --data $DATA --sfc-type 1 --feature-set no_spec \
   --out results/pipelines/pipeline_land_no_spec.pkl

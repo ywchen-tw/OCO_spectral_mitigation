@@ -206,38 +206,29 @@ rm -rf results/model_tabm/local_* results/model_gbdt/local_* results/model_mlp_b
 
 ---
 
-## Stage 1.5 — pre-flight check of the CURC scripts (do NOT run the .sh locally)
+## Stage 1.5 — pre-flight check of the CURC scripts
 
-The `curc_shell_blanca_train_*.sh` scripts are **CURC-only**: they call
-`module load …`, `conda activate data`, and `cd /projects/...` — none of which
-exist on macOS. Do not execute them locally. Instead validate them statically and
-confirm the commands they contain match the Stage 1 commands you just ran.
+The script `curc_shell_blanca_preflight.sh` runs the pre-flight checks on CURC
+(syntax validation + command preview). Submit it before the real training jobs:
 
 ```bash
-cd /Users/yuch8913/programming/oco_fp_analysis
-
-# 1) Shell syntax check (no execution)
-for f in curc_shell_blanca_train_tabm.sh \
-         curc_shell_blanca_train_gbdt.sh \
-         curc_shell_blanca_train_mlp_baseline.sh; do
-  bash -n "$f" && echo "syntax OK: $f"
-done
-
-# 2) Preview the active (uncommented) training commands each script will run
-for f in curc_shell_blanca_train_tabm.sh \
-         curc_shell_blanca_train_gbdt.sh \
-         curc_shell_blanca_train_mlp_baseline.sh; do
-  echo "# $f"; grep -E '^python -m' "$f"; echo
-done
+cd /projects/yuch8913/OCO_spectral_mitigation
+sbatch curc_shell_blanca_preflight.sh
 ```
 
-What to confirm:
-- The previewed `python -m models.<name> …` lines are the same form you ran in
-  Stage 1 (the scripts add `cd <repo-root>` + `export PYTHONPATH=src` for you).
-- The active runs use the **full** config (no `--config tabm_local_smoke.json`) and
-  include the `--val_split date` variants — date-block runs only work on CURC
-  (multi-date `combined_2016_2020_dates.parquet`), which is why they were skipped
-  locally.
+It checks these four scripts:
+- `curc_shell_blanca_train_pipeline.sh`
+- `curc_shell_blanca_train_tabm.sh`
+- `curc_shell_blanca_train_gbdt.sh`
+- `curc_shell_blanca_train_mlp_baseline.sh`
+
+What to confirm in the output (`sbatch-output_oco_preflight_<JOBID>.txt`):
+- All scripts print `syntax OK: <name>` — no `SYNTAX ERROR` lines.
+- The previewed `python` commands match the forms run in Stage 1 (the scripts add
+  `cd <repo-root>` + `export PYTHONPATH=src` for you).
+- The active training runs use the **full** config (no `--config tabm_local_smoke.json`)
+  and include the `--val_split date` variants — date-block runs only work on CURC
+  (multi-date `combined_2016_2020_dates.parquet`), which is why they were skipped locally.
 
 ---
 
