@@ -119,68 +119,11 @@ Expected `n_features` (ocean, `combined_2016_2020_dates.parquet`):
 
 ### 0.5b — CURC (Blanca): SLURM script
 
-Save as `curc_shell_blanca_train_pipeline_ablation.sh` and submit with `sbatch`.
+The script is `curc_shell_blanca_train_pipeline.sh`. Submit with:
 
 ```bash
-#!/bin/env bash
-
-#SBATCH --nodes=1
-#SBATCH --ntasks=8
-#SBATCH --ntasks-per-node=8
-#SBATCH --mem=32G
-#SBATCH --time=02:00:00
-#SBATCH --mail-type=ALL
-#SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
-#SBATCH --output=sbatch-output_%x_%j.txt
-#SBATCH --job-name=oco_pipeline_ablation
-#SBATCH --account=blanca-airs
-#SBATCH --partition=blanca-airs
-#SBATCH --qos=blanca-airs
-
-module load anaconda
-conda activate data
-
-if [[ "$(uname -s)" == "Linux" ]]; then
-    export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
-fi
-export HDF5_USE_FILE_LOCKING=FALSE
-
 cd /projects/yuch8913/OCO_spectral_mitigation
-mkdir -p results/pipelines
-
-DATA=results/csv_collection/combined_2016_2020_dates.parquet
-
-# ── ocean (sfc_type=0) ────────────────────────────────────────────────────────
-python src/models/pipeline.py \
-  --data $DATA --sfc-type 0 --feature-set full \
-  --out results/pipelines/pipeline_ocean_full.pkl
-
-python src/models/pipeline.py \
-  --data $DATA --sfc-type 0 --feature-set no_xco2 \
-  --out results/pipelines/pipeline_ocean_no_xco2.pkl
-
-python src/models/pipeline.py \
-  --data $DATA --sfc-type 0 --feature-set no_spec \
-  --out results/pipelines/pipeline_ocean_no_spec.pkl
-
-# ── land (sfc_type=1) ─────────────────────────────────────────────────────────
-python src/models/pipeline.py \
-  --data $DATA --sfc-type 1 --feature-set full \
-  --out results/pipelines/pipeline_land_full.pkl
-
-python src/models/pipeline.py \
-  --data $DATA --sfc-type 1 --feature-set no_xco2 \
-  --out results/pipelines/pipeline_land_no_xco2.pkl
-
-python src/models/pipeline.py \
-  --data $DATA --sfc-type 1 --feature-set no_spec \
-  --out results/pipelines/pipeline_land_no_spec.pkl
-```
-
-Submit:
-```bash
-cd /projects/yuch8913/OCO_spectral_mitigation
-sbatch curc_shell_blanca_train_pipeline_ablation.sh
+sbatch curc_shell_blanca_train_pipeline.sh
 ```
 
 Output files (same paths on both local and CURC):
