@@ -32,32 +32,32 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 
 cd /projects/yuch8913/OCO_spectral_mitigation
+mkdir -p results/pipelines
 
-# baseline
+DATA=results/csv_collection/combined_2016_2020_dates.parquet
 
-python src/models/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
---sfc-type 0 --out results/train_data/pipeline_ocean_2016_2020.pkl
+# ── ocean (sfc_type=0) ────────────────────────────────────────────────────────
+python src/models/pipeline.py \
+  --data $DATA --sfc-type 0 --feature-set full \
+  --out results/pipelines/pipeline_ocean_full.pkl
 
-python src/models/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
---sfc-type 1 --out results/train_data/pipeline_land_2016_2020.pkl
+python src/models/pipeline.py \
+  --data $DATA --sfc-type 0 --feature-set no_xco2 \
+  --out results/pipelines/pipeline_ocean_no_xco2.pkl
 
-# PCA whitening (decorrelated input, MLP/Ridge only)
-# python src/models/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
-# --sfc-type 0 --out results/train_data/pipeline_ocean_2016_2020_pca_whitening.pkl --scaler pca_whitening
+python src/models/pipeline.py \
+  --data $DATA --sfc-type 0 --feature-set no_spec \
+  --out results/pipelines/pipeline_ocean_no_spec.pkl
 
-# python src/models/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
-# --sfc-type 1 --out results/train_data/pipeline_land_2016_2020_pca_whitening.pkl --scaler pca_whitening
+# ── land (sfc_type=1) ─────────────────────────────────────────────────────────
+python src/models/pipeline.py \
+  --data $DATA --sfc-type 1 --feature-set full \
+  --out results/pipelines/pipeline_land_full.pkl
 
-# PCA score appender (extra PC tokens, all models)
-python src/models/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
---sfc-type 0 --out results/train_data/pipeline_ocean_2016_2020_pca-augment.pkl --pca-augment
+python src/models/pipeline.py \
+  --data $DATA --sfc-type 1 --feature-set no_xco2 \
+  --out results/pipelines/pipeline_land_no_xco2.pkl
 
-python src/models/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
---sfc-type 1 --out results/train_data/pipeline_land_2016_2020_pca-augment.pkl --pca-augment
-
-# Both (MLP/Ridge only)
-# python src/models/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
-# --sfc-type 0 --out results/train_data/pipeline_ocean_2016_2020_pca_whitening-augment.pkl --scaler pca_whitening --pca-augment
-
-# python src/models/pipeline.py --data results/csv_collection/combined_2016_2020_dates.parquet \
-# --sfc-type 1 --out results/train_data/pipeline_land_2016_2020_pca_whitening-augment.pkl --scaler pca_whitening --pca-augment
+python src/models/pipeline.py \
+  --data $DATA --sfc-type 1 --feature-set no_spec \
+  --out results/pipelines/pipeline_land_no_spec.pkl
