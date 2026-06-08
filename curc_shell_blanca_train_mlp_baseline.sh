@@ -51,12 +51,12 @@ GPU_MONITOR_PID=$!
 # Fits its own FeaturePipeline on the TRAIN split only.
 
 # ── Ocean (sfc 0) ─────────────────────────────────────────────────────────────
-python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_random
-python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_date   --val_split date
+# python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_random
+# python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_date   --val_split date
 
 # ── Land (sfc 1) ──────────────────────────────────────────────────────────────
-# python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_random
-# python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_date   --val_split date
+python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_random
+python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_date   --val_split date
 
 # ── Feature-set ablations ─────────────────────────────────────────────────────
 # python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_no_xco2 --feature_set no_xco2

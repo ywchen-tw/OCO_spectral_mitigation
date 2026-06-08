@@ -237,15 +237,78 @@ What to confirm in the output (`sbatch-output_oco_preflight_<JOBID>.txt`):
 On CURC the modules pick up the multi-date `combined_2016_2020_dates.parquet`
 (Linux defaults), 500 epochs, batch 8192. Submit with `sbatch` from the repo root.
 
-> First time only: `pip install lightgbm` inside the `data` env if you want the
-> LightGBM baseline (XGBoost works out of the box).
+### 2a. Configure and submit
 
-### 2a. Submit the three jobs
+Each script ships with a default set of active (uncommented) runs. Edit the script
+before submitting to enable/disable blocks. Active = uncommented; disabled = prefixed with `# `.
+
+**`curc_shell_blanca_train_tabm.sh`** — currently active:
+```
+python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_random  --K 16
+python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_date    --K 16 --val_split date
+```
+Available blocks to uncomment as needed:
+```
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_random  --K 16
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_date    --K 16 --val_split date
+
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k1   --K 1
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k8   --K 8
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k32  --K 32
+
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_quantile --K 16 --loss quantile
+
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_no_xco2 --K 16 --feature_set no_xco2
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_no_spec --K 16 --feature_set no_spec
+
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux      --K 16 --aux_cloud --lambda_cloud 0.1
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux_bins --K 16 --aux_cloud --cloud_label bins --lambda_cloud 0.1
+
+# for S in 0 1 2; do
+#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_random_s${S} --K 16 --seed ${S}
+#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_date_s${S}   --K 16 --seed ${S} --val_split date
+# done
+```
+
+**`curc_shell_blanca_train_gbdt.sh`** — currently active:
+```
+python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_random
+python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_date   --val_split date
+```
+Available blocks to uncomment as needed:
+```
+# python -m models.gbdt_baselines --model xgboost  --sfc_type 1 --suffix gbdt_land_xgb_random
+# python -m models.gbdt_baselines --model xgboost  --sfc_type 1 --suffix gbdt_land_xgb_date   --val_split date
+
+# python -m models.gbdt_baselines --model lightgbm --sfc_type 0 --suffix gbdt_ocean_lgbm_random
+# python -m models.gbdt_baselines --model lightgbm --sfc_type 0 --suffix gbdt_ocean_lgbm_date  --val_split date
+
+# python -m models.gbdt_baselines --model xgboost  --sfc_type 0 --suffix gbdt_ocean_xgb_no_xco2 --feature_set no_xco2
+# python -m models.gbdt_baselines --model xgboost  --sfc_type 0 --suffix gbdt_ocean_xgb_no_spec --feature_set no_spec
+```
+> LightGBM first time only: `pip install lightgbm` inside the `data` env.
+
+**`curc_shell_blanca_train_mlp_baseline.sh`** — currently active:
+```
+python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_random
+python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_date   --val_split date
+```
+Available blocks to uncomment as needed:
+```
+# python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_random
+# python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_date   --val_split date
+
+# python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_no_xco2 --feature_set no_xco2
+# python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_no_spec --feature_set no_spec
+```
+
+Submit after editing:
 ```bash
 cd /projects/yuch8913/OCO_spectral_mitigation
-sbatch curc_shell_blanca_train_tabm.sh           # GPU: TabM K=16 ocean, random + date
-sbatch curc_shell_blanca_train_gbdt.sh           # CPU: XGBoost ocean, random + date
-sbatch curc_shell_blanca_train_mlp_baseline.sh   # GPU: MLP baseline ocean, random + date
+sbatch curc_shell_blanca_train_pipeline.sh       # CPU: fit all 6 feature-pipeline pickles
+sbatch curc_shell_blanca_train_tabm.sh           # GPU: TabM
+sbatch curc_shell_blanca_train_gbdt.sh           # CPU: XGBoost / LightGBM
+sbatch curc_shell_blanca_train_mlp_baseline.sh   # GPU: MLP baseline
 ```
 
 ### 2b. Monitor
