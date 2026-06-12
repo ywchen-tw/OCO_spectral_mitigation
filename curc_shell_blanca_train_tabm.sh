@@ -84,13 +84,13 @@ GPU_MONITOR_PID=$!
 
 # ── Auxiliary cloud-proximity head (multi-task ablation) ──────────────────────
 # (cld_dist_km / near_cloud must be ABSENT from pipeline.features — enforced in code)
-python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux       --K 16 --aux_cloud --lambda_cloud 0.1
-python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux_bins  --K 16 --aux_cloud --cloud_label bins --lambda_cloud 0.1
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux       --K 16 --aux_cloud --lambda_cloud 0.1
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux_bins  --K 16 --aux_cloud --cloud_label bins --lambda_cloud 0.1
 
 # ── Repeated seeds for the primary result (report mean ± std) ─────────────────
-# for S in 0 1 2; do
-#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_random_s${S} --K 16 --seed ${S}
-#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_date_s${S}   --K 16 --seed ${S} --val_split date
-# done
+for S in 0 1 2; do
+  python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_random_s${S} --K 16 --seed ${S}
+  python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_date_s${S}   --K 16 --seed ${S} --val_split date
+done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
