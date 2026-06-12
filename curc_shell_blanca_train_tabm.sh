@@ -79,13 +79,13 @@ GPU_MONITOR_PID=$!
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_no_spec --K 16 --feature_set no_spec
 
 # ── Feature-set ablations ─────────────────────────────────────────────────────
-python -m models.tabm --sfc_type 1 --suffix tabm_land_no_xco2 --K 16 --feature_set no_xco2
-python -m models.tabm --sfc_type 1 --suffix tabm_land_no_spec --K 16 --feature_set no_spec
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_no_xco2 --K 16 --feature_set no_xco2
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_no_spec --K 16 --feature_set no_spec
 
 # ── Auxiliary cloud-proximity head (multi-task ablation) ──────────────────────
 # (cld_dist_km / near_cloud must be ABSENT from pipeline.features — enforced in code)
-# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux       --K 16 --aux_cloud --lambda_cloud 0.1
-# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux_bins  --K 16 --aux_cloud --cloud_label bins --lambda_cloud 0.1
+python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux       --K 16 --aux_cloud --lambda_cloud 0.1
+python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux_bins  --K 16 --aux_cloud --cloud_label bins --lambda_cloud 0.1
 
 # ── Repeated seeds for the primary result (report mean ± std) ─────────────────
 # for S in 0 1 2; do
