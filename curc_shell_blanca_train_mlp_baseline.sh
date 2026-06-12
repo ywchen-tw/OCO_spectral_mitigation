@@ -59,11 +59,11 @@ GPU_MONITOR_PID=$!
 # python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_date   --val_split date
 
 # ── Feature-set ablations ─────────────────────────────────────────────────────
-python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_no_xco2 --feature_set no_xco2
-python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_no_spec --feature_set no_spec
+# python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_no_xco2 --feature_set no_xco2
+# python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_no_spec --feature_set no_spec
 
 # ── Feature-set ablations ─────────────────────────────────────────────────────
-# python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_no_xco2 --feature_set no_xco2
-# python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_no_spec --feature_set no_spec
+python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_no_xco2 --feature_set no_xco2
+python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_no_spec --feature_set no_spec
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
