@@ -75,12 +75,12 @@ GPU_MONITOR_PID=$!
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_quantile --K 16 --loss quantile
 
 # ── Feature-set ablations ─────────────────────────────────────────────────────
-python -m models.tabm --sfc_type 0 --suffix tabm_ocean_no_xco2 --K 16 --feature_set no_xco2
-python -m models.tabm --sfc_type 0 --suffix tabm_ocean_no_spec --K 16 --feature_set no_spec
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_no_xco2 --K 16 --feature_set no_xco2
+# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_no_spec --K 16 --feature_set no_spec
 
 # ── Feature-set ablations ─────────────────────────────────────────────────────
-# python -m models.tabm --sfc_type 1 --suffix tabm_land_no_xco2 --K 16 --feature_set no_xco2
-# python -m models.tabm --sfc_type 1 --suffix tabm_land_no_spec --K 16 --feature_set no_spec
+python -m models.tabm --sfc_type 1 --suffix tabm_land_no_xco2 --K 16 --feature_set no_xco2
+python -m models.tabm --sfc_type 1 --suffix tabm_land_no_spec --K 16 --feature_set no_spec
 
 # ── Auxiliary cloud-proximity head (multi-task ablation) ──────────────────────
 # (cld_dist_km / near_cloud must be ABSENT from pipeline.features — enforced in code)
