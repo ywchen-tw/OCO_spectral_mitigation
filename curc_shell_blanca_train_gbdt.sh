@@ -41,7 +41,7 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 export PYTHONPATH=src:$PYTHONPATH
 
 # LightGBM is not in the base env; uncomment to enable the --model lightgbm runs.
-# pip install lightgbm
+pip install lightgbm
 
 # Each baseline fits its own FeaturePipeline on the TRAIN split only.
 # Quantile crossing is reported both as-is and after monotone rearrangement.
@@ -51,12 +51,12 @@ export PYTHONPATH=src:$PYTHONPATH
 # python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_date   --val_split date
 
 # ── XGBoost, land (sfc 1) ─────────────────────────────────────────────────────
-python -m models.gbdt_baselines --model xgboost --sfc_type 1 --suffix gbdt_land_xgb_random
-python -m models.gbdt_baselines --model xgboost --sfc_type 1 --suffix gbdt_land_xgb_date   --val_split date
+# python -m models.gbdt_baselines --model xgboost --sfc_type 1 --suffix gbdt_land_xgb_random
+# python -m models.gbdt_baselines --model xgboost --sfc_type 1 --suffix gbdt_land_xgb_date   --val_split date
 
 # ── LightGBM (objective=quantile) — requires `pip install lightgbm` above ─────
-# python -m models.gbdt_baselines --model lightgbm --sfc_type 0 --suffix gbdt_ocean_lgbm_random
-# python -m models.gbdt_baselines --model lightgbm --sfc_type 0 --suffix gbdt_ocean_lgbm_date  --val_split date
+python -m models.gbdt_baselines --model lightgbm --sfc_type 0 --suffix gbdt_ocean_lgbm_random
+python -m models.gbdt_baselines --model lightgbm --sfc_type 0 --suffix gbdt_ocean_lgbm_date  --val_split date
 
 # ── Feature-set ablations (XGBoost) ───────────────────────────────────────────
 # python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_no_xco2 --feature_set no_xco2

@@ -63,13 +63,13 @@ GPU_MONITOR_PID=$!
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_date    --K 16 --val_split date
 
 # ── Land (sfc 1) ──────────────────────────────────────────────────────────────
-python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_random  --K 16
-python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_date    --K 16 --val_split date
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_random  --K 16
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_date    --K 16 --val_split date
 
 # ── K-sweep ablation (K=1 degenerate MLP / 8 / 32) ────────────────────────────
-# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k1   --K 1
-# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k8   --K 8
-# python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k32  --K 32
+python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k1   --K 1
+python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k8   --K 8
+python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k32  --K 32
 
 # ── Loss comparison: plain pinball on all three quantiles ─────────────────────
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_quantile --K 16 --loss quantile
@@ -77,6 +77,10 @@ python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_date    --K 16 --val_s
 # ── Feature-set ablations ─────────────────────────────────────────────────────
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_no_xco2 --K 16 --feature_set no_xco2
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_no_spec --K 16 --feature_set no_spec
+
+# ── Feature-set ablations ─────────────────────────────────────────────────────
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_no_xco2 --K 16 --feature_set no_xco2
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_no_spec --K 16 --feature_set no_spec
 
 # ── Auxiliary cloud-proximity head (multi-task ablation) ──────────────────────
 # (cld_dist_km / near_cloud must be ABSENT from pipeline.features — enforced in code)
