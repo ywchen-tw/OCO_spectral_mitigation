@@ -41,7 +41,7 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 export PYTHONPATH=src:$PYTHONPATH
 
 # LightGBM is not in the base env; uncomment to enable the --model lightgbm runs.
-pip install lightgbm
+# pip install lightgbm
 
 # Each baseline fits its own FeaturePipeline on the TRAIN split only.
 # Quantile crossing is reported both as-is and after monotone rearrangement.
