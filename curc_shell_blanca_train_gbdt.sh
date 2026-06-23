@@ -74,4 +74,4 @@ NFOLDS=5
 for F in $(seq 0 $((NFOLDS-1))); do
   python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_kfold_f${F} \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
+done
