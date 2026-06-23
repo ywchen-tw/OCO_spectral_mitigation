@@ -51,13 +51,27 @@ pip install lightgbm
 # python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_date   --val_split date
 
 # ── XGBoost, land (sfc 1) ─────────────────────────────────────────────────────
-# python -m models.gbdt_baselines --model xgboost --sfc_type 1 --suffix gbdt_land_xgb_random
-# python -m models.gbdt_baselines --model xgboost --sfc_type 1 --suffix gbdt_land_xgb_date   --val_split date
+python -m models.gbdt_baselines --model xgboost --sfc_type 1 --suffix gbdt_land_xgb_random
+python -m models.gbdt_baselines --model xgboost --sfc_type 1 --suffix gbdt_land_xgb_date   --val_split date
 
 # ── LightGBM (objective=quantile) — requires `pip install lightgbm` above ─────
 # python -m models.gbdt_baselines --model lightgbm --sfc_type 0 --suffix gbdt_ocean_lgbm_random
 # python -m models.gbdt_baselines --model lightgbm --sfc_type 0 --suffix gbdt_ocean_lgbm_date  --val_split date
 
 # ── Feature-set ablations (XGBoost) ───────────────────────────────────────────
-python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_no_xco2 --feature_set no_xco2
-python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_no_spec --feature_set no_spec
+# python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_no_xco2 --feature_set no_xco2
+# python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_no_spec --feature_set no_spec
+
+# ── Repeated seeds (report mean ± std; --seed flows into model random_state) ───
+# for S in 0 1 2; do
+#   python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_random_s${S} --seed ${S}
+#   python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_xgb_date_s${S}   --seed ${S} --val_split date
+# done
+
+# ── Block-rotation k-fold over dates (general unseen-date robustness; mean±std) ─
+# Aggregate afterwards with models.aggregate_folds (see the TabM script header).
+# NFOLDS=5
+# for F in $(seq 0 $((NFOLDS-1))); do
+#   python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_kfold_f${F} \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# done

@@ -18,8 +18,19 @@ run the real experiments on CURC (Blanca). Plan reference: `src/models/TABM_PLAN
   `combined_2016_2020_dates.parquet` (multi-date, 12 GB).
 - **`--val_split date` cannot be tested locally** — the local single-date files
   have only 1 unique date (date-block needs ≥2). Test `date` on CURC only.
+- **`--val_split date_kfold` (block-rotation k-fold; 2026-06-23)** is the primary
+  unseen-date robustness probe — every date is test once across N folds → mean ± std.
+  One fold per invocation: `--val_split date_kfold --n_folds N --fold K` into a distinct
+  `--suffix ..._f${K}` dir; aggregate with `python -m models.aggregate_folds`. Supported by
+  tabm / gbdt / mlp_baseline; CURC only (needs multi-date data). Seed sweeps (`--seed`, all
+  three models) measure training stochasticity only under date/date_kfold (deterministic split).
 - Outputs land in `results/model_tabm/<suffix>/`, `results/model_gbdt/<suffix>/`,
   `results/model_mlp_baseline/<suffix>/`.
+- **Target outlier filter (2026-06-23):** `filter_target_outliers()` (`pipeline.py`,
+  `MAX_ABS_ANOMALY_PPM = 100`) drops `|xco2_bc_anomaly| > 100 ppm` rows from the raw
+  dataframe before the split, in tabm / gbdt / mlp_baseline. No-op on the single-date local
+  file; only cleans the multi-date CURC data, where unfiltered land extremes produced
+  RMSE≈30 / R²≈0 (MAE stayed ~0.5). **Any land run made before this date is invalid — re-run.**
 
 ---
 
@@ -346,6 +357,23 @@ Each run writes `results/model_*/<suffix>/`:
 
 Pull the `global` blocks across suffixes into the comparison + compute-budget
 tables in `TABM_PLAN.md`.
+
+### 2e. Run status — 2026-06-23 batch
+
+First full CURC batch synced to `results/`. Status:
+
+- **28 runs completed cleanly** (all `crossing_rate == 0`). Ocean result holds:
+  TabM > MLP > GBDT (e.g. `tabm_ocean_k16_random` R²=0.821 vs `mlp_ocean_random` 0.672,
+  `gbdt_ocean_xgb_random` 0.577); K barely matters (K=1→32 all ≈0.81); `no_xco2` hurts a lot,
+  `no_spec` barely; date-split drops all to ≈0.51–0.54 R².
+- **All `*_land_*` runs are INVALID** — produced before the 100 ppm target filter
+  (RMSE≈30, R²≈0). **Re-run every land suffix** for tabm / gbdt / mlp_baseline.
+- **8 TabM runs incomplete** — only `tabm_pipeline.pkl` + `tabm_run_config.json` written
+  (no `model_tabm_best.pt` / metrics): the seed sweep `tabm_ocean_k16_{random,date}_s{0,1,2}`
+  and the aux-cloud runs `tabm_ocean_aux`, `tabm_ocean_aux_bins`. Job was cut (likely
+  walltime) after the main + ablation blocks. **Re-submit these blocks**; check the SLURM log.
+- Ocean re-run is optional (filter is a no-op there — no >100 ppm ocean outliers), but
+  re-running guarantees identical filtering provenance across the matrix.
 
 ---
 

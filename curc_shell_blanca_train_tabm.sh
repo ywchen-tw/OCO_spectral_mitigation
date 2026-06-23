@@ -63,8 +63,8 @@ GPU_MONITOR_PID=$!
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_date    --K 16 --val_split date
 
 # ── Land (sfc 1) ──────────────────────────────────────────────────────────────
-# python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_random  --K 16
-# python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_date    --K 16 --val_split date
+python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_random  --K 16
+python -m models.tabm --sfc_type 1 --suffix tabm_land_k16_date    --K 16 --val_split date
 
 # ── K-sweep ablation (K=1 degenerate MLP / 8 / 32) ────────────────────────────
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k1   --K 1
@@ -88,9 +88,31 @@ GPU_MONITOR_PID=$!
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_aux_bins  --K 16 --aux_cloud --cloud_label bins --lambda_cloud 0.1
 
 # ── Repeated seeds for the primary result (report mean ± std) ─────────────────
-for S in 0 1 2; do
-  python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_random_s${S} --K 16 --seed ${S}
-  python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_date_s${S}   --K 16 --seed ${S} --val_split date
-done
+# NOTE: under date / date_kfold the split is deterministic, so --seed varies only
+# model-training stochasticity (init + batch order), not the test set.
+# for S in 0 1 2; do
+#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_random_s${S} --K 16 --seed ${S}
+#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_k16_date_s${S}   --K 16 --seed ${S} --val_split date
+# done
+
+# ── Block-rotation k-fold over dates (general unseen-date robustness; mean±std) ─
+# One fold per invocation → distinct suffix dir; every date is test exactly once.
+# This is the PRIMARY robustness probe (lower-variance than a single trailing
+# date block).  Aggregate the folds afterwards with:
+#   PYTHONPATH=src python -m models.aggregate_folds \
+#     --dirs 'results/model_tabm/tabm_ocean_kfold_f*'  --label TabM \
+#     --dirs 'results/model_gbdt/gbdt_ocean_kfold_f*'  --label XGB \
+#     --dirs 'results/model_mlp_baseline/mlp_ocean_kfold_f*' --label MLP \
+#     --out results/model_comparison/ocean_kfold_agg.md
+# NFOLDS=5
+# for F in $(seq 0 $((NFOLDS-1))); do
+#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_kfold_f${F} --K 16 \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# done
+# # land:
+# for F in $(seq 0 $((NFOLDS-1))); do
+#   python -m models.tabm --sfc_type 1 --suffix tabm_land_kfold_f${F} --K 16 \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true

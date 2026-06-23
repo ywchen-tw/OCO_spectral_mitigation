@@ -38,7 +38,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .pipeline import FeaturePipeline, _ensure_derived_features
+from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers
 from .splits import split_dataframe
 from .adapters import TabMAdapter
 from . import diagnostics as diag
@@ -537,8 +537,14 @@ def main():
     parser.add_argument('--pipeline', type=str, default=None,
                         help='Path to a pre-fitted FeaturePipeline (.pkl).  If omitted, '
                              'a new pipeline is fitted ON THE TRAIN SPLIT ONLY and saved.')
-    parser.add_argument('--val_split', type=str, default=None, choices=['random', 'date'],
-                        help="Validation split mode: 'random' (default) or 'date' (block).")
+    parser.add_argument('--val_split', type=str, default=None,
+                        choices=['random', 'date', 'date_kfold'],
+                        help="Validation split: 'random' (default), 'date' (trailing block), "
+                             "or 'date_kfold' (block-rotation k-fold; needs --n_folds/--fold).")
+    parser.add_argument('--n_folds', type=int, default=None,
+                        help='Number of date blocks for --val_split date_kfold.')
+    parser.add_argument('--fold', type=int, default=None,
+                        help='Which date block (0-based) to hold out for date_kfold.')
     parser.add_argument('--feature_set', type=str, default=None,
                         choices=['full', 'no_xco2', 'no_spec'],
                         help="Feature ablation set (see pipeline._FEATURE_SETS).")
@@ -611,12 +617,14 @@ def main():
     df = df[df['sfc_type'] == surface_type]
     df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
     df = _ensure_derived_features(df)
+    df = filter_target_outliers(df)
 
     # ── Split the RAW dataframe FIRST (leakage discipline) ─────────────────────
     train_df, held_df = split_dataframe(
         df, mode=val_split,
         test_size=float(run_cfg['split']['test_size']),
         random_state=int(run_cfg['split']['random_state']),
+        n_folds=args.n_folds, fold=args.fold,
     )
     del df
     gc.collect()

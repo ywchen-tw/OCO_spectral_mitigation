@@ -107,6 +107,14 @@ All three launch from the **repo root** with `src` on `PYTHONPATH`
     available at prediction time and must not encode information derived from or downstream of
     the target construction (`xco2_bc_anomaly`). Audit before finalizing the feature list.
 - `y = xco2_bc_anomaly` (ppm, ~zero-centred, heavy left tail from cloud-affected soundings)
+- **Target outlier filter (added 2026-06-23):** `filter_target_outliers()` in `pipeline.py`
+  drops rows with `|xco2_bc_anomaly| > MAX_ABS_ANOMALY_PPM` (=100 ppm) from the RAW dataframe
+  **before** the train/held split, in `tabm.py` / `gbdt_baselines.py` / `mlp_baseline.py`.
+  These extremes are quality-flag escapees / fill-value leakage, not the target. On the
+  multi-date file a handful of them on **land** dominated squared error → RMSE≈30, R²≈0 while
+  MAE stayed ~0.5; the single-date local file has none (max |y| ≈ 8–12 ppm), so the filter is a
+  no-op locally and only cleans the CURC multi-date data. NaN targets are kept (handled by the
+  per-model `isfinite` mask).
 - Loss: see Loss section below — two modes required for research comparison
 
 ## Model contract (compatible with existing training infrastructure)
@@ -440,11 +448,31 @@ correctly. Orbit and region blocks can follow once the split abstraction is stab
 
 | Split type | Status | Implementation | Purpose |
 |---|---|---|---|
-| **Date block** | **Required (v1)** | Last 10% of sorted unique dates | Temporal leakage |
+| **Date block** | Implemented | Last 10% of sorted unique dates | Temporal leakage (single draw) |
+| **Date k-fold** | **Implemented (2026-06-23)** | Block-rotation over dates (`np.array_split` → N contiguous blocks, hold each out) | General unseen-date robustness, **mean ± std** |
 | Orbit block | Follow-on | Every Mth orbit | Within-day autocorrelation |
 | Region block | Follow-on | Hold out a lat/lon tile (e.g., 30°×30°) | Spatial leakage |
 
-Expose via `--val_split {random,date}` CLI flag in v1; extend to `orbit,region` later.
+Expose via `--val_split {random,date,date_kfold}`; for `date_kfold` pass `--n_folds N --fold K`
+(one fold per invocation → distinct `--suffix` dir).  Orbit/region remain follow-on.
+
+**Why date_kfold is the primary robustness probe.** A single trailing `date` block is one
+draw; the ±0.02–0.05 R² margins TabM shows over GBDT/MLP on that block are within plausible
+noise.  `date_kfold` tests every date exactly once across N folds → a lower-variance estimate.
+It removes same-day leakage (like `date`) but allows training on later dates to predict earlier
+ones — acceptable here because the corrector is applied across the mission record, not as a
+forecaster (it is **not** rolling-origin).
+
+**Seed sweep — all three model families, not just TabM.** Under `date`/`date_kfold` the split is
+deterministic, so `--seed` varies only model-training stochasticity (init, batch order; GBDT
+subsample). Sweep `s0/s1/s2` for TabM **and** XGB **and** MLP so every model carries an error bar
+(`--seed` flows into `torch.manual_seed` / XGB `random_state`).
+
+**Aggregation.** `python -m models.aggregate_folds --dirs '<...>/<run>_f*' --label <name> ...`
+collects the per-fold/seed `global` blocks and stratified CSVs into mean ± std and a side-by-side
+comparison table. Decision rule: if TabM's point-accuracy edge stays inside the fold band, pivot
+the claim to calibrated uncertainty (cov90 + zero crossing, which MLP lacks and XGB does worse in
+the left tail) rather than a point-accuracy win.
 
 ### Hard rule: pipeline fitted on train split only
 

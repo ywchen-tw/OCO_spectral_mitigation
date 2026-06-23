@@ -35,7 +35,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from .pipeline import FeaturePipeline, _ensure_derived_features
+from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers
 from .splits import split_dataframe
 from . import diagnostics as diag
 from search.tracking import RunSummary, get_git_commit_hash
@@ -203,16 +203,27 @@ def main():
     parser.add_argument('--model', type=str, default='xgboost',
                         choices=['xgboost', 'lightgbm'])
     parser.add_argument('--sfc_type', type=int, default=0)
-    parser.add_argument('--val_split', type=str, default='random', choices=['random', 'date'])
+    parser.add_argument('--val_split', type=str, default='random',
+                        choices=['random', 'date', 'date_kfold'])
+    parser.add_argument('--n_folds', type=int, default=None,
+                        help='Number of date blocks for --val_split date_kfold.')
+    parser.add_argument('--fold', type=int, default=None,
+                        help='Which date block (0-based) to hold out for date_kfold.')
     parser.add_argument('--feature_set', type=str, default='full',
                         choices=['full', 'no_xco2', 'no_spec'])
     parser.add_argument('--test_size', type=float, default=0.2)
     parser.add_argument('--suffix', type=str, default='')
     parser.add_argument('--pipeline', type=str, default=None)
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Override the module SEED for this run (seed sweep).')
     args = parser.parse_args()
 
     algo = _resolve_algo(args.model)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+    if args.seed is not None:
+        global SEED
+        SEED = int(args.seed)   # flows into model random_state + random split below
 
     storage_dir = get_storage_dir()
     fdir = storage_dir / 'results/csv_collection'
@@ -231,10 +242,12 @@ def main():
     df = df[df['sfc_type'] == args.sfc_type]
     df = df[df['snow_flag'] == 0]
     df = _ensure_derived_features(df)
+    df = filter_target_outliers(df)
 
     # ── Split RAW first, fit pipeline on train only ────────────────────────────
     train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,
-                                        random_state=SEED)
+                                        random_state=SEED,
+                                        n_folds=args.n_folds, fold=args.fold)
     del df
     gc.collect()
     if args.pipeline:

@@ -568,6 +568,37 @@ def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# Soundings with |xco2_bc_anomaly| beyond this (ppm) are not physical retrieval
+# error — they are quality-flag escapees / fill-value leakage and are NOT the
+# target we model.  A handful of them dominate squared error (RMSE blows up,
+# R² collapses to ~0) while leaving MAE almost untouched — exactly the land
+# signature.  Drop them from the RAW dataframe BEFORE the train/held split so
+# every model family (and both splits) sees the identical, consistent target.
+MAX_ABS_ANOMALY_PPM = 100.0
+
+
+def filter_target_outliers(df: pd.DataFrame, max_abs_ppm: float = MAX_ABS_ANOMALY_PPM,
+                           target_col: str = 'xco2_bc_anomaly') -> pd.DataFrame:
+    """Drop rows whose target magnitude exceeds ``max_abs_ppm``.
+
+    NaN targets are kept here (the per-model ``isfinite`` mask handles those);
+    this only removes finite-but-non-physical extremes.  Returns ``df`` unchanged
+    (no copy) when nothing is dropped.
+    """
+    if target_col not in df.columns:
+        return df
+    y = df[target_col].to_numpy(dtype=float)
+    drop = np.isfinite(y) & (np.abs(y) > max_abs_ppm)
+    n_drop = int(drop.sum())
+    if n_drop == 0:
+        return df
+    logger.info(
+        "filter_target_outliers: dropped %d/%d rows with |%s| > %g ppm",
+        n_drop, len(df), target_col, max_abs_ppm,
+    )
+    return df[~drop]
+
+
 class FeaturePipeline:
     """Shared feature pipeline for all XCO2 bias-correction models.
 
