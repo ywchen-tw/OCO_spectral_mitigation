@@ -183,6 +183,9 @@ def main():
     parser.add_argument('--suffix', type=str, default='')
     parser.add_argument('--pipeline', type=str, default=None)
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--data', type=str, default=None,
+                        help='Override the input data file (default: platform data_name in '
+                             'results/csv_collection/). Use for local multi-date testing.')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -197,7 +200,7 @@ def main():
     run_id = args.suffix or datetime.now().strftime('%Y%m%d-%H%M%S')
     commit = get_git_commit_hash(storage_dir)
 
-    _dp = os.path.join(fdir, data_name)
+    _dp = args.data if args.data else os.path.join(fdir, data_name)
     df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
     df = df[df['sfc_type'] == args.sfc_type]
     df = df[df['snow_flag'] == 0]

@@ -562,6 +562,9 @@ def main():
     parser.add_argument('--lambda_cloud', type=float, default=None,
                         help='Weight on the auxiliary cloud loss (default 0.1).')
     parser.add_argument('--seed', type=int, default=None, help='Random seed.')
+    parser.add_argument('--data', type=str, default=None,
+                        help='Override the input data file (default: platform data_name in '
+                             'results/csv_collection/). Use for local multi-date testing.')
     parser.add_argument('--config', type=str, default=None,
                         help='JSON config overriding data/model/train/loss/aux_cloud keys.')
     args = parser.parse_args()
@@ -612,7 +615,7 @@ def main():
     cloud_label = aux_cfg['cloud_label']
 
     # ── Load + filter data ─────────────────────────────────────────────────────
-    _dp = os.path.join(fdir, data_name)
+    _dp = args.data if args.data else os.path.join(fdir, data_name)
     df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
     df = df[df['sfc_type'] == surface_type]
     df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
