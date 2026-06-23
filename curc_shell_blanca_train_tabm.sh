@@ -79,8 +79,8 @@ GPU_MONITOR_PID=$!
 # python -m models.tabm --sfc_type 0 --suffix tabm_ocean_no_spec --K 16 --feature_set no_spec
 
 # ── Feature-set ablations ─────────────────────────────────────────────────────
-python -m models.tabm --sfc_type 1 --suffix tabm_land_no_xco2 --K 16 --feature_set no_xco2
-python -m models.tabm --sfc_type 1 --suffix tabm_land_no_spec --K 16 --feature_set no_spec
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_no_xco2 --K 16 --feature_set no_xco2
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_no_spec --K 16 --feature_set no_spec
 
 # ── Auxiliary cloud-proximity head (multi-task ablation) ──────────────────────
 # (cld_dist_km / near_cloud must be ABSENT from pipeline.features — enforced in code)
@@ -104,11 +104,11 @@ python -m models.tabm --sfc_type 1 --suffix tabm_land_no_spec --K 16 --feature_s
 #     --dirs 'results/model_gbdt/gbdt_ocean_kfold_f*'  --label XGB \
 #     --dirs 'results/model_mlp_baseline/mlp_ocean_kfold_f*' --label MLP \
 #     --out results/model_comparison/ocean_kfold_agg.md
-# NFOLDS=5
-# for F in $(seq 0 $((NFOLDS-1))); do
-#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_kfold_f${F} --K 16 \
-#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
+NFOLDS=5
+for F in $(seq 0 $((NFOLDS-1))); do
+  python -m models.tabm --sfc_type 0 --suffix tabm_ocean_kfold_f${F} --K 16 \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
 # # land:
 # for F in $(seq 0 $((NFOLDS-1))); do
 #   python -m models.tabm --sfc_type 1 --suffix tabm_land_kfold_f${F} --K 16 \

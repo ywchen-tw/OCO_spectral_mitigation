@@ -63,8 +63,8 @@ GPU_MONITOR_PID=$!
 # python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_no_spec --feature_set no_spec
 
 # ── Feature-set ablations ─────────────────────────────────────────────────────
-python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_no_xco2 --feature_set no_xco2
-python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_no_spec --feature_set no_spec
+# python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_no_xco2 --feature_set no_xco2
+# python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_no_spec --feature_set no_spec
 
 # ── Repeated seeds (report mean ± std; --seed flows into torch.manual_seed) ────
 # for S in 0 1 2; do
@@ -74,10 +74,10 @@ python -m models.mlp_baseline --sfc_type 1 --suffix mlp_land_no_spec --feature_s
 
 # ── Block-rotation k-fold over dates (general unseen-date robustness; mean±std) ─
 # Aggregate afterwards with models.aggregate_folds (see the TabM script header).
-# NFOLDS=5
-# for F in $(seq 0 $((NFOLDS-1))); do
-#   python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_kfold_f${F} \
-#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
+NFOLDS=5
+for F in $(seq 0 $((NFOLDS-1))); do
+  python -m models.mlp_baseline --sfc_type 0 --suffix mlp_ocean_kfold_f${F} \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true

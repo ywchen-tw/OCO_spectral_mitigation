@@ -70,8 +70,8 @@ export PYTHONPATH=src:$PYTHONPATH
 
 # ── Block-rotation k-fold over dates (general unseen-date robustness; mean±std) ─
 # Aggregate afterwards with models.aggregate_folds (see the TabM script header).
-NFOLDS=5
-for F in $(seq 0 $((NFOLDS-1))); do
-  python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_kfold_f${F} \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
+# NFOLDS=5
+# for F in $(seq 0 $((NFOLDS-1))); do
+#   python -m models.gbdt_baselines --model xgboost --sfc_type 0 --suffix gbdt_ocean_kfold_f${F} \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# done
