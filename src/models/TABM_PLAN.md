@@ -120,11 +120,18 @@ pivot the claim to calibration, and pursue:
 2. **Deep-ensemble MLP** — BUILT: `models/deep_ensemble.py` + `curc_shell_blanca_train_deep_ensemble.sh`.
    M Gaussian-NLL members → mixture (mu*, sigma*); conformal calibration inline (calib
    block carved from TRAIN dates). Writes 3 interval variants per run (`de_raw_*`,
-   `de_split_*`, `de_mondrian_*`) sharing the same point predictions. **Results pending
-   CURC** (5-fold date_kfold, M=5, ocean). _Caveat:_ under date-blocking the calibration
-   dates ≠ test dates, so conformal coverage is *approximate* (not exchangeable) — watch
-   `de_*_cov90`; mild on many-date data, was visible on the 6-date local fixture.
-   **➤ UPDATE with the de_mondrian k-fold cov90 / R² vs TabM once CURC returns.**
+   `de_split_*`, `de_mondrian_*`). Mondrian bins are selectable (`--mondrian_col`):
+   `mu` deciles vs a physical proxy (`cld_dist_km` / `aod_total`).
+   **Local validation on real 12-date data (`combined_2020_dates.parquet`, ocean fold0, M=3):**
+   global cov90 ≈ 0.88 (exchangeability caveat does NOT bite at 12 dates, unlike the
+   degenerate 6-date fixture). **`cld_dist_km`-Mondrian beats `mu`-Mondrian on every
+   regime** and lifts the left tail (bottom-5% cov 0.58→0.65) — set as the CURC default.
+   But the y-extreme tail stays ~0.65 vs 0.90: a **residual limit** (a y-defined group
+   can't be fully calibrated by an observable proxy). Point R²≈0.40 at M=3/100ep (will
+   rise at M=5? — note CURC uses M=3/500ep). CURC script is a **fold-array job**
+   (`--array=0-4`, gpu:1/task, `--requeue`, batch 8192) — same per-task queue ask as a
+   single job, parallel when GPUs free.
+   **➤ UPDATE with the de_mondrian k-fold cov90 / R² vs TabM once the CURC array returns.**
 3. **Geometry experiment — `geom_mlp.py` (DONE 2026-06-24 → NULL result).** Tested
    whether a richer geometry representation helps the MLP backbone: periodic (sin/cos
    harmonic, H=4) embeddings of raw angles (`sza, vza, glint_angle, pol_angle, lat,
@@ -137,6 +144,51 @@ pivot the claim to calibration, and pursue:
    not transfer (their gain was *introducing* geometry + an image attention map;
    neither applies). **Geometry track dropped — do not port to TabM.** Full writeup:
    `results/model_comparison/geom_experiment_verdict.md`.
+
+### Noise-floor diagnostic (2026-06-24) — why the tail is hard
+
+`src/analysis/noise_floor_diag.py` on the real 12-date file (ocean): **the left tail
+is feature-irreducible with the current 35 features.** Soundings near-identical in
+feature space still have within-neighbourhood Var(y) = **0.62 in the left tail vs 0.13
+in the bulk** (tail local variance even exceeds the global Var(y)=0.376). Residual
+error is driven by **aerosol + cloud** (|resid| vs `aod_total` +0.17, `cld_dist_km`
+−0.14) and **zero by geometry** (sza/vza/glint ~0.03 — independently re-confirms the
+geometry null). Implication: no model/calibration trick fixes the tail on the current
+features — only **new features** can, and they must carry the cloud-contamination
+signal. (The kNN "max R²≈0.60" is a loose lower bound — the base model beats it — so
+the robust signal is the 5× tail/bulk variance ratio, not the absolute number.)
+
+### New-feature investigation (admissibility rule + tiers)
+
+**Admissibility rule (hard):** an input must be *known for a given spectra set* — i.e.
+derived from the OCO-2 sounding's own spectrum/retrieval. **Cloud distance and any
+MODIS-derived cloud-field feature are NOT admissible** (external; unknown at prediction
+time; and circular — they are the validation variable). This sharpens the question to:
+*can the spectrum itself reveal cloud contamination?*
+
+Candidate unused variables found by inventorying the L1b + L2-Lite files (see chat
+2026-06-24), ranked:
+
+- **Tier A — L2-Lite fit-quality scalars (IMPLEMENTED in `spectral/fitting.py`, 2026-06-24):**
+  `chi2_{o2a,wco2,sco2}`, `rms_rel_{o2a,wco2,sco2}` (reduced χ² / relative RMS of the L2
+  spectral fit per band — the textbook contamination flag), `eof3_1_rel` (systematic
+  spectral-residual structure), `diverging_steps` (convergence difficulty),
+  `xco2_uncertainty` (posterior error). Added to both the Lite loader and `output_dict`;
+  verified all 10 load (100% finite). **Requires re-running the Phase pipeline to
+  regenerate the combined parquet before they reach the model.**
+- **Tier B — L1b spike/residual (not yet done):** `SpikeEOF/spike_eof_weighted_residual_*`
+  (per-pixel deviation from clean EOF reconstruction → aggregate mean/max/std per band)
+  and `spike_eof_bad_colors_*` (per-sounding scalar), `rad_continuum_*`. Needs per-orbit,
+  per-pixel aggregation from the L1b granules.
+- **Tier C — raw radiance spectra (deep option):** `radiance_{o2,weak_co2,strong_co2}`
+  (1016×3) via a spectral CNN/1-D model — large lift.
+
+**Caveat:** OCO-2 QC already uses χ²/dp to remove bad soundings, so the *surviving*
+soundings' χ² has reduced discriminating power — measure, don't assume. **Test plan:**
+after regenerating the parquet, add Tier-A to the feature set and re-run the tail-variance /
+marginal-value diagnostic; a NULL result is itself publishable (*cloud proximity perturbs
+XCO2 in ways not detectable from the single-sounding spectrum or its fit quality*).
+**➤ UPDATE with the Tier-A tail-impact numbers once the parquet is rebuilt.**
 
 ---
 

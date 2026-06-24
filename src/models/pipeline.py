@@ -448,16 +448,33 @@ SPEC_FEATURES = frozenset([
     'sco2_k1', 'sco2_k2',
 ])
 
-# Maps --feature_set name → drop spec.  'full' = sentinel (no drop).
+# Set 4 — ADD spectral-fit-quality diagnostics on top of `full` (cloud-contamination
+# fingerprints from the sounding's own spectrum/fit; see TABM_PLAN "New-feature
+# investigation").  These columns are produced by spectral/fitting.py — the combined
+# parquet must be REGENERATED before this set can be fitted (else KeyError on the
+# missing columns).  Same for both surface types.
+FITQUAL_FEATURES = [
+    'chi2_o2a', 'chi2_wco2', 'chi2_sco2',
+    'rms_rel_o2a', 'rms_rel_wco2', 'rms_rel_sco2',
+    'eof3_1_rel', 'diverging_steps', 'xco2_uncertainty',
+]
+
+# Maps --feature_set name → spec.  'full' = sentinel (no change).  A spec has either
+# a 'drop' set (remove features) or an 'add' list (append continuous features).
 _FEATURE_SETS: dict = {
-    'full':    None,
-    'no_xco2': {'drop': XCO2_FEATURES},
-    'no_spec': {'drop': SPEC_FEATURES},
+    'full':         None,
+    'no_xco2':      {'drop': XCO2_FEATURES},
+    'no_spec':      {'drop': SPEC_FEATURES},
+    'full_fitqual': {'add': FITQUAL_FEATURES},
 }
 
 
 def _resolve_feature_set(qt_features: list, feature_set: str) -> list:
-    """Return qt_features with the named ablation's features dropped (order preserved)."""
+    """Return qt_features with the named ablation applied (order preserved).
+
+    'drop' specs remove features; 'add' specs append continuous features not already
+    present (the appended columns must exist in the dataframe at fit time).
+    """
     if feature_set not in _FEATURE_SETS:
         raise ValueError(
             f"feature_set must be one of {sorted(_FEATURE_SETS)}, got {feature_set!r}"
@@ -465,8 +482,12 @@ def _resolve_feature_set(qt_features: list, feature_set: str) -> list:
     spec = _FEATURE_SETS[feature_set]
     if spec is None:                      # 'full' — unchanged
         return list(qt_features)
-    drop = spec['drop']
-    return [f for f in qt_features if f not in drop]
+    if 'drop' in spec:
+        drop = spec['drop']
+        return [f for f in qt_features if f not in drop]
+    # 'add' — append features not already in the base list
+    add = [f for f in spec['add'] if f not in qt_features]
+    return list(qt_features) + add
 
 # Features with heavy right tails (orders-of-magnitude spread) that benefit
 # from log1p compression before the scaler. Covers all possible AOD components

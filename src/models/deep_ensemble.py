@@ -152,12 +152,20 @@ def main():
     p.add_argument('--n_folds', type=int, default=None)
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--feature_set', type=str, default='full',
-                   choices=['full', 'no_xco2', 'no_spec'])
+                   choices=['full', 'no_xco2', 'no_spec', 'full_fitqual'])
     p.add_argument('--n_members', type=int, default=5)
+    p.add_argument('--batch_size', type=int, default=None,
+                   help='Override platform default (Darwin 2048 / Linux 4096).')
+    p.add_argument('--epochs', type=int, default=None,
+                   help='Override platform default (Darwin 100 / Linux 500).')
     p.add_argument('--calib_frac', type=float, default=0.15,
                    help='Fraction of TRAIN dates carved out as the conformal '
                         'calibration block (date split when possible).')
     p.add_argument('--mondrian_bins', type=int, default=10)
+    p.add_argument('--mondrian_col', type=str, default='mu',
+                   help="Observable variable for Mondrian bins: 'mu' (predicted-mean "
+                        "deciles) or a column name, e.g. 'cld_dist_km' / 'aod_total' "
+                        "(physical proxy for the cloud-contaminated tail).")
     p.add_argument('--test_size', type=float, default=0.2)
     p.add_argument('--suffix', type=str, default='')
     p.add_argument('--seed', type=int, default=42, help='Base seed; member m uses seed+m.')
@@ -212,7 +220,7 @@ def main():
         return X[valid], y[valid], frame.loc[valid]
 
     X_tr, y_tr, _ = _prep(proper_df)
-    X_cal, y_cal, _ = _prep(calib_df)
+    X_cal, y_cal, calib_valid = _prep(calib_df)
     X_te, y_te, held_valid = _prep(held_df)
     print(f"[deep_ensemble] proper-train {X_tr.shape}  calib {X_cal.shape}  held {X_te.shape}")
 
@@ -223,6 +231,10 @@ def main():
     else:
         device = torch.device("cpu")
     epochs, batch_size = (100, 2048) if platform.system() == "Darwin" else (500, 4096)
+    if args.epochs is not None:
+        epochs = args.epochs
+    if args.batch_size is not None:
+        batch_size = args.batch_size
     # internal val for early stopping = the calibration block (it is held out of training)
     members = []
     for m in range(args.n_members):
@@ -239,9 +251,23 @@ def main():
     preds_raw = np.column_stack([mu_te - Z90 * sig_te, mu_te, mu_te + Z90 * sig_te])
     # ── 2) global split conformal ──────────────────────────────────────────────
     preds_split, q_split = cf.split_conformal(y_cal, mu_cal, sig_cal, mu_te, sig_te, alpha=0.10)
-    # ── 3) Mondrian conformal by predicted-mu deciles ──────────────────────────
-    cal_bin, edges = cf.make_quantile_bins(mu_cal, args.mondrian_bins)
-    te_bin, _ = cf.make_quantile_bins(mu_te, args.mondrian_bins, edges=edges)
+    # ── 3) Mondrian conformal, binned by an OBSERVABLE variable ────────────────
+    # 'mu' = predicted-mean deciles (does not isolate the y-defined tail, since the
+    # model under-predicts it).  A physical proxy ('cld_dist_km' / 'aod_total') bins
+    # by the cause of the cloud-contaminated tail and gives that regime its own q.
+    def _bin_values(which, frame, mu):
+        if which == 'mu':
+            return np.asarray(mu, dtype=float)
+        if which not in frame.columns:
+            raise ValueError(f"--mondrian_col {which!r} not in dataframe columns.")
+        v = frame[which].to_numpy(dtype=float)
+        if not np.all(np.isfinite(v)):              # e.g. cld_dist_km can be NaN/inf
+            v = np.where(np.isfinite(v), v, np.nanmedian(v[np.isfinite(v)]))
+        return v
+    bin_cal = _bin_values(args.mondrian_col, calib_valid, mu_cal)
+    bin_te = _bin_values(args.mondrian_col, held_valid, mu_te)
+    cal_bin, edges = cf.make_quantile_bins(bin_cal, args.mondrian_bins)
+    te_bin, _ = cf.make_quantile_bins(bin_te, args.mondrian_bins, edges=edges)
     preds_mond, q_by_bin = cf.mondrian_conformal(y_cal, mu_cal, sig_cal, cal_bin,
                                                  mu_te, sig_te, te_bin, alpha=0.10)
 
@@ -259,6 +285,7 @@ def main():
     with open(output_dir / 'deep_ensemble_meta.pkl', 'wb') as f:
         pickle.dump({'n_features': pipeline.n_features, 'n_members': args.n_members,
                      'q_split': q_split, 'q_by_bin': q_by_bin, 'mondrian_edges': edges.tolist(),
+                     'mondrian_col': args.mondrian_col,
                      'feature_set': args.feature_set, 'val_split': args.val_split}, f)
 
     g = results['mondrian']

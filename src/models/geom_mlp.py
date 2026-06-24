@@ -216,7 +216,7 @@ def main():
     p.add_argument('--n_folds', type=int, default=None)
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--feature_set', type=str, default='full',
-                   choices=['full', 'no_xco2', 'no_spec'])
+                   choices=['full', 'no_xco2', 'no_spec', 'full_fitqual'])
     p.add_argument('--geom_mode', type=str, default='concat', choices=['none', 'concat', 'film'])
     p.add_argument('--n_harmonics', type=int, default=4)
     p.add_argument('--test_size', type=float, default=0.2)

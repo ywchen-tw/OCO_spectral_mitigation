@@ -546,7 +546,7 @@ def main():
     parser.add_argument('--fold', type=int, default=None,
                         help='Which date block (0-based) to hold out for date_kfold.')
     parser.add_argument('--feature_set', type=str, default=None,
-                        choices=['full', 'no_xco2', 'no_spec'],
+                        choices=['full', 'no_xco2', 'no_spec', 'full_fitqual'],
                         help="Feature ablation set (see pipeline._FEATURE_SETS).")
     parser.add_argument('--K', type=int, default=None,
                         help="Ensemble size override (K=1 is the degenerate-MLP ablation). "

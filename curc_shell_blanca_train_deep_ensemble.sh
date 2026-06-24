@@ -4,16 +4,30 @@
 #SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=4
 #SBATCH --mem=96G
-#SBATCH --time=18:00:00
+#SBATCH --time=8:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
-#SBATCH --output=sbatch-output_%x_%j.txt
+#SBATCH --output=sbatch-output_%x_%A_%a.txt
 #SBATCH --job-name=oco_train_deep_ensemble
 #SBATCH --account=blanca-airs
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
 #SBATCH --gres=gpu:1
+#SBATCH --array=0-4
+#SBATCH --requeue
 
+# FOLD-ARRAY JOB.  Each array task is an INDEPENDENT 1-GPU job that runs ONE
+# date_kfold fold (--fold $SLURM_ARRAY_TASK_ID).  This is the same per-task GPU
+# ask as a single job (gpu:1) — NOT a larger request — so per-task queue wait is
+# unchanged; the scheduler backfills the 5 tasks as GPUs free up (parallel when
+# available, graceful when scarce).  --requeue auto-resubmits a fold if the
+# preemptable QOS preempts it (only that fold is lost, not the whole run).
+#
+# After ALL array tasks finish, aggregate (no GPU needed):
+#   PYTHONPATH=src python -m models.aggregate_folds \
+#     --dirs 'results/model_deep_ensemble/de_ocean_f*' --label DeepEns \
+#     --out results/model_comparison/deep_ensemble_ocean_kfold_agg.md
+# (aggregate_folds picks the alphabetically-first metrics json = de_mondrian_*.)
 
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8 cuda/12.1.1
 conda activate data
@@ -35,37 +49,28 @@ nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,
            --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}.csv &
 GPU_MONITOR_PID=$!
 
-# Deep-ensemble MLP (M Gaussian-NLL members) + conformal calibration.
-# The accuracy-leading MLP ties TabM but has no intervals; this gives it intervals
-# and recalibrates them.  Each run writes THREE metric sets sharing the same point
-# predictions (identical RMSE/R²; only intervals differ):
-#   de_raw_*       — raw Gaussian-mixture 90% interval
-#   de_split_*     — global split conformal
-#   de_mondrian_*  — regime-conditional (predicted-mu decile) conformal  ← headline
+# Deep-ensemble MLP (M Gaussian-NLL members) + conformal calibration.  Each run
+# writes THREE interval sets sharing the same point predictions (de_raw / de_split /
+# de_mondrian; identical RMSE/R², only intervals differ).  Mondrian is binned by
+# cld_dist_km (physical proxy for the cloud-contaminated tail), NOT predicted mu:
+# the local check showed mu-deciles do not isolate the y-defined tail.
+# M=3 (local check: M=3 already gives global cov90≈0.88) and batch 8192 cut GPU time.
 #
-# NOTE on conformal under date-blocking: the calibration block is carved from TRAIN
-# dates, so it is NOT the same dates as the held fold → calib/test are not strictly
-# exchangeable and coverage is approximate (mild on many-date data, watch de_*_cov90).
+# NOTE: under date-blocking the calibration block is different dates from the held
+# fold, so conformal coverage is approximate (not exchangeable).  On the 12-date
+# local check it held (~0.88); watch de_*_cov90 here.
 
-# ── Block-rotation k-fold over dates, ocean (M=5) ─────────────────────────────
+F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
-for F in $(seq 0 $((NFOLDS-1))); do
-  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_f${F} \
-    --n_members 5 --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
 
-# Aggregate (compare to TabM/MLP/XGB k-fold).  Pull the de_mondrian_* metric per fold:
-#   PYTHONPATH=src python -m models.aggregate_folds \
-#     --dirs 'results/model_deep_ensemble/de_ocean_f*' --label DeepEns \
-#     --out results/model_comparison/deep_ensemble_ocean_kfold_agg.md
-# (aggregate_folds picks the alphabetically-first metrics json: de_mondrian_*; if you
-#  want raw/split instead, move/rename or aggregate by hand.)
+# ── Ocean (sfc 0) ─────────────────────────────────────────────────────────────
+python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_f${F} \
+  --n_members 3 --batch_size 8192 --mondrian_col cld_dist_km \
+  --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-# ── Land (sfc 1): uncomment to repeat ─────────────────────────────────────────
-# NFOLDS=5
-# for F in $(seq 0 $((NFOLDS-1))); do
-#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_f${F} \
-#     --n_members 5 --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
+# ── Land (sfc 1): uncomment to also run land in the same array task ───────────
+# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_f${F} \
+#   --n_members 3 --batch_size 8192 --mondrian_col cld_dist_km \
+#   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true

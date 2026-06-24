@@ -241,6 +241,17 @@ def load_shared_data(sat):
             "snow_flag": _load_grp("Retrieval",  "snow_flag"),
             "t700": _load_grp("Retrieval",  "t700"),
             "tcwv": _load_grp("Retrieval",  "tcwv"),
+            # Spectral-fit-quality diagnostics (candidate cloud-contamination
+            # fingerprints; admissible — derived from the sounding's own spectrum/fit).
+            "chi2_o2a":  _load_grp("Retrieval", "chi2_o2a"),
+            "chi2_wco2": _load_grp("Retrieval", "chi2_wco2"),
+            "chi2_sco2": _load_grp("Retrieval", "chi2_sco2"),
+            "rms_rel_o2a":  _load_grp("Retrieval", "rms_rel_o2a"),
+            "rms_rel_wco2": _load_grp("Retrieval", "rms_rel_wco2"),
+            "rms_rel_sco2": _load_grp("Retrieval", "rms_rel_sco2"),
+            "eof3_1_rel":      _load_grp("Retrieval", "eof3_1_rel"),
+            "diverging_steps": _load_grp("Retrieval", "diverging_steps"),
+            "xco2_uncertainty": _load("xco2_uncertainty"),   # root-level var
         }
 
     lite_index = {int(sid): i for i, sid in enumerate(lt_id)}
@@ -1074,6 +1085,17 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "tcwv":        _lite("tcwv"),
         "operation_mode": _lite("operation_mode"),
         "water_height": _lite("water_height"),
+        # Spectral-fit-quality diagnostics (Tier-A candidate features for the
+        # cloud-contamination tail; see TABM_PLAN "New-feature investigation").
+        "chi2_o2a":     _lite("chi2_o2a"),
+        "chi2_wco2":    _lite("chi2_wco2"),
+        "chi2_sco2":    _lite("chi2_sco2"),
+        "rms_rel_o2a":  _lite("rms_rel_o2a"),
+        "rms_rel_wco2": _lite("rms_rel_wco2"),
+        "rms_rel_sco2": _lite("rms_rel_sco2"),
+        "eof3_1_rel":      _lite("eof3_1_rel"),
+        "diverging_steps": _lite("diverging_steps"),
+        "xco2_uncertainty": _lite("xco2_uncertainty"),
         # Fitting intercept (exponential)
         "exp_intercept_o2a":  exp_intercept_o2a,
         "exp_intercept_wco2": exp_intercept_wco2,
