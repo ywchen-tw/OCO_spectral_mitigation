@@ -85,14 +85,49 @@ else:
 - `lightgbm` is **not installed** in the base env (`gbdt_baselines.py` falls back xgboost→lightgbm→sklearn; `--model lightgbm` errors clearly if absent — `pip install lightgbm` first).
 
 ### CURC launch scripts (repo root)
-- `curc_shell_blanca_train_tabm.sh` — GPU; primary K=16 ocean random + date, with K-sweep / loss / feature-set / aux / seed examples commented.
-- `curc_shell_blanca_train_gbdt.sh` — **CPU-only** (no `--gres`); XGBoost random + date (LightGBM commented behind `pip install`).
-- `curc_shell_blanca_train_mlp_baseline.sh` — GPU; MLP baseline random + date.
+- `curc_shell_blanca_train_tabm.sh` — GPU; primary K=16 ocean random + date, with K-sweep / loss / feature-set / aux / seed / date_kfold examples commented.
+- `curc_shell_blanca_train_gbdt.sh` — **CPU-only** (no `--gres`); XGBoost random + date + date_kfold (LightGBM commented behind `pip install`).
+- `curc_shell_blanca_train_mlp_baseline.sh` — GPU; MLP baseline random + date + date_kfold.
+- `curc_shell_blanca_train_geom_mlp.sh` — GPU; geometry experiment (none/concat/film × 5-fold date_kfold).
 
-All three launch from the **repo root** with `src` on `PYTHONPATH`
+All launch from the **repo root** with `src` on `PYTHONPATH`
 (`cd <repo> && PYTHONPATH=src python -m models.<name>`): the modules mix relative
 (`.pipeline`) and absolute (`utils`, `search.tracking`) imports, and
 `get_storage_dir()` is cwd-relative (`./results/...`), so cwd must be the repo root.
+
+---
+
+## Post-kfold findings & next steps (2026-06-23 → open)
+
+The first rigorous unseen-date evaluation is in
+`results/model_comparison/ocean_robustness_comparison.md` (5-fold `date_kfold`,
+paired per-fold). **Key result:** the random split overstated everything by ~0.3 R²
+via same-day leakage. Under k-fold, ocean point accuracy is **TabM ≈ MLP > XGB**
+(TabM−MLP Δ=+0.007, n.s.; TabM−XGB Δ=+0.039, marginal; MLP−XGB Δ=+0.033, p≈0.02).
+TabM's random-split left-tail dominance **reverses** (MLP best in the tail), and
+both interval models under-cover the left tail (~0.66 vs nominal 0.90). What
+survives: TabM is the only single model competitive on *both* accuracy and
+calibrated/monotone intervals — "no accuracy cost for free calibrated uncertainty,"
+not better predictions. The strongest publishable point is methodological
+(random-split leakage). Decision rule from the validation section therefore fires →
+pivot the claim to calibration, and pursue:
+
+1. **Conformal calibration wrapper** (split / Mondrian by regime) — fixes the one
+   clear weakness (left-tail under-coverage); applies to TabM, XGB, and ensembles. **Not yet built.**
+2. **Deep-ensemble MLP** — the accuracy leader lacks intervals; an ensemble gives
+   them for free and may match TabM's calibration with a simpler model. **Not yet built.**
+3. **Geometry experiment — `geom_mlp.py` (built, results pending).** Tests whether a
+   richer geometry representation helps the MLP backbone: periodic (sin/cos harmonic)
+   embeddings of raw angles (`sza, vza, glint_angle, pol_angle, lat, lon`) + optional
+   FiLM gate. Modes `none` (control) / `concat` / `film`; advantage = (concat|film) −
+   none read **paired per fold**. Motivated by Lee et al. (MileTS '19) — but their
+   metadata→attention-map fusion is image-specific and does not transfer; the
+   transferable lesson (physical geometry transforms > raw) is **already** in the
+   pipeline (`cos_glint`, `1/cos(sza)`), so this only adds the missing sin terms,
+   harmonics, and location. _Read:_ if concat/film ≈ none within paired noise →
+   geometry representation is not the lever, stop; if > none and concentrated in
+   near-cloud / high-AOD / left-tail → port periodic embeddings into TabM.
+   **➤ UPDATE THIS BULLET with the `geom_ocean_kfold_agg.md` numbers once the CURC run returns.**
 
 ---
 

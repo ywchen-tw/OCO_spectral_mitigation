@@ -55,7 +55,7 @@ GPU_MONITOR_PID=$!
 # read per-fold (paired) since folds share the held set.
 
 # ── Block-rotation k-fold over dates: control (none) vs concat vs film ─────────
-# NFOLDS=5
+NFOLDS=5
 # for F in $(seq 0 $((NFOLDS-1))); do
 #   python -m models.geom_mlp --sfc_type 0 --suffix geom_ocean_none_f${F}   --geom_mode none   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 #   python -m models.geom_mlp --sfc_type 0 --suffix geom_ocean_concat_f${F} --geom_mode concat --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
