@@ -174,8 +174,12 @@ Candidate unused variables found by inventorying the L1b + L2-Lite files (see ch
   spectral fit per band — the textbook contamination flag), `eof3_1_rel` (systematic
   spectral-residual structure), `diverging_steps` (convergence difficulty),
   `xco2_uncertainty` (posterior error). Added to both the Lite loader and `output_dict`;
-  verified all 10 load (100% finite). **Requires re-running the Phase pipeline to
-  regenerate the combined parquet before they reach the model.**
+  verified all 10 load (100% finite). Exposed to all models as **`--feature_set full_fitqual`**
+  (`pipeline.py`: base `full` + the 9 cols = 36 features; an *add*-type set, vs the
+  drop-type `no_xco2`/`no_spec`). Compare **paired** vs `--feature_set full` under
+  `date_kfold` (advantage = full_fitqual − full per fold).
+  **Requires re-running the Phase pipeline to regenerate the combined parquet first**
+  (else `df[qt_features]` raises KeyError on the missing columns).
 - **Tier B — L1b spike/residual (not yet done):** `SpikeEOF/spike_eof_weighted_residual_*`
   (per-pixel deviation from clean EOF reconstruction → aggregate mean/max/std per band)
   and `spike_eof_bad_colors_*` (per-sounding scalar), `rad_continuum_*`. Needs per-orbit,

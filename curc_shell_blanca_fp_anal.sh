@@ -1,8 +1,8 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=16
-#SBATCH --ntasks-per-node=16
+#SBATCH --ntasks=8
+#SBATCH --ntasks-per-node=8
 #SBATCH --time=24:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
@@ -41,8 +41,8 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # Specify year, month, and day ranges
 start_year=2020
 end_year=2020
-start_month=11
-end_month=12
+start_month=10
+end_month=10
 start_day=1
 end_day=1
 
