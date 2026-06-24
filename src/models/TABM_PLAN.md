@@ -112,22 +112,31 @@ not better predictions. The strongest publishable point is methodological
 (random-split leakage). Decision rule from the validation section therefore fires →
 pivot the claim to calibration, and pursue:
 
-1. **Conformal calibration wrapper** (split / Mondrian by regime) — fixes the one
-   clear weakness (left-tail under-coverage); applies to TabM, XGB, and ensembles. **Not yet built.**
-2. **Deep-ensemble MLP** — the accuracy leader lacks intervals; an ensemble gives
-   them for free and may match TabM's calibration with a simpler model. **Not yet built.**
-3. **Geometry experiment — `geom_mlp.py` (built, results pending).** Tests whether a
-   richer geometry representation helps the MLP backbone: periodic (sin/cos harmonic)
-   embeddings of raw angles (`sza, vza, glint_angle, pol_angle, lat, lon`) + optional
-   FiLM gate. Modes `none` (control) / `concat` / `film`; advantage = (concat|film) −
-   none read **paired per fold**. Motivated by Lee et al. (MileTS '19) — but their
-   metadata→attention-map fusion is image-specific and does not transfer; the
-   transferable lesson (physical geometry transforms > raw) is **already** in the
-   pipeline (`cos_glint`, `1/cos(sza)`), so this only adds the missing sin terms,
-   harmonics, and location. _Read:_ if concat/film ≈ none within paired noise →
-   geometry representation is not the lever, stop; if > none and concentrated in
-   near-cloud / high-AOD / left-tail → port periodic embeddings into TabM.
-   **➤ UPDATE THIS BULLET with the `geom_ocean_kfold_agg.md` numbers once the CURC run returns.**
+1. **Conformal calibration wrapper** — BUILT: `models/conformal.py` (split + Mondrian,
+   pure-numpy, unit-tested: split cov 0.898, per-bin 0.88–0.93). Model-agnostic; bins
+   must be observable (predicted-mu deciles by default, never y). Currently wired into
+   the deep ensemble; applying it to saved TabM/XGB is a follow-up (needs a calibration
+   re-run with their predictions).
+2. **Deep-ensemble MLP** — BUILT: `models/deep_ensemble.py` + `curc_shell_blanca_train_deep_ensemble.sh`.
+   M Gaussian-NLL members → mixture (mu*, sigma*); conformal calibration inline (calib
+   block carved from TRAIN dates). Writes 3 interval variants per run (`de_raw_*`,
+   `de_split_*`, `de_mondrian_*`) sharing the same point predictions. **Results pending
+   CURC** (5-fold date_kfold, M=5, ocean). _Caveat:_ under date-blocking the calibration
+   dates ≠ test dates, so conformal coverage is *approximate* (not exchangeable) — watch
+   `de_*_cov90`; mild on many-date data, was visible on the 6-date local fixture.
+   **➤ UPDATE with the de_mondrian k-fold cov90 / R² vs TabM once CURC returns.**
+3. **Geometry experiment — `geom_mlp.py` (DONE 2026-06-24 → NULL result).** Tested
+   whether a richer geometry representation helps the MLP backbone: periodic (sin/cos
+   harmonic, H=4) embeddings of raw angles (`sza, vza, glint_angle, pol_angle, lat,
+   lon`) + optional FiLM gate, `none`/`concat`/`film`, 5-fold `date_kfold`, paired.
+   **Verdict: no help.** Ocean concat−none ΔR²=−0.008 (t≈−0.87), film−none +0.001
+   (t≈0.17); land concat−none −0.011 (t≈−1.83), film−none +0.003 (t≈0.41); all
+   per-regime deltas within fold noise, including the left tail. Geometry is already
+   adequately encoded by the pipeline (`cos_glint`, `1/cos(sza)`, `airmass`); the new
+   sin/harmonic/location content adds no signal. Confirms Lee et al. (MileTS '19) does
+   not transfer (their gain was *introducing* geometry + an image attention map;
+   neither applies). **Geometry track dropped — do not port to TabM.** Full writeup:
+   `results/model_comparison/geom_experiment_verdict.md`.
 
 ---
 
