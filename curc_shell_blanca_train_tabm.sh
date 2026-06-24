@@ -104,15 +104,15 @@ GPU_MONITOR_PID=$!
 #     --dirs 'results/model_gbdt/gbdt_ocean_kfold_f*'  --label XGB \
 #     --dirs 'results/model_mlp_baseline/mlp_ocean_kfold_f*' --label MLP \
 #     --out results/model_comparison/ocean_kfold_agg.md
-NFOLDS=5
-for F in $(seq 0 $((NFOLDS-1))); do
-  python -m models.tabm --sfc_type 0 --suffix tabm_ocean_kfold_f${F} --K 16 \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
-# # land:
+# NFOLDS=5
 # for F in $(seq 0 $((NFOLDS-1))); do
-#   python -m models.tabm --sfc_type 1 --suffix tabm_land_kfold_f${F} --K 16 \
+#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_kfold_f${F} --K 16 \
 #     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 # done
+# # land:
+for F in $(seq 0 $((NFOLDS-1))); do
+  python -m models.tabm --sfc_type 1 --suffix tabm_land_kfold_f${F} --K 16 \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
