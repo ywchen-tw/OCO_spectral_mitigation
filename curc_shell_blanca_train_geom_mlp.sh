@@ -55,12 +55,12 @@ GPU_MONITOR_PID=$!
 # read per-fold (paired) since folds share the held set.
 
 # ── Block-rotation k-fold over dates: control (none) vs concat vs film ─────────
-NFOLDS=5
-for F in $(seq 0 $((NFOLDS-1))); do
-  python -m models.geom_mlp --sfc_type 0 --suffix geom_ocean_none_f${F}   --geom_mode none   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-  python -m models.geom_mlp --sfc_type 0 --suffix geom_ocean_concat_f${F} --geom_mode concat --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-  python -m models.geom_mlp --sfc_type 0 --suffix geom_ocean_film_f${F}   --geom_mode film   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
+# NFOLDS=5
+# for F in $(seq 0 $((NFOLDS-1))); do
+#   python -m models.geom_mlp --sfc_type 0 --suffix geom_ocean_none_f${F}   --geom_mode none   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+#   python -m models.geom_mlp --sfc_type 0 --suffix geom_ocean_concat_f${F} --geom_mode concat --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+#   python -m models.geom_mlp --sfc_type 0 --suffix geom_ocean_film_f${F}   --geom_mode film   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# done
 
 # Aggregate + compare (control vs each fusion) after the run:
 #   PYTHONPATH=src python -m models.aggregate_folds \
@@ -70,10 +70,10 @@ done
 #     --out results/model_comparison/geom_ocean_kfold_agg.md
 
 # ── Land (sfc 1): uncomment to repeat ─────────────────────────────────────────
-# for F in $(seq 0 $((NFOLDS-1))); do
-#   python -m models.geom_mlp --sfc_type 1 --suffix geom_land_none_f${F}   --geom_mode none   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-#   python -m models.geom_mlp --sfc_type 1 --suffix geom_land_concat_f${F} --geom_mode concat --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-#   python -m models.geom_mlp --sfc_type 1 --suffix geom_land_film_f${F}   --geom_mode film   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
+for F in $(seq 0 $((NFOLDS-1))); do
+  python -m models.geom_mlp --sfc_type 1 --suffix geom_land_none_f${F}   --geom_mode none   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+  python -m models.geom_mlp --sfc_type 1 --suffix geom_land_concat_f${F} --geom_mode concat --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+  python -m models.geom_mlp --sfc_type 1 --suffix geom_land_film_f${F}   --geom_mode film   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
