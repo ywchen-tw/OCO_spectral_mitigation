@@ -180,6 +180,15 @@ Candidate unused variables found by inventorying the L1b + L2-Lite files (see ch
   `date_kfold` (advantage = full_fitqual − full per fold).
   **Requires re-running the Phase pipeline to regenerate the combined parquet first**
   (else `df[qt_features]` raises KeyError on the missing columns).
+  **PRELIMINARY VERDICT (2026-06-24, NULL):** on the regenerated `combined_2020_dates.parquet`
+  (ocean, HistGBR random split), full_fitqual vs full = **ΔR² +0.003 overall, tail R² −0.001**,
+  and kNN tail irreducibility unchanged (0.619→0.625). Scale-invariant tree → not a scaling
+  artifact. Cause: OCO-2 QC already filters on χ²/dp, so post-QC fit-quality adds ~no signal.
+  Converges with the geometry null + noise floor → *the contaminated tail is not predictable
+  from the spectrum, its retrieval state, or its fit quality (post-QC)* — a publishable
+  negative result. Confirmatory date_kfold pair on CURC optional (expectations low). Full
+  writeup: `results/model_comparison/fitqual_feature_verdict.md`. Remaining lever: Tier-B
+  L1b per-pixel spike residual.
 - **Tier B — L1b spike/residual (not yet done):** `SpikeEOF/spike_eof_weighted_residual_*`
   (per-pixel deviation from clean EOF reconstruction → aggregate mean/max/std per band)
   and `spike_eof_bad_colors_*` (per-sounding scalar), `rad_continuum_*`. Needs per-orbit,
