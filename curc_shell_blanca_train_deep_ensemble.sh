@@ -64,13 +64,13 @@ F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
 
 # ── Ocean (sfc 0) ─────────────────────────────────────────────────────────────
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_f${F} \
-  --n_members 3 --batch_size 8192 --mondrian_col cld_dist_km \
-  --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
-# ── Land (sfc 1): uncomment to also run land in the same array task ───────────
-# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_f${F} \
+# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_f${F} \
 #   --n_members 3 --batch_size 8192 --mondrian_col cld_dist_km \
 #   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+# ── Land (sfc 1): uncomment to also run land in the same array task ───────────
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_f${F} \
+  --n_members 3 --batch_size 8192 --mondrian_col cld_dist_km \
+  --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
