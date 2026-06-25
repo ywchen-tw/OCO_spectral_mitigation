@@ -221,6 +221,14 @@ def main():
     p.add_argument('--calib_frac', type=float, default=0.15,
                    help='Fraction of TRAIN dates carved out as the conformal '
                         'calibration block (date split when possible).')
+    p.add_argument('--near_cloud_target', type=float, default=None,
+                   help="If set (e.g. 0.975), raise the conformal target in the "
+                        "near-cloud Mondrian bins (<= --near_cloud_km) to over-cover "
+                        "the outcome-defined near-cloud tail; far bins stay at 0.90. "
+                        "Requires --mondrian_col cld_dist_km.")
+    p.add_argument('--near_cloud_km', type=float, default=10.0,
+                   help="Cloud-distance threshold (km) defining 'near' bins for "
+                        "--near_cloud_target.")
     p.add_argument('--mondrian_bins', type=int, default=10)
     p.add_argument('--mondrian_col', type=str, default='mu',
                    help="Observable variable for Mondrian bins: 'mu' (predicted-mean "
@@ -329,8 +337,20 @@ def main():
     bin_te = _bin_values(args.mondrian_col, held_valid, mu_te)
     cal_bin, edges = cf.make_quantile_bins(bin_cal, args.mondrian_bins)
     te_bin, _ = cf.make_quantile_bins(bin_te, args.mondrian_bins, edges=edges)
+    # Optionally over-cover the near-cloud bins (the only lever for the
+    # outcome-defined near-cloud tail, which a flat target cannot guarantee).
+    bin_alpha = None
+    if args.near_cloud_target is not None:
+        if args.mondrian_col != 'cld_dist_km':
+            raise ValueError("--near_cloud_target requires --mondrian_col cld_dist_km")
+        is_near_cal = calib_valid['cld_dist_km'].to_numpy(dtype=float) <= args.near_cloud_km
+        bin_alpha = cf.regime_alphas(cal_bin, is_near_cal,
+                                     near_alpha=1.0 - args.near_cloud_target, far_alpha=0.10)
+        print(f"  near-cloud target {args.near_cloud_target} (<= {args.near_cloud_km}km): "
+              f"{sum(a < 0.10 for a in bin_alpha.values())}/{len(bin_alpha)} bins elevated")
     preds_mond, q_by_bin = cf.mondrian_conformal(y_cal, mu_cal, sig_cal, cal_bin,
-                                                 mu_te, sig_te, te_bin, alpha=0.10)
+                                                 mu_te, sig_te, te_bin, alpha=0.10,
+                                                 bin_alpha=bin_alpha)
 
     results = {}
     for tag, preds in [('raw', preds_raw), ('split', preds_split), ('mondrian', preds_mond)]:
@@ -368,7 +388,9 @@ def main():
                      'q_split': q_split, 'q_by_bin': q_by_bin, 'mondrian_edges': edges.tolist(),
                      'mondrian_col': args.mondrian_col,
                      'feature_set': args.feature_set, 'val_split': args.val_split,
-                     'loss': args.loss, 'nu': args.nu, 'beta': args.beta}, f)
+                     'loss': args.loss, 'nu': args.nu, 'beta': args.beta,
+                     'near_cloud_target': args.near_cloud_target,
+                     'near_cloud_km': args.near_cloud_km}, f)
 
     g = results['mondrian']
     summary = RunSummary(

@@ -72,18 +72,41 @@ def make_quantile_bins(values, n_bins: int, edges=None):
     return idx.astype(int), edges
 
 
+def regime_alphas(cal_bin, is_near, near_alpha: float, far_alpha: float,
+                  frac: float = 0.5) -> dict:
+    """Build a per-bin alpha map: a bin gets ``near_alpha`` if at least ``frac`` of
+    its calibration points are flagged ``is_near`` (e.g. cloud distance <= 10 km),
+    else ``far_alpha``.
+
+    Used to *deliberately over-cover* the near-cloud regime (near_alpha < far_alpha
+    ⇒ higher target there): the only way to lift coverage on the outcome-defined
+    tail, which conformal cannot guarantee at a flat target by construction.
+    """
+    cal_bin = np.asarray(cal_bin, dtype=int)
+    is_near = np.asarray(is_near, dtype=bool)
+    return {int(b): (near_alpha if is_near[cal_bin == b].mean() >= frac else far_alpha)
+            for b in np.unique(cal_bin)}
+
+
 def mondrian_conformal(cal_y, cal_mu, cal_sigma, cal_bin,
                        test_mu, test_sigma, test_bin,
-                       alpha: float = 0.10, min_per_bin: int = 50):
+                       alpha: float = 0.10, min_per_bin: int = 50,
+                       bin_alpha: 'dict | None' = None):
     """Regime-conditional conformal: a separate ``q`` per bin.
 
     Bins with fewer than ``min_per_bin`` calibration points fall back to the global
     ``q`` (avoids degenerate intervals from tiny bins).  Returns (preds [N,3], q_by_bin).
+
+    ``bin_alpha`` optionally overrides the scalar ``alpha`` per bin (see
+    ``regime_alphas``); bins absent from the dict use the scalar ``alpha``.  Each
+    bin's global fallback is also computed at that bin's alpha.
     """
     cal_bin = np.asarray(cal_bin, dtype=int)
     test_bin = np.asarray(test_bin, dtype=int)
     scores = normalized_scores(cal_y, cal_mu, cal_sigma)
-    global_q = conformal_quantile(scores, alpha)
+
+    def _alpha(b):
+        return bin_alpha.get(int(b), alpha) if bin_alpha else alpha
 
     test_mu = np.asarray(test_mu, dtype=float)
     test_sigma = np.asarray(test_sigma, dtype=float)
@@ -91,8 +114,10 @@ def mondrian_conformal(cal_y, cal_mu, cal_sigma, cal_bin,
     hi = np.empty_like(test_mu)
     q_by_bin = {}
     for b in np.unique(test_bin):
+        a = _alpha(b)
         m = cal_bin == b
-        q = conformal_quantile(scores[m], alpha) if m.sum() >= min_per_bin else global_q
+        q = conformal_quantile(scores[m], a) if m.sum() >= min_per_bin \
+            else conformal_quantile(scores, a)
         q_by_bin[int(b)] = float(q)
         tm = test_bin == b
         lo[tm] = test_mu[tm] - q * test_sigma[tm]

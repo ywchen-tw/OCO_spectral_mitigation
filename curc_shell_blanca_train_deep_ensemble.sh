@@ -31,7 +31,7 @@
 
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8 cuda/12.1.1
 conda activate data
-pip install tabulate
+# pip install tabulate
 
 if [[ "$(uname -s)" == "Linux" ]]; then
     export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
@@ -79,13 +79,20 @@ NFOLDS=5
 # Suffix encodes loss: de_{surface}_{loss}_f{F}.  (Drop the gaussian_nll line to
 # run beta-only and halve the cost.)
 
+# --near_cloud_target raises the conformal target in the near-cloud (<=10km)
+# Mondrian bins to over-cover the outcome-defined near-cloud tail (far bins stay
+# 0.90, so far intervals stay tight).  Validated under date_kfold (fold-0 ocean):
+# near&tail-5% coverage 0.70 -> 0.865 at +51% near-cloud width; 0.975 lands ~0.865
+# under date-shift, so 0.98 is used to push the tail nearer 0.90.  Applied to the
+# production loss (beta_nll); gaussian stays flat as the clean coverage reference.
 for LOSS in gaussian_nll beta_nll; do
+  NCT=""; [ "${LOSS}" = "beta_nll" ] && NCT="--near_cloud_target 0.98"
 #   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${LOSS}_f${F} \
-#     --loss ${LOSS} --beta 1.0 --n_members 3 --batch_size 8192 \
+#     --loss ${LOSS} --beta 1.0 --n_members 3 --batch_size 8192 ${NCT} \
 #     --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${LOSS}_f${F} \
-    --loss ${LOSS} --beta 1.0 --n_members 3 --batch_size 8192 \
+    --loss ${LOSS} --beta 1.0 --n_members 3 --batch_size 8192 ${NCT} \
     --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
 

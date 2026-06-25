@@ -530,37 +530,37 @@ def main():
                  '20200915', '20201015', '20201115', '20201215'
                  ]
     
-    # date_list = [
-                #  '20141217', 
-                #  '20150629', '20150706', '20150713', '20150715',
-                #  '20160910',
-                #  '20180221', '20180313', '20180710', '20180902',
-                #  '20181024', '20181129', '20181130',
-                #  '20190313', '20190710', '20190730', '20190914',
-                #  '20200115', '20200211', '20200330', 
-                #  '20200405', '20200415', 
-                #  '20200517', '20200711', '20200726', 
+    date_list = [
+                 '20141217', 
+                 '20150629', '20150706', '20150713', '20150715',
+                 '20160910',
+                 '20180221', '20180313', '20180710', '20180902',
+                 '20181024', '20181129', '20181130',
+                 '20190313', '20190710', '20190730', '20190914',
+                 '20200115', '20200211', '20200330', 
+                 '20200405', '20200415', 
+                 '20200517', '20200711', '20200726', 
                 
-                #  '20200906', '20200916', 
-                #  '20201005', '20201223', '20201224', 
-                #  '20210210', '20210318', '20210329', '20210424', 
-                #  '20210526', '20210609', '20210621', 
-                #  '20210703', '20210727', 
-                #  '20210825', '20210906', '20210908', '20210926',
-                #  '20211016', '20211229',
-    #             ]  
+                 '20200906', '20200916', 
+                 '20201005', '20201223', '20201224', 
+                 '20210210', '20210318', '20210329', '20210424', 
+                 '20210526', '20210609', '20210621', 
+                 '20210703', '20210727', 
+                 '20210825', '20210906', '20210908', '20210926',
+                 '20211016', '20211229',
+                ]  
     
         
-    # for date in date_list:
-    #     date_dt = datetime.strptime(date, '%Y%m%d')
-    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    for date in date_list:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
-    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
-    csv_output_dir = os.path.join(fdir, 'csv_collection')
-    output_fname = 'combined_2016_2020_dates.parquet'
-    # output_fname = 'combined_2020_dates.parquet'
-    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+    # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    # csv_output_dir = os.path.join(fdir, 'csv_collection')
+    # output_fname = 'combined_2016_2020_dates.parquet'
+    # # output_fname = 'combined_2020_dates.parquet'
+    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()
