@@ -103,15 +103,15 @@ NFOLDS=5
 # ocean, one fold per array task — mirrors the de_ocean_beta_nll_f${F} baseline so
 # the only difference is the feature set.  Suffix: de_ocean_{feature_set}_f{F}.
 for FS in no_xco2 no_spec; do
-  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_f${F} \
-    --feature_set ${FS} --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
-#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_f${F} \
+#   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_f${F} \
 #     --feature_set ${FS} --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
 #     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
 #     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_f${F} \
+    --feature_set ${FS} --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
