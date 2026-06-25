@@ -13,7 +13,7 @@
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
 #SBATCH --gres=gpu:1
-#SBATCH --array=0-2
+#SBATCH --array=0-5
 #SBATCH --requeue
 
 # NEAR-CLOUD-WEIGHT ABLATION (fold-0, beta_nll).
@@ -27,11 +27,13 @@
 # is used ONLY for this weighting (and Mondrian binning) -- it is NOT a model
 # feature.
 #
-# 3 array tasks = the weight sweep K={1,3,5}.  Each task runs BOTH surfaces
-# sequentially (ocean sfc_type 0 + land sfc_type 1, like the production script),
-# gpu:1, ~2 surfaces x 5 members ≈ 10h, under the 16h wall.  As in production,
-# the two surfaces are explicit lines below -- comment one out to run a single
-# surface.  Read off near-cloud R2/RMSE vs far-cloud cost across both surfaces:
+# 6 array tasks = {ocean, land} x K={1,3,5}, each an INDEPENDENT gpu:1 job (like
+# the production fold-array), so the scheduler backfills them across GPUs in
+# parallel.  Surface is selected by the array index (tasks 0-2 = ocean, 3-5 =
+# land), so each surface lands on its OWN GPU -- a single array task only ever
+# runs ONE surface (one job = one GPU = sequential body).  ~5h/task under the 8h
+# wall.  Comment out a whole surface block below to skip it.  Read off near-cloud
+# R2/RMSE vs far-cloud cost across both surfaces:
 #   awk -F, '$1=="cloud_proximity"{print FILENAME,$2,"r2="$6}' \
 #     results/model_deep_ensemble/de_*_beta_nll_ncw*_f0/de_raw_date_kfold_stratified_metrics.csv
 # K=1 reproduces the current production baselines (sanity check it matches
@@ -59,22 +61,28 @@ nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,
            --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}.csv &
 GPU_MONITOR_PID=$!
 
-# Array index -> near-cloud weight (K=1 is the unweighted baseline).
+# Array index -> (surface, near-cloud weight).  Tasks 0-2 = ocean K={1,3,5},
+# tasks 3-5 = land K={1,3,5}.  K=1 is the unweighted baseline per surface.
 WEIGHTS=(1 3 5)
-W=${WEIGHTS[$SLURM_ARRAY_TASK_ID]}
+W=${WEIGHTS[$((SLURM_ARRAY_TASK_ID % 3))]}
+SI=$((SLURM_ARRAY_TASK_ID / 3))   # 0 = ocean, 1 = land
 F=0
 NFOLDS=5
 
-# Ocean (sfc_type 0)
-# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_ncw${W}_f${F} \
-#   --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#   --near_cloud_weight ${W} --near_cloud_km 10.0 --near_cloud_target 0.98 \
-#   --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# Ocean (sfc_type 0) -- runs on array tasks 0-2 only
+if [ "$SI" -eq 0 ]; then
+  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_ncw${W}_f${F} \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --near_cloud_weight ${W} --near_cloud_km 10.0 --near_cloud_target 0.98 \
+    --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+fi
 
-# Land (sfc_type 1)
-python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_ncw${W}_f${F} \
-  --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-  --near_cloud_weight ${W} --near_cloud_km 10.0 --near_cloud_target 0.98 \
-  --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# Land (sfc_type 1) -- runs on array tasks 3-5 only
+if [ "$SI" -eq 1 ]; then
+  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_ncw${W}_f${F} \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --near_cloud_weight ${W} --near_cloud_km 10.0 --near_cloud_target 0.98 \
+    --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+fi
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
