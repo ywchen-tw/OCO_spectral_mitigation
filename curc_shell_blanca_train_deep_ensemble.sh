@@ -84,9 +84,9 @@ for LOSS in gaussian_nll beta_nll; do
     --loss ${LOSS} --beta 1.0 --n_members 3 --batch_size 8192 \
     --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${LOSS}_f${F} \
-    --loss ${LOSS} --beta 1.0 --n_members 3 --batch_size 8192 \
-    --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${LOSS}_f${F} \
+#     --loss ${LOSS} --beta 1.0 --n_members 3 --batch_size 8192 \
+#     --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
