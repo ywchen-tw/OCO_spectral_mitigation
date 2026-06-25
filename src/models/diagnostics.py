@@ -196,6 +196,20 @@ def _build_regimes(meta: pd.DataFrame, y: np.ndarray) -> dict:
         tail[f'bottom_{int(frac*100)}pct'] = m
     regimes['left_tail'] = tail
 
+    # Crossed regime: the contaminated tail *within* near-cloud.  This is the
+    # deployment-relevant metric when corrections are applied near-cloud only and
+    # the large anomalies (which concentrate near-cloud) are what we care about.
+    if 'cld_dist_km' in meta.columns:
+        near = meta['cld_dist_km'].to_numpy(dtype=float) <= 10.0
+        crossed = {}
+        for frac in (0.05, 0.10):
+            k = max(1, int(np.floor(frac * n)))
+            tail_mask = np.zeros(n, dtype=bool)
+            tail_mask[order[:k]] = True
+            crossed[f'near&bottom_{int(frac*100)}pct'] = near & tail_mask
+        crossed['near&bulk(rest)'] = near & ~tail['bottom_10pct']
+        regimes['near_cloud_tail'] = crossed
+
     return regimes
 
 
@@ -242,6 +256,55 @@ def stratified_metrics(meta: pd.DataFrame,
             'pinball_q05', 'pinball_q50', 'pinball_q95']
     df = pd.DataFrame(rows)
     return df[[c for c in cols if c in df.columns]]
+
+
+def correction_by_cloud_distance(meta: pd.DataFrame,
+                                 y: np.ndarray,
+                                 point_pred: np.ndarray,
+                                 edges=(0.0, 2.0, 5.0, 10.0, 20.0, 50.0, np.inf),
+                                 col: str = 'cld_dist_km') -> pd.DataFrame:
+    """Correction effectiveness as a function of cloud distance.
+
+    For each cloud-distance bin compares the anomaly magnitude *before* the
+    correction (|y|, since the uncorrected residual from truth IS the anomaly)
+    to the magnitude *after* subtracting the model's point prediction
+    (|y - yhat|).  Answers: 'how much does applying the predicted correction
+    shrink the anomaly in the near-cloud footprints, and where does it stop
+    helping?'
+
+    point_pred may be a 1-D point array or the (lo, mid, hi) interval matrix
+    (the middle column is taken as the point estimate).
+
+    Returns long-format: bin, lo_km, hi_km, n, pre_rms, post_rms,
+    rms_reduction_pct, pre_bias, post_bias, pre_std, post_std, r2.
+    """
+    y = np.asarray(y, dtype=float)
+    yhat = np.asarray(point_pred, dtype=float)
+    if yhat.ndim > 1:
+        yhat = yhat[:, yhat.shape[1] // 2]
+    if col not in meta.columns:
+        return pd.DataFrame()
+    cd = meta[col].to_numpy(dtype=float)
+    resid = y - yhat
+    rows = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        m = (cd >= lo) & (cd < hi) & np.isfinite(cd)
+        if m.sum() == 0:
+            continue
+        yy, rr = y[m], resid[m]
+        pre_rms = float(np.sqrt(np.mean(yy ** 2)))
+        post_rms = float(np.sqrt(np.mean(rr ** 2)))
+        ss_res = float(np.sum(rr ** 2))
+        ss_tot = float(np.sum((yy - yy.mean()) ** 2))
+        rows.append({
+            'bin': f'[{lo:g},{hi:g})km', 'lo_km': lo, 'hi_km': hi, 'n': int(m.sum()),
+            'pre_rms': pre_rms, 'post_rms': post_rms,
+            'rms_reduction_pct': 100.0 * (1.0 - post_rms / pre_rms) if pre_rms > 0 else float('nan'),
+            'pre_bias': float(yy.mean()), 'post_bias': float(rr.mean()),
+            'pre_std': float(yy.std()), 'post_std': float(rr.std()),
+            'r2': (1.0 - ss_res / ss_tot) if ss_tot > 0 else float('nan'),
+        })
+    return pd.DataFrame(rows)
 
 
 # ── calibration pass/fail ─────────────────────────────────────────────────────

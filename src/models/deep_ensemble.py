@@ -55,7 +55,12 @@ Z90 = 1.6448536269514722  # Gaussian 90% two-sided
 
 
 class GaussianMLP(nn.Module):
-    """n_features → 64 → ReLU → 32 → ReLU → (mu, log_var)."""
+    """n_features → 64 → ReLU → 32 → ReLU → (mu, raw2).
+
+    raw2 is interpreted as log_var (gaussian / beta_nll) or log_scale (student_t)
+    by the selected loss; the architecture is identical so checkpoints are
+    interchangeable across losses.
+    """
 
     def __init__(self, n_features: int, h1: int = 64, h2: int = 32):
         super().__init__()
@@ -67,16 +72,62 @@ class GaussianMLP(nn.Module):
         h = self.body(x)
         out = self.head(h)
         mu = out[:, 0]
-        log_var = torch.clamp(out[:, 1], min=-10.0, max=10.0)  # var in [~4.5e-5, ~2.2e4]
-        return mu, log_var
+        raw2 = torch.clamp(out[:, 1], min=-10.0, max=10.0)  # in [~4.5e-5, ~2.2e4]
+        return mu, raw2
 
 
 def gaussian_nll(mu, log_var, y):
     return 0.5 * (log_var + (y - mu) ** 2 / torch.exp(log_var)).mean()
 
 
+def beta_nll(mu, log_var, y, beta=0.5):
+    """Seitzer 2022: scale each point's Gaussian-NLL by stop-grad(var**beta).
+
+    beta=0 recovers plain NLL; beta=1 recovers MSE-on-mean weighting.  Restores
+    the mean-fitting gradient in high-variance (near-cloud) regions that plain
+    NLL down-weights.
+    """
+    var = torch.exp(log_var)
+    nll = 0.5 * (log_var + (y - mu) ** 2 / var)
+    return (var.detach() ** beta * nll).mean()
+
+
+def student_t_nll(mu, log_scale, y, nu):
+    """Negative log-likelihood of a Student-t(location=mu, scale=exp(log_scale), df=nu).
+
+    Heavy tails let the model represent the heavy-tailed near-cloud residuals
+    honestly and make mu robust to tail outliers (vs Gaussian's squared pull).
+    nu is a fixed hyperparameter (>2 so the variance exists).
+    """
+    import math
+    z = (y - mu) / torch.exp(log_scale)
+    const = (math.lgamma((nu + 1) / 2.0) - math.lgamma(nu / 2.0)
+             - 0.5 * math.log(nu * math.pi))
+    log_lik = const - log_scale - 0.5 * (nu + 1.0) * torch.log1p(z ** 2 / nu)
+    return (-log_lik).mean()
+
+
+def _make_criterion(loss: str, nu: float, beta: float):
+    if loss == 'gaussian_nll':
+        return lambda mu, r, y: gaussian_nll(mu, r, y)
+    if loss == 'beta_nll':
+        return lambda mu, r, y: beta_nll(mu, r, y, beta)
+    if loss == 'student_t':
+        return lambda mu, r, y: student_t_nll(mu, r, y, nu)
+    raise ValueError(f"unknown loss {loss!r}")
+
+
+def _raw_to_var(raw2: np.ndarray, loss: str, nu: float) -> np.ndarray:
+    """Convert the head's second output to predictive variance for intervals."""
+    if loss == 'student_t':                       # raw2 = log_scale; Var = b^2 * nu/(nu-2)
+        return np.exp(2.0 * raw2) * (nu / (nu - 2.0))
+    return np.exp(raw2)                            # raw2 = log_var
+
+
 def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
-                  batch_size, n_epochs, patience, ckpt):
+                  batch_size, n_epochs, patience, ckpt,
+                  loss='gaussian_nll', nu=4.0, beta=0.5):
+    crit = _make_criterion(loss, nu, beta)
     torch.manual_seed(seed); np.random.seed(seed)
     tr = TensorDataset(torch.tensor(X_tr), torch.tensor(y_tr))
     va = TensorDataset(torch.tensor(X_val), torch.tensor(y_val))
@@ -97,8 +148,8 @@ def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
             xb, yb = xb.to(device), yb.to(device)
             opt.zero_grad()
             mu, lv = model(xb)
-            loss = gaussian_nll(mu, lv, yb)
-            loss.backward()
+            loss_val = crit(mu, lv, yb)
+            loss_val.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step(); sched.step()
         model.eval(); vloss = 0.0
@@ -106,7 +157,7 @@ def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
             for xb, yb in vl:
                 xb, yb = xb.to(device), yb.to(device)
                 mu, lv = model(xb)
-                vloss += gaussian_nll(mu, lv, yb).item()
+                vloss += crit(mu, lv, yb).item()
         vloss /= len(vl)
         if vloss < best:
             best, no_imp = vloss, 0
@@ -119,22 +170,22 @@ def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
     return model.cpu()
 
 
-def _member_predict(model, X, device, batch_size=8192):
+def _member_predict(model, X, device, batch_size=8192, loss='gaussian_nll', nu=4.0):
     model = model.to(device); model.eval()
-    mus, vars = [], []
+    mus, raws = [], []
     with torch.no_grad():
         for s in range(0, len(X), batch_size):
             xb = torch.tensor(X[s:s + batch_size], dtype=torch.float32).to(device)
-            mu, lv = model(xb)
-            mus.append(mu.cpu().numpy()); vars.append(torch.exp(lv).cpu().numpy())
-    return np.concatenate(mus), np.concatenate(vars)
+            mu, raw2 = model(xb)
+            mus.append(mu.cpu().numpy()); raws.append(raw2.cpu().numpy())
+    return np.concatenate(mus), _raw_to_var(np.concatenate(raws), loss, nu)
 
 
-def ensemble_predict(members, X, device):
-    """Gaussian-mixture ensemble → (mu*, sigma*)."""
+def ensemble_predict(members, X, device, loss='gaussian_nll', nu=4.0):
+    """Mixture ensemble → (mu*, sigma*).  Per-member variance respects the loss."""
     mu_stack, var_stack = [], []
     for m in members:
-        mu, var = _member_predict(m, X, device)
+        mu, var = _member_predict(m, X, device, loss=loss, nu=nu)
         mu_stack.append(mu); var_stack.append(var)
     mu_stack = np.stack(mu_stack)            # [M, N]
     var_stack = np.stack(var_stack)
@@ -154,6 +205,15 @@ def main():
     p.add_argument('--feature_set', type=str, default='full',
                    choices=['full', 'no_xco2', 'no_spec', 'full_fitqual'])
     p.add_argument('--n_members', type=int, default=5)
+    p.add_argument('--loss', type=str, default='gaussian_nll',
+                   choices=['gaussian_nll', 'beta_nll', 'student_t'],
+                   help="Member loss: gaussian_nll (default), beta_nll (Seitzer "
+                        "mean-fit fix), or student_t (heavy-tailed, for the "
+                        "near-cloud tail).")
+    p.add_argument('--nu', type=float, default=4.0,
+                   help='Student-t degrees of freedom (fixed; >2). Lower = heavier tails.')
+    p.add_argument('--beta', type=float, default=0.5,
+                   help='beta_nll weighting exponent (0=NLL, 1=MSE-on-mean).')
     p.add_argument('--batch_size', type=int, default=None,
                    help='Override platform default (Darwin 2048 / Linux 4096).')
     p.add_argument('--epochs', type=int, default=None,
@@ -242,10 +302,11 @@ def main():
         print(f"  training member {m+1}/{args.n_members} (seed={args.seed + m})")
         members.append(_train_member(X_tr, y_tr, X_cal, y_cal, pipeline.n_features,
                                       seed=args.seed + m, device=device, batch_size=batch_size,
-                                      n_epochs=epochs, patience=50, ckpt=ck))
+                                      n_epochs=epochs, patience=50, ckpt=ck,
+                                      loss=args.loss, nu=args.nu, beta=args.beta))
 
-    mu_cal, sig_cal = ensemble_predict(members, X_cal, device)
-    mu_te, sig_te = ensemble_predict(members, X_te, device)
+    mu_cal, sig_cal = ensemble_predict(members, X_cal, device, loss=args.loss, nu=args.nu)
+    mu_te, sig_te = ensemble_predict(members, X_te, device, loss=args.loss, nu=args.nu)
 
     # ── 1) raw Gaussian-mixture interval ───────────────────────────────────────
     preds_raw = np.column_stack([mu_te - Z90 * sig_te, mu_te, mu_te + Z90 * sig_te])
@@ -282,11 +343,32 @@ def main():
               f"cov90={g['coverage_90']:.4f} width={g['mean_interval_width']:.4f} "
               f"cross={g['crossing_rate']}")
 
+    # ── correction effectiveness vs cloud distance (point pred is shared) ──────
+    # 'pre' = |y| (uncorrected anomaly), 'post' = |y - mu| (after applying the
+    # predicted correction).  This is the deployment metric for the near-cloud
+    # bins where corrections are actually applied.
+    corr = diag.correction_by_cloud_distance(held_valid, y_te, mu_te)
+    if not corr.empty:
+        corr_path = output_dir / f'de_correction_clddist_{args.val_split}.csv'
+        corr.to_csv(corr_path, index=False)
+        print(f"Saved correction-vs-cloud-distance → {corr_path}")
+        print(corr[['bin', 'n', 'pre_rms', 'post_rms', 'rms_reduction_pct', 'r2']]
+              .to_string(index=False))
+
+    # ── dump per-sounding held-out predictions for post-hoc analysis (no rerun) ─
+    held_out_df = pd.DataFrame({'y_true': y_te, 'mu': mu_te, 'sigma': sig_te,
+                                'lo_mondrian': preds_mond[:, 0], 'hi_mondrian': preds_mond[:, 2]})
+    for c in ('cld_dist_km', 'sfc_type', 'aod_total', 'fp'):
+        if c in held_valid.columns:
+            held_out_df[c] = held_valid[c].to_numpy()
+    held_out_df.to_parquet(output_dir / 'held_out_predictions.parquet', index=False)
+
     with open(output_dir / 'deep_ensemble_meta.pkl', 'wb') as f:
         pickle.dump({'n_features': pipeline.n_features, 'n_members': args.n_members,
                      'q_split': q_split, 'q_by_bin': q_by_bin, 'mondrian_edges': edges.tolist(),
                      'mondrian_col': args.mondrian_col,
-                     'feature_set': args.feature_set, 'val_split': args.val_split}, f)
+                     'feature_set': args.feature_set, 'val_split': args.val_split,
+                     'loss': args.loss, 'nu': args.nu, 'beta': args.beta}, f)
 
     g = results['mondrian']
     summary = RunSummary(
@@ -303,7 +385,8 @@ def main():
                    'metrics_json': str(output_dir / f'de_mondrian_{args.val_split}_metrics.json')},
         config={'sfc_type': args.sfc_type, 'val_split': args.val_split,
                 'n_members': args.n_members, 'calib_frac': args.calib_frac,
-                'feature_set': args.feature_set, 'seed': args.seed},
+                'feature_set': args.feature_set, 'seed': args.seed,
+                'loss': args.loss, 'nu': args.nu, 'beta': args.beta},
     )
     with open(output_dir / 'run_summary.json', 'w', encoding='utf-8') as f:
         json.dump(summary.to_dict(), f, indent=2, sort_keys=True)
