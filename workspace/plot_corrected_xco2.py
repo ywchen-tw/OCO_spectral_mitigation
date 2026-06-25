@@ -57,6 +57,8 @@ _MODEL_CFGS = [
     ('FT',      'ft_cond_corrected_xco2',      'ft_corrected_xco2',      'purple'),
     ('XGBoost', 'xgb_cond_corrected_xco2',     'xgb_corrected_xco2',     'crimson'),
     ('Hybrid',  'hybrid_cond_corrected_xco2',  'hybrid_corrected_xco2',  'deepskyblue'),
+    ('DeepEns',
+     'deep_ensemble_cond_corrected_xco2', 'deep_ensemble_corrected_xco2', 'limegreen'),
 ]
 
 def _resolve_model_cfgs(df):
@@ -139,6 +141,16 @@ def load_tccon(nc_path: str) -> pd.DataFrame:
     })
     valid = (df['xco2'] > 300) & (df['xco2'] < 550) & df['xco2'].notna()
     return df[valid].reset_index(drop=True)
+
+
+def _haversine_km(lon, lat, lon0, lat0):
+    """Great-circle distance (km) from each (lon, lat) to a single (lon0, lat0)."""
+    R = 6371.0088
+    lon = np.radians(np.asarray(lon, dtype=float)); lat = np.radians(np.asarray(lat, dtype=float))
+    lon0 = np.radians(lon0); lat0 = np.radians(lat0)
+    dlon = lon - lon0; dlat = lat - lat0
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat0) * np.cos(lat) * np.sin(dlon / 2) ** 2
+    return 2 * R * np.arcsin(np.sqrt(a))
 
 
 def load_plot_data(path: str) -> pd.DataFrame:
@@ -594,8 +606,15 @@ def _save_poster_comparison_figure(
         bg_extent=None,
         view_extent=None,
         dpi: int = 300,
+        hist_df=None,
         ):
-    """Save a compact poster figure for one corrected XCO₂ model."""
+    """Save a compact poster figure for one corrected XCO₂ model.
+
+    hist_df : DataFrame for the histogram panel (e.g. footprints near TCCON).
+        Defaults to oco_df.  Maps always use oco_df (full lon/lat box).
+    """
+    if hist_df is None:
+        hist_df = oco_df
     if 'xco2_bc' not in oco_df.columns:
         raise ValueError("Poster figure requires an 'xco2_bc' column.")
     if model_col not in oco_df.columns:
@@ -687,7 +706,7 @@ def _save_poster_comparison_figure(
     _draw_map(
         ax_corr,
         oco_df[model_col].values,
-        'OCO-2 Corrected XCO$_2$',
+        'Model Corrected XCO$_2$',
         show_ylabel=False,
     )
 
@@ -719,8 +738,8 @@ def _save_poster_comparison_figure(
         )
         ax_hist.axvline(mu, color=color, linewidth=3.0, alpha=0.95)
 
-    _draw_hist(oco_df['xco2_bc'].values, 'OCO-2 XCO$_2$_bc', 'black')
-    _draw_hist(oco_df[model_col].values, 'Corrected XCO$_2$', 'green')
+    _draw_hist(hist_df['xco2_bc'].values, 'OCO-2 XCO$_2$_bc', 'black')
+    _draw_hist(hist_df[model_col].values, 'Corrected XCO$_2$', 'green')
     if len(tccon_df) > 0:
         _draw_hist(tccon_df['xco2'].values, 'TCCON XCO$_2$', 'coral', linestyle='--')
 
@@ -809,6 +828,14 @@ def main():
                              '(default: poster_xco2_<model>.png in --output-dir).')
     parser.add_argument('--poster-dpi', type=int, default=300,
                         help='DPI for --poster-model figure (default: 300).')
+    parser.add_argument('--hist-radius-km', type=float, default=None,
+                        help='Restrict the histogram comparison to footprints within this '
+                             'great-circle distance (km) of the TCCON station. Maps and the '
+                             'time series still use the full lon/lat box. Default: no limit.')
+    parser.add_argument('--tccon-window-min', type=float, default=60.0,
+                        help='Half-width (minutes) of the TCCON time window around the OCO-2 '
+                             'footprint pass: TCCON is kept within [first footprint − W, '
+                             'last footprint + W]. Default: 60.')
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()
@@ -889,8 +916,8 @@ def main():
         
         # Step 2: further narrow to the OCO-2 footprint time window if valid
         if isinstance(oco_start_time, pd.Timestamp) and isinstance(oco_end_time, pd.Timestamp):
-            # add a 30-minute buffer on either side to account for potential time mismatches
-            buffer = pd.Timedelta(minutes=30)
+            # buffer on either side of the footprint pass to account for time mismatches
+            buffer = pd.Timedelta(minutes=args.tccon_window_min)
             oco_start_time_buffered = oco_start_time - buffer
             oco_end_time_buffered   = oco_end_time   + buffer
             
@@ -915,7 +942,7 @@ def main():
     _pool = []
     for col in ('xco2_bc', 'ridge_corrected_xco2', 'mlp_corrected_xco2',
                 'ft_corrected_xco2', 'xgb_corrected_xco2', 'hybrid_corrected_xco2',
-                'ideal_corrected_xco2'):
+                'deep_ensemble_corrected_xco2', 'ideal_corrected_xco2'):
         if col in oco.columns:
             _pool.append(oco[col].dropna().values)
     if len(tccon) > 0:
@@ -1259,9 +1286,17 @@ def main():
             ax23.set_xlim(map_extent[0], map_extent[1])
             ax23.set_ylim(map_extent[2], map_extent[3])
 
+    # ── Histogram subset: footprints within --hist-radius-km of TCCON station ──
+    oco_hist = oco
+    if args.hist_radius_km is not None and tccon_lon is not None and 'lon' in oco.columns:
+        _d = _haversine_km(oco['lon'].values, oco['lat'].values, tccon_lon, tccon_lat)
+        oco_hist = oco[_d <= args.hist_radius_km]
+        print(f"  Histogram restricted to ≤{args.hist_radius_km:g} km of TCCON: "
+              f"{len(oco):,} → {len(oco_hist):,} footprints", flush=True)
+
     # Row 3: histogram (left portion) | TCCON time series (rightmost map column)
     ax3 = fig.add_subplot(gs[2, :n_map_cols - 1])
-    _histogram_panel(ax3, oco, tccon, vmin, vmax)
+    _histogram_panel(ax3, oco_hist, tccon, vmin, vmax)
 
     ax3_tccon = fig.add_subplot(gs[2, n_map_cols - 1])
     fp_times = None
@@ -1321,6 +1356,7 @@ def main():
             bg_extent=bg_extent,
             view_extent=map_extent,
             dpi=args.poster_dpi,
+            hist_df=oco_hist,
         )
         print(f"Poster figure saved → {poster_path}", flush=True)
 

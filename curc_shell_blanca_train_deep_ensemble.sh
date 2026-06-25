@@ -55,7 +55,8 @@ GPU_MONITOR_PID=$!
 # de_mondrian; identical RMSE/R², only intervals differ).  Mondrian is binned by
 # cld_dist_km (physical proxy for the cloud-contaminated tail), NOT predicted mu:
 # the local check showed mu-deciles do not isolate the y-defined tail.
-# M=3 (local check: M=3 already gives global cov90≈0.88) and batch 8192 cut GPU time.
+# M=5 members (M=3 already gave global cov90≈0.88; bumped to 5 for accuracy/epistemic
+# headroom — ~5/3x member train time, still well under the 16h wall) and batch 8192.
 #
 # NOTE: under date-blocking the calibration block is different dates from the held
 # fold, so conformal coverage is approximate (not exchangeable).  On the 12-date
@@ -88,11 +89,11 @@ NFOLDS=5
 for LOSS in gaussian_nll beta_nll; do
   NCT=""; [ "${LOSS}" = "beta_nll" ] && NCT="--near_cloud_target 0.98"
 #   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${LOSS}_f${F} \
-#     --loss ${LOSS} --beta 1.0 --n_members 3 --batch_size 8192 ${NCT} \
+#     --loss ${LOSS} --beta 1.0 --n_members 5 --batch_size 8192 ${NCT} \
 #     --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${LOSS}_f${F} \
-    --loss ${LOSS} --beta 1.0 --n_members 3 --batch_size 8192 ${NCT} \
+    --loss ${LOSS} --beta 1.0 --n_members 5 --batch_size 8192 ${NCT} \
     --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
 

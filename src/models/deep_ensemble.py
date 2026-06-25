@@ -77,7 +77,7 @@ class GaussianMLP(nn.Module):
 
 
 def gaussian_nll(mu, log_var, y):
-    return 0.5 * (log_var + (y - mu) ** 2 / torch.exp(log_var)).mean()
+    return 0.5 * (log_var + (y - mu) ** 2 / torch.exp(log_var))
 
 
 def beta_nll(mu, log_var, y, beta=0.5):
@@ -89,7 +89,7 @@ def beta_nll(mu, log_var, y, beta=0.5):
     """
     var = torch.exp(log_var)
     nll = 0.5 * (log_var + (y - mu) ** 2 / var)
-    return (var.detach() ** beta * nll).mean()
+    return var.detach() ** beta * nll
 
 
 def student_t_nll(mu, log_scale, y, nu):
@@ -104,17 +104,31 @@ def student_t_nll(mu, log_scale, y, nu):
     const = (math.lgamma((nu + 1) / 2.0) - math.lgamma(nu / 2.0)
              - 0.5 * math.log(nu * math.pi))
     log_lik = const - log_scale - 0.5 * (nu + 1.0) * torch.log1p(z ** 2 / nu)
-    return (-log_lik).mean()
+    return -log_lik
 
 
 def _make_criterion(loss: str, nu: float, beta: float):
+    """Return crit(mu, raw2, y, w=None) → scalar.
+
+    The per-element losses above are reduced here so an optional per-sample
+    weight `w` can tilt the (weighted) mean toward a regime of interest (e.g.
+    near-cloud rows; see --near_cloud_weight).  w=None recovers the plain mean.
+    """
     if loss == 'gaussian_nll':
-        return lambda mu, r, y: gaussian_nll(mu, r, y)
-    if loss == 'beta_nll':
-        return lambda mu, r, y: beta_nll(mu, r, y, beta)
-    if loss == 'student_t':
-        return lambda mu, r, y: student_t_nll(mu, r, y, nu)
-    raise ValueError(f"unknown loss {loss!r}")
+        per = lambda mu, r, y: gaussian_nll(mu, r, y)
+    elif loss == 'beta_nll':
+        per = lambda mu, r, y: beta_nll(mu, r, y, beta)
+    elif loss == 'student_t':
+        per = lambda mu, r, y: student_t_nll(mu, r, y, nu)
+    else:
+        raise ValueError(f"unknown loss {loss!r}")
+
+    def crit(mu, r, y, w=None):
+        l = per(mu, r, y)
+        if w is None:
+            return l.mean()
+        return (w * l).sum() / w.sum()   # weighted mean keeps the loss scale stable
+    return crit
 
 
 def _raw_to_var(raw2: np.ndarray, loss: str, nu: float) -> np.ndarray:
@@ -126,11 +140,15 @@ def _raw_to_var(raw2: np.ndarray, loss: str, nu: float) -> np.ndarray:
 
 def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
                   batch_size, n_epochs, patience, ckpt,
-                  loss='gaussian_nll', nu=4.0, beta=0.5):
+                  loss='gaussian_nll', nu=4.0, beta=0.5, w_tr=None, w_val=None):
     crit = _make_criterion(loss, nu, beta)
     torch.manual_seed(seed); np.random.seed(seed)
-    tr = TensorDataset(torch.tensor(X_tr), torch.tensor(y_tr))
-    va = TensorDataset(torch.tensor(X_val), torch.tensor(y_val))
+    if w_tr is None:
+        w_tr = np.ones(len(y_tr), dtype=np.float32)
+    if w_val is None:
+        w_val = np.ones(len(y_val), dtype=np.float32)
+    tr = TensorDataset(torch.tensor(X_tr), torch.tensor(y_tr), torch.tensor(w_tr))
+    va = TensorDataset(torch.tensor(X_val), torch.tensor(y_val), torch.tensor(w_val))
     pin = device.type in ("cuda", "mps"); nw = min(8, os.cpu_count() or 1)
     tl = DataLoader(tr, batch_size=batch_size, shuffle=True, pin_memory=pin,
                     num_workers=nw, persistent_workers=nw > 0)
@@ -144,20 +162,20 @@ def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
     best, no_imp = float("inf"), 0
     for epoch in range(n_epochs):
         model.train()
-        for xb, yb in tl:
-            xb, yb = xb.to(device), yb.to(device)
+        for xb, yb, wb in tl:
+            xb, yb, wb = xb.to(device), yb.to(device), wb.to(device)
             opt.zero_grad()
             mu, lv = model(xb)
-            loss_val = crit(mu, lv, yb)
+            loss_val = crit(mu, lv, yb, wb)
             loss_val.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step(); sched.step()
         model.eval(); vloss = 0.0
         with torch.no_grad():
-            for xb, yb in vl:
-                xb, yb = xb.to(device), yb.to(device)
+            for xb, yb, wb in vl:
+                xb, yb, wb = xb.to(device), yb.to(device), wb.to(device)
                 mu, lv = model(xb)
-                vloss += crit(mu, lv, yb).item()
+                vloss += crit(mu, lv, yb, wb).item()
         vloss /= len(vl)
         if vloss < best:
             best, no_imp = vloss, 0
@@ -227,8 +245,16 @@ def main():
                         "the outcome-defined near-cloud tail; far bins stay at 0.90. "
                         "Requires --mondrian_col cld_dist_km.")
     p.add_argument('--near_cloud_km', type=float, default=10.0,
-                   help="Cloud-distance threshold (km) defining 'near' bins for "
-                        "--near_cloud_target.")
+                   help="Cloud-distance threshold (km) defining 'near' rows, for "
+                        "both --near_cloud_target and --near_cloud_weight.")
+    p.add_argument('--near_cloud_weight', type=float, default=1.0,
+                   help="Per-sample training-loss weight for near-cloud rows "
+                        "(cld_dist_km <= --near_cloud_km).  1.0 = off (uniform). "
+                        ">1 upweights the near-cloud regime so the global loss is "
+                        "not dominated by the far-cloud majority (~81%% of rows), "
+                        "aligning training/early-stopping with near-cloud point "
+                        "accuracy.  Applied to BOTH train and the calibration block "
+                        "used for early stopping.")
     p.add_argument('--mondrian_bins', type=int, default=10)
     p.add_argument('--mondrian_col', type=str, default='mu',
                    help="Observable variable for Mondrian bins: 'mu' (predicted-mean "
@@ -287,10 +313,30 @@ def main():
         valid = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
         return X[valid], y[valid], frame.loc[valid]
 
-    X_tr, y_tr, _ = _prep(proper_df)
+    X_tr, y_tr, train_valid = _prep(proper_df)
     X_cal, y_cal, calib_valid = _prep(calib_df)
     X_te, y_te, held_valid = _prep(held_df)
     print(f"[deep_ensemble] proper-train {X_tr.shape}  calib {X_cal.shape}  held {X_te.shape}")
+
+    # Near-cloud loss weighting: tilt the (weighted) objective toward the
+    # cld_dist_km <= near_cloud_km regime so the far-cloud majority does not
+    # dominate the gradient.  w=1 everywhere when --near_cloud_weight == 1.0.
+    def _near_cloud_weights(frame):
+        w = np.ones(len(frame), dtype=np.float32)
+        if args.near_cloud_weight == 1.0:
+            return w
+        if 'cld_dist_km' not in frame.columns:
+            raise ValueError("--near_cloud_weight requires a 'cld_dist_km' column")
+        cd = frame['cld_dist_km'].to_numpy(dtype=float)
+        w[np.isfinite(cd) & (cd <= args.near_cloud_km)] = args.near_cloud_weight
+        return w
+    w_tr = _near_cloud_weights(train_valid)
+    w_cal = _near_cloud_weights(calib_valid)
+    if args.near_cloud_weight != 1.0:
+        print(f"[deep_ensemble] near_cloud_weight={args.near_cloud_weight} on "
+              f"cld_dist_km<={args.near_cloud_km}km: "
+              f"{int((w_tr > 1).sum())}/{len(w_tr)} train rows "
+              f"({100 * (w_tr > 1).mean():.1f}%) upweighted")
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -311,7 +357,8 @@ def main():
         members.append(_train_member(X_tr, y_tr, X_cal, y_cal, pipeline.n_features,
                                       seed=args.seed + m, device=device, batch_size=batch_size,
                                       n_epochs=epochs, patience=50, ckpt=ck,
-                                      loss=args.loss, nu=args.nu, beta=args.beta))
+                                      loss=args.loss, nu=args.nu, beta=args.beta,
+                                      w_tr=w_tr, w_val=w_cal))
 
     mu_cal, sig_cal = ensemble_predict(members, X_cal, device, loss=args.loss, nu=args.nu)
     mu_te, sig_te = ensemble_predict(members, X_te, device, loss=args.loss, nu=args.nu)
@@ -390,7 +437,8 @@ def main():
                      'feature_set': args.feature_set, 'val_split': args.val_split,
                      'loss': args.loss, 'nu': args.nu, 'beta': args.beta,
                      'near_cloud_target': args.near_cloud_target,
-                     'near_cloud_km': args.near_cloud_km}, f)
+                     'near_cloud_km': args.near_cloud_km,
+                     'near_cloud_weight': args.near_cloud_weight}, f)
 
     g = results['mondrian']
     summary = RunSummary(
