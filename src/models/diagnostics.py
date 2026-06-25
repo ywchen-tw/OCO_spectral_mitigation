@@ -307,6 +307,37 @@ def correction_by_cloud_distance(meta: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
+def save_correction_and_preds(output_dir, prefix: str, meta: pd.DataFrame,
+                              y: np.ndarray, preds: np.ndarray,
+                              dump_preds: bool = True) -> None:
+    """Write {prefix}_correction_clddist.csv and (optionally) the per-sounding
+    held_out_predictions.parquet, so every model reports correction
+    effectiveness on identical cloud-distance bins and supports pooled
+    out-of-fold analysis (models.correction_report) without a rerun.
+
+    preds may be a 1-D point array or an [N, q] quantile matrix (middle column
+    is the point estimate; first/last become lo/hi).
+    """
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    corr = correction_by_cloud_distance(meta, y, preds)
+    if not corr.empty:
+        corr.to_csv(out / f'{prefix}_correction_clddist.csv', index=False)
+        logger.info("Saved %s", out / f'{prefix}_correction_clddist.csv')
+    if not dump_preds:
+        return
+    p = np.asarray(preds, dtype=float)
+    mid = p[:, p.shape[1] // 2] if p.ndim > 1 else p
+    df = pd.DataFrame({'y_true': np.asarray(y, dtype=float), 'mu': mid})
+    if p.ndim > 1 and p.shape[1] >= 3:
+        df['lo'] = p[:, 0]; df['hi'] = p[:, -1]
+    for c in ('cld_dist_km', 'sfc_type', 'aod_total', 'fp'):
+        if c in meta.columns:
+            df[c] = meta[c].to_numpy()
+    df.to_parquet(out / 'held_out_predictions.parquet', index=False)
+    logger.info("Saved %s", out / 'held_out_predictions.parquet')
+
+
 # ── calibration pass/fail ─────────────────────────────────────────────────────
 
 def calibration_report(global_metrics: dict,

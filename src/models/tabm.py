@@ -722,6 +722,7 @@ def main():
     calib = diag.calibration_report(global_metrics, strat)
     prefix = f"tabm_{val_split}"
     diag.save_diagnostics(output_dir, prefix, global_metrics, strat, calib)
+    diag.save_correction_and_preds(output_dir, prefix, held_valid, y_held, preds)
     print(f"[{prefix}] RMSE={global_metrics['rmse']:.4f}  MAE={global_metrics['mae']:.4f}  "
           f"R²={global_metrics['r2']:.4f}  cov90={global_metrics['coverage_90']:.3f}  "
           f"width={global_metrics['mean_interval_width']:.3f}  cross={global_metrics['crossing_rate']:.3g}")

@@ -247,6 +247,7 @@ def main():
     strat = diag.stratified_metrics(held_valid, y_held, preds)
     prefix = f"mlp_{args.val_split}"
     diag.save_diagnostics(output_dir, prefix, g, strat)
+    diag.save_correction_and_preds(output_dir, prefix, held_valid, y_held, preds)
     print(f"[{prefix}] RMSE={g['rmse']:.4f}  MAE={g['mae']:.4f}  R²={g['r2']:.4f}  "
           f"(point predictor — interval metrics are degenerate)")
 

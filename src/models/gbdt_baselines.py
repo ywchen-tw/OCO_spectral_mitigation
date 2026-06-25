@@ -173,6 +173,9 @@ def evaluate_gbdt(models: dict, X_test, y_test, meta: pd.DataFrame,
     c_re = diag.calibration_report(g_re, s_re)
     diag.save_diagnostics(output_dir, f"{output_prefix}_rearranged", g_re, s_re, c_re)
 
+    # Correction-vs-cloud-distance + per-sounding dump (point = q50, same raw/re)
+    diag.save_correction_and_preds(output_dir, output_prefix, meta, y_test, preds_re)
+
     print(f"[{output_prefix}] RMSE={g_raw['rmse']:.4f}  MAE={g_raw['mae']:.4f}  "
           f"R²={g_raw['r2']:.4f}  cov90={g_raw['coverage_90']:.3f}  "
           f"width={g_raw['mean_interval_width']:.3f}  cross={g_raw['crossing_rate']:.3g}  "
