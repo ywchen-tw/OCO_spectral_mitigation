@@ -31,21 +31,90 @@ Example (both surfaces):
 from __future__ import annotations
 
 import argparse
+import pickle
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
 
-from apply.apply_deep_ensemble import _load_model, _predict
+from models.pipeline import FeaturePipeline, _ensure_derived_features
+from models.deep_ensemble import GaussianMLP, _member_predict
+from apply.apply_deep_ensemble import _check_required_columns, _domain_report
 
 CORR_COL = 'deep_ensemble_corrected_xco2'
 KEEP_COLS = ('time', 'lon', 'lat', 'cld_dist_km', 'sfc_type',
              'xco2_bc', 'xco2_bc_anomaly', 'xco2_apriori')
 
 
-def _build_surface(df, model_dir, sfc_type, *, dk, clim_max_ppm=50.0,
+def _load_fold(model_dir):
+    """Load one fold's (pipeline, members, meta)."""
+    md = Path(model_dir)
+    meta = pickle.load(open(md / 'deep_ensemble_meta.pkl', 'rb'))
+    pipe = FeaturePipeline.load(md / 'deep_ensemble_pipeline.pkl')
+    members = []
+    for p in sorted(md.glob('member_*.pt')):
+        m = GaussianMLP(pipe.n_features)
+        m.load_state_dict(torch.load(p, map_location='cpu'))
+        m.eval(); members.append(m)
+    if not members:
+        raise SystemExit(f"no member_*.pt in {md}")
+    return pipe, members, meta
+
+
+def _predict_pooled(df, fold_dirs, sfc_type, *, ood_thresh=8.0, max_ood_frac=0.02,
+                    strict=False, tag='input'):
+    """Cross-fold ensemble: pool every member of every fold.
+
+    Each fold has its OWN fitted scaler, so X is transformed per fold before
+    prediction.  Returns (mu, sigma, kept_df, meta0) where mu = mean over all
+    members and sigma = total predictive std (aleatoric + epistemic) per the
+    mixture formula, computed over the full pooled member set.
+    """
+    folds = [_load_fold(d) for d in fold_dirs]
+    pipe0, _, meta0 = folds[0]
+    loss = meta0.get('loss', 'gaussian_nll'); nu = meta0.get('nu', 4.0)
+    n_mem = sum(len(m) for _, m, _ in folds)
+    print(f"  [loaded] {len(folds)} fold(s) × members = {n_mem} total, "
+          f"{pipe0.n_features} features, loss={loss}")
+
+    _check_required_columns(df, pipe0)
+    df = df[df['sfc_type'] == sfc_type].copy()
+    df = _ensure_derived_features(df)
+    X0 = pipe0.transform(df)
+    valid = np.all(np.isfinite(X0), axis=1)
+    df = df.loc[valid].reset_index(drop=True)
+    if len(df) == 0:
+        return None, None, df, meta0
+
+    overall, worst = _domain_report(X0[valid], pipe0, thresh=ood_thresh)
+    if overall > max_ood_frac:
+        flagged = [f"{n}({f:.0%})" for n, f in worst[:5] if f > max_ood_frac]
+        msg = (f"  ⚠ DOMAIN WARNING [{tag}]: {overall:.1%} of feature values OOD "
+               f"(|z|>{ood_thresh:g}); worst: {flagged} → predictions UNRELIABLE")
+        if strict:
+            raise SystemExit(msg + "\n  (refused: --strict)")
+        print(msg)
+    else:
+        print(f"  domain check [{tag}]: OK ({overall:.2%} OOD)")
+
+    dev = torch.device('cpu')
+    mu_stack, var_stack = [], []
+    for pipe, members, _ in folds:
+        Xi = pipe.transform(df)          # this fold's own scaler
+        for m in members:
+            mu_i, var_i = _member_predict(m, Xi, dev, loss=loss, nu=nu)
+            mu_stack.append(mu_i); var_stack.append(var_i)
+    mu_stack = np.stack(mu_stack); var_stack = np.stack(var_stack)
+    mu = mu_stack.mean(0)
+    var = (var_stack + mu_stack ** 2).mean(0) - mu ** 2     # mixture total variance
+    sigma = np.sqrt(np.maximum(var, 1e-12))
+    return mu.astype(np.float32), sigma.astype(np.float32), df, meta0
+
+
+def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
                    max_abs_anomaly=15.0):
-    """Predict one surface; return a plot_data frame (or None if no rows).
+    """Predict one surface (pooling all folds); return a plot_data frame or None.
 
     Two guards skip the correction (set mu=0 → corrected XCO2 == raw xco2_bc) and
     flag the row, so non-physical points don't pollute the histogram:
@@ -55,10 +124,9 @@ def _build_surface(df, model_dir, sfc_type, *, dk, clim_max_ppm=50.0,
                         (model blow-ups; a bias correction should be a few ppm,
                         not hundreds).  No effect when `max_abs_anomaly` is None.
     """
-    pipeline, members, meta = _load_model(Path(model_dir))
-    mu, sigma, kept = _predict(df, pipeline, members, meta, sfc_type,
-                               tag=f'sfc{sfc_type}', **dk)
-    if len(kept) == 0:
+    mu, sigma, kept, meta = _predict_pooled(df, fold_dirs, sfc_type,
+                                            tag=f'sfc{sfc_type}', **dk)
+    if mu is None or len(kept) == 0:
         print(f"  sfc={sfc_type}: no rows after filter — skipped")
         return None
     out = kept[[c for c in KEEP_COLS if c in kept.columns]].reset_index(drop=True).copy()
@@ -104,12 +172,14 @@ def _build_surface(df, model_dir, sfc_type, *, dk, clim_max_ppm=50.0,
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--ocean-model-dir', default=None,
-                    help="Deep-ensemble dir trained on ocean (sfc_type==0).")
-    ap.add_argument('--land-model-dir', default=None,
-                    help="Deep-ensemble dir trained on land (sfc_type==1).")
+    ap.add_argument('--ocean-model-dir', nargs='+', default=None,
+                    help="Deep-ensemble fold dir(s) trained on ocean (sfc_type==0). "
+                         "Pass all folds (f0..f4) to pool the full cross-fold ensemble.")
+    ap.add_argument('--land-model-dir', nargs='+', default=None,
+                    help="Deep-ensemble fold dir(s) trained on land (sfc_type==1). "
+                         "Pass all folds to pool the full cross-fold ensemble.")
     # backward-compatible single-surface form
-    ap.add_argument('--model-dir', default=None, help="(single-surface) model dir.")
+    ap.add_argument('--model-dir', nargs='+', default=None, help="(single-surface) model dir(s).")
     ap.add_argument('--sfc_type', type=int, default=None,
                     help="(single-surface) 0=ocean, 1=land; pairs with --model-dir.")
     ap.add_argument('--input', nargs='+', required=True,

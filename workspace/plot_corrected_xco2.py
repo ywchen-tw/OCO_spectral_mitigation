@@ -857,6 +857,19 @@ def main():
     oco = load_plot_data(plot_data_path)
     print(f"  OCO-2: {len(oco):,} rows", flush=True)
 
+    # Drop guarded footprints (non-physical retrievals / model blow-ups the
+    # correction was withheld from) — keeping them pollutes the maps and inflates
+    # the histogram σ (e.g. fill-value xco2_bc up to thousands of ppm).
+    _guard_cols = [c for c in ('clim_guard', 'anomaly_guard') if c in oco.columns]
+    if _guard_cols:
+        _g = np.zeros(len(oco), dtype=bool)
+        for c in _guard_cols:
+            _g |= oco[c].to_numpy(dtype=bool)
+        if _g.any():
+            print(f"  dropping {int(_g.sum()):,} guarded footprint(s) "
+                  f"({'+'.join(_guard_cols)}) from the plot", flush=True)
+            oco = oco[~_g].reset_index(drop=True)
+
     print(f"Loading TCCON:     {tccon_path}", flush=True)
     tccon = load_tccon(tccon_path)
     print(f"  TCCON: {len(tccon):,} rows", flush=True)
@@ -1192,7 +1205,26 @@ def main():
                      bg_img=bg_img, bg_extent=bg_extent,
                      view_extent=map_extent)
         map_axes.append(ax)
-    for j in range(len(active), n_map_cols):   # hide unused slots
+    # Row 1, next free column: ensemble standard-deviation map (σ of the corrected XCO₂)
+    sigma_col = next((c for c in ('sigma', 'corrected_xco2_sigma', 'pred_sigma')
+                      if c in oco.columns), None)
+    sigma_j = len(active)
+    if sigma_col is not None and sigma_j < n_map_cols:
+        ax_sig = fig.add_subplot(gs[0, sigma_j])
+        _sig = oco[sigma_col].to_numpy(dtype=float)
+        _sig_finite = _sig[np.isfinite(_sig)]
+        _sig_vmax = float(np.nanpercentile(_sig_finite, 98)) if len(_sig_finite) else 1.0
+        _sig_norm = mcolors.Normalize(vmin=0.0, vmax=max(_sig_vmax, 1e-3))
+        _scatter_map(ax_sig, lon_arr, lat_arr, _sig,
+                     'Corrected XCO₂ σ (ppm)\n(ensemble std)',
+                     _sig_norm, 'magma', tccon_lon, tccon_lat,
+                     bg_img=bg_img, bg_extent=bg_extent,
+                     view_extent=map_extent)
+        _sm_sig = mcm.ScalarMappable(norm=_sig_norm, cmap='magma')
+        _sm_sig.set_array([])
+        plt.colorbar(_sm_sig, ax=ax_sig, fraction=0.046, pad=0.04).set_label('σ (ppm)', fontsize=7)
+        sigma_j += 1
+    for j in range(sigma_j, n_map_cols):   # hide remaining unused slots
         fig.add_subplot(gs[0, j]).set_visible(False)
 
     # Row 2 col 0: original XCO₂_bc

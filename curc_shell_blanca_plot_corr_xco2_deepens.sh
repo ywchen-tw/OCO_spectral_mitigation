@@ -41,8 +41,10 @@ cd "$(dirname "$0")"
 export PYTHONPATH=src:${PYTHONPATH:-}
 
 # ─── model (deep-ensemble fold dirs; per-surface) ─────────────────────────────
-OCEAN_MODEL_DIR=results/model_deep_ensemble/de_ocean_beta_nll_f0
-LAND_MODEL_DIR=results/model_deep_ensemble/de_land_beta_nll_f0
+# Pool ALL folds (f0..f4) → cross-fold ensemble: mu = mean of 25 members,
+# sigma = total predictive std (each fold transformed by its own scaler).
+OCEAN_MODEL_DIRS=(results/model_deep_ensemble/de_ocean_beta_nll_f*)
+LAND_MODEL_DIRS=(results/model_deep_ensemble/de_land_beta_nll_f*)
 
 CSV_DIR=results/csv_collection
 OUT_BASE=results/model_comparison/deep_ensemble
@@ -67,8 +69,8 @@ run_case() {
 
     # (4) apply deep ensemble → plot_data.parquet
     local model_args=()
-    [[ "$surf" == both || "$surf" == ocean ]] && model_args+=(--ocean-model-dir "$OCEAN_MODEL_DIR")
-    [[ "$surf" == both || "$surf" == land  ]] && model_args+=(--land-model-dir  "$LAND_MODEL_DIR")
+    [[ "$surf" == both || "$surf" == ocean ]] && model_args+=(--ocean-model-dir "${OCEAN_MODEL_DIRS[@]}")
+    [[ "$surf" == both || "$surf" == land  ]] && model_args+=(--land-model-dir  "${LAND_MODEL_DIRS[@]}")
     python workspace/build_deepens_plot_data.py \
         "${model_args[@]}" --input "$input" --output "$plotdata" || { echo "  build failed"; return; }
 
@@ -88,50 +90,65 @@ run_case() {
         --vmin "$vmin" --vmax "$vmax" \
         --hist-radius-km 100 \
         "${poster_arg[@]}"
+
+    # (6) per-band spectral-fit parameter maps (k1/k2/exp_intercept-alb × o2a/wco2/sco2)
+    python workspace/plot_spectral_params.py \
+        --input      "$input" \
+        --tccon      "data/TCCON/$tccon" \
+        "${h5_arg[@]}" \
+        --output-dir "$outdir" \
+        --modis-auto \
+        --lon-range  "$lonmin" "$lonmax" \
+        --lat-range  "$latmin" "$latmax" \
+        --date-plot  "$date"
 }
 
-# ─────────────────────── cases (ported from *_general.sh) ─────────────────────
-#         DATE         TCCON                              LON_MIN  LON_MAX  LAT_MIN  LAT_MAX  VMIN    VMAX   SURF   POSTER
-run_case  2020-03-30   bu20170303_20250221.public.qc.nc     120.19   121.21    17.77    19.77   412.0  415.5  both  poster
-run_case  2020-09-06   bu20170303_20250221.public.qc.nc     120.10   121.03    18.18    19.76   408.0  411.0  both  poster
-run_case  2018-09-01   bu20170303_20250221.public.qc.nc     120.14   121.27    17.41    19.77   404.5  407.5  both  poster
-run_case  2018-11-29   bu20170303_20250221.public.qc.nc     120.30   121.49    18.07    19.25   406.5  409.5  both  poster
-run_case  2020-05-01   bu20170303_20250221.public.qc.nc     120.27   121.35    17.76    19.78   414.0  417.0  both  poster
-run_case  2018-09-02   iz20140102_20230830.public.qc.nc     -16.89   -15.80    27.33    29.38   403.0  406.5  both  poster
-run_case  2018-11-30   iz20140102_20230830.public.qc.nc     -16.88   -15.62    27.18    29.52   406.0  409.5  both  poster
-run_case  2019-03-13   iz20140102_20230830.public.qc.nc     -16.93   -15.87    27.09    28.95   409.5  412.5  both  poster
+# ═══════════════════════ cases, organized by TCCON site then date ════════════════
+# (ported from *_general.sh + added sites).  SITE (last arg) sets the output dir
+# combined_DATE_SITE so same-date/different-station runs stay separate.
+#         DATE         TCCON                              LON_MIN  LON_MAX  LAT_MIN  LAT_MAX   VMIN   VMAX  SURF  POSTER SITE
 
-# land-region cases (Burgos / Lamont-Oklahoma / Izaña)
-run_case  2018-10-24   bu20170303_20250221.public.qc.nc     120.23   121.13    18.04    18.89   405.5  409.0  land  poster
-run_case  2020-01-15   bu20170303_20250221.public.qc.nc     120.24   121.15    18.00    18.89   411.0  414.5  land  poster
-run_case  2021-04-24   oc20110416_20251023.public.qc.nc     -98.21   -96.98    35.55    37.80   415.5  419.0  land  poster
-run_case  2021-12-29   oc20110416_20251023.public.qc.nc     -98.24   -96.87    35.40    37.80   416.5  420.0  land  poster
-run_case  2019-07-10   iz20140102_20230830.public.qc.nc     -16.96   -16.07    27.82    28.79   403.5  412.5  land  poster
+# ── Burgos, Philippines (bu; lat 18.53, lon 120.65) ──
+run_case  2018-09-01   bu20170303_20250221.public.qc.nc     120.14   121.27    17.41    19.77   404.5  407.5  both  poster  bu
+run_case  2018-10-24   bu20170303_20250221.public.qc.nc     120.23   121.13    18.04    18.89   405.5  409.0  land  poster  bu
+run_case  2018-11-29   bu20170303_20250221.public.qc.nc     120.30   121.49    18.07    19.25   406.5  409.5  both  poster  bu
+run_case  2020-01-15   bu20170303_20250221.public.qc.nc     120.24   121.15    18.00    18.89   411.0  414.5  land  poster  bu
+run_case  2020-03-30   bu20170303_20250221.public.qc.nc     120.19   121.21    17.77    19.77   412.0  415.5  both  poster  bu
+run_case  2020-05-01   bu20170303_20250221.public.qc.nc     120.27   121.35    17.76    19.78   414.0  417.0  both  poster  bu
+run_case  2020-09-06   bu20170303_20250221.public.qc.nc     120.10   121.03    18.18    19.76   408.0  411.0  both  poster  bu
 
-# ══════════════════════ additional TCCON-site cases ══════════════════════════
-# Dates below are confirmed present in fitting_correction.py date_list (parquets
-# exist).  LON/LAT box = station coord ±1.0°, VMIN/VMAX are per-year placeholders
-# — ADJUST LATER.  Station coords are the standard TCCON site locations.
+# ── Izaña, Tenerife (iz; lat 28.31, lon -16.50) ──
+run_case  2018-09-02   iz20140102_20230830.public.qc.nc     -16.89   -15.80    27.33    29.38   403.0  406.5  both  poster  iz
+run_case  2018-11-30   iz20140102_20230830.public.qc.nc     -16.88   -15.62    27.18    29.52   406.0  409.5  both  poster  iz
+run_case  2019-03-13   iz20140102_20230830.public.qc.nc     -16.93   -15.87    27.09    28.95   409.5  412.5  both  poster  iz
+run_case  2019-07-10   iz20140102_20230830.public.qc.nc     -16.96   -16.07    27.82    28.79   403.5  412.5  land  poster  iz
+run_case  2020-04-05   iz20140102_20230830.public.qc.nc     -16.95   -16.07    27.81    28.78   404.5  416.0  both  poster  iz
+run_case  2021-03-18   iz20140102_20230830.public.qc.nc     -17.07   -15.87    27.16    29.53   414.5  418.0  both  poster  iz
+run_case  2021-08-25   iz20140102_20230830.public.qc.nc     -16.85   -15.53    27.24    29.55   411.0  414.0  both  poster  iz
+run_case  2021-09-26   iz20140102_20230830.public.qc.nc     -17.32   -16.15    27.06    29.21   411.5  415.0  both  poster  iz
 
-# ── Manaus, Brazil (ma; lat -3.213, lon -60.599) — READY (TCCON file present) ──
-#         DATE         TCCON                              LON_MIN  LON_MAX  LAT_MIN  LAT_MAX  VMIN  VMAX  SURF  POSTER  SITE
-# 2014-12-17: nearest OCO sounding is 263 km from station (overpass orbit not in parquet) — no ≤100km comparison
-# run_case  2014-12-17   ma20140930_20150727.public.qc.nc   -61.60   -59.60   -4.21    -2.21    397   402   land  poster  ma
+# ── Lamont, Oklahoma (oc; lat 36.60, lon -97.49) ──
+run_case  2021-04-24   oc20110416_20251023.public.qc.nc     -98.21   -96.98    35.55    37.80   415.5  419.0  land  poster  oc
+run_case  2021-12-29   oc20110416_20251023.public.qc.nc     -98.24   -96.87    35.40    37.80   416.5  420.0  land  poster  oc
+
+# ── Manaus, Brazil (ma; lat -3.21, lon -60.60) ──
+# 2014-12-17: nearest OCO sounding 263 km from station (overpass orbit not in parquet) — no ≤100km comparison
+# run_case  2014-12-17   ma20140930_20150727.public.qc.nc     -61.60   -59.60    -4.21    -2.21   397.0  402.0  land  poster  ma
 run_case  2015-06-29   ma20140930_20150727.public.qc.nc     -60.95   -59.06    -3.99    -2.34   397.5  402.0  land  poster  ma
 run_case  2015-07-06   ma20140930_20150727.public.qc.nc     -60.95   -59.37    -3.77    -2.29   397.5  402.5  land  poster  ma
 run_case  2015-07-13   ma20140930_20150727.public.qc.nc     -61.77   -60.25    -4.20    -2.47   397.5  401.5  land  poster  ma
 run_case  2015-07-15   ma20140930_20150727.public.qc.nc     -60.95   -59.01    -4.14    -1.88   397.5  403.0  land  poster  ma
 
-# ── Ny-Ålesund, Svalbard (ny; lat 78.923, lon 11.923) — READY (TCCON file present) ──
+# ── Ny-Ålesund, Svalbard (ny; lat 78.92, lon 11.92) ──
 run_case  2016-09-10   ny20050316_20250524.public.qc.nc      10.31    14.44    77.93    79.27   383.5  401.5  both  poster  ny
 run_case  2020-07-11   ny20050316_20250524.public.qc.nc       8.23    13.24    77.69    79.27   408.0  411.5  both  poster  ny
 run_case  2020-07-26   ny20050316_20250524.public.qc.nc      10.55    16.59    78.00    79.30   404.0  409.0  both  poster  ny
-# 2021-06-21: nearest OCO sounding is 165 km from station (overpass orbit not in parquet) — no ≤100km comparison
-# run_case  2021-06-21   ny20050316_20250524.public.qc.nc    10.92    12.92    77.92    79.92    413   419   both  poster  ny
+# 2021-06-21: nearest OCO sounding 165 km from station (overpass orbit not in parquet) — no ≤100km comparison
+# run_case  2021-06-21   ny20050316_20250524.public.qc.nc      10.92    12.92    77.92    79.92   413.0  419.0  both  poster  ny
 run_case  2021-07-03   ny20050316_20250524.public.qc.nc       9.77    16.72    78.57    80.17   412.0  418.5  both  poster  ny
 run_case  2021-09-08   ny20050316_20250524.public.qc.nc      10.21    13.80    78.03    79.27   405.5  412.0  both  poster  ny
 
-# ── Wollongong, Australia (wg; lat -34.406, lon 150.879) — READY (TCCON file present) ──
+# ── Wollongong, Australia (wg; lat -34.41, lon 150.88) ──
 run_case  2019-07-30   wg20130104_20260224.public.qc.nc     150.48   151.46   -35.32   -33.73   406.0  409.0  both  poster  wg
 run_case  2019-09-14   wg20130104_20260224.public.qc.nc     150.39   151.27   -34.95   -33.98   398.0  410.0  both  poster  wg
 run_case  2020-09-16   wg20130104_20260224.public.qc.nc     150.41   151.27   -34.96   -33.97   406.0  412.5  both  poster  wg
@@ -139,25 +156,75 @@ run_case  2020-12-23   wg20130104_20260224.public.qc.nc     150.41   151.44   -3
 run_case  2021-03-29   wg20130104_20260224.public.qc.nc     150.26   151.47   -35.64   -33.17   410.0  413.0  both  poster  wg
 run_case  2021-07-03   wg20130104_20260224.public.qc.nc     150.45   151.25   -34.89   -34.03   407.0  415.0  both  poster  wg
 
-# ── East Trout Lake, Canada (et; lat 54.354, lon -104.987) — READY (TCCON file present) ──
+# ── East Trout Lake, Canada (et; lat 54.35, lon -104.99) ──
 run_case  2021-05-26   et20161003_20260326.public.qc.nc    -105.84  -104.07    53.16    55.55   416.0  419.5  land  poster  et
-# 2021-06-09: nearest OCO sounding is 920 km from station (overpass orbit not in parquet) — no nearby pass
-# run_case  2021-06-09   et20161003_20260326.public.qc.nc    -105.99  -103.99  53.35    55.35    413   418   land  poster  et
+# 2021-06-09: nearest OCO sounding 920 km from station (overpass orbit not in parquet) — no nearby pass
+# run_case  2021-06-09   et20161003_20260326.public.qc.nc    -105.99  -103.99    53.35    55.35   413.0  418.0  land  poster  et
 run_case  2021-07-27   et20161003_20260326.public.qc.nc    -105.81  -104.64    54.00    55.56   406.0  410.0  land  poster  et
 run_case  2021-09-06   et20161003_20260326.public.qc.nc    -105.50  -104.47    53.87    54.82   406.0  413.0  land  poster  et
 
-# ── Park Falls, USA (pa; lat 45.945, lon -90.273) — READY (TCCON file present) ──
+# ── Park Falls, USA (pa; lat 45.95, lon -90.27) ──
 run_case  2021-03-29   pa20040602_20260123.public.qc.nc     -90.75   -89.77    45.46    46.45   416.5  419.5  land  poster  pa
 run_case  2021-10-16   pa20040602_20260123.public.qc.nc     -90.74   -89.78    45.46    46.39   408.0  416.0  land  poster  pa
 
-# ── Réunion Island, Indian Ocean (ra; lat -20.901, lon 55.485) — READY (TCCON covers ≤2020-07-18) ──
-# Boxes/vmin/vmax are placeholders (station ±1.0°); auto-tuned after first build.
+# ── Réunion Island (ra; lat -20.90, lon 55.49) ──
 run_case  2020-01-15   ra20150301_20200718.public.qc.nc      55.08    55.95   -21.39   -20.53   399.5  412.0  both  poster  ra
 run_case  2020-02-11   ra20150301_20200718.public.qc.nc      54.80    55.94   -22.10   -19.70   406.0  410.5  both  poster  ra
 run_case  2020-03-30   ra20150301_20200718.public.qc.nc      55.10    55.94   -21.31   -20.53   401.5  414.0  both  poster  ra
 run_case  2020-04-15   ra20150301_20200718.public.qc.nc      54.63    55.84   -22.15   -19.79   408.0  411.0  both  poster  ra
 run_case  2020-05-17   ra20150301_20200718.public.qc.nc      54.64    55.84   -22.13   -19.75   409.5  413.0  both  poster  ra
 run_case  2020-07-11   ra20150301_20200718.public.qc.nc      55.10    55.99   -21.72   -20.55   407.5  413.5  both  poster  ra
+
+# ══════════════════ auto-discovered stations (overpasses in existing parquets) ══════════════════
+
+# ── Edwards/AFRC, USA (df; lat 34.96, lon -117.881) ──
+run_case  2015-07-06   df20130720_20260121.public.qc.nc    -118.66  -117.43    33.71    36.14   400.0  404.0  land  poster  df
+run_case  2015-07-15   df20130720_20260121.public.qc.nc    -118.79  -117.53    33.71    36.08   396.5  401.0  land  poster  df
+run_case  2019-03-13   df20130720_20260121.public.qc.nc    -118.23  -116.85    33.90    36.20   410.5  413.5  land  poster  df
+run_case  2019-07-10   df20130720_20260121.public.qc.nc    -118.34  -117.39    34.46    35.46   408.5  412.0  land  poster  df
+run_case  2021-02-10   df20130720_20260121.public.qc.nc    -118.35  -117.40    34.48    35.43   415.0  418.0  land  poster  df
+run_case  2021-09-06   df20130720_20260121.public.qc.nc    -118.36  -117.38    34.46    35.42   411.5  414.5  land  poster  df
+run_case  2021-09-26   df20130720_20260121.public.qc.nc    -118.49  -117.17    33.76    36.19   411.0  417.5  land  poster  df
+
+# ── Caltech/Pasadena, USA (ci; lat 34.136, lon -118.127) ──
+run_case  2015-07-06   ci20120920_20251222.public.qc.nc    -118.48  -117.25    33.06    35.38   399.5  403.5  land  poster  ci
+run_case  2015-07-15   ci20120920_20251222.public.qc.nc    -118.57  -117.38    33.14    35.38   397.0  401.0  land  poster  ci
+run_case  2021-04-24   ci20120920_20251222.public.qc.nc    -118.49  -117.64    33.68    34.60   404.5  420.5  land  poster  ci
+
+# ── Saga, Japan (js; lat 33.241, lon 130.288) ──
+run_case  2018-09-02   js20110728_20231213.public.qc.nc     129.91   131.08    32.20    34.36   403.0  408.0  both  poster  js
+run_case  2019-03-13   js20110728_20231213.public.qc.nc     129.68   130.94    32.10    34.41   410.5  414.0  both  poster  js
+run_case  2020-10-05   js20110728_20231213.public.qc.nc     129.82   130.79    32.77    33.72   408.5  412.0  both  poster  js
+run_case  2021-03-18   js20110728_20231213.public.qc.nc     129.86   130.98    32.06    34.01   416.0  419.0  both  poster  js
+run_case  2021-09-26   js20110728_20231213.public.qc.nc     129.41   130.64    31.99    34.27   411.5  416.5  both  poster  js
+
+# ── Karlsruhe, Germany (ka; lat 49.1, lon 8.439) ──
+run_case  2019-07-30   ka20140115_20230626.public.qc.nc       7.98     8.93    48.61    49.60   403.5  411.0  land  poster  ka
+run_case  2020-01-15   ka20140115_20230626.public.qc.nc       7.95     8.94    48.64    49.55   407.0  419.5  land  poster  ka
+run_case  2021-03-29   ka20140115_20230626.public.qc.nc       7.97     8.94    48.63    49.59   416.5  419.5  land  poster  ka
+run_case  2021-07-03   ka20140115_20230626.public.qc.nc       7.99     9.23    48.20    50.16   411.0  416.0  land  poster  ka
+
+# ── Orléans, France (or; lat 47.965, lon 2.113) ──
+run_case  2015-07-15   or20090906_20250411.public.qc.nc       1.76     3.43    46.95    49.14   396.0  399.5  land  poster  or
+run_case  2020-04-05   or20090906_20250411.public.qc.nc       1.60     2.62    47.46    48.45   412.5  416.0  land  poster  or
+run_case  2020-09-16   or20090906_20250411.public.qc.nc       1.43     3.02    46.79    49.19   409.0  416.0  land  poster  or
+
+# ── Darwin, Australia (db; lat -12.456, lon 130.926) ──
+run_case  2021-06-21   db20130101_20250731.public.qc.nc     130.50   131.38   -12.92   -11.99   411.5  414.5  both  poster  db
+
+# ── Rikubetsu, Japan (rj; lat 43.459, lon 143.766) ──
+run_case  2020-03-30   rj20140624_20250501.public.qc.nc     143.21   144.21    42.95    43.91   412.5  416.0  land  poster  rj
+
+# ── Xianghe, China (xh; lat 39.798, lon 116.958) ──
+run_case  2020-02-11   xh20180614_20241231.public.qc.nc     116.43   117.71    38.60    41.04   414.5  420.5  land  poster  xh
+
+# ── Hefei, China (hf; lat 31.905, lon 117.167) ──
+run_case  2020-09-06   hf20151102_20251230.public.qc.nc     116.59   117.61    30.66    32.38   408.0  411.5  land  poster  hf
+run_case  2021-06-21   hf20151102_20251230.public.qc.nc     116.82   118.27    30.91    33.12   415.5  419.0  land  poster  hf
+
+# ── Paris, France (pr; lat 48.846, lon 2.356) ──
+run_case  2015-07-15   pr20140923_20251024.public.qc.nc       1.98     3.17    47.64    49.41   395.0  400.0  land  poster  pr
+run_case  2020-09-16   pr20140923_20251024.public.qc.nc       1.43     2.71    47.72    49.20   411.5  416.5  land  poster  pr
 
 # ─────────────────────── add your other cases below ──────────────────────────
 # run_case  2020-04-15   ra20150301_20200718.public.qc.nc   54.98    55.72    -22.71   -20.32   406     412    both
