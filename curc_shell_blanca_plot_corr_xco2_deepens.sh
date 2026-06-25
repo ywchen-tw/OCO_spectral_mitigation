@@ -150,5 +150,14 @@ run_case  2021-09-06   et20161003_20260326.public.qc.nc    -105.50  -104.47    5
 run_case  2021-03-29   pa20040602_20260123.public.qc.nc     -90.75   -89.77    45.46    46.45   416.5  419.5  land  poster  pa
 run_case  2021-10-16   pa20040602_20260123.public.qc.nc     -90.74   -89.78    45.46    46.39   408.0  416.0  land  poster  pa
 
+# ── Réunion Island, Indian Ocean (ra; lat -20.901, lon 55.485) — READY (TCCON covers ≤2020-07-18) ──
+# Boxes/vmin/vmax are placeholders (station ±1.0°); auto-tuned after first build.
+run_case  2020-01-15   ra20150301_20200718.public.qc.nc      55.08    55.95   -21.39   -20.53   399.5  412.0  both  poster  ra
+run_case  2020-02-11   ra20150301_20200718.public.qc.nc      54.80    55.94   -22.10   -19.70   406.0  410.5  both  poster  ra
+run_case  2020-03-30   ra20150301_20200718.public.qc.nc      55.10    55.94   -21.31   -20.53   401.5  414.0  both  poster  ra
+run_case  2020-04-15   ra20150301_20200718.public.qc.nc      54.63    55.84   -22.15   -19.79   408.0  411.0  both  poster  ra
+run_case  2020-05-17   ra20150301_20200718.public.qc.nc      54.64    55.84   -22.13   -19.75   409.5  413.0  both  poster  ra
+run_case  2020-07-11   ra20150301_20200718.public.qc.nc      55.10    55.99   -21.72   -20.55   407.5  413.5  both  poster  ra
+
 # ─────────────────────── add your other cases below ──────────────────────────
 # run_case  2020-04-15   ra20150301_20200718.public.qc.nc   54.98    55.72    -22.71   -20.32   406     412    both
