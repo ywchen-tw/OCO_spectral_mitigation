@@ -66,15 +66,15 @@ F=0
 NFOLDS=5
 
 # Ocean (sfc_type 0)
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_ncw${W}_f${F} \
-  --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-  --near_cloud_weight ${W} --near_cloud_km 10.0 --near_cloud_target 0.98 \
-  --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
-# Land (sfc_type 1)
-# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_ncw${W}_f${F} \
+# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_ncw${W}_f${F} \
 #   --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
 #   --near_cloud_weight ${W} --near_cloud_km 10.0 --near_cloud_target 0.98 \
 #   --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+# Land (sfc_type 1)
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_ncw${W}_f${F} \
+  --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+  --near_cloud_weight ${W} --near_cloud_km 10.0 --near_cloud_target 0.98 \
+  --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
