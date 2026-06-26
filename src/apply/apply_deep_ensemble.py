@@ -44,9 +44,13 @@ def _load_model(model_dir: Path):
     meta = pickle.load(open(model_dir / 'deep_ensemble_meta.pkl', 'rb'))
     pipeline = FeaturePipeline.load(model_dir / 'deep_ensemble_pipeline.pkl')
     aux_cloud = bool(meta.get('aux_cloud', False))
+    if meta.get('cloud_bin_feature', 'none') not in ('none', None, False):
+        raise SystemExit("this model was trained with --cloud_bin_feature; apply-side "
+                         "cld_dist one-hot augmentation is not implemented yet.")
+    hidden_dims = tuple(meta.get('hidden_dims', (64, 32)))
     members = []
     for p in sorted(model_dir.glob('member_*.pt')):
-        m = GaussianMLP(pipeline.n_features, aux_cloud=aux_cloud)
+        m = GaussianMLP(pipeline.n_features, hidden_dims=hidden_dims, aux_cloud=aux_cloud)
         m.load_state_dict(torch.load(p, map_location='cpu'))
         m.eval()
         members.append(m)

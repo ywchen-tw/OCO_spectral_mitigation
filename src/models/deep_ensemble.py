@@ -69,15 +69,18 @@ class GaussianMLP(nn.Module):
     single-task model, so existing checkpoints load unchanged.
     """
 
-    def __init__(self, n_features: int, h1: int = 64, h2: int = 32,
+    def __init__(self, n_features: int, hidden_dims=(64, 32),
                  aux_cloud: bool = False):
         super().__init__()
-        self.body = nn.Sequential(nn.Linear(n_features, h1), nn.ReLU(),
-                                  nn.Linear(h1, h2), nn.ReLU())
-        self.head = nn.Linear(h2, 2)
+        dims = [n_features] + list(hidden_dims)
+        layers = []
+        for a, b in zip(dims[:-1], dims[1:]):
+            layers += [nn.Linear(a, b), nn.ReLU()]
+        self.body = nn.Sequential(*layers)          # default (64,32) == prior arch:
+        self.head = nn.Linear(dims[-1], 2)          # body.0/body.2 Linear, head — keys match
         self.aux_cloud = aux_cloud
         if aux_cloud:
-            self.cloud_head = nn.Linear(h2, 1)
+            self.cloud_head = nn.Linear(dims[-1], 1)
 
     def forward(self, x):
         h = self.body(x)
@@ -154,7 +157,8 @@ def _raw_to_var(raw2: np.ndarray, loss: str, nu: float) -> np.ndarray:
 def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
                   batch_size, n_epochs, patience, ckpt,
                   loss='gaussian_nll', nu=4.0, beta=0.5, w_tr=None, w_val=None,
-                  c_tr=None, c_val=None, cloud_aux_weight=0.0, cloud_pos_weight=None):
+                  c_tr=None, c_val=None, cloud_aux_weight=0.0, cloud_pos_weight=None,
+                  hidden_dims=(64, 32)):
     crit = _make_criterion(loss, nu, beta)
     aux_cloud = cloud_aux_weight > 0.0
     torch.manual_seed(seed); np.random.seed(seed)
@@ -175,7 +179,7 @@ def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
                     num_workers=nw, persistent_workers=nw > 0)
     vl = DataLoader(va, batch_size=batch_size, shuffle=False, pin_memory=pin,
                     num_workers=nw, persistent_workers=nw > 0)
-    model = GaussianMLP(n_features, aux_cloud=aux_cloud).to(device)
+    model = GaussianMLP(n_features, hidden_dims=hidden_dims, aux_cloud=aux_cloud).to(device)
     bce = None
     if aux_cloud:
         pw = (torch.tensor(float(cloud_pos_weight), device=device)
@@ -270,6 +274,23 @@ def ensemble_cloud_prob(members, X, device):
     return np.stack(member_probs).mean(0).astype(np.float32)
 
 
+# Cloud-distance bin edges (km) → 5 one-hot groups: [0,2)(2,5)(5,10)(10,15)[15,inf).
+# Used as an INPUT feature (oracle = true cld_dist_km bins; the deployable variant
+# would feed the classifier's PREDICTED bin instead).  Non-finite cld_dist (no
+# cloud found) maps to the far [15,inf) bin.
+_CLOUD_BIN_EDGES = np.array([2.0, 5.0, 10.0, 15.0], dtype=float)
+N_CLOUD_BINS = len(_CLOUD_BIN_EDGES) + 1
+
+
+def cloud_bin_onehot(cld_dist_km: np.ndarray) -> np.ndarray:
+    """[N] cld_dist_km → [N, 5] one-hot of the distance group."""
+    cd = np.where(np.isfinite(cld_dist_km), cld_dist_km, np.inf)
+    idx = np.digitize(cd, _CLOUD_BIN_EDGES)            # 0..4
+    oh = np.zeros((len(cd), N_CLOUD_BINS), dtype=np.float32)
+    oh[np.arange(len(cd)), idx] = 1.0
+    return oh
+
+
 def main():
     p = argparse.ArgumentParser(description="Deep-ensemble MLP + conformal calibration.")
     p.add_argument('--sfc_type', type=int, default=0)
@@ -280,6 +301,10 @@ def main():
     p.add_argument('--feature_set', type=str, default='full',
                    choices=['full', 'no_xco2', 'no_spec', 'full_fitqual'])
     p.add_argument('--n_members', type=int, default=5)
+    p.add_argument('--hidden_dims', type=str, default='64,32',
+                   help="Comma-separated GaussianMLP hidden layer widths. Default "
+                        "'64,32' (the current 2-layer arch). e.g. '128,64,32' adds a "
+                        "layer; '256,128,64' goes wider+deeper. Capacity sweep knob.")
     p.add_argument('--loss', type=str, default='gaussian_nll',
                    choices=['gaussian_nll', 'beta_nll', 'student_t'],
                    help="Member loss: gaussian_nll (default), beta_nll (Seitzer "
@@ -321,6 +346,15 @@ def main():
                         "structure that lifts near-cloud XCO2 accuracy, and the head "
                         "also yields an ensemble near-cloud probability (AUC/AP reported "
                         "when truth is present).")
+    p.add_argument('--cloud_bin_feature', choices=['none', 'oracle', 'predicted'],
+                   default='none',
+                   help="Append a 5-way one-hot of the cld_dist_km group "
+                        "([0,2)(2,5)(5,10)(10,15)[15,inf) km) to the INPUT features. "
+                        "'oracle' = TRUE cld_dist_km (independent MODIS info; upper "
+                        "bound, only deployable where MODIS collocation exists). "
+                        "'predicted' = bin from an internal GBDT classifier trained on "
+                        "the SAME features (deployable without MODIS; recovers only the "
+                        "cloud signal present in the spectra).  'none' (default) = off.")
     p.add_argument('--mondrian_bins', type=int, default=10)
     p.add_argument('--mondrian_col', type=str, default='mu',
                    help="Observable variable for Mondrian bins: 'mu' (predicted-mean "
@@ -382,6 +416,40 @@ def main():
     X_tr, y_tr, train_valid = _prep(proper_df)
     X_cal, y_cal, calib_valid = _prep(calib_df)
     X_te, y_te, held_valid = _prep(held_df)
+
+    # Optional cloud-distance-bin INPUT feature (oracle = true bins; predicted = an
+    # internal GBDT classifier on the same features, deployable without MODIS).
+    if args.cloud_bin_feature != 'none':
+        def _true_bins(frame):
+            return np.digitize(np.where(np.isfinite(frame['cld_dist_km'].to_numpy(float)),
+                                        frame['cld_dist_km'].to_numpy(float), np.inf),
+                               _CLOUD_BIN_EDGES)
+        if args.cloud_bin_feature == 'oracle':
+            oh_tr, oh_cal, oh_te = (cloud_bin_onehot(f['cld_dist_km'].to_numpy(float))
+                                    for f in (train_valid, calib_valid, held_valid))
+        else:                                            # 'predicted'
+            from sklearn.ensemble import HistGradientBoostingClassifier
+            from sklearn.metrics import accuracy_score
+            b_tr = _true_bins(train_valid)
+            clf = HistGradientBoostingClassifier(max_iter=200, learning_rate=0.1,
+                                                 max_depth=8, random_state=args.seed)
+            clf.fit(X_tr, b_tr)
+            p_tr, p_cal, p_te = clf.predict(X_tr), clf.predict(X_cal), clf.predict(X_te)
+            acc = accuracy_score(_true_bins(held_valid), p_te)
+            print(f"[deep_ensemble] predicted cloud-bin classifier held 5-class "
+                  f"acc={acc:.4f} (chance≈0.2); train acc={accuracy_score(b_tr, p_tr):.4f}")
+            def _oh(idx):
+                oh = np.zeros((len(idx), N_CLOUD_BINS), dtype=np.float32)
+                oh[np.arange(len(idx)), idx] = 1.0
+                return oh
+            oh_tr, oh_cal, oh_te = _oh(p_tr), _oh(p_cal), _oh(p_te)
+        X_tr = np.concatenate([X_tr, oh_tr], axis=1).astype(np.float32)
+        X_cal = np.concatenate([X_cal, oh_cal], axis=1).astype(np.float32)
+        X_te = np.concatenate([X_te, oh_te], axis=1).astype(np.float32)
+        print(f"[deep_ensemble] cloud_bin_feature={args.cloud_bin_feature}: "
+              f"+{N_CLOUD_BINS} one-hot dims (pipeline {pipeline.n_features} → "
+              f"model {X_tr.shape[1]})")
+    n_features = X_tr.shape[1]
     print(f"[deep_ensemble] proper-train {X_tr.shape}  calib {X_cal.shape}  held {X_te.shape}")
 
     # Near-cloud loss weighting: tilt the (weighted) objective toward the
@@ -434,18 +502,20 @@ def main():
     if args.batch_size is not None:
         batch_size = args.batch_size
     # internal val for early stopping = the calibration block (it is held out of training)
+    hidden_dims = tuple(int(x) for x in args.hidden_dims.split(',') if x.strip())
     members = []
     for m in range(args.n_members):
         ck = str(output_dir / f'member_{m}.pt')
         print(f"  training member {m+1}/{args.n_members} (seed={args.seed + m})")
-        members.append(_train_member(X_tr, y_tr, X_cal, y_cal, pipeline.n_features,
+        members.append(_train_member(X_tr, y_tr, X_cal, y_cal, n_features,
                                       seed=args.seed + m, device=device, batch_size=batch_size,
                                       n_epochs=epochs, patience=50, ckpt=ck,
                                       loss=args.loss, nu=args.nu, beta=args.beta,
                                       w_tr=w_tr, w_val=w_cal,
                                       c_tr=c_tr, c_val=c_cal,
                                       cloud_aux_weight=args.cloud_aux_weight,
-                                      cloud_pos_weight=cloud_pos_weight))
+                                      cloud_pos_weight=cloud_pos_weight,
+                                      hidden_dims=hidden_dims))
 
     mu_cal, sig_cal = ensemble_predict(members, X_cal, device, loss=args.loss, nu=args.nu)
     mu_te, sig_te = ensemble_predict(members, X_te, device, loss=args.loss, nu=args.nu)
@@ -547,7 +617,9 @@ def main():
                      'near_cloud_km': args.near_cloud_km,
                      'near_cloud_weight': args.near_cloud_weight,
                      'aux_cloud': args.cloud_aux_weight > 0.0,
-                     'cloud_aux_weight': args.cloud_aux_weight}, f)
+                     'cloud_aux_weight': args.cloud_aux_weight,
+                     'cloud_bin_feature': args.cloud_bin_feature,
+                     'hidden_dims': list(hidden_dims)}, f)
 
     g = results['mondrian']
     summary = RunSummary(
