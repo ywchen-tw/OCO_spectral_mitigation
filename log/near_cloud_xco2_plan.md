@@ -106,6 +106,22 @@ Re-run of F1 (which was on the underfit 64,32) now that capacity is fixed. Local
 
 ⚠️ IN-DISTRIBUTION. At 64,32 multi-task helped in-distribution but flipped to hurting OOD (F1). Must confirm under date_kfold that (a) λ>0 stays XCO2-neutral at proper capacity and (b) the cloud AUC generalizes to unseen dates.
 
+### Phase 1d — SEPARATE cloud<10km classifier vs the bundled multi-task head  ✅ DONE 2026-06-26
+Standalone GBDT + MLP classifiers (same FeaturePipeline features, same 12-date random split / held set as the DE runs). Target: binary cld_dist_km < 10km.
+
+| surface | model | AUC | AP | recall@0.5 |
+|---|---|---|---|---|
+| land (pos 17%) | GBDT | **0.973** | 0.871 | 0.943 |
+| land | MLP | 0.970 | 0.855 | 0.935 |
+| ocean (pos 49%) | GBDT | 0.884 | 0.871 | 0.802 |
+| ocean | MLP | 0.894 | 0.880 | 0.823 |
+
+Bundled multi-task head (land, 128,64,32): AUC 0.918 (λ=0.1) / 0.936 (λ=0.3).
+
+**RESULT: a dedicated classifier predicts cloud<10km notably better than the bundled head** (land +0.05 AUC: 0.973 vs 0.918). GBDT ≈ MLP (within 0.01; GBDT better on land, MLP on ocean). Cloud<10km is highly predictable from spectra on land (AUC ~0.97), harder on ocean (~0.89). No ocean bundled number to compare (1c was land-only).
+
+**Conclusion → TWO separate models for the dual goal:** (1) a bigger single-task DE for XCO2 (capacity is the lever, +0.243), and (2) a dedicated GBDT/MLP for cloud<10km (beats bundling by +0.05 AUC). Multi-task loses on both axes — it doesn't help XCO2 (capacity does) and predicts cloud worse than a dedicated model. ⚠️ All in-distribution; confirm both on CURC date_kfold.
+
 ---
 
 ## Decision log
