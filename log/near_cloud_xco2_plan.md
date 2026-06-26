@@ -122,6 +122,16 @@ Bundled multi-task head (land, 128,64,32): AUC 0.918 (λ=0.1) / 0.936 (λ=0.3).
 
 **Conclusion → TWO separate models for the dual goal:** (1) a bigger single-task DE for XCO2 (capacity is the lever, +0.243), and (2) a dedicated GBDT/MLP for cloud<10km (beats bundling by +0.05 AUC). Multi-task loses on both axes — it doesn't help XCO2 (capacity does) and predicts cloud worse than a dedicated model. ⚠️ All in-distribution; confirm both on CURC date_kfold.
 
+### Phase 1e — push cloud<10km AUC (tuned models)  ✅ DONE 2026-06-26
+Same 12-date held set. Tuned HGB (early stopping), XGBoost (early stopping, ~2000 trees), bigger MLP (256,128,64), XGB+MLP rank-ensemble.
+
+| surface | HGB tuned | **XGBoost** | MLP big | ENS | prev best |
+|---|---|---|---|---|---|
+| land (pos 17%) | 0.987 | **0.9935** | 0.985 | 0.992 | 0.973 |
+| ocean (pos 49%) | 0.928 | **0.9538** | 0.933 | 0.951 | 0.894 |
+
+**RESULT: XGBoost wins both** — land 0.9935 (near-ceiling, +0.02), ocean 0.9538 (+0.06, big jump on the harder surface). Ensemble doesn't beat XGB alone. vs the bundled multi-task head (land 0.918): **+0.075**. Dedicated XGBoost is the cloud classifier. XGB hit the ~2000-tree cap → marginal headroom with more trees. ⚠️ in-distribution; OOD date_kfold next (2000 trees risks date overfit).
+
 ---
 
 ## Decision log
