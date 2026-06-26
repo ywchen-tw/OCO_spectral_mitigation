@@ -63,19 +63,30 @@ Config: land, 12-date, random split, proven hp (batch 2048, 50 ep, M=2, β=1.0, 
 
 ⚠️ **IN-DISTRIBUTION only.** Bigger models can overfit training dates → the +0.243 MUST be confirmed under date_kfold (Phase 2). This is now the critical risk.
 
-### Phase 1b — cloud-bin screen at the BEST capacity from 1a  [BLOCKED on 1a]
-At the winning architecture, compare near-cloud R²:
+### Phase 2 — CURC date_kfold CAPACITY confirmation  [READY — promoted ahead of 1b]
+Given the magnitude of the 1a capacity win (+0.243, larger than the cloud feature), confirm it out-of-distribution BEFORE spending on 1b. Script: `curc_shell_blanca_de_capacity_ablation.sh` (30-task array = {ocean,land} × hidden_dims{64,32 | 128,64,32 | 256,128,64} × fold{0..4}). **Single-task, current style** (xco2 anomaly only; no cloud head, no cloud-bin input) — only `--hidden_dims` varies. Production settings otherwise (beta_nll β=1.0, M=5, batch 8192, near_cloud_target 0.98).
+
+| surface | hidden_dims | near R² (5-fold mean±std) | status |
+|---|---|---|---|
+| ocean | 64,32 (ref) | _tbd_ | pending |
+| ocean | 128,64,32 | _tbd_ | pending |
+| ocean | 256,128,64 | _tbd_ | pending |
+| land | 64,32 (ref) | _tbd_ | pending |
+| land | 128,64,32 | _tbd_ | pending |
+| land | 256,128,64 | _tbd_ | pending |
+
+Decision: if 128,64,32 still beats 64,32 OOD (and 256,128,64 doesn't overfit) → adopt the bigger backbone as the new DE baseline, THEN run 1b (predicted bin) on top of it.
+
+### Phase 1b — cloud-bin screen at the BEST capacity  [BLOCKED on Phase 2]
+Once capacity is confirmed OOD, run on the winning architecture and compare near-cloud R²:
 
 | cloud_bin_feature | near R² | classifier 5-class acc | status |
 |---|---|---|---|
-| none (baseline) | _tbd_ | — | pending |
+| none (best-capacity baseline) | _tbd_ | — | pending |
 | predicted (GBDT on spectra) | _tbd_ | _tbd_ | pending |
 | oracle (true, ceiling) | _tbd_ | — | pending |
 
-Key question: does `predicted` beat just the best-capacity baseline? (distillation vs capacity)
-
-### Phase 2 — CURC date_kfold confirmation  [BLOCKED on 1a/1b decision gate]
-Winners from 1a/1b, 5 folds, both surfaces, real date_kfold (the only honest OOD test). Watch bigger models for date-shift overfitting.
+Key question: does `predicted` beat the best-capacity baseline? (distillation vs capacity). Strong prior: little gain, since a right-sized model already extracts the spectra's cloud signal.
 
 ---
 
