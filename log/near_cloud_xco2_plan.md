@@ -132,6 +132,19 @@ Same 12-date held set. Tuned HGB (early stopping), XGBoost (early stopping, ~200
 
 **RESULT: XGBoost wins both** — land 0.9935 (near-ceiling, +0.02), ocean 0.9538 (+0.06, big jump on the harder surface). Ensemble doesn't beat XGB alone. vs the bundled multi-task head (land 0.918): **+0.075**. Dedicated XGBoost is the cloud classifier. XGB hit the ~2000-tree cap → marginal headroom with more trees. ⚠️ in-distribution; OOD date_kfold next (2000 trees risks date overfit).
 
+### Phase 1f — cloud<10km classifier OUT OF DISTRIBUTION (date_kfold, local 12-date)  ✅ DONE 2026-06-26
+XGBoost, random (in-dist) vs date_kfold (OOD, 4 folds), both surfaces:
+
+| surface | random (in-dist) | date_kfold OOD | drop |
+|---|---|---|---|
+| land | 0.9935 | 0.824 ± 0.05 | −0.17 |
+| ocean | 0.9538 | 0.654 ± 0.01 | −0.30 |
+
+**RESULT: the in-distribution AUCs were largely an ILLUSION** (spatial/temporal autocorrelation leakage when train/test share dates). On unseen dates: land 0.82 (useful), ocean 0.65 (near chance). This also inflates every prior in-dist number (bundled head 0.918 included). Regularization (400 trees, depth 4, strong reg) helps modestly — land 0.824→0.843, ocean 0.654→0.688 — so the collapse is *partly* overfit, *mostly* fundamental at 12 dates (only ~9 train dates/fold). **Key hope: the full 66-date set has many more train dates/fold → should generalize better. → CURC test.**
+
+### Phase 2b — CURC XGBoost cloud<10km date_kfold (full 66-date data)  [READY]
+Single XGBoost per fold (no ensemble → cheap, CPU-only). Module `src/models/xgb_cloud_classifier.py`, script `curc_shell_blanca_xgb_cloud_ablation.sh` ({ocean,land} × fold{0..4}). Regularized config (the OOD-better one). Question: does more training-date diversity recover OOD AUC vs the local 0.84 land / 0.69 ocean?
+
 ---
 
 ## Decision log
