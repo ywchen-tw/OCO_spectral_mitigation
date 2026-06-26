@@ -92,6 +92,20 @@ Multi-seed verification (none vs oracle near R²): seed42 −0.082, seed1 −0.0
 
 **Conclusion: capacity is the lever; the cloud-distance input feature is dropped.** No need to build the cloud classifier or the apply-side augmentation. The cloud-bin code stays in the tree (default-off) as a documented negative result.
 
+### Phase 1c — multi-task aux head re-tested AT proper capacity (128,64,32)  ✅ DONE 2026-06-26
+Re-run of F1 (which was on the underfit 64,32) now that capacity is fixed. Local, 12-date land, random split, seed 42.
+
+| λ_cloud @ 128,64,32 | near XCO2 R² | far R² | cloud AUC |
+|---|---|---|---|
+| 0.0 | 0.753 | 0.557 | — |
+| 0.05 | 0.744 | 0.504 | 0.898 |
+| 0.1 | 0.758 | 0.521 | 0.918 |
+| 0.3 | 0.734 | 0.524 | 0.936 |
+
+**RESULT: capacity-competition confirmed.** On 64,32 the aux head monotonically DESTROYED XCO2 (0.510→0.469); at 128,64,32 it is **roughly neutral for XCO2** (±0.01, within noise) AND yields a strong cloud classifier (AUC ~0.92 at λ=0.1). So at proper capacity you can get **both predictions from one model at ~no XCO2 cost** — not because the cloud task helps XCO2 (capacity does that), but because it's now "free."
+
+⚠️ IN-DISTRIBUTION. At 64,32 multi-task helped in-distribution but flipped to hurting OOD (F1). Must confirm under date_kfold that (a) λ>0 stays XCO2-neutral at proper capacity and (b) the cloud AUC generalizes to unseen dates.
+
 ---
 
 ## Decision log
