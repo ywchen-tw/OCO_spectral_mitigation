@@ -158,16 +158,25 @@ class OCO2MetadataRetriever:
 
     @staticmethod
     def _looks_like_auth_page(response: requests.Response) -> bool:
-        """Detect OAuth/login HTML returned instead of directory or data content."""
+        """Detect OAuth/login HTML returned instead of directory or data content.
+
+        Note: legitimate GES DISC directory index pages carry an "Earthdata
+        Login" link in their navbar chrome, so the bare phrase is NOT a reliable
+        signal. We treat a page as an auth page only when (a) the request was
+        actually redirected to the URS login host, or (b) the body contains an
+        OAuth/credential form — and never when it carries real data/listing links.
+        """
         response_url = response.url.lower()
         if "urs.earthdata.nasa.gov" in response_url:
             return True
         content_type = response.headers.get("Content-Type", "").lower()
         if "text/html" not in content_type:
             return False
-        text = response.text[:4096].lower()
-        if "earthdata login" in text:
-            return True
+        text = response.text.lower()
+        # A valid directory listing or data response contains file links; if so,
+        # it is content, not a login wall, regardless of navbar "login" links.
+        if (".h5" in text or ".xml" in text or "index of" in text):
+            return False
         if "urs.earthdata.nasa.gov/oauth" in text and "<form" in text:
             return True
         return "name=\"username\"" in text and "name=\"password\"" in text
