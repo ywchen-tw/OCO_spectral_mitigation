@@ -77,18 +77,23 @@ Given the magnitude of the 1a capacity win (+0.243, larger than the cloud featur
 
 Decision: if 128,64,32 still beats 64,32 OOD (and 256,128,64 doesn't overfit) → adopt the bigger backbone as the new DE baseline, THEN run 1b (predicted bin) on top of it.
 
-### Phase 1b — cloud-bin screen at the BEST capacity  [BLOCKED on Phase 2]
-Once capacity is confirmed OOD, run on the winning architecture and compare near-cloud R²:
+### Phase 1b — cloud-bin screen at the BEST capacity (128,64,32)  ✅ DONE 2026-06-26
+Local, 12-date land, random split. At the winning capacity, near-cloud R² (seed 42):
 
-| cloud_bin_feature | near R² | classifier 5-class acc | status |
+| cloud_bin_feature | near R² | far R² | classifier 5-class acc |
 |---|---|---|---|
-| none (best-capacity baseline) | _tbd_ | — | pending |
-| predicted (GBDT on spectra) | _tbd_ | _tbd_ | pending |
-| oracle (true, ceiling) | _tbd_ | — | pending |
+| none (baseline) | **0.753** | 0.557 | — |
+| predicted (GBDT on spectra) | 0.666 | 0.467 | 0.835 |
+| oracle (true, ceiling) | 0.671 | 0.469 | — |
 
-Key question: does `predicted` beat the best-capacity baseline? (distillation vs capacity). Strong prior: little gain, since a right-sized model already extracts the spectra's cloud signal.
+Multi-seed verification (none vs oracle near R²): seed42 −0.082, seed1 −0.023, seed2 −0.029.
+
+**RESULT: at proper capacity, the cloud-bin input does NOT help — even the ORACLE consistently HURTS** (mean ≈ −0.045 across 3 seeds). The +0.175 oracle gain seen at the underfit 64,32 was a **capacity crutch, not independent-information value**: once the backbone is big enough to extract cloud structure from the spectra itself, the explicit coarse bin is redundant and mildly harmful. Since predicted ≈ oracle ≈ below baseline, the **predicted-bin idea is dead** (a noisier version of a feature that doesn't help even when perfect).
+
+**Conclusion: capacity is the lever; the cloud-distance input feature is dropped.** No need to build the cloud classifier or the apply-side augmentation. The cloud-bin code stays in the tree (default-off) as a documented negative result.
 
 ---
 
 ## Decision log
 - 2026-06-26: Multi-task aux abandoned (F1). Oracle proves cloud-distance is informative but MODIS-only (F2). Pivot to: (1a) test DE capacity, (1b) predicted-bin vs capacity, then (2) confirm on CURC.
+- 2026-06-26: 1a — DE was badly underfitting; 128,64,32 gives +0.243 near R² (free, no MODIS). 1b — at that capacity, cloud-bin (even oracle) HURTS → the oracle gain was a capacity crutch; predicted-bin idea dropped. **Net: increase DE capacity (single-task), confirm OOD on CURC; cloud-distance as input/output is closed with evidence.**
