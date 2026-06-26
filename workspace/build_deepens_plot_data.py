@@ -52,9 +52,10 @@ def _load_fold(model_dir):
     md = Path(model_dir)
     meta = pickle.load(open(md / 'deep_ensemble_meta.pkl', 'rb'))
     pipe = FeaturePipeline.load(md / 'deep_ensemble_pipeline.pkl')
+    aux_cloud = bool(meta.get('aux_cloud', False))
     members = []
     for p in sorted(md.glob('member_*.pt')):
-        m = GaussianMLP(pipe.n_features)
+        m = GaussianMLP(pipe.n_features, aux_cloud=aux_cloud)
         m.load_state_dict(torch.load(p, map_location='cpu'))
         m.eval(); members.append(m)
     if not members:

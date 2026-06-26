@@ -55,24 +55,37 @@ Z90 = 1.6448536269514722  # Gaussian 90% two-sided
 
 
 class GaussianMLP(nn.Module):
-    """n_features → 64 → ReLU → 32 → ReLU → (mu, raw2).
+    """n_features → 64 → ReLU → 32 → ReLU → (mu, raw2)[, cloud_logit].
 
     raw2 is interpreted as log_var (gaussian / beta_nll) or log_scale (student_t)
     by the selected loss; the architecture is identical so checkpoints are
     interchangeable across losses.
+
+    aux_cloud adds a second linear head off the shared body that predicts the
+    near-cloud (cld_dist_km <= near_cloud_km) binary logit — a multi-task
+    auxiliary task that injects cloud-contamination structure into the shared
+    representation (validated to lift near-cloud XCO2 accuracy in the tabm
+    ablation).  When off, the architecture/state_dict is identical to the
+    single-task model, so existing checkpoints load unchanged.
     """
 
-    def __init__(self, n_features: int, h1: int = 64, h2: int = 32):
+    def __init__(self, n_features: int, h1: int = 64, h2: int = 32,
+                 aux_cloud: bool = False):
         super().__init__()
         self.body = nn.Sequential(nn.Linear(n_features, h1), nn.ReLU(),
                                   nn.Linear(h1, h2), nn.ReLU())
         self.head = nn.Linear(h2, 2)
+        self.aux_cloud = aux_cloud
+        if aux_cloud:
+            self.cloud_head = nn.Linear(h2, 1)
 
     def forward(self, x):
         h = self.body(x)
         out = self.head(h)
         mu = out[:, 0]
         raw2 = torch.clamp(out[:, 1], min=-10.0, max=10.0)  # in [~4.5e-5, ~2.2e4]
+        if self.aux_cloud:
+            return mu, raw2, self.cloud_head(h).squeeze(-1)
         return mu, raw2
 
 
@@ -140,21 +153,34 @@ def _raw_to_var(raw2: np.ndarray, loss: str, nu: float) -> np.ndarray:
 
 def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
                   batch_size, n_epochs, patience, ckpt,
-                  loss='gaussian_nll', nu=4.0, beta=0.5, w_tr=None, w_val=None):
+                  loss='gaussian_nll', nu=4.0, beta=0.5, w_tr=None, w_val=None,
+                  c_tr=None, c_val=None, cloud_aux_weight=0.0, cloud_pos_weight=None):
     crit = _make_criterion(loss, nu, beta)
+    aux_cloud = cloud_aux_weight > 0.0
     torch.manual_seed(seed); np.random.seed(seed)
     if w_tr is None:
         w_tr = np.ones(len(y_tr), dtype=np.float32)
     if w_val is None:
         w_val = np.ones(len(y_val), dtype=np.float32)
-    tr = TensorDataset(torch.tensor(X_tr), torch.tensor(y_tr), torch.tensor(w_tr))
-    va = TensorDataset(torch.tensor(X_val), torch.tensor(y_val), torch.tensor(w_val))
+    if c_tr is None:
+        c_tr = np.zeros(len(y_tr), dtype=np.float32)
+    if c_val is None:
+        c_val = np.zeros(len(y_val), dtype=np.float32)
+    tr = TensorDataset(torch.tensor(X_tr), torch.tensor(y_tr),
+                       torch.tensor(w_tr), torch.tensor(c_tr))
+    va = TensorDataset(torch.tensor(X_val), torch.tensor(y_val),
+                       torch.tensor(w_val), torch.tensor(c_val))
     pin = device.type in ("cuda", "mps"); nw = min(8, os.cpu_count() or 1)
     tl = DataLoader(tr, batch_size=batch_size, shuffle=True, pin_memory=pin,
                     num_workers=nw, persistent_workers=nw > 0)
     vl = DataLoader(va, batch_size=batch_size, shuffle=False, pin_memory=pin,
                     num_workers=nw, persistent_workers=nw > 0)
-    model = GaussianMLP(n_features).to(device)
+    model = GaussianMLP(n_features, aux_cloud=aux_cloud).to(device)
+    bce = None
+    if aux_cloud:
+        pw = (torch.tensor(float(cloud_pos_weight), device=device)
+              if cloud_pos_weight is not None else None)
+        bce = nn.BCEWithLogitsLoss(pos_weight=pw)
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=1e-3,
                 total_steps=n_epochs * len(tl), pct_start=0.05, div_factor=25,
@@ -162,20 +188,25 @@ def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
     best, no_imp = float("inf"), 0
     for epoch in range(n_epochs):
         model.train()
-        for xb, yb, wb in tl:
-            xb, yb, wb = xb.to(device), yb.to(device), wb.to(device)
+        for xb, yb, wb, cb in tl:
+            xb, yb, wb, cb = xb.to(device), yb.to(device), wb.to(device), cb.to(device)
             opt.zero_grad()
-            mu, lv = model(xb)
-            loss_val = crit(mu, lv, yb, wb)
+            out = model(xb)
+            loss_val = crit(out[0], out[1], yb, wb)
+            if bce is not None:
+                loss_val = loss_val + cloud_aux_weight * bce(out[2], cb)
             loss_val.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step(); sched.step()
         model.eval(); vloss = 0.0
         with torch.no_grad():
-            for xb, yb, wb in vl:
-                xb, yb, wb = xb.to(device), yb.to(device), wb.to(device)
-                mu, lv = model(xb)
-                vloss += crit(mu, lv, yb, wb).item()
+            for xb, yb, wb, cb in vl:
+                xb, yb, wb, cb = xb.to(device), yb.to(device), wb.to(device), cb.to(device)
+                out = model(xb)
+                v = crit(out[0], out[1], yb, wb)
+                if bce is not None:
+                    v = v + cloud_aux_weight * bce(out[2], cb)
+                vloss += v.item()
         vloss /= len(vl)
         if vloss < best:
             best, no_imp = vloss, 0
@@ -194,7 +225,8 @@ def _member_predict(model, X, device, batch_size=8192, loss='gaussian_nll', nu=4
     with torch.no_grad():
         for s in range(0, len(X), batch_size):
             xb = torch.tensor(X[s:s + batch_size], dtype=torch.float32).to(device)
-            mu, raw2 = model(xb)
+            out = model(xb)                       # (mu, raw2) or (mu, raw2, cloud_logit)
+            mu, raw2 = out[0], out[1]
             mus.append(mu.cpu().numpy()); raws.append(raw2.cpu().numpy())
     return np.concatenate(mus), _raw_to_var(np.concatenate(raws), loss, nu)
 
@@ -211,6 +243,31 @@ def ensemble_predict(members, X, device, loss='gaussian_nll', nu=4.0):
     var_star = (var_stack + mu_stack ** 2).mean(0) - mu_star ** 2
     sigma_star = np.sqrt(np.maximum(var_star, 1e-12))
     return mu_star.astype(np.float32), sigma_star.astype(np.float32)
+
+
+def _member_cloud_prob(model, X, device, batch_size=8192):
+    """Per-member near-cloud probability = sigmoid(cloud_logit).  Requires an
+    aux_cloud member; returns None for single-task members."""
+    if not getattr(model, 'aux_cloud', False):
+        return None
+    model = model.to(device); model.eval()
+    probs = []
+    with torch.no_grad():
+        for s in range(0, len(X), batch_size):
+            xb = torch.tensor(X[s:s + batch_size], dtype=torch.float32).to(device)
+            cloud_logit = model(xb)[2]
+            probs.append(torch.sigmoid(cloud_logit).cpu().numpy())
+    return np.concatenate(probs)
+
+
+def ensemble_cloud_prob(members, X, device):
+    """Ensemble near-cloud probability = mean over members of sigmoid(cloud_logit).
+    Returns None if the members have no cloud head."""
+    member_probs = [p for p in (_member_cloud_prob(m, X, device) for m in members)
+                    if p is not None]
+    if not member_probs:
+        return None
+    return np.stack(member_probs).mean(0).astype(np.float32)
 
 
 def main():
@@ -255,6 +312,15 @@ def main():
                         "aligning training/early-stopping with near-cloud point "
                         "accuracy.  Applied to BOTH train and the calibration block "
                         "used for early stopping.")
+    p.add_argument('--cloud_aux_weight', type=float, default=0.0,
+                   help="Multi-task auxiliary loss weight lambda for a near-cloud "
+                        "(cld_dist_km <= --near_cloud_km) binary classification head "
+                        "on the shared backbone.  0.0 = off (single-task; architecture "
+                        "and checkpoints identical to before).  >0 adds lambda*BCE to "
+                        "each member's loss; the cloud task injects cloud-contamination "
+                        "structure that lifts near-cloud XCO2 accuracy, and the head "
+                        "also yields an ensemble near-cloud probability (AUC/AP reported "
+                        "when truth is present).")
     p.add_argument('--mondrian_bins', type=int, default=10)
     p.add_argument('--mondrian_col', type=str, default='mu',
                    help="Observable variable for Mondrian bins: 'mu' (predicted-mean "
@@ -338,6 +404,24 @@ def main():
               f"{int((w_tr > 1).sum())}/{len(w_tr)} train rows "
               f"({100 * (w_tr > 1).mean():.1f}%) upweighted")
 
+    # Multi-task auxiliary cloud labels: binary near-cloud (cld_dist_km <= km).
+    # Off (c=None, pos_weight=None) when --cloud_aux_weight == 0.
+    def _cloud_labels(frame):
+        if 'cld_dist_km' not in frame.columns:
+            raise ValueError("--cloud_aux_weight requires a 'cld_dist_km' column")
+        cd = frame['cld_dist_km'].to_numpy(dtype=float)
+        return (np.isfinite(cd) & (cd <= args.near_cloud_km)).astype(np.float32)
+    c_tr = c_cal = None
+    cloud_pos_weight = None
+    if args.cloud_aux_weight > 0.0:
+        c_tr = _cloud_labels(train_valid)
+        c_cal = _cloud_labels(calib_valid)
+        n_pos = float(c_tr.sum()); n_neg = float(len(c_tr) - n_pos)
+        cloud_pos_weight = n_neg / max(n_pos, 1.0)   # balance the BCE
+        print(f"[deep_ensemble] cloud_aux_weight={args.cloud_aux_weight} "
+              f"(near<={args.near_cloud_km}km): {int(n_pos)}/{len(c_tr)} train rows "
+              f"positive ({100 * n_pos / len(c_tr):.1f}%), pos_weight={cloud_pos_weight:.3f}")
+
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -358,7 +442,10 @@ def main():
                                       seed=args.seed + m, device=device, batch_size=batch_size,
                                       n_epochs=epochs, patience=50, ckpt=ck,
                                       loss=args.loss, nu=args.nu, beta=args.beta,
-                                      w_tr=w_tr, w_val=w_cal))
+                                      w_tr=w_tr, w_val=w_cal,
+                                      c_tr=c_tr, c_val=c_cal,
+                                      cloud_aux_weight=args.cloud_aux_weight,
+                                      cloud_pos_weight=cloud_pos_weight))
 
     mu_cal, sig_cal = ensemble_predict(members, X_cal, device, loss=args.loss, nu=args.nu)
     mu_te, sig_te = ensemble_predict(members, X_te, device, loss=args.loss, nu=args.nu)
@@ -422,9 +509,29 @@ def main():
         print(corr[['bin', 'n', 'pre_rms', 'post_rms', 'rms_reduction_pct', 'r2']]
               .to_string(index=False))
 
+    # ── auxiliary near-cloud classification head (multi-task) ──────────────────
+    # Ensemble near-cloud probability + its quality vs the true cld_dist_km<=km
+    # label.  Only present when --cloud_aux_weight > 0 (members have a cloud head).
+    cloud_metrics = {}
+    cloud_prob_te = ensemble_cloud_prob(members, X_te, device)
+    if cloud_prob_te is not None and 'cld_dist_km' in held_valid.columns:
+        from sklearn.metrics import roc_auc_score, average_precision_score
+        cd_te = held_valid['cld_dist_km'].to_numpy(dtype=float)
+        c_true = (np.isfinite(cd_te) & (cd_te <= args.near_cloud_km)).astype(int)
+        if 0 < int(c_true.sum()) < len(c_true):          # need both classes
+            auc = float(roc_auc_score(c_true, cloud_prob_te))
+            ap = float(average_precision_score(c_true, cloud_prob_te))
+            acc = float(((cloud_prob_te >= 0.5).astype(int) == c_true).mean())
+            cloud_metrics = {'cloud_auc': auc, 'cloud_ap': ap,
+                             'cloud_acc@0.5': acc, 'cloud_pos_rate': float(c_true.mean())}
+            print(f"[de_cloud] near<={args.near_cloud_km}km classifier: AUC={auc:.4f} "
+                  f"AP={ap:.4f} acc@0.5={acc:.4f} (pos_rate={c_true.mean():.3f})")
+
     # ── dump per-sounding held-out predictions for post-hoc analysis (no rerun) ─
     held_out_df = pd.DataFrame({'y_true': y_te, 'mu': mu_te, 'sigma': sig_te,
                                 'lo_mondrian': preds_mond[:, 0], 'hi_mondrian': preds_mond[:, 2]})
+    if cloud_prob_te is not None:
+        held_out_df['cloud_prob'] = cloud_prob_te
     for c in ('cld_dist_km', 'sfc_type', 'aod_total', 'fp'):
         if c in held_valid.columns:
             held_out_df[c] = held_valid[c].to_numpy()
@@ -438,7 +545,9 @@ def main():
                      'loss': args.loss, 'nu': args.nu, 'beta': args.beta,
                      'near_cloud_target': args.near_cloud_target,
                      'near_cloud_km': args.near_cloud_km,
-                     'near_cloud_weight': args.near_cloud_weight}, f)
+                     'near_cloud_weight': args.near_cloud_weight,
+                     'aux_cloud': args.cloud_aux_weight > 0.0,
+                     'cloud_aux_weight': args.cloud_aux_weight}, f)
 
     g = results['mondrian']
     summary = RunSummary(
@@ -447,7 +556,8 @@ def main():
         primary_metric_name='de_held_rmse', primary_metric_value=g['rmse'],
         secondary_metrics={'de_held_r2': g['r2'], 'de_mondrian_cov90': g['coverage_90'],
                            'de_split_cov90': results['split']['coverage_90'],
-                           'de_raw_cov90': results['raw']['coverage_90']},
+                           'de_raw_cov90': results['raw']['coverage_90'],
+                           **cloud_metrics},
         runtime_seconds=float(time.monotonic() - run_start),
         description=f'Deep ensemble M={args.n_members} + conformal, {args.val_split}-split, '
                     f'feature_set={args.feature_set}',
@@ -456,7 +566,8 @@ def main():
         config={'sfc_type': args.sfc_type, 'val_split': args.val_split,
                 'n_members': args.n_members, 'calib_frac': args.calib_frac,
                 'feature_set': args.feature_set, 'seed': args.seed,
-                'loss': args.loss, 'nu': args.nu, 'beta': args.beta},
+                'loss': args.loss, 'nu': args.nu, 'beta': args.beta,
+                'cloud_aux_weight': args.cloud_aux_weight},
     )
     with open(output_dir / 'run_summary.json', 'w', encoding='utf-8') as f:
         json.dump(summary.to_dict(), f, indent=2, sort_keys=True)
