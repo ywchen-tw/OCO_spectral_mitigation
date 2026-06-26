@@ -147,6 +147,45 @@ Single XGBoost per fold (no ensemble → cheap, CPU-only). Module `src/models/xg
 
 ---
 
+## Future tests — correction / deployment policy
+
+### FT1 — confidence-weighted correction: `corrected = xco2_bc − P(near)·mu`  [FUTURE]
+Apply the DE correction `mu` scaled by the classifier's CONTINUOUS near-cloud
+probability `P(near)`, instead of a hard distance gate.
+
+**Motivation** (`results/figures/cld_dist_analysis/xco2_bc_anomaly_ocean_land_boxplot.png`):
+the cloud BIAS (median anomaly) is concentrated at short range — ocean median
+−0.18 (0–2km) → ~0 by 10km; land +0.15 → ~0 by ~15km. Beyond that the anomaly is
+centered on zero (no cloud-attributable signal), so far-cloud footprints should
+NOT be corrected. `P(near)·mu` does this smoothly: full correction where the model
+is confident it's near-cloud, tapering to zero far away — no hard-bin discontinuities
+(which would inject spatial-gradient artifacts in the XCO2 field), and the "partial"
+zone emerges naturally where `P≈0.5`.
+
+**vs the discrete 3-group policy** (full <10 / 50% 10–15 / none >15): the continuous
+form is preferred — smoother, encodes confidence, and avoids the arbitrary 50% step
+(the boxplot says land's 10–15km residual is ~⅓ of peak, not ½). Discrete remains a
+simpler, more communicable fallback.
+
+**Why the noisy gate is tolerable here:** the gate's errors are asymmetrically cheap.
+far→near misclassification applies `mu ≈ 0` (model self-zeros far away) → low harm;
+the costly error is near→far (missed correction). So tune the classifier for high
+RECALL on near-cloud, not balanced accuracy (land recall@0.5 already 0.94).
+
+**Policies to compare** (metric: corrected-XCO2 residual vs truth on held-out dates,
+and vs TCCON; watch for gradient artifacts):
+  (a) full `mu` everywhere   (b) binary near-cloud gate
+  (c) discrete 3-group taper (d) continuous `P(near)·mu`  ← the one to beat
+
+**Caveats / prerequisites:** needs CALIBRATED `P(near)` — especially OOD, where the
+classifier collapses on ocean (Phase 1f/2b). Likely surface-specific. Blocked on:
+DE capacity confirmation (Phase 2) + cloud classifier OOD (Phase 2b). Also worth
+checking first whether `mu` already self-zeros beyond ~10–15km (if so, the gate
+mostly guards against model overfitting in the no-signal regime).
+
+---
+
 ## Decision log
 - 2026-06-26: Multi-task aux abandoned (F1). Oracle proves cloud-distance is informative but MODIS-only (F2). Pivot to: (1a) test DE capacity, (1b) predicted-bin vs capacity, then (2) confirm on CURC.
 - 2026-06-26: 1a — DE was badly underfitting; 128,64,32 gives +0.243 near R² (free, no MODIS). 1b — at that capacity, cloud-bin (even oracle) HURTS → the oracle gain was a capacity crutch; predicted-bin idea dropped. **Net: increase DE capacity (single-task), confirm OOD on CURC; cloud-distance as input/output is closed with evidence.**
+- 2026-06-26: 1c/1d/1e — multi-task XCO2-neutral at proper capacity but bundled cloud AUC (0.918) < dedicated XGBoost (0.99 land in-dist). 1f — cloud AUC COLLAPSES OOD (date_kfold: 0.84 land / 0.69 ocean) = in-dist was autocorrelation leakage. Built xgb_cloud_classifier + CURC OOD test (Phase 2b). Boxplot motivates gating off >10km corrections (bias concentrated <10km ocean / <15km land). **Logged FT1: confidence-weighted correction `xco2_bc − P(near)·mu` for future test once the two CURC OOD results land.**
