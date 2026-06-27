@@ -201,6 +201,23 @@ the boxplot (ocean bias concentrated <~7km). Land is flat (~0.845, threshold-fre
 **→ surface-specific gate thresholds: ocean ~5km, land ~10km.** A <5km ocean gate is
 both more accurate AND only flags where ocean bias lives.
 
+### Phase 2f — FINAL thresholds from 1km bias-decay (full 66-date, 5.96M soundings)  ✅ DONE 2026-06-27
+Finer 1km boxplot of xco2_bc_anomaly vs cld_dist (0-15km + 15-50 ref), full data.
+Fig: results/figures/cld_dist_analysis/xco2_bc_anomaly_ocean_land_boxplot_1km_0to15_66date.png.
+Median bias by bin:
+
+| | 0-1 | 4-5 | 6-7 | 8-9 | 10-11 | 14-15 | 15-50 ref |
+|---|---|---|---|---|---|---|---|
+| ocean | -0.199 | -0.038 | -0.016 | -0.005 | -0.0003 | -0.0004 | +0.0003 |
+| land | +0.181 | +0.128 | +0.097 | +0.085 | +0.059 | +0.040 | +0.019 |
+
+**FINAL: ocean ~5km, land ~15km** (NOT a shared 10km).
+- Ocean bias gone (|med|<0.01) by 7-8km, ~0 by 9km; bulk <5km. Classifier best at <5km
+  → ocean gate **5km** (or 7km to catch the small 5-7km residual).
+- Land bias very persistent: still +0.040 at 14-15km; far-ref +0.019 = baseline land
+  offset. Cloud-attributable excess (med-0.019) ~+0.04 at 10-11km → 10km leaves bias
+  uncorrected; land gate **~15km** (classifier AUC flat across thresholds, so free).
+
 ---
 
 ## Future tests — correction / deployment policy
