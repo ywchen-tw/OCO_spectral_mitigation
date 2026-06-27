@@ -64,14 +64,14 @@ NFOLDS=5
 # fi
 
 # ── (2) New combined-ablation group: no_xco2_and_spec, both surfaces, all folds ───
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_no_xco2_and_spec_f${F} \
-  --feature_set no_xco2_and_spec --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-  --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-  --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
-# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_no_xco2_and_spec_f${F} \
+# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_no_xco2_and_spec_f${F} \
 #   --feature_set no_xco2_and_spec --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
 #   --near_cloud_target 0.98 --mondrian_col cld_dist_km \
 #   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_no_xco2_and_spec_f${F} \
+  --feature_set no_xco2_and_spec --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+  --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+  --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
