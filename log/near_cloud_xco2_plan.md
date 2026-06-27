@@ -154,6 +154,27 @@ Single regularized XGBoost per fold (no ensemble, CPU). 5-fold OOD AUC:
 
 **Deployment read:** land usable as a recall-tuned gate (recall 0.77–0.81 @ 0.5, higher at lower threshold; false positives cheap since mu≈0 far away). Ocean marginal — misses ~40% of near-cloud @ 0.5; needs a low threshold and stays noisy. Cloud proximity is just weakly encoded in ocean spectra.
 
+### Phase 2c — expanded cloud-diagnostic features for the classifier  ✅ DONE 2026-06-27
+Hypothesis: ocean's weak OOD AUC is a FEATURE-SET problem (reuses XCO2 features,
+omits cloud diagnostics), not a model limit. Added a cloud-diagnostic block to the
+base features: fit quality (chi2_*, rms_rel_*), scattering (dp, dp_abp, dpfrac,
+dp_o2a, dp_sco2), cloud aerosols (aod_ice/water/total, ice/water_height),
+brightness/SNR (alb_*, snr_*, csnr_*, max_declock_o2a), continuum (h_cont_*), glint
+(glint_prox). All deployable (per-sounding L2, no MODIS, not cld_dist-derived).
+Excluded leaky/MODIS-built r25_*/ref_*/weighted_cloud_dist_km. XGBoost, local
+12-date date_kfold:
+
+| surface | BASE | EXPANDED | gain |
+|---|---|---|---|
+| land | 0.840 (34 feat) | 0.841 (60 feat) | +0.001 |
+| ocean | 0.688 (28 feat) | **0.764 (57 feat)** | **+0.075** |
+
+**RESULT: confirmed — ocean was feature-starved.** Cloud diagnostics lift ocean OOD
+AUC 0.69→0.76 (recall 0.66→0.69); land unmoved (already at ceiling via its
+bright/structured surface). Adopt expanded features for the ocean classifier. Next:
+which features drive it (importance), shorter ocean threshold (<5km), and CURC
+full-66 run with expanded features.
+
 ---
 
 ## Future tests — correction / deployment policy
