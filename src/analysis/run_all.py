@@ -183,6 +183,7 @@ from analysis.albedo import (
     plot_intercept_binned_profile, plot_exp_intercept_interband_coherence,
     plot_alb_exp_divergence, plot_exp_intercept_albedo_residuals,
     plot_exp_alb_ratio_residuals, plot_alb_binned_profile,
+    plot_cross_band_ratio_profiles,
 )
 from analysis.k_coeff import (
     plot_distributions_vs_cld_dist, plot_k1_k2_vs_cld_dist,
@@ -267,10 +268,16 @@ def _summary_target_columns(df: pd.DataFrame) -> list[str]:
     ]
     ratio_cols = ['o2a_k2_over_k1', 'wco2_k2_over_k1', 'sco2_k2_over_k1']
 
+    cross_band_cols = [
+        f'{pfx}_{num}_over_{den}'
+        for pfx in ('alb', 'exp_int', 'exp_int_minus_alb')
+        for num, den in (('wco2', 'o2a'), ('sco2', 'o2a'), ('sco2', 'wco2'))
+    ]
+
     xco2_cols = [col for col, _, _ in _XCO2_TARGET_CONFIG]
     derived_xco2 = ['xco2_raw_minus_apriori', 'xco2_raw_minus_strong_idp']
 
-    ordered = core_cols + ratio_cols + xco2_cols + derived_xco2
+    ordered = core_cols + ratio_cols + cross_band_cols + xco2_cols + derived_xco2
     return [c for c in ordered if c in df.columns]
 
 
@@ -411,6 +418,11 @@ def _run_subset_analysis(
     if is_full:
         logger.info("Plotting albedo vs exp_intercept cross-band …")
         plot_alb_vs_exp_intercept_cross(sdf, subset_outdir)
+
+    # ── Section 2g: cross-band ratio profiles (alb / exp_int / exp_int−alb) ──
+    if is_core_or_full:
+        logger.info("Plotting cross-band ratio profiles vs cloud distance …")
+        plot_cross_band_ratio_profiles(sdf, bins, labels, subset_outdir)
 
     # ── Section 3a: k1/k2 profiles and scatter ──────────────────────────────
     logger.info("Plotting k1/k2 binned profiles …")

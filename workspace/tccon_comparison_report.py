@@ -35,6 +35,33 @@ from plot_corrected_xco2 import load_tccon, _haversine_km, get_storage_dir
 CORR = 'deep_ensemble_corrected_xco2'
 
 
+def _ols_fit(x, y):
+    """OLS y~x on finite pairs. Returns dict with slope, intercept, slope_se,
+    intercept_se, r2, n (or None if <3 valid points)."""
+    x = np.asarray(x, float); y = np.asarray(y, float)
+    m = np.isfinite(x) & np.isfinite(y)
+    x, y = x[m], y[m]
+    n = x.size
+    if n < 3:
+        return None
+    xm, ym = x.mean(), y.mean()
+    Sxx = np.sum((x - xm) ** 2)
+    if Sxx == 0:
+        return None
+    slope = np.sum((x - xm) * (y - ym)) / Sxx
+    intercept = ym - slope * xm
+    resid = y - (intercept + slope * x)
+    sse = np.sum(resid ** 2)
+    sst = np.sum((y - ym) ** 2)
+    dof = n - 2
+    s2 = sse / dof if dof > 0 else np.nan
+    slope_se = np.sqrt(s2 / Sxx) if dof > 0 else np.nan
+    intercept_se = np.sqrt(s2 * (1.0 / n + xm ** 2 / Sxx)) if dof > 0 else np.nan
+    r2 = 1.0 - sse / sst if sst > 0 else np.nan
+    return dict(slope=slope, intercept=intercept, slope_se=slope_se,
+                intercept_se=intercept_se, r2=r2, n=n)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -181,8 +208,30 @@ def main():
         lo = float(np.nanmin([cmp['tccon_mu'].min(), cmp['corr_mu'].min(), cmp['orig_mu'].min()])) - 1
         hi = float(np.nanmax([cmp['tccon_mu'].max(), cmp['corr_mu'].max(), cmp['orig_mu'].max()])) + 1
         axA.plot([lo, hi], [lo, hi], 'k--', lw=1, label='1:1')
+        # ── OLS fits: OCO-2 (y) vs TCCON (x), before & after correction ──────────
+        _xline = np.array([lo, hi])
+        _fits = {}
+        for _col, _color, _lbl in [('orig_mu', 'steelblue', 'before'),
+                                   ('corr_mu', 'green', 'after')]:
+            _f = _ols_fit(cmp['tccon_mu'], cmp[_col])
+            _fits[_lbl] = _f
+            if _f is not None:
+                axA.plot(_xline, _f['intercept'] + _f['slope'] * _xline,
+                         '-', color=_color, lw=1.6, alpha=0.9, zorder=4)
+        # annotation box with slope ± SE and R² for both series
+        _txt = []
+        for _lbl in ('before', 'after'):
+            _f = _fits.get(_lbl)
+            if _f is not None:
+                _txt.append(f"{_lbl}:  slope = {_f['slope']:.3f} ± {_f['slope_se']:.3f}   "
+                            f"R² = {_f['r2']:.3f}")
+        if _txt:
+            axA.text(0.04, 0.96, '\n'.join(_txt), transform=axA.transAxes,
+                     va='top', ha='left', fontsize=10,
+                     bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
         axA.set_xlabel('TCCON XCO₂ (ppm)'); axA.set_ylabel('OCO-2 XCO₂ (ppm)')
-        axA.set_title('OCO-2 vs TCCON (mean ± std)'); axA.legend(); axA.grid(alpha=0.3)
+        axA.set_title('OCO-2 vs TCCON (mean ± std)'); axA.legend(loc='lower right')
+        axA.grid(alpha=0.3)
         axA.set_xlim(lo, hi); axA.set_ylim(lo, hi); axA.set_aspect('equal')
         # (b) bias before→after dumbbell, per case
         y = np.arange(len(cmp))

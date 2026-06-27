@@ -612,6 +612,82 @@ def plot_exp_alb_ratio_residuals(df: pd.DataFrame, bins, labels,
     _save(fig, outdir, 'exp_alb_ratio_residuals.png')
 
 
+_CROSS_BAND_PAIRS = [
+    ('wco2', 'o2a',  'WCO₂/O₂A'),
+    ('sco2', 'o2a',  'SCO₂/O₂A'),
+    ('sco2', 'wco2', 'SCO₂/WCO₂'),
+]
+# (column prefix, row label) — must match fitting_correction.py naming
+_CROSS_BAND_QUANTITIES = [
+    ('alb',               'albedo ratio',          'C0'),
+    ('exp_int',           'exp_intercept ratio',   'C1'),
+    ('exp_int_minus_alb', '(exp_int − alb) ratio', 'C2'),
+]
+
+
+def plot_cross_band_ratio_profiles(df, bins, labels, outdir):
+    """Binned mean ± SEM/std of cross-band ratios vs cloud distance.
+
+    3×3 grid — rows: quantity (albedo, exp_intercept, exp_intercept − alb);
+    cols: band pair (WCO₂/O₂A, SCO₂/O₂A, SCO₂/WCO₂).  Reads the precomputed
+    `{prefix}_{num}_over_{den}` columns from fitting_correction.py; isolates
+    band-to-band shape changes a single-band profile cannot reveal.
+    """
+    cols = {f'{pfx}_{num}_over_{den}'
+            for pfx, _, _ in _CROSS_BAND_QUANTITIES
+            for num, den, _ in _CROSS_BAND_PAIRS}
+    if not (cols & set(df.columns)):
+        logger.warning("No cross-band ratio columns found — skipping plot")
+        return
+
+    _bin = bin_by_cld_dist(df, bins, labels)
+    x = np.arange(len(labels))
+    nrows, ncols = len(_CROSS_BAND_QUANTITIES), len(_CROSS_BAND_PAIRS)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5.5 * ncols, 4 * nrows),
+                             squeeze=False)
+
+    for ri, (pfx, row_lbl, color) in enumerate(_CROSS_BAND_QUANTITIES):
+        for ci, (num, den, pair_lbl) in enumerate(_CROSS_BAND_PAIRS):
+            ax = axes[ri, ci]
+            col = f'{pfx}_{num}_over_{den}'
+            if col not in df.columns:
+                ax.set_visible(False)
+                continue
+
+            grp   = df.groupby(_bin, observed=True)[col]
+            means = grp.mean().reindex(labels)
+            stds  = grp.std().reindex(labels)
+            ns    = grp.count().reindex(labels).fillna(0).astype(int)
+            sems  = (stds / np.sqrt(ns.replace(0, np.nan))).fillna(0)
+            ref_val = means.dropna().iloc[-1] if means.dropna().size else np.nan
+
+            ax.fill_between(x, (means - stds).values, (means + stds).values,
+                            color=color, alpha=0.15, label='± 1 std')
+            ax.errorbar(x, means.values, yerr=sems.values, fmt='o-',
+                        capsize=4, color=color, lw=1.5, label='mean ± SEM')
+            if np.isfinite(ref_val):
+                ax.axhline(ref_val, color='tomato', lw=2.0, linestyle='--', zorder=5,
+                           label=f'@ {labels[-1]} km = {ref_val:.4f}')
+            ax.set_xticks(x)
+            ax.set_xticklabels(labels, rotation=30, fontsize=8)
+            ax.set_xlabel('Cloud distance (km)', fontsize=9)
+            ax.set_ylabel(f'{pair_lbl}', fontsize=9)
+            ax.set_title(f'{row_lbl}: {pair_lbl}', fontsize=9)
+            ax.legend(fontsize=7)
+            ax.grid(axis='y', alpha=0.3)
+            finite_means = means.dropna()
+            finite_stds  = stds.dropna()
+            if finite_means.size:
+                spread = max(finite_stds.max() * 1.5,
+                             (finite_means.max() - finite_means.min()) * 1.5, 1e-9)
+                ax.set_ylim(finite_means.min() - spread, finite_means.max() + spread)
+
+    fig.suptitle('Cross-band ratios vs cloud distance '
+                 '(rows: quantity, cols: band pair)', fontsize=12)
+    fig.tight_layout()
+    _save(fig, outdir, 'cross_band_ratio_profiles.png')
+
+
 def plot_alb_binned_profile(df, bins, labels, outdir):
     """Mean ± SEM (bars) / ± std (shading) of albedo per band vs cloud-distance bin."""
     bands = [

@@ -258,9 +258,118 @@ cloud gate (footprint-independent, no MODIS).
 
 ---
 
-## Future tests — correction / deployment policy
+## Correction / deployment policy
 
-### FT1 — confidence-weighted correction: `corrected = xco2_bc − P(near)·mu`  [FUTURE]
+### FT1 — confidence-weighted vs gated vs full correction  ✅ DONE 2026-06-27 — full `mu` WINS
+Joint OOD comparison of three policies on the full 114-date set, date_kfold (every
+sounding scored by the fold model that held out its date). DE `mu` (beta_nll 64,32)
+and xgb `P(near)` (final expanded classifier, ocean@5km / land@15km) predicted on the
+SAME rows (shared finite-feature mask). Metric: residual `y − corr` vs truth.
+Script: `workspace/compare_correction_policies.py`; full table
+`results/model_comparison/correction_policy_comparison.csv`.
+Policies: (1) `mu` (current), (2) `P(near)·mu`, (3) `mu·1[P>0.5]`. Near-cloud R²:
+
+| surface | stratum | (1) full mu | (2) P·mu | (3) gate |
+|---|---|---|---|---|
+| ocean | near (≤5km) | **0.685** | 0.673 | 0.672 |
+| ocean | ≤10km | **0.633** | 0.626 | 0.615 |
+| ocean | far (>5km) | 0.191 | **0.230** | 0.138 |
+| ocean | all | 0.546 | **0.551** | 0.522 |
+| land | near (≤15km) | **0.566** | 0.549 | 0.543 |
+| land | ≤10km | **0.604** | 0.582 | 0.584 |
+| land | far (>15km) | **0.266** | 0.188 | 0.080 |
+| land | all | **0.458** | 0.418 | 0.376 |
+
+(Sanity: policy-1 ≤10km R² = 0.633 ocean / 0.604 land reproduces Phase-2 0.631/0.603.)
+
+**RESULT: keep the current full-`mu` correction. Neither down-weighting scheme helps
+the primary near-cloud goal — both HURT it on both surfaces, most at 0–2km where the
+bias is largest** (ocean 0.726→0.712 P·mu; land 0.745→0.727), because `P(near)<1`
+down-weights real corrections exactly where they matter. The FT1 premise (far anomaly
+≈ 0, so don't correct it) is only weakly true on **ocean beyond ~5km** — there P·mu
+shaves noise (far R² 0.19→0.23; fine bins: 10–15km 0.13→0.19, >15km 0.12→0.18) — but
+even there full `mu` keeps a positive ~6% RMS reduction (so `mu` is NOT pure noise far
+out), and the net ocean-all gain is negligible (+0.004 R²). On **land the premise is
+false**: the bias genuinely extends far (boxplot +0.04 at 14–15km), so full `mu` is
+best everywhere incl. far (>15km 0.266 vs 0.188) — any taper throws away real signal.
+The hard gate (3) is worst nearly everywhere (zeros corrections for near-cloud
+soundings below the 0.5 threshold; ocean recall@0.5 only 0.71). **The DE's `mu`
+already self-attenuates where there's no bias; an external `P(near)` gate removes more
+real signal than noise. Confidence-weighting and gating are not adopted.**
+
+### FT1-TCCON — independent confirmation vs TCCON ground stations  ✅ DONE 2026-06-27
+Same three policies, but validated against TCCON (absolute ground truth, not the OCO
+label) over the deep-ensemble TCCON cases. Per case: build DE `mu` + xgb `P(near)`
+(pooled folds — most case dates are outside the 2016–2020 training dates → genuinely
+unseen), match OCO footprints ≤100km of the station within ±60min of the pass, compare
+each corrected XCO2 to the TCCON window-mean. Pooled over 57,670 correctable footprints
+/ 33 station-days (`workspace/tccon_correction_policy_stats.py`,
+`results/model_comparison/tccon_policy/`):
+
+| subset | metric | uncorrected | full_mu | P·mu | gate | ideal |
+|---|---|---|---|---|---|---|
+| all | bias | −0.391 | **−0.088** | −0.210 | −0.230 | −0.123 |
+| all | RMSE | 1.636 | **1.073** | 1.090 | 1.107 | 0.583 |
+| near-cloud | bias | −0.478 | **−0.135** | −0.229 | −0.236 | −0.050 |
+| near-cloud | RMSE | 1.974 | **1.252** | 1.267 | 1.275 | 0.609 |
+| far-cloud | bias | −0.239 | **−0.007** | −0.178 | −0.220 | −0.250 |
+| far-cloud | RMSE | 0.738 | **0.649** | 0.679 | 0.726 | 0.533 |
+
+**RESULT: TCCON independently confirms full `mu` wins on every subset** — lowest |bias|
+AND RMSE vs absolute truth. P·mu and gate UNDER-correct (residual bias −0.21/−0.23 vs
+full_mu −0.09). Decisively, **even far-cloud full `mu` wins** (bias −0.007 vs P·mu
+−0.178): down-weighting far corrections leaves the −0.24 uncorrected bias mostly
+in place, because `mu` is doing real bias removal there — exactly opposite to the FT1
+premise. Two independent evaluations (held-out OCO label + TCCON) agree: **keep full
+`mu`; cloud-probability weighting/gating does not help.** (`build_deepens_plot_data.py`
+now emits `p_near` + the two policy columns when xgb cloud dirs are passed; the
+`.sh` harness is wired but optional.)
+
+### FT2 — LATITUDE gate (skip correction where |lat| > L)  ✅ DONE 2026-06-27 — gate NOT adopted
+Tested skipping the DE correction for high-latitude footprints (|lat| > 80/75/70°,
+N&S) vs TCCON (`tccon_correction_policy_stats.py`, lat-gate columns derived from
+`lat`/`pred_anomaly`). The only high-lat TCCON footprints are at 75–80°N (Ny-Ålesund,
+Svalbard); none in 70–75° or >80°, so latgate70≡latgate75 and latgate80≡full_mu.
+
+⚠️ **Initial result (gate "helps") was a FILTER ARTIFACT and is RETRACTED.** The first
+pass filtered footprints to finite `xco2_bc_anomaly`, which kept only **2 of the 8**
+Ny-Ålesund station-days — and those 2 happened to be ones where `mu` overcorrects, so
+gating looked like a clean win (latgate75 R² 0.984 vs full_mu 0.973). Dropping the
+anomaly dependency (band-only QC, |xco2_bc−TCCON|<50ppm) restores all **8 high-lat
+station-days** and flips the conclusion.
+
+Full 73-station-day calibration (mean OCO vs TCCON), no anomaly filter:
+
+| policy | slope | R² | RMS resid |
+|---|---|---|---|
+| uncorrected | 1.0076 | 0.9384 | 1.661 |
+| **full_mu (no gate, = latgate80)** | 1.0222 | **0.9698** | **1.139** |
+| latgate75 (= latgate70) | 1.0258 | 0.9609 | 1.312 |
+
+The 8 high-lat (Ny-Ålesund) days, |bias to TCCON|:
+
+| metric (8 days) | uncorrected (=gated) | full_mu (no gate) |
+|---|---|---|
+| RMS bias | 3.382 | **2.749** |
+| mean \|bias\| | **2.315** | 2.365 |
+
+**RESULT: the |lat|>75 gate is NOT beneficial — full `mu` (no gate) has the higher
+R² (0.970 vs 0.961) and lower station-mean RMS.** At high latitude the correction is
+mixed but net-helpful by RMS: it overcorrects several small-bias days (gate would help
+those by ~0.3–1.3 ppm) BUT fixes one large bias — **2017-06-17 Ny-Ålesund: −8.1 → −4.2
+ppm** — which dominates RMS. So gating throws away a big real correction to shave
+several small ones. **Do NOT add a latitude gate; keep full `mu` everywhere.** (Methods
+note: never select the evaluation footprints on a truth column — it cherry-picked the
+2 worsening days. Band-only QC is the right filter.)
+
+**Cross-check excluding Ny-Ålesund entirely (65 non-polar station-days,
+`plot_latgate_tccon_comparison.py --exclude-sites ny`): the correction is strongly
+beneficial** — mean|bias| 0.907→0.577, RMS bias 1.301→**0.725** (−44%), R²
+0.963→**0.988**, slope 0.992→1.010. Ny-Ålesund alone inflates the corrected RMS bias
+0.725→1.139 and drops R² 0.988→0.970 — one genuinely hard polar site (extreme SZA,
+snow/ice), not a reason to gate. Fig: `tccon_latgate75_comparison_excl_ny.png`.
+
+### FT1-orig — original motivation (superseded by the result above)
 Apply the DE correction `mu` scaled by the classifier's CONTINUOUS near-cloud
 probability `P(near)`, instead of a hard distance gate.
 
@@ -300,3 +409,4 @@ mostly guards against model overfitting in the no-signal regime).
 - 2026-06-26: Multi-task aux abandoned (F1). Oracle proves cloud-distance is informative but MODIS-only (F2). Pivot to: (1a) test DE capacity, (1b) predicted-bin vs capacity, then (2) confirm on CURC.
 - 2026-06-26: 1a — DE was badly underfitting; 128,64,32 gives +0.243 near R² (free, no MODIS). 1b — at that capacity, cloud-bin (even oracle) HURTS → the oracle gain was a capacity crutch; predicted-bin idea dropped. **Net: increase DE capacity (single-task), confirm OOD on CURC; cloud-distance as input/output is closed with evidence.**
 - 2026-06-26: 1c/1d/1e — multi-task XCO2-neutral at proper capacity but bundled cloud AUC (0.918) < dedicated XGBoost (0.99 land in-dist). 1f — cloud AUC COLLAPSES OOD (date_kfold: 0.84 land / 0.69 ocean) = in-dist was autocorrelation leakage. Built xgb_cloud_classifier + CURC OOD test (Phase 2b). Boxplot motivates gating off >10km corrections (bias concentrated <10km ocean / <15km land). **Logged FT1: confidence-weighted correction `xco2_bc − P(near)·mu` for future test once the two CURC OOD results land.**
+- 2026-06-27: FT1 — RESOLVED. Joint OOD comparison (full `mu` vs `P·mu` vs `mu·1[P>0.5]`) on the full 114-date date_kfold set. **Full `mu` (the current correction) wins the primary near-cloud goal on both surfaces;** both down-weighting schemes hurt it, worst at 0–2km. `P·mu` only helps ocean far-cloud (a noise regime that doesn't matter and barely moves ocean-all, +0.004 R²); on land it strictly hurts (land bias extends far). Hard gate is worst. **Keep full-`mu` correction; cloud-distance probability adds no point-accuracy value on top of the DE — consistent with the project's meta-finding. The near-cloud accuracy program is closed.** (Note: the canonical training parquet is now `combined_2016_2020_dates.parquet` = 114 dates / 17.5M rows; DE `full` mask drops ~53% of ocean rows as non-finite — fold counts reproduce exactly.)

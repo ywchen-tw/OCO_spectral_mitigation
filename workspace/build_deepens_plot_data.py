@@ -38,13 +38,45 @@ import numpy as np
 import pandas as pd
 import torch
 
+import xgboost as xgb
+
 from models.pipeline import FeaturePipeline, _ensure_derived_features
 from models.deep_ensemble import GaussianMLP, _member_predict
 from apply.apply_deep_ensemble import _check_required_columns, _domain_report
 
-CORR_COL = 'deep_ensemble_corrected_xco2'
+CORR_COL = 'deep_ensemble_corrected_xco2'              # (1) full mu          xco2_bc - mu
+CORR_COL_PNEAR = 'deepens_pnear_corrected_xco2'        # (2) P(near)*mu       xco2_bc - P*mu
+CORR_COL_GATE = 'deepens_gate_corrected_xco2'          # (3) mu*1[P>0.5]      xco2_bc - mu*(P>0.5)
 KEEP_COLS = ('time', 'lon', 'lat', 'cld_dist_km', 'sfc_type',
              'xco2_bc', 'xco2_bc_anomaly', 'xco2_apriori')
+
+
+def _load_cloud_fold(model_dir):
+    """Load one xgb_cloud fold: (pipeline, classifier, cloud_cols)."""
+    md = Path(model_dir)
+    pipe = FeaturePipeline.load(md / 'xgb_cloud_pipeline.pkl')
+    meta = pickle.load(open(md / 'xgb_cloud_meta.pkl', 'rb'))
+    clf = xgb.XGBClassifier()
+    clf.load_model(str(md / 'xgb_cloud_model.json'))
+    return pipe, clf, tuple(meta.get('cloud_cols', ()))
+
+
+def _predict_cloud_pooled(kept_df, cloud_fold_dirs):
+    """Pooled near-cloud probability P(near) over xgb_cloud folds for the rows in
+    `kept_df` (already surface-filtered + DE-valid).  Each fold uses its own fitted
+    pipeline; P(near) = mean of the per-fold predicted probabilities."""
+    folds = [_load_cloud_fold(d) for d in cloud_fold_dirs]
+    probs = []
+    for pipe, clf, cloud_cols in folds:
+        X = pipe.transform(kept_df)
+        if cloud_cols:
+            X = np.concatenate(
+                [X, kept_df[list(cloud_cols)].to_numpy(dtype=np.float32)], axis=1)
+        probs.append(clf.predict_proba(X.astype(np.float32))[:, 1])
+    p = np.mean(np.stack(probs), axis=0)
+    print(f"  [cloud] pooled {len(folds)} fold(s) → P(near): "
+          f"mean={p.mean():.3f} frac>0.5={np.mean(p > 0.5):.3f}")
+    return p.astype(np.float32)
 
 
 def _load_fold(model_dir):
@@ -115,7 +147,7 @@ def _predict_pooled(df, fold_dirs, sfc_type, *, ood_thresh=8.0, max_ood_frac=0.0
 
 
 def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
-                   max_abs_anomaly=15.0):
+                   max_abs_anomaly=15.0, cloud_fold_dirs=None):
     """Predict one surface (pooling all folds); return a plot_data frame or None.
 
     Two guards skip the correction (set mu=0 → corrected XCO2 == raw xco2_bc) and
@@ -158,7 +190,17 @@ def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
     out['anomaly_guard'] = anomaly_guard
     out['pred_anomaly'] = mu
     out['sigma'] = sigma
-    out[CORR_COL] = out['xco2_bc'].to_numpy(dtype=float) - mu
+    xb = out['xco2_bc'].to_numpy(dtype=float)
+    out[CORR_COL] = xb - mu                                   # (1) full mu
+
+    # ── cloud-distance correction policies (need the xgb cloud classifier) ─────
+    if cloud_fold_dirs:
+        p_near = np.asarray(_predict_cloud_pooled(kept, cloud_fold_dirs), dtype=float)
+        # mu already has guards zeroed → all three policies collapse to xco2_bc there
+        out['p_near'] = p_near
+        out[CORR_COL_PNEAR] = xb - p_near * mu                # (2) P(near)*mu
+        out[CORR_COL_GATE] = xb - np.where(p_near > 0.5, mu, 0.0)  # (3) mu*1[P>0.5]
+
     if 'xco2_bc_anomaly' in out.columns:
         y = out['xco2_bc_anomaly'].to_numpy(float)
         keep = ~guard                      # report only where correction was applied
@@ -180,6 +222,13 @@ def main():
     ap.add_argument('--land-model-dir', nargs='+', default=None,
                     help="Deep-ensemble fold dir(s) trained on land (sfc_type==1). "
                          "Pass all folds to pool the full cross-fold ensemble.")
+    ap.add_argument('--ocean-cloud-model-dir', nargs='+', default=None,
+                    help="xgb_cloud fold dir(s) for ocean (sfc_type==0).  When given, "
+                         "emits P(near) and the two extra correction columns "
+                         f"{CORR_COL_PNEAR!r} (P*mu) and {CORR_COL_GATE!r} (gate).")
+    ap.add_argument('--land-cloud-model-dir', nargs='+', default=None,
+                    help="xgb_cloud fold dir(s) for land (sfc_type==1).  Same effect "
+                         "as --ocean-cloud-model-dir, for land footprints.")
     # backward-compatible single-surface form
     ap.add_argument('--model-dir', nargs='+', default=None, help="(single-surface) model dir(s).")
     ap.add_argument('--sfc_type', type=int, default=None,
@@ -200,15 +249,16 @@ def main():
     args = ap.parse_args()
     dk = dict(ood_thresh=args.ood_thresh, max_ood_frac=args.max_ood_frac, strict=args.strict)
 
-    surfaces = []  # (model_dir, sfc_type)
+    surfaces = []  # (model_dir, sfc_type, cloud_model_dir)
     if args.ocean_model_dir:
-        surfaces.append((args.ocean_model_dir, 0))
+        surfaces.append((args.ocean_model_dir, 0, args.ocean_cloud_model_dir))
     if args.land_model_dir:
-        surfaces.append((args.land_model_dir, 1))
+        surfaces.append((args.land_model_dir, 1, args.land_cloud_model_dir))
     if args.model_dir is not None:
         if args.sfc_type is None:
             raise SystemExit("--model-dir requires --sfc_type")
-        surfaces.append((args.model_dir, args.sfc_type))
+        cmd = args.ocean_cloud_model_dir if args.sfc_type == 0 else args.land_cloud_model_dir
+        surfaces.append((args.model_dir, args.sfc_type, cmd))
     if not surfaces:
         raise SystemExit("pass --ocean-model-dir and/or --land-model-dir "
                          "(or --model-dir with --sfc_type)")
@@ -219,8 +269,9 @@ def main():
     max_abs_anom = args.max_abs_anomaly if args.max_abs_anomaly > 0 else None
     parts = [p for p in (_build_surface(df, md, sfc, dk=dk,
                                         clim_max_ppm=args.climatology_max_ppm,
-                                        max_abs_anomaly=max_abs_anom)
-                         for md, sfc in surfaces)
+                                        max_abs_anomaly=max_abs_anom,
+                                        cloud_fold_dirs=cmd)
+                         for md, sfc, cmd in surfaces)
              if p is not None]
     if not parts:
         raise SystemExit("no soundings predicted on any surface")
@@ -229,7 +280,9 @@ def main():
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(args.output, index=False)
     print(f"  [saved] {len(out):,} rows ({len(parts)} surface(s)) → {args.output}")
-    print(f"  correction column: {CORR_COL!r}  (use --poster-model {CORR_COL})")
+    extra = [c for c in (CORR_COL_PNEAR, CORR_COL_GATE) if c in out.columns]
+    print(f"  correction columns: {CORR_COL!r}"
+          + (f" + {extra}" if extra else "") + f"  (use --poster-model {CORR_COL})")
 
 
 if __name__ == '__main__':
