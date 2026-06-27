@@ -142,8 +142,17 @@ XGBoost, random (in-dist) vs date_kfold (OOD, 4 folds), both surfaces:
 
 **RESULT: the in-distribution AUCs were largely an ILLUSION** (spatial/temporal autocorrelation leakage when train/test share dates). On unseen dates: land 0.82 (useful), ocean 0.65 (near chance). This also inflates every prior in-dist number (bundled head 0.918 included). Regularization (400 trees, depth 4, strong reg) helps modestly — land 0.824→0.843, ocean 0.654→0.688 — so the collapse is *partly* overfit, *mostly* fundamental at 12 dates (only ~9 train dates/fold). **Key hope: the full 66-date set has many more train dates/fold → should generalize better. → CURC test.**
 
-### Phase 2b — CURC XGBoost cloud<10km date_kfold (full 66-date data)  [READY]
-Single XGBoost per fold (no ensemble → cheap, CPU-only). Module `src/models/xgb_cloud_classifier.py`, script `curc_shell_blanca_xgb_cloud_ablation.sh` ({ocean,land} × fold{0..4}). Regularized config (the OOD-better one). Question: does more training-date diversity recover OOD AUC vs the local 0.84 land / 0.69 ocean?
+### Phase 2b — CURC XGBoost cloud<10km date_kfold (full 66-date data)  ✅ DONE 2026-06-27
+Single regularized XGBoost per fold (no ensemble, CPU). 5-fold OOD AUC:
+
+| surface | OOD AUC | recall@0.5 | precision@0.5 | vs local 12-date OOD |
+|---|---|---|---|---|
+| land | **0.845 ± 0.012** | 0.75–0.81 | ~0.42 | +0.005 (flat) |
+| ocean | **0.720 ± 0.006** | 0.59–0.66 | ~0.65 | +0.030 |
+
+**RESULT: more data did NOT recover it.** 12→66 train dates left land flat (~0.845) and ocean barely up (~0.72). The OOD collapse is FUNDAMENTAL, not too-few-dates — the in-dist 0.99/0.95 was autocorrelation leakage; **~0.85 land / ~0.72 ocean is the true spectra-only ceiling** on unseen dates. (All folds hit the 400-tree cap; the local overfit 2000-tree config was worse OOD → regularized is right.)
+
+**Deployment read:** land usable as a recall-tuned gate (recall 0.77–0.81 @ 0.5, higher at lower threshold; false positives cheap since mu≈0 far away). Ocean marginal — misses ~40% of near-cloud @ 0.5; needs a low threshold and stays noisy. Cloud proximity is just weakly encoded in ocean spectra.
 
 ---
 
