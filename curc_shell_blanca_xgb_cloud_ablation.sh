@@ -28,16 +28,22 @@
 # Defaults use the regularized config (400 trees, depth 4, strong reg) that
 # generalized best OOD locally.  cld_dist_km is the LABEL only (never a feature).
 #
+# --cloud_features adds the deployable cloud-diagnostic block (fit-quality chi2/rms,
+# scattering dp, cloud aerosols aod_ice/water, brightness alb/snr, continuum, glint).
+# Local 12-date OOD: lifts OCEAN 0.69->0.76; LAND unchanged (already at ceiling).
+# Suffix 'xgbcloud_exp_*' keeps these separate from the base run (xgbcloud_*) so the
+# full-66-date BASE-vs-EXPANDED comparison is preserved.
+#
 # 10 array tasks = {ocean, land} x fold{0..4}, each an independent CPU job:
 #   fold    = idx % 5
 #   surface = idx / 5            (0 = ocean, 1 = land)
 #
-# After all finish, average AUC across folds per surface (and compare to the local
-# 12-date OOD: land 0.84 / ocean 0.69):
+# After all finish, average AUC across folds per surface (compare to base full-66 OOD:
+# land 0.845 / ocean 0.720, and local expanded ocean 0.76):
 #   for S in ocean land; do
 #     PYTHONPATH=src python -m models.aggregate_folds \
-#       --dirs "results/model_xgb_cloud/xgbcloud_${S}_f*" --label "XGBcloud_${S}" \
-#       --out "results/model_comparison/xgbcloud_${S}_kfold_agg.md"
+#       --dirs "results/model_xgb_cloud/xgbcloud_exp_${S}_f*" --label "XGBcloud_exp_${S}" \
+#       --out "results/model_comparison/xgbcloud_exp_${S}_kfold_agg.md"
 #   done
 # (or just read cloud_auc from each run_summary.json)
 
@@ -69,5 +75,6 @@ SNAME=${SFC_NAMES[$SI]}
 
 echo "[task ${T}] surface=${SNAME} fold=${F}"
 
-python -m models.xgb_cloud_classifier --sfc_type ${SFC} --suffix xgbcloud_${SNAME}_f${F} \
-  --val_split date_kfold --n_folds ${NFOLDS} --fold ${F} --near_cloud_km 10.0 --seed 42
+python -m models.xgb_cloud_classifier --sfc_type ${SFC} --suffix xgbcloud_exp_${SNAME}_f${F} \
+  --val_split date_kfold --n_folds ${NFOLDS} --fold ${F} --near_cloud_km 10.0 --seed 42 \
+  --cloud_features

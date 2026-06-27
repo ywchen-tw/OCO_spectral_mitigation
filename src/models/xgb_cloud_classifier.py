@@ -34,12 +34,33 @@ from .splits import split_dataframe
 from search.tracking import RunSummary, get_git_commit_hash
 from utils import get_storage_dir
 
+# Cloud-diagnostic features (--cloud_features), appended OUTSIDE the FeaturePipeline.
+# All per-sounding L2 retrieval quantities — deployable (no MODIS) and NOT derived
+# from cld_dist (unlike the leaky r25_*/ref_* neighborhood features).  Lifts ocean
+# OOD AUC ~0.69->0.76 locally; land (already at ceiling) is unchanged.  XGBoost is
+# tree-based so the scale mismatch vs the pipeline-scaled base is irrelevant.
+CLOUD_DIAG_FEATURES = [
+    'chi2_o2a', 'chi2_wco2', 'chi2_sco2',           # fit quality (cloud breaks clear-sky fit)
+    'rms_rel_o2a', 'rms_rel_wco2', 'rms_rel_sco2',
+    'dp', 'dp_abp', 'dpfrac', 'dp_o2a', 'dp_sco2',  # scattering / path-length anomaly
+    'aod_ice', 'aod_water', 'aod_total',            # cloud/ice aerosol retrievals
+    'ice_height', 'water_height',
+    'alb_o2a', 'alb_wco2', 'alb_sco2',              # brightness / SNR (cloud brightening)
+    'snr_o2a', 'snr_wco2', 'snr_sco2',
+    'csnr_o2a', 'csnr_wco2', 'max_declock_o2a',
+    'h_cont_o2a', 'h_cont_wco2', 'h_cont_sco2',     # continuum
+    'glint_prox',                                   # glint geometry
+]
 
-def _xy(pipeline, frame, near_km):
+
+def _xy(pipeline, frame, near_km, cloud_cols=()):
     """Return (X, y_near, n_dropped). y_near = 1 where cld_dist_km <= near_km.
     Rows are filtered to finite features + finite xco2_bc_anomaly so the held set
-    matches the regression models' held set (apples-to-apples)."""
+    matches the regression models' held set (apples-to-apples).  cloud_cols (if any)
+    are appended as raw columns after the pipeline transform."""
     X = pipeline.transform(frame)
+    if cloud_cols:
+        X = np.concatenate([X, frame[list(cloud_cols)].to_numpy(dtype=np.float32)], axis=1)
     anom = frame['xco2_bc_anomaly'].to_numpy(dtype=float)
     cd = frame['cld_dist_km'].to_numpy(dtype=float)
     valid = np.isfinite(anom) & np.all(np.isfinite(X), axis=1)
@@ -58,6 +79,11 @@ def main():
     p.add_argument('--near_cloud_km', type=float, default=10.0)
     p.add_argument('--feature_set', type=str, default='full',
                    choices=['full', 'no_xco2', 'no_spec', 'full_fitqual'])
+    p.add_argument('--cloud_features', action='store_true',
+                   help="Append the cloud-diagnostic feature block (fit-quality, "
+                        "scattering dp, cloud aerosols, brightness, continuum, glint) "
+                        "to the base features.  Lifts ocean OOD AUC ~0.69->0.76; land "
+                        "unchanged.  Deployable (no MODIS), not cld_dist-derived.")
     p.add_argument('--test_size', type=float, default=0.2)
     p.add_argument('--data', type=str, default=None)
     p.add_argument('--seed', type=int, default=42)
@@ -97,8 +123,15 @@ def main():
     pipeline = FeaturePipeline.fit(train_df, sfc_type=args.sfc_type, feature_set=args.feature_set)
     pipeline.save(output_dir / 'xgb_cloud_pipeline.pkl')
 
-    X_tr, y_tr, _ = _xy(pipeline, train_df, args.near_cloud_km)
-    X_te, y_te, _ = _xy(pipeline, held_df, args.near_cloud_km)
+    cloud_cols = ()
+    if args.cloud_features:
+        cloud_cols = tuple(c for c in CLOUD_DIAG_FEATURES if c in train_df.columns)
+        missing = [c for c in CLOUD_DIAG_FEATURES if c not in train_df.columns]
+        print(f"[xgb_cloud] cloud_features ON: +{len(cloud_cols)} diagnostics"
+              + (f" (missing {missing})" if missing else ""))
+
+    X_tr, y_tr, _ = _xy(pipeline, train_df, args.near_cloud_km, cloud_cols)
+    X_te, y_te, _ = _xy(pipeline, held_df, args.near_cloud_km, cloud_cols)
     pos = int(y_tr.sum()); neg = len(y_tr) - pos
     spw = neg / max(pos, 1)
     print(f"[xgb_cloud] sfc={args.sfc_type} train {X_tr.shape} held {X_te.shape}  "
@@ -142,7 +175,9 @@ def main():
     held_out.to_parquet(output_dir / 'xgb_cloud_held_predictions.parquet', index=False)
     with open(output_dir / 'xgb_cloud_meta.pkl', 'wb') as f:
         pickle.dump({'near_cloud_km': args.near_cloud_km, 'sfc_type': args.sfc_type,
-                     'val_split': args.val_split, 'feature_set': args.feature_set}, f)
+                     'val_split': args.val_split, 'feature_set': args.feature_set,
+                     'cloud_features': args.cloud_features,
+                     'cloud_cols': list(cloud_cols)}, f)
 
     summary = RunSummary(
         run_id=run_id, script_name=os.path.basename(__file__), model_family='xgb_cloud',
@@ -156,7 +191,8 @@ def main():
                    'metrics_json': str(output_dir / f'xgb_cloud_{args.val_split}_metrics.json')},
         config={'sfc_type': args.sfc_type, 'val_split': args.val_split,
                 'near_cloud_km': args.near_cloud_km, 'feature_set': args.feature_set,
-                'seed': args.seed, 'n_estimators': args.n_estimators,
+                'cloud_features': args.cloud_features, 'seed': args.seed,
+                'n_estimators': args.n_estimators,
                 'max_depth': args.max_depth, 'learning_rate': args.learning_rate,
                 'min_child_weight': args.min_child_weight, 'subsample': args.subsample,
                 'colsample_bytree': args.colsample_bytree, 'reg_lambda': args.reg_lambda,
