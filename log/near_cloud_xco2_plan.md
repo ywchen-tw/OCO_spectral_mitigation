@@ -63,19 +63,28 @@ Config: land, 12-date, random split, proven hp (batch 2048, 50 ep, M=2, β=1.0, 
 
 ⚠️ **IN-DISTRIBUTION only.** Bigger models can overfit training dates → the +0.243 MUST be confirmed under date_kfold (Phase 2). This is now the critical risk.
 
-### Phase 2 — CURC date_kfold CAPACITY confirmation  [READY — promoted ahead of 1b]
-Given the magnitude of the 1a capacity win (+0.243, larger than the cloud feature), confirm it out-of-distribution BEFORE spending on 1b. Script: `curc_shell_blanca_de_capacity_ablation.sh` (30-task array = {ocean,land} × hidden_dims{64,32 | 128,64,32 | 256,128,64} × fold{0..4}). **Single-task, current style** (xco2 anomaly only; no cloud head, no cloud-bin input) — only `--hidden_dims` varies. Production settings otherwise (beta_nll β=1.0, M=5, batch 8192, near_cloud_target 0.98).
+### Phase 2 — CURC date_kfold CAPACITY confirmation  ✅ DONE 2026-06-27 — NEGATIVE
+Full 66-date, single-task, only `--hidden_dims` varies. Near-cloud XCO2 R² (5-fold OOD):
 
-| surface | hidden_dims | near R² (5-fold mean±std) | status |
+| surface | hidden_dims | near R² (5-fold OOD mean±std) | vs 64,32 |
 |---|---|---|---|
-| ocean | 64,32 (ref) | _tbd_ | pending |
-| ocean | 128,64,32 | _tbd_ | pending |
-| ocean | 256,128,64 | _tbd_ | pending |
-| land | 64,32 (ref) | _tbd_ | pending |
-| land | 128,64,32 | _tbd_ | pending |
-| land | 256,128,64 | _tbd_ | pending |
+| ocean | 64,32 (ref) | 0.631 ± 0.055 | — |
+| ocean | 128,64,32 | 0.627 ± 0.053 | −0.004 |
+| ocean | 256,128,64 | 0.628 ± 0.059 | −0.003 |
+| land | 64,32 (ref) | 0.603 ± 0.040 | — |
+| land | 128,64,32 | 0.608 ± 0.041 | +0.005 |
+| land | 256,128,64 | 0.603 ± 0.040 | −0.001 |
 
-Decision: if 128,64,32 still beats 64,32 OOD (and 256,128,64 doesn't overfit) → adopt the bigger backbone as the new DE baseline, THEN run 1b (predicted bin) on top of it.
+**RESULT: the +0.243 capacity win does NOT survive OOD.** On held-out dates, backbone
+size makes no difference (ocean −0.004, land +0.005 — both inside the ±0.05 fold noise).
+The in-distribution +0.243 was a RANDOM-SPLIT ARTIFACT — same autocorrelation leakage
+that inflated the cloud classifier (0.99→0.85) and flipped multi-task. The bigger
+backbone overfit training dates. **→ keep the 64,32 backbone (no capacity change).**
+
+**Sobering meta-finding:** EVERY near-cloud XCO2 lever tried — multi-task aux,
+cloud-bin input, backbone capacity — was an in-distribution mirage that vanished OOD.
+The honest near-cloud XCO2 R² is ~0.60–0.63 on unseen dates regardless, and appears to
+be a ceiling for these features. Only date_kfold numbers are trustworthy.
 
 ### Phase 1b — cloud-bin screen at the BEST capacity (128,64,32)  ✅ DONE 2026-06-26
 Local, 12-date land, random split. At the winning capacity, near-cloud R² (seed 42):
