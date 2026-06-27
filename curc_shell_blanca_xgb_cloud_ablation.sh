@@ -1,9 +1,9 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=8
-#SBATCH --ntasks-per-node=8
-#SBATCH --mem=64G
+#SBATCH --ntasks=16
+#SBATCH --ntasks-per-node=16
+#SBATCH --mem=120G
 #SBATCH --time=08:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
