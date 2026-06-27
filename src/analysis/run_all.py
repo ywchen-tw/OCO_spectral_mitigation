@@ -177,6 +177,7 @@ from analysis.utils import (
 )
 from analysis.signal_hierarchy import (
     plot_signal_hierarchy, plot_residual_signal_hierarchy,
+    plot_cross_band_ratio_signal_hierarchy,
 )
 from analysis.albedo import (
     plot_alb_vs_exp_intercept, plot_alb_vs_exp_intercept_cross,
@@ -612,6 +613,10 @@ def main():
     # ── Section 1b: residual signal hierarchy ─────────────────────────────────
     logger.info("Section 1b: Plotting residual signal hierarchy …")
     plot_residual_signal_hierarchy(df, overall_outdir)
+
+    # ── Section 1c: cross-band ratio signal hierarchy ────────────────────────
+    logger.info("Section 1c: Plotting cross-band ratio signal hierarchy …")
+    plot_cross_band_ratio_signal_hierarchy(df, overall_outdir)
 
     if args.analysis_profile in ('core', 'full'):
         # ── Section 2b: exp_intercept albedo residuals ────────────────────────

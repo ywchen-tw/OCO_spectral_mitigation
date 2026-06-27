@@ -131,6 +131,108 @@ def plot_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
     _save(fig, outdir, 'signal_hierarchy.png')
 
 
+def plot_cross_band_ratio_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
+    """Companion to plot_signal_hierarchy for cross-band ratios.
+
+    Bar chart of Pearson r(cld_dist_km) for the three band-pair ratios
+    (WCO₂/O₂A, SCO₂/O₂A, SCO₂/WCO₂) of three quantities — albedo,
+    exp_intercept, and (exp_intercept − alb) — shown side-by-side for ocean
+    and land.  Ratios are computed on the fly so the chart works on parquets
+    built before the precomputed columns were added.
+
+    A flat profile (r≈0) means both bands respond to clouds in lock-step; a
+    non-zero r exposes a band-to-band divergence in the cloud-proximity signal.
+    """
+    # ── compute cross-band ratio columns on the fly ───────────────────────────
+    base = {
+        'alb':     {'o2a': 'alb_o2a',           'wco2': 'alb_wco2',           'sco2': 'alb_sco2'},
+        'exp_int': {'o2a': 'exp_o2a_intercept', 'wco2': 'exp_wco2_intercept', 'sco2': 'exp_sco2_intercept'},
+    }
+    if not all(c in df.columns for grp in base.values() for c in grp.values()):
+        logger.warning("alb/exp_intercept columns missing — skipping cross-band ratio hierarchy")
+        return
+
+    ema = {b: df[base['exp_int'][b]] - df[base['alb'][b]] for b in ('o2a', 'wco2', 'sco2')}
+    quantities = [  # (prefix, term_label, color)
+        ('alb',               'alb',     'C0'),
+        ('exp_int',           'exp',     'C1'),
+        ('exp_int_minus_alb', 'exp−alb', 'C2'),
+    ]
+    pairs = [  # (num, den, pair_label)
+        ('wco2', 'o2a',  'WCO₂/O₂A'),
+        ('sco2', 'o2a',  'SCO₂/O₂A'),
+        ('sco2', 'wco2', 'SCO₂/WCO₂'),
+    ]
+
+    ratio_cols = {}
+    for pfx, _, _ in quantities:
+        for num, den, _ in pairs:
+            if pfx == 'exp_int_minus_alb':
+                numer, denom = ema[num], ema[den]
+            else:
+                numer, denom = df[base[pfx][num]], df[base[pfx][den]]
+            ratio_cols[f'_cb_{pfx}_{num}_{den}'] = numer / denom.replace(0, np.nan)
+    df = df.assign(**ratio_cols)
+
+    # (column, pair_label, term_label, color)
+    feat = [(f'_cb_{pfx}_{num}_{den}', pl, tl, clr)
+            for pfx, tl, clr in quantities
+            for num, den, pl in pairs]
+
+    pair_hatches = {'WCO₂/O₂A': '', 'SCO₂/O₂A': '///', 'SCO₂/WCO₂': 'xxx'}
+    quant_colors = {tl: clr for _, tl, clr in quantities}
+    subsets = [('Ocean', df[df['sfc_type'] == 0]),
+               ('Land',  df[df['sfc_type'] == 1])]
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
+    x = np.arange(len(feat))
+    # separators between the three quantity groups
+    sep_idxs = [i for i in range(1, len(feat)) if feat[i][2] != feat[i - 1][2]]
+
+    for ax, (sfc_name, sdf) in zip(axes, subsets):
+        rs = []
+        for col, _, _, _ in feat:
+            m = sdf[col].notna() & np.isfinite(sdf[col]) & sdf['cld_dist_km'].notna()
+            if m.sum() > 10:
+                r, _ = stats.pearsonr(sdf.loc[m, 'cld_dist_km'], sdf.loc[m, col])
+            else:
+                r = np.nan
+            rs.append(r)
+
+        colors  = [c for _, _, _, c in feat]
+        hatches = [pair_hatches[pl] for _, pl, _, _ in feat]
+        bars = ax.bar(x, rs, color=colors, hatch=hatches, edgecolor='white', alpha=0.85)
+        ax.axhline(0, color='k', lw=0.8)
+        for s in sep_idxs:
+            ax.axvline(s - 0.5, color='dimgray', lw=1.2, linestyle='--', alpha=0.6)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([f'{tl}\n{pl}' for _, pl, tl, _ in feat],
+                           fontsize=7.5, rotation=40, ha='right')
+        ax.set_ylabel('Pearson r with cld_dist_km', fontsize=9)
+        ax.set_title(f'{sfc_name} (n={len(sdf):,})', fontsize=10)
+        ax.grid(axis='y', alpha=0.3)
+        for bar, r in zip(bars, rs):
+            if np.isfinite(r):
+                offset = 0.006 if r >= 0 else -0.006
+                ax.text(bar.get_x() + bar.get_width() / 2, r + offset,
+                        f'{r:.2f}', ha='center',
+                        va='bottom' if r >= 0 else 'top', fontsize=6.5)
+
+    from matplotlib.patches import Patch
+    legend_handles = [Patch(facecolor=c, label=t) for t, c in quant_colors.items()]
+    legend_handles += [Patch(facecolor='gray', hatch=h, label=p, alpha=0.7)
+                       for p, h in pair_hatches.items()]
+    axes[0].legend(handles=legend_handles, fontsize=7, ncol=2, loc='lower left',
+                   title='Quantity / Band pair', title_fontsize=7)
+    fig.suptitle(
+        'Cross-band ratio signal hierarchy: Pearson r(cld_dist_km) — '
+        'alb, exp_intercept, exp_intercept−alb ratios  |  Ocean vs Land',
+        fontsize=12)
+    fig.tight_layout()
+    _save(fig, outdir, 'cross_band_ratio_signal_hierarchy.png')
+
+
 def plot_residual_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
     """Companion to plot_signal_hierarchy: shows Pearson r(cld_dist, residual)
     after OLS-removing band-matched albedo + airmass + cos(SZA) from each

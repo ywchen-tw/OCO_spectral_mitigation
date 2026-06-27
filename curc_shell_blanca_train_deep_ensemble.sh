@@ -86,27 +86,27 @@ NFOLDS=5
 # near&tail-5% coverage 0.70 -> 0.865 at +51% near-cloud width; 0.975 lands ~0.865
 # under date-shift, so 0.98 is used to push the tail nearer 0.90.  Applied to the
 # production loss (beta_nll); gaussian stays flat as the clean coverage reference.
-# for LOSS in gaussian_nll beta_nll; do
-#   NCT=""; [ "${LOSS}" = "beta_nll" ] && NCT="--near_cloud_target 0.98"
-#   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${LOSS}_f${F} \
-#     --loss ${LOSS} --beta 1.0 --n_members 5 --batch_size 8192 ${NCT} \
-#     --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+for LOSS in gaussian_nll beta_nll; do
+  NCT=""; [ "${LOSS}" = "beta_nll" ] && NCT="--near_cloud_target 0.98"
+  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${LOSS}_f${F} \
+    --loss ${LOSS} --beta 1.0 --n_members 5 --batch_size 8192 ${NCT} \
+    --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${LOSS}_f${F} \
-#     --loss ${LOSS} --beta 1.0 --n_members 5 --batch_size 8192 ${NCT} \
-#     --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
+  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${LOSS}_f${F} \
+    --loss ${LOSS} --beta 1.0 --n_members 5 --batch_size 8192 ${NCT} \
+    --mondrian_col cld_dist_km --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
 
 # ── Feature-set ablations ─────────────────────────────────────────────────────
 # Drop XCO2-related features (no_xco2) and spectral features (no_spec) to isolate
 # their contribution.  Run on the PRODUCTION config (beta_nll + near_cloud_target),
 # ocean, one fold per array task — mirrors the de_ocean_beta_nll_f${F} baseline so
 # the only difference is the feature set.  Suffix: de_ocean_{feature_set}_f{F}.
-for FS in no_xco2 no_spec; do
-#   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_f${F} \
-#     --feature_set ${FS} --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+for FS in no_xco2 no_spec no_xco2_and_spec; do
+  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_f${F} \
+    --feature_set ${FS} --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_f${F} \
     --feature_set ${FS} --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \

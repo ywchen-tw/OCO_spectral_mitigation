@@ -462,10 +462,11 @@ FITQUAL_FEATURES = [
 # Maps --feature_set name → spec.  'full' = sentinel (no change).  A spec has either
 # a 'drop' set (remove features) or an 'add' list (append continuous features).
 _FEATURE_SETS: dict = {
-    'full':         None,
-    'no_xco2':      {'drop': XCO2_FEATURES},
-    'no_spec':      {'drop': SPEC_FEATURES},
-    'full_fitqual': {'add': FITQUAL_FEATURES},
+    'full':            None,
+    'no_xco2':         {'drop': XCO2_FEATURES},
+    'no_spec':         {'drop': SPEC_FEATURES},
+    'no_xco2_and_spec': {'drop': XCO2_FEATURES | SPEC_FEATURES},
+    'full_fitqual':    {'add': FITQUAL_FEATURES},
 }
 
 
