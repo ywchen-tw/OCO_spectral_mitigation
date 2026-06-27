@@ -243,6 +243,19 @@ Expanded-feature XGBoost, local 12-date date_kfold OOD, at the chosen thresholds
 with BETTER precision/AP (more balanced) — so 15km captures the 10-15km bias at no AUC
 cost. Ready for the final CURC run (ocean --near_cloud_km 5.0, land --near_cloud_km 15.0).
 
+### Phase 2h — FINAL per-surface cloud classifier on CURC full-66 OOD  ✅ DONE 2026-06-27
+xgbcloud_final_* (expanded features, ocean@5km / land@15km), date_kfold 5-fold:
+
+| surface | threshold | AUC | AP | recall@0.5 | precision@0.5 |
+|---|---|---|---|---|---|
+| ocean | 5km | **0.826 ± 0.004** | 0.67 | 0.71 | 0.54 |
+| land | 15km | **0.849 ± 0.011** | 0.68 | 0.78 | 0.55 |
+
+**FINAL deployable cloud classifier.** Rock-steady (ocean std 0.004). Ocean@5km beats
+ocean@10km (0.781) by +0.045 — tighter-threshold finding confirmed on full data. Land@15km
+≈ @10km AUC but better AP/precision and captures the 10-15km bias. This is the production
+cloud gate (footprint-independent, no MODIS).
+
 ---
 
 ## Future tests — correction / deployment policy
