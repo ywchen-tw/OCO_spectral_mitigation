@@ -218,6 +218,22 @@ Median bias by bin:
   offset. Cloud-attributable excess (med-0.019) ~+0.04 at 10-11km → 10km leaves bias
   uncorrected; land gate **~15km** (classifier AUC flat across thresholds, so free).
 
+Reusable boxplot generator saved: `workspace/plot_cld_dist_boxplot_fine.py`
+(configurable parquet / col / bin-width / max-km).
+
+### Phase 2g — local validation of FINAL per-surface thresholds  ✅ DONE 2026-06-27
+Expanded-feature XGBoost, local 12-date date_kfold OOD, at the chosen thresholds:
+
+| config | AUC | AP | recall | precision | pos_rate |
+|---|---|---|---|---|---|
+| ocean @5km (FINAL) | 0.819 | 0.66 | 0.71 | 0.53 | 0.26 |
+| land @15km (FINAL) | 0.839 | 0.64 | 0.76 | 0.53 | 0.25 |
+| land @10km (compare) | 0.841 | 0.54 | 0.75 | 0.42 | 0.17 |
+
+**Both validate.** land@15km matches @10km on AUC (0.839 vs 0.841, flat as expected) but
+with BETTER precision/AP (more balanced) — so 15km captures the 10-15km bias at no AUC
+cost. Ready for the final CURC run (ocean --near_cloud_km 5.0, land --near_cloud_km 15.0).
+
 ---
 
 ## Future tests — correction / deployment policy
