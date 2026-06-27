@@ -171,9 +171,21 @@ Excluded leaky/MODIS-built r25_*/ref_*/weighted_cloud_dist_km. XGBoost, local
 
 **RESULT: confirmed — ocean was feature-starved.** Cloud diagnostics lift ocean OOD
 AUC 0.69→0.76 (recall 0.66→0.69); land unmoved (already at ceiling via its
-bright/structured surface). Adopt expanded features for the ocean classifier. Next:
-which features drive it (importance), shorter ocean threshold (<5km), and CURC
-full-66 run with expanded features.
+bright/structured surface). Adopt expanded features for the ocean classifier.
+
+### Phase 2d — expanded features on CURC full 66-date OOD  ✅ DONE 2026-06-27
+Wired --cloud_features into xgb_cloud_classifier; CURC date_kfold (suffix xgbcloud_exp_*):
+
+| surface | BASE (full-66) | EXPANDED (full-66) | gain | recall@0.5 |
+|---|---|---|---|---|
+| ocean | 0.720 | **0.781** | +0.061 | 0.62→0.67 |
+| land | 0.845 | 0.850 | +0.005 | 0.78→0.79 |
+
+**RESULT: the lift HOLDS out-of-distribution on full data.** Ocean +0.061 (per-fold
+0.768–0.788, std 0.007 — rock-steady), land unchanged. **Final cloud<10km classifier:
+land ~0.85 / ocean ~0.78 OOD AUC**, both usable as recall-tuned gates. This is the
+deployable cloud-prediction model. Optional further gains: feature-importance pruning
+of the 29-feature block, shorter ocean threshold (<5km).
 
 ---
 
