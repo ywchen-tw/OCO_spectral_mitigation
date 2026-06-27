@@ -56,18 +56,18 @@ F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
 
 # ── (1) Re-run ONLY the diverged fold (ocean, no_xco2, fold 0) with a clean seed ──
-if [ "${F}" = "0" ]; then
-  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_no_xco2_f0 \
-    --feature_set no_xco2 --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km --seed 43 \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold 0
-fi
+# if [ "${F}" = "0" ]; then
+#   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_no_xco2_f0 \
+#     --feature_set no_xco2 --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km --seed 43 \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold 0
+# fi
 
 # ── (2) New combined-ablation group: no_xco2_and_spec, both surfaces, all folds ───
-# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_no_xco2_and_spec_f${F} \
-#   --feature_set no_xco2_and_spec --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#   --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_no_xco2_and_spec_f${F} \
+  --feature_set no_xco2_and_spec --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+  --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+  --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # python -m models.deep_ensemble --sfc_type 1 --suffix de_land_no_xco2_and_spec_f${F} \
 #   --feature_set no_xco2_and_spec --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
