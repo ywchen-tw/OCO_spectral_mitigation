@@ -184,8 +184,22 @@ Wired --cloud_features into xgb_cloud_classifier; CURC date_kfold (suffix xgbclo
 **RESULT: the lift HOLDS out-of-distribution on full data.** Ocean +0.061 (per-fold
 0.768–0.788, std 0.007 — rock-steady), land unchanged. **Final cloud<10km classifier:
 land ~0.85 / ocean ~0.78 OOD AUC**, both usable as recall-tuned gates. This is the
-deployable cloud-prediction model. Optional further gains: feature-importance pruning
-of the 29-feature block, shorter ocean threshold (<5km).
+deployable cloud-prediction model.
+
+### Phase 2e — threshold sweep (<5 / <7 / <10 km, expanded features)  ✅ DONE 2026-06-27
+Local 12-date date_kfold OOD AUC by threshold:
+
+| surface | <5km | <7km | <10km |
+|---|---|---|---|
+| land | 0.847 | 0.846 | 0.841 |
+| ocean | **0.819** | 0.793 | 0.764 |
+
+**RESULT: ocean is MORE predictable at tighter thresholds** (monotone 0.764→0.793→0.819,
++0.055 from <10 to <5) — very-near-cloud carries a stronger signature, and it matches
+the boxplot (ocean bias concentrated <~7km). Land is flat (~0.845, threshold-free).
+(AP drops at tighter thresholds = base-rate artifact; AUC is the fair comparison.)
+**→ surface-specific gate thresholds: ocean ~5km, land ~10km.** A <5km ocean gate is
+both more accurate AND only flags where ocean bias lives.
 
 ---
 
