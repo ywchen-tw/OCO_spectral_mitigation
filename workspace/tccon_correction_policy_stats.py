@@ -39,8 +39,8 @@ TCCON_DIR = ROOT / 'data/TCCON'
 CACHE = ROOT / 'results/model_comparison/tccon_policy/plotdata'
 OUTDIR = ROOT / 'results/model_comparison/tccon_policy'
 
-DE_OCEAN = sorted((ROOT / 'results/model_deep_ensemble').glob('de_ocean_beta_nll_f*'))
-DE_LAND = sorted((ROOT / 'results/model_deep_ensemble').glob('de_land_beta_nll_f*'))
+DE_OCEAN = sorted((ROOT / 'results/model_deep_ensemble').glob('de_ocean_full_contam_f*'))
+DE_LAND = sorted((ROOT / 'results/model_deep_ensemble').glob('de_land_full_contam_f*'))
 XGB_OCEAN = sorted((ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_ocean_f*'))
 XGB_LAND = sorted((ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_land_f*'))
 

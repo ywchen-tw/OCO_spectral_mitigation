@@ -43,8 +43,8 @@ export PYTHONPATH=src:${PYTHONPATH:-}
 # ─── model (deep-ensemble fold dirs; per-surface) ─────────────────────────────
 # Pool ALL folds (f0..f4) → cross-fold ensemble: mu = mean of 25 members,
 # sigma = total predictive std (each fold transformed by its own scaler).
-OCEAN_MODEL_DIRS=(results/model_deep_ensemble/de_ocean_beta_nll_f*)
-LAND_MODEL_DIRS=(results/model_deep_ensemble/de_land_beta_nll_f*)
+OCEAN_MODEL_DIRS=(results/model_deep_ensemble/de_ocean_full_contam_f*)
+LAND_MODEL_DIRS=(results/model_deep_ensemble/de_land_full_contam_f*)
 
 # ─── cloud classifier (xgb_cloud fold dirs; per-surface) ──────────────────────
 # When set, build_deepens_plot_data.py also emits P(near) and the two extra
@@ -56,6 +56,12 @@ LAND_CLOUD_DIRS=(results/model_xgb_cloud/xgbcloud_final_land_f*)
 
 CSV_DIR=results/csv_collection
 OUT_BASE=results/model_comparison/deep_ensemble
+
+# ─── TCCON collocation knobs (shared by per-case plot + aggregate reports) ─────
+# Keep these in sync across plot_corrected_xco2.py, tccon_comparison_report.py,
+# and tccon_correction_policy_stats.py so all three match the same footprints.
+RADIUS_KM=100
+WINDOW_MIN=60
 
 run_case() {
     local date="$1" tccon="$2" lonmin="$3" lonmax="$4" latmin="$5" latmax="$6"
@@ -96,7 +102,7 @@ run_case() {
         --lat-range  "$latmin" "$latmax" \
         --date-plot  "$date" \
         --vmin "$vmin" --vmax "$vmax" \
-        --hist-radius-km 100 \
+        --hist-radius-km "$RADIUS_KM" \
         "${poster_arg[@]}"
 
     # (6) per-band spectral-fit parameter maps (k1/k2/exp_intercept-alb × o2a/wco2/sco2)
@@ -302,3 +308,21 @@ run_case  2020-09-16   pr20140923_20251024.public.qc.nc       1.43     2.71    4
 
 # ─────────────────────── add your other cases below ──────────────────────────
 # run_case  2020-04-15   ra20150301_20200718.public.qc.nc   54.98    55.72    -22.71   -20.32   406     412    both
+
+# ═══════════════════════ aggregate reports (run once, after all cases) ════════════
+# Both parse the active run_case lines above and summarize across cases.
+
+# (7) before/after-vs-TCCON comparison across all cases (reads each case's plot_data.parquet)
+echo ""
+echo "############ AGGREGATE: tccon_comparison_report ############"
+python workspace/tccon_comparison_report.py \
+    --script   "$(basename "$0")" \
+    --out-base "$OUT_BASE" \
+    --output-dir "$OUT_BASE" \
+    --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN"
+
+# (8) correction-policy stats (uncorrected vs full_mu vs lat-gates; rebuilds its own plotdata cache)
+echo ""
+echo "############ AGGREGATE: tccon_correction_policy_stats ############"
+python workspace/tccon_correction_policy_stats.py \
+    --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN"
