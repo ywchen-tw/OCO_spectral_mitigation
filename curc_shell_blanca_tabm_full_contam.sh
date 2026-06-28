@@ -78,14 +78,20 @@ GPU_MONITOR_PID=$!
 F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
 
-# Tuned hyperparameters from the local random-search HPO (single-date 2020 proxy,
-# ocean, full_contam; see results/model_comparison/hpo_ocean_full_contam_trials.csv).
-# The winning config is written to tabm_tuned_ocean.json (repo root) and passed via
-# --config; it carries K / d_model / n_layers / dropout / lr / weight_decay /
-# batch_size / huber_delta, so DO NOT also pass --K (the flag would override the
-# tuned K).  OneCycle re-derives its schedule from total_steps, so the tuned max_lr
-# transfers across the larger CURC data + linux_epochs.  NOTE: tuned on OCEAN — land
-# uses the same config as an informed default until it gets its own HPO sweep.
+# Tuned hyperparameters from the local random-search HPO (winner t09, R²=0.914 of
+# 28 trials incl. a 5-trial refinement; see results/model_comparison/hpo_ocean_*
+# _trials.csv).  Written to tabm_tuned_ocean.json (repo root), passed via --config;
+# DO NOT also pass --K (the flag would override the tuned K).
+#   WHAT TRANSFERS as-is: K=8, d_model=192, n_layers=3, dropout, weight_decay,
+#     huber_delta=0.63 — architecture/loss/regularization are data-scale-invariant.
+#   WHAT IS RESCALED for production: the HPO ran on a 74k-row single-date proxy with
+#     batch=1024; the full 2016-2020 set is ~10.4M ocean / 6.8M land rows, where
+#     batch=1024 is ~8k steps/epoch (infeasible).  The config's linux_* block uses
+#     batch=8192 (codebase default for this data).  The tuned lr=3.8e-3 is KEPT (not
+#     up-scaled): a larger batch lowers gradient noise, so the tuned lr is safe-to-
+#     conservative there — avoids the lr/big-model divergence that NaN'd one HPO trial.
+#   OneCycle re-derives its schedule from total_steps (= linux_epochs x steps/epoch).
+# NOTE: tuned on OCEAN — land reuses it as an informed default until its own HPO sweep.
 TUNED=tabm_tuned_ocean.json
 
 # This fold, all 4 TabM configs: {ocean, land} x {full, full_contam}.
@@ -93,8 +99,8 @@ for FS in full full_contam; do
   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_${FS}_f${F} --config ${TUNED} \
     --feature_set ${FS} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-#   python -m models.tabm --sfc_type 1 --suffix tabm_land_${FS}_f${F} --config ${TUNED} \
-#     --feature_set ${FS} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+  python -m models.tabm --sfc_type 1 --suffix tabm_land_${FS}_f${F} --config ${TUNED} \
+    --feature_set ${FS} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
