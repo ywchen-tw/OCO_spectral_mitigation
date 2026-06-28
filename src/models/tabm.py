@@ -248,6 +248,8 @@ def _default_run_config() -> dict:
             'linux_epochs': 500,
             'darwin_batch_size': 2048,
             'linux_batch_size': 8192,
+            'lr': 1e-3,
+            'weight_decay': 1e-4,
             'patience': 50,
             'log_every': 10,
             'seed': 42,
@@ -312,6 +314,7 @@ def train_tabm(X_train, y_train, X_test, y_test, features, *,
                output_dir: str = ".",
                K: int = 16, d_model: int = 256, n_layers: int = 4, dropout: float = 0.2,
                batch_size: int = 8192, n_epochs: int = 100,
+               max_lr: float = 1e-3, weight_decay: float = 1e-4,
                log_every: int = 10, patience: 'int | None' = 50,
                loss_fn: str = 'huber', huber_delta: float = 1.0,
                range_loss_weight: float = 0.0, range_loss_type: str = 'variance',
@@ -376,9 +379,9 @@ def train_tabm(X_train, y_train, X_test, y_test, features, *,
     if y_init is not None:
         model.init_from_targets(y_init)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=max_lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        optimizer, max_lr=1e-3, total_steps=n_epochs * len(train_loader),
+        optimizer, max_lr=max_lr, total_steps=n_epochs * len(train_loader),
         pct_start=0.05, div_factor=25, final_div_factor=1000,
     )
     grad_scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
@@ -699,6 +702,8 @@ def main():
             K=int(run_cfg['model']['K']), d_model=int(run_cfg['model']['d_model']),
             n_layers=int(run_cfg['model']['n_layers']), dropout=float(run_cfg['model']['dropout']),
             batch_size=batch_size, n_epochs=epochs,
+            max_lr=float(run_cfg['train'].get('lr', 1e-3)),
+            weight_decay=float(run_cfg['train'].get('weight_decay', 1e-4)),
             log_every=int(run_cfg['train']['log_every']), patience=int(run_cfg['train']['patience']),
             loss_fn=run_cfg['loss']['loss'], huber_delta=float(run_cfg['loss']['huber_delta']),
             range_loss_weight=float(run_cfg['loss']['range_loss_weight']),
