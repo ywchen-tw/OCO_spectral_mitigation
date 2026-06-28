@@ -13,6 +13,7 @@ Panel B: per-case bias-to-TCCON, no-gate → gated dumbbell (original faint for
 Run: PYTHONPATH=src python workspace/plot_latgate_tccon_comparison.py --lat-gate 75
 """
 import argparse
+import os
 from pathlib import Path
 
 import numpy as np
@@ -22,8 +23,12 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parent.parent
-MEANS = ROOT / 'results/model_comparison/tccon_policy/tccon_policy_station_means.csv'
-OUTDIR = ROOT / 'results/model_comparison/tccon_policy'
+# On CURC the results/ tree lives under scratch, not the repo checkout.  Honor the
+# same data root as tccon_correction_policy_stats.py / get_storage_dir().
+DATA_ROOT = Path(os.environ.get('CURC_DATA_ROOT')
+                 or os.environ.get('OCO2_DATAROOT') or ROOT)
+MEANS = DATA_ROOT / 'results/model_comparison/tccon_policy/tccon_policy_station_means.csv'
+OUTDIR = DATA_ROOT / 'results/model_comparison/tccon_policy'
 
 
 def _ols(x, y):

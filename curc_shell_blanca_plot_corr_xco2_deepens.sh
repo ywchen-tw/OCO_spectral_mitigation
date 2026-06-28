@@ -339,3 +339,11 @@ echo ""
 echo "############ AGGREGATE: tccon_correction_policy_stats ############"
 python workspace/tccon_correction_policy_stats.py \
     --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN"
+
+# (9) lat-gate ON vs OFF figures (reads tccon_policy_station_means.csv from step 8)
+#     Both the all-station figure and the excl-Ny-Ålesund variant (the only |lat|>75
+#     station, so the gate touches nothing once it is dropped).
+echo ""
+echo "############ AGGREGATE: plot_latgate_tccon_comparison ############"
+python workspace/plot_latgate_tccon_comparison.py --lat-gate 75
+python workspace/plot_latgate_tccon_comparison.py --lat-gate 75 --exclude-sites ny

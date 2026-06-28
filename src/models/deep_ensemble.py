@@ -300,7 +300,12 @@ def main():
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--feature_set', type=str, default='full',
                    choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec',
-                            'full_fitqual', 'full_contam'])
+                            'full_fitqual', 'full_contam', 'full_contam_snow'])
+    p.add_argument('--include_snow', action='store_true',
+                   help="Keep snow/ice footprints (snow_flag==1) in train/cal/holdout "
+                        "instead of the default filter to snow_flag==0.  Required for the "
+                        "full_contam_snow feature set to be meaningful (else the flag is "
+                        "constant).  Snow is land-only, so this only affects sfc_type=1.")
     p.add_argument('--n_members', type=int, default=5)
     p.add_argument('--hidden_dims', type=str, default='64,32',
                    help="Comma-separated GaussianMLP hidden layer widths. Default "
@@ -382,7 +387,11 @@ def main():
     _dp = args.data if args.data else os.path.join(fdir, data_name)
     df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
     df = df[df['sfc_type'] == args.sfc_type]
-    df = df[df['snow_flag'] == 0]
+    if args.include_snow:
+        logger.info("--include_snow: keeping snow_flag==1 footprints (%d of %d rows are snow)",
+                    int((df['snow_flag'] == 1).sum()), len(df))
+    else:
+        df = df[df['snow_flag'] == 0]
     df = _ensure_derived_features(df)
     df = filter_target_outliers(df)
 
@@ -603,7 +612,7 @@ def main():
                                 'lo_mondrian': preds_mond[:, 0], 'hi_mondrian': preds_mond[:, 2]})
     if cloud_prob_te is not None:
         held_out_df['cloud_prob'] = cloud_prob_te
-    for c in ('cld_dist_km', 'sfc_type', 'aod_total', 'fp'):
+    for c in ('cld_dist_km', 'sfc_type', 'aod_total', 'fp', 'lat', 'snow_flag'):
         if c in held_valid.columns:
             held_out_df[c] = held_valid[c].to_numpy()
     held_out_df.to_parquet(output_dir / 'held_out_predictions.parquet', index=False)

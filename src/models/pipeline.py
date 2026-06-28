@@ -475,6 +475,17 @@ CONTAM_FEATURES: dict = {
         'alb_sco2_over_wco2'],
 }
 
+# Set 6 — full_contam PLUS the binary snow/ice flag (land only; all snow footprints
+# are sfc_type=1).  Tests whether an explicit snow indicator lifts high-latitude
+# (polar) accuracy on footprints that the production pipeline currently filters out
+# (snow_flag==0).  Requires training with --include_snow so the flag actually varies.
+# snow_flag is 0/1 — RobustStandardScaler maps a zero-IQR column to scale=1 then
+# StandardScaler unit-variances it, so the binary needs no special passthrough.
+CONTAM_SNOW_FEATURES: dict = {
+    0: list(CONTAM_FEATURES[0]),                       # ocean: unchanged (no snow)
+    1: list(CONTAM_FEATURES[1]) + ['snow_flag'],       # land: + snow indicator
+}
+
 # Maps --feature_set name → spec.  'full' = sentinel (no change).  A spec has one of:
 # a 'drop' set (remove features), an 'add' list (append for both surfaces), or an
 # 'add_per_sfc' dict {sfc_type: [features]} (per-surface append).
@@ -485,6 +496,7 @@ _FEATURE_SETS: dict = {
     'no_xco2_and_spec': {'drop': XCO2_FEATURES | SPEC_FEATURES},
     'full_fitqual':    {'add': FITQUAL_FEATURES},
     'full_contam':     {'add_per_sfc': CONTAM_FEATURES},
+    'full_contam_snow': {'add_per_sfc': CONTAM_SNOW_FEATURES},
 }
 
 
