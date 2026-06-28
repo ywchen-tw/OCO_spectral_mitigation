@@ -23,18 +23,24 @@
 #   A nosnow   = tabm_land_full_contam_f*   PRODUCTION baseline (snow EXCLUDED).
 #                Already trained — NOT recomputed.  Status-quo anchor.
 #   B snowdata = tabm_land_fc_snowdata_f*   snow INCLUDED, full_contam (no snow_flag
-#                feature).  THIS SCRIPT.  Isolates the effect of adding the snow
-#                training DATA (B vs A).
+#                feature).  Isolates the effect of adding the snow training DATA (B vs A).
+#   C snowflag = tabm_land_fc_snowflag_f*   snow INCLUDED, full_contam_snow (+ snow_flag
+#                feature).  Isolates the effect of adding the snow_flag FEATURE (C vs B).
+#
+# B and C share an IDENTICAL holdout (same fold/seed, both snow-included), so their
+# difference is purely the snow_flag column → clean feature attribution (mirrors the
+# DE arm-B/arm-C design in curc_shell_blanca_train_de_snowflag.sh).
 #
 # Uses the DEFAULT TabM structure (K=16, d_model=256, n_layers=4, huber=1.0, 500ep,
 # batch 8192) — the date_kfold HPO showed tuning does NOT beat the default (flat
-# landscape), so arm B mirrors the production tabm_land_full_contam config exactly
-# except for --include_snow.  date_kfold, one fold per array task.
+# landscape), so B/C mirror the production tabm_land_full_contam config exactly except
+# for snow handling.  date_kfold, one fold per array task (both arms per task).
 #
-# After ALL array tasks finish, compare B vs the A baseline (no GPU):
+# After ALL array tasks finish, compare A vs B vs C (no GPU):
 #   PYTHONPATH=src python -m models.aggregate_folds \
 #     --dirs 'results/model_tabm/tabm_land_full_contam_f*' --label A_nosnow \
 #     --dirs 'results/model_tabm/tabm_land_fc_snowdata_f*' --label B_snowdata \
+#     --dirs 'results/model_tabm/tabm_land_fc_snowflag_f*' --label C_snowflag \
 #     --out results/model_comparison/tabm_snowflag_land_kfold_agg.md
 #   # plus the high-lat / snow-slice eval used for DE:
 #   #   PYTHONPATH=src python workspace/eval_snowflag_highlat.py   (point it at the tabm dirs)
@@ -62,9 +68,14 @@ GPU_MONITOR_PID=$!
 F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
 
-# Arm B: snow INCLUDED, full_contam (default structure, --K 16, no --config).
-python -m models.tabm --sfc_type 1 --suffix tabm_land_fc_snowdata_f${F} --K 16 \
-  --feature_set full_contam --include_snow \
+# Arm B: snow INCLUDED, full_contam (no snow_flag feature).  Default structure.
+# python -m models.tabm --sfc_type 1 --suffix tabm_land_fc_snowdata_f${F} --K 16 \
+#   --feature_set full_contam --include_snow \
+#   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+# Arm C: snow INCLUDED, full_contam_snow (+ snow_flag feature).  Same holdout as B.
+python -m models.tabm --sfc_type 1 --suffix tabm_land_fc_snowflag_f${F} --K 16 \
+  --feature_set full_contam_snow --include_snow \
   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
