@@ -13,7 +13,7 @@
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
 #SBATCH --gres=gpu:1
-#SBATCH --array=0-3
+#SBATCH --array=0-23
 #SBATCH --requeue
 
 # TabM hyperparameter search with DATE-BLOCKED validation, on the FULL 2016-2020 set.
@@ -27,14 +27,21 @@
 # regime.  Production-scale search space (batch in {4096,8192,16384}; wider wd/dropout
 # so date-CV can choose more regularization).
 #
-# PARALLELISM: array of 4 independent 1-GPU tasks.  Each task t runs --seed t, so it
-# samples a DISTINCT slice of the space and writes its own seed-tagged CSV
-# (results/model_comparison/hpo_dk_ocean_full_contam_s{t}_trials.csv).  4 tasks x
-# N_PER trials = the full budget; --requeue re-runs a preempted task.
+# PARALLELISM: ONE TRIAL PER ARRAY TASK (24 tasks => 24 trials).  Task t runs --seed t
+# --n_trials 1, sampling ONE distinct config (the first draw of RNG(t)) and writing its
+# own 1-row CSV (results/model_comparison/hpo_dk_ocean_full_contam_s{t}_trials.csv).
+# This is the time-efficient layout: the scheduler runs as many tasks concurrently as
+# GPUs are free (up to 24), instead of the old 4-task x 5-sequential-trials design that
+# capped concurrency at 4.  No downside — the driver runs each trial as a separate
+# `python -m models.tabm` subprocess that reloads the parquet regardless, so batching
+# trials in one task gave ZERO data-load amortization.  --requeue now re-runs only the
+# single lost trial on preemption (finer-grained than before).
 #
-# Cost: each trial is ONE full date_kfold-fold-0 training on ~8.3M ocean rows.
-# At EPOCHS=60 / batch 8192 that's ~1000 steps/epoch; budget ~5 trials/task under the
-# 20h wall.  Raise N_PER / the array range for a denser search if GPUs are plentiful.
+# Cost: each trial is ONE full date_kfold-fold-0 training on ~8.3M ocean rows
+# (EPOCHS=60 / batch 8192 ~= 1000 steps/epoch, ~25-35 min/trial).  Wall-clock for the
+# whole sweep ~= 30 min x ceil(24 / GPUs_free): ~30 min if 24 GPUs free, ~1.5 h if 8,
+# ~3 h if 4 (== the old design's time, never worse).  To resize the search just change
+# the --array range above (N trials = N tasks); no other edits needed.
 #
 # AFTER all tasks finish (no GPU needed) — aggregate, pick winner, write tuned config:
 #   PYTHONPATH=src python tabm_hpo_search.py --aggregate --tag hpo_dk_ocean_full_contam
@@ -61,11 +68,12 @@ nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,
            --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}.csv &
 GPU_MONITOR_PID=$!
 
-SEED=${SLURM_ARRAY_TASK_ID}
-N_PER=5
+SEED=${SLURM_ARRAY_TASK_ID}   # unique per task => one distinct config sampled per task
+N_PER=1                       # one trial per task (max GPU concurrency; see header)
 EPOCHS=60
 
-# Ocean search (the surface we have a DE baseline for).  Each task = one search seed.
+# Ocean search (the surface we have a DE baseline for).  Each task = one search seed
+# = one trial.  Aggregate all tasks afterwards with --aggregate (globs *_s*_trials.csv).
 python tabm_hpo_search.py --seed ${SEED} --n_trials ${N_PER} \
   --sfc_type 0 --feature_set full_contam \
   --val_split date_kfold --n_folds 5 --fold 0 --epochs ${EPOCHS}
