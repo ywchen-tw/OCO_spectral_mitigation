@@ -79,14 +79,14 @@ NFOLDS=5
 #       screen projected ~+0.06 (ocean) / +0.07 (land) held-out R² over `full`.  Both
 #       surfaces, all folds, mirroring the production config (beta_nll + near_cloud_target
 #       0.98).  Suffix: de_{surface}_full_contam_f{F}.
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_full_contam_f${F} \
-  --feature_set full_contam --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-  --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-  --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
-# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_full_contam_f${F} \
+# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_full_contam_f${F} \
 #   --feature_set full_contam --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
 #   --near_cloud_target 0.98 --mondrian_col cld_dist_km \
 #   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_full_contam_f${F} \
+  --feature_set full_contam --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+  --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+  --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
