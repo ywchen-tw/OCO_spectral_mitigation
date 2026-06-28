@@ -37,8 +37,13 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 
-cd "$(dirname "$0")"
+# Under SLURM, $0 is the spooled copy (/var/spool/slurmd/...), so dirname $0 is NOT
+# the repo.  Use the submit dir when set; fall back to dirname $0 for local runs.
+cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")}"
 export PYTHONPATH=src:${PYTHONPATH:-}
+# Repo-relative name of THIS script (the aggregate reports parse its run_case lines).
+# Don't use basename "$0": under SLURM that's the spooled job name, not this file.
+SCRIPT_NAME=curc_shell_blanca_plot_corr_xco2_deepens.sh
 
 # ─── model (deep-ensemble fold dirs; per-surface) ─────────────────────────────
 # Pool ALL folds (f0..f4) → cross-fold ensemble: mu = mean of 25 members,
@@ -316,7 +321,7 @@ run_case  2020-09-16   pr20140923_20251024.public.qc.nc       1.43     2.71    4
 echo ""
 echo "############ AGGREGATE: tccon_comparison_report ############"
 python workspace/tccon_comparison_report.py \
-    --script   "$(basename "$0")" \
+    --script   "$SCRIPT_NAME" \
     --out-base "$OUT_BASE" \
     --output-dir "$OUT_BASE" \
     --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN"

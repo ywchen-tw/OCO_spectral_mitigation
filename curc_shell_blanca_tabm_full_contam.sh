@@ -78,12 +78,22 @@ GPU_MONITOR_PID=$!
 F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
 
+# Tuned hyperparameters from the local random-search HPO (single-date 2020 proxy,
+# ocean, full_contam; see results/model_comparison/hpo_ocean_full_contam_trials.csv).
+# The winning config is written to tabm_tuned_ocean.json (repo root) and passed via
+# --config; it carries K / d_model / n_layers / dropout / lr / weight_decay /
+# batch_size / huber_delta, so DO NOT also pass --K (the flag would override the
+# tuned K).  OneCycle re-derives its schedule from total_steps, so the tuned max_lr
+# transfers across the larger CURC data + linux_epochs.  NOTE: tuned on OCEAN — land
+# uses the same config as an informed default until it gets its own HPO sweep.
+TUNED=tabm_tuned_ocean.json
+
 # This fold, all 4 TabM configs: {ocean, land} x {full, full_contam}.
 for FS in full full_contam; do
-  python -m models.tabm --sfc_type 0 --suffix tabm_ocean_${FS}_f${F} --K 16 \
+  python -m models.tabm --sfc_type 0 --suffix tabm_ocean_${FS}_f${F} --config ${TUNED} \
     --feature_set ${FS} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-#   python -m models.tabm --sfc_type 1 --suffix tabm_land_${FS}_f${F} --K 16 \
+#   python -m models.tabm --sfc_type 1 --suffix tabm_land_${FS}_f${F} --config ${TUNED} \
 #     --feature_set ${FS} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
 
