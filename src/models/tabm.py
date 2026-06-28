@@ -565,6 +565,10 @@ def main():
     parser.add_argument('--lambda_cloud', type=float, default=None,
                         help='Weight on the auxiliary cloud loss (default 0.1).')
     parser.add_argument('--seed', type=int, default=None, help='Random seed.')
+    parser.add_argument('--include_snow', action='store_true',
+                        help="Keep snow/ice footprints (snow_flag==1) in train/holdout "
+                             "instead of the default filter to snow_flag==0.  Mirrors "
+                             "deep_ensemble --include_snow (snow-flag arm-B/C experiment).")
     parser.add_argument('--data', type=str, default=None,
                         help='Override the input data file (default: platform data_name in '
                              'results/csv_collection/). Use for local multi-date testing.')
@@ -621,7 +625,11 @@ def main():
     _dp = args.data if args.data else os.path.join(fdir, data_name)
     df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
     df = df[df['sfc_type'] == surface_type]
-    df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
+    if args.include_snow:
+        print(f"  --include_snow: keeping snow_flag==1 footprints "
+              f"({int((df['snow_flag'] == 1).sum())} of {len(df)} rows are snow)")
+    else:
+        df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
     df = _ensure_derived_features(df)
     df = filter_target_outliers(df)
 

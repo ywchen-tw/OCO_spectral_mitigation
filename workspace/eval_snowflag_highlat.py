@@ -23,10 +23,13 @@ DATA_ROOT = Path(os.environ.get('CURC_DATA_ROOT')
                  or os.environ.get('OCO2_DATAROOT') or ROOT)
 BASE = DATA_ROOT / 'results/model_deep_ensemble'
 
+# Each arm pools its held-out predictions across ALL date_kfold folds (glob *_f*).
+# A = production full_contam (snow-excluded; predates the lat/snow_flag dump, so its
+# slices are limited to overall/non-snow).  B/C carry lat + snow_flag for every fold.
 ARMS = [
-    ('A nosnow',   'de_land_fc_nosnow_f0'),
-    ('B snowdata', 'de_land_fc_snowdata_f0'),
-    ('C snowflag', 'de_land_fc_snowflag_f0'),
+    ('A nosnow',   'de_land_full_contam_f*'),
+    ('B snowdata', 'de_land_fc_snowdata_f*'),
+    ('C snowflag', 'de_land_fc_snowflag_f*'),
 ]
 
 
@@ -64,14 +67,31 @@ def _slices(df):
 
 def main():
     frames = {}
-    for label, d in ARMS:
-        p = BASE / d / 'held_out_predictions.parquet'
-        if not p.exists():
-            print(f"  [skip] {label}: {p} not found"); continue
-        frames[label] = pd.read_parquet(p)
+    for label, pat in ARMS:
+        parts = []
+        for d in sorted(BASE.glob(pat)):
+            p = d / 'held_out_predictions.parquet'
+            if p.exists():
+                fdf = pd.read_parquet(p)
+                fdf['fold'] = d.name.rsplit('_f', 1)[-1]
+                parts.append(fdf)
+        if not parts:
+            print(f"  [skip] {label}: no held_out_predictions under {pat}"); continue
+        frames[label] = pd.concat(parts, ignore_index=True)
+        nf = frames[label]['fold'].nunique()
+        print(f"  {label:11s}: pooled {len(frames[label]):>8d} rows over {nf} fold(s)")
 
     if not frames:
-        raise SystemExit("No held-out predictions found — run workspace/run_snowflag_test.sh first.")
+        raise SystemExit("No held-out predictions found — train the arms first.")
+
+    # Align arms to the folds present in ALL of them, so overall/pooled metrics are
+    # apples-to-apples (a missing/preempted fold in one arm must not skew the compare).
+    common = set.intersection(*(set(f['fold'].unique()) for f in frames.values()))
+    dropped = {lbl: sorted(set(f['fold'].unique()) - common) for lbl, f in frames.items()}
+    if any(dropped.values()):
+        print(f"\n  [fold-align] common folds = {sorted(common)}; "
+              f"dropped per arm: {{ {', '.join(f'{k}:{v}' for k,v in dropped.items() if v)} }}")
+    frames = {lbl: f[f['fold'].isin(common)].reset_index(drop=True) for lbl, f in frames.items()}
 
     slice_names = ['overall', '|lat|<=60', '|lat|>60', '|lat|>70',
                    'snow==0', 'snow==1', 'snow==1 &']
