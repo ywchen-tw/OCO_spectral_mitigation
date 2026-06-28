@@ -45,22 +45,30 @@ export PYTHONPATH=src:${PYTHONPATH:-}
 # Don't use basename "$0": under SLURM that's the spooled job name, not this file.
 SCRIPT_NAME=curc_shell_blanca_plot_corr_xco2_deepens.sh
 
+# ─── data root ────────────────────────────────────────────────────────────────
+# On CURC the results/ tree and data/ (TCCON) live under scratch, not the repo
+# checkout.  Mirror the convention in curc_shell_blanca_general.sh: prefer
+# CURC_DATA_ROOT, then OCO2_DATAROOT, else '.' (local repo, unchanged).
+DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
+# Propagate to the aggregate report scripts so their hardcoded paths follow suit.
+export OCO2_DATAROOT="$DATA_ROOT"
+
 # ─── model (deep-ensemble fold dirs; per-surface) ─────────────────────────────
 # Pool ALL folds (f0..f4) → cross-fold ensemble: mu = mean of 25 members,
 # sigma = total predictive std (each fold transformed by its own scaler).
-OCEAN_MODEL_DIRS=(results/model_deep_ensemble/de_ocean_full_contam_f*)
-LAND_MODEL_DIRS=(results/model_deep_ensemble/de_land_full_contam_f*)
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_full_contam_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_full_contam_f*)
 
 # ─── cloud classifier (xgb_cloud fold dirs; per-surface) ──────────────────────
 # When set, build_deepens_plot_data.py also emits P(near) and the two extra
 # correction columns deepens_pnear_corrected_xco2 (P*mu) and deepens_gate_corrected_xco2
 # (mu*1[P>0.5]).  FT1 verdict (held-out OCO label + TCCON): full mu wins, these two
 # under-correct — kept for diagnostics, not the production correction.
-OCEAN_CLOUD_DIRS=(results/model_xgb_cloud/xgbcloud_final_ocean_f*)
-LAND_CLOUD_DIRS=(results/model_xgb_cloud/xgbcloud_final_land_f*)
+OCEAN_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_ocean_f*)
+LAND_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_land_f*)
 
-CSV_DIR=results/csv_collection
-OUT_BASE=results/model_comparison/deep_ensemble
+CSV_DIR="$DATA_ROOT"/results/csv_collection
+OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble
 
 # ─── TCCON collocation knobs (shared by per-case plot + aggregate reports) ─────
 # Keep these in sync across plot_corrected_xco2.py, tccon_comparison_report.py,
@@ -73,7 +81,7 @@ run_case() {
     local vmin="$7" vmax="$8" surf="${9:-both}" poster="${10:-}" site="${11:-}"
 
     local input="$CSV_DIR/combined_${date}_all_orbits.parquet"
-    local h5="results/results_${date}.h5"
+    local h5="$DATA_ROOT/results/results_${date}.h5"
     # site label (11th arg) keeps same-date/different-station runs in separate dirs
     local outdir="$OUT_BASE/combined_${date}_all_orbits"
     [[ -n "$site" ]] && outdir="$OUT_BASE/combined_${date}_${site}"
@@ -99,7 +107,7 @@ run_case() {
         poster_arg=(--poster-model deep_ensemble_corrected_xco2 --poster-dpi 300)
     python workspace/plot_corrected_xco2.py \
         --plot-data  "$plotdata" \
-        --tccon      "data/TCCON/$tccon" \
+        --tccon      "$DATA_ROOT/data/TCCON/$tccon" \
         "${h5_arg[@]}" \
         --output-dir "$outdir" \
         --modis-auto \
@@ -113,7 +121,7 @@ run_case() {
     # (6) per-band spectral-fit parameter maps (k1/k2/exp_intercept-alb × o2a/wco2/sco2)
     python workspace/plot_spectral_params.py \
         --input      "$input" \
-        --tccon      "data/TCCON/$tccon" \
+        --tccon      "$DATA_ROOT/data/TCCON/$tccon" \
         "${h5_arg[@]}" \
         --output-dir "$outdir" \
         --modis-auto \

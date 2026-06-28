@@ -149,6 +149,11 @@ def main():
             bias_after=(np.nanmean(corr) - tmu) if n_tc else np.nan,
         ))
 
+    if not rows:
+        print(f"No cases matched (out-base={out_base}, script={args.script}). "
+              "Nothing to report — check that each case's plot_data.parquet exists.",
+              file=sys.stderr)
+        return
     rep = pd.DataFrame(rows).sort_values(['site', 'date']).reset_index(drop=True)
     rep.to_csv(out_dir / 'tccon_comparison.csv', index=False)
 

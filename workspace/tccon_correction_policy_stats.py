@@ -23,6 +23,7 @@ Run: PYTHONPATH=src python workspace/tccon_correction_policy_stats.py
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -33,16 +34,21 @@ import pandas as pd
 import netCDF4 as nc4
 
 ROOT = Path(__file__).resolve().parent.parent
-SH = ROOT / 'curc_shell_blanca_plot_corr_xco2_deepens.sh'
-CSV_DIR = ROOT / 'results/csv_collection'
-TCCON_DIR = ROOT / 'data/TCCON'
-CACHE = ROOT / 'results/model_comparison/tccon_policy/plotdata'
-OUTDIR = ROOT / 'results/model_comparison/tccon_policy'
+# On CURC the results/ tree and data/ (TCCON) live under scratch, not the repo
+# checkout.  Mirror get_storage_dir()/curc_shell_blanca_general.sh: prefer
+# CURC_DATA_ROOT, then OCO2_DATAROOT, else the repo root (local, unchanged).
+DATA_ROOT = Path(os.environ.get('CURC_DATA_ROOT')
+                 or os.environ.get('OCO2_DATAROOT') or ROOT)
+SH = ROOT / 'curc_shell_blanca_plot_corr_xco2_deepens.sh'   # script lives in the repo
+CSV_DIR = DATA_ROOT / 'results/csv_collection'
+TCCON_DIR = DATA_ROOT / 'data/TCCON'
+CACHE = DATA_ROOT / 'results/model_comparison/tccon_policy/plotdata'
+OUTDIR = DATA_ROOT / 'results/model_comparison/tccon_policy'
 
-DE_OCEAN = sorted((ROOT / 'results/model_deep_ensemble').glob('de_ocean_full_contam_f*'))
-DE_LAND = sorted((ROOT / 'results/model_deep_ensemble').glob('de_land_full_contam_f*'))
-XGB_OCEAN = sorted((ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_ocean_f*'))
-XGB_LAND = sorted((ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_land_f*'))
+DE_OCEAN = sorted((DATA_ROOT / 'results/model_deep_ensemble').glob('de_ocean_full_contam_f*'))
+DE_LAND = sorted((DATA_ROOT / 'results/model_deep_ensemble').glob('de_land_full_contam_f*'))
+XGB_OCEAN = sorted((DATA_ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_ocean_f*'))
+XGB_LAND = sorted((DATA_ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_land_f*'))
 
 # Latitude gates: skip the correction where |lat| > L (degrees), N and S.
 LAT_GATES = (80.0, 75.0, 70.0)
