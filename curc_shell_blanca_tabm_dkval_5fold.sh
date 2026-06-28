@@ -20,7 +20,8 @@
 # The HPO ranked on fold 0 only, where the top configs were within 0.003 R²
 # (flat landscape).  This re-runs each of the 3 candidates across ALL 5 folds so we
 # pick the production config by 5-FOLD MEDIAN — the honest verdict, immune to fold-0
-# luck.  Candidates (configs/tabm_dk_*.json), tuned on the full 2016-2020 set:
+# luck.  Candidates are emitted inline below (self-contained, no files to sync), tuned
+# on the full 2016-2020 set by the date_kfold HPO:
 #   s19: K=32 d=128 L=4 drop=.05 lr=5.3e-4 bs=16384 hub=.93   (fold0 best, expensive)
 #   s20: K=32 d=192 L=3 drop=.27 lr=3.3e-3 bs=8192  hub=1.36  (fold0 #2,  expensive)
 #   s2 : K=8  d=128 L=2 drop=.14 lr=4.8e-4 bs=8192  hub=.88   (fold0 #3,  CHEAP — if
@@ -62,8 +63,40 @@ CIDX=$(( T / 5 ))
 FOLD=$(( T % 5 ))
 C=${CONFIGS[$CIDX]}
 
+# Self-contained: emit the candidate config inline (no external file to sync).  Each
+# task writes ONLY the config it needs, to a task-unique path, so concurrent array
+# tasks never race on the same file.  All three carry epochs=100 / patience=20 and the
+# tuned model+optimizer+loss block exactly as found by the date_kfold HPO (seeds 19/20/2).
+CFG="configs_gen_${SLURM_ARRAY_JOB_ID}_${T}.json"
+mkdir -p "$(dirname "$CFG")"
+case $C in
+  s19) cat > "$CFG" <<'EOF'
+{"model":{"K":32,"d_model":128,"n_layers":4,"dropout":0.048},
+ "train":{"darwin_epochs":100,"linux_epochs":100,"darwin_batch_size":16384,"linux_batch_size":16384,
+          "lr":0.000526,"weight_decay":1.61e-05,"patience":20,"log_every":25,"seed":42},
+ "loss":{"loss":"huber","huber_delta":0.93}}
+EOF
+  ;;
+  s20) cat > "$CFG" <<'EOF'
+{"model":{"K":32,"d_model":192,"n_layers":3,"dropout":0.27},
+ "train":{"darwin_epochs":100,"linux_epochs":100,"darwin_batch_size":8192,"linux_batch_size":8192,
+          "lr":0.003273,"weight_decay":2.3e-06,"patience":20,"log_every":25,"seed":42},
+ "loss":{"loss":"huber","huber_delta":1.36}}
+EOF
+  ;;
+  s2) cat > "$CFG" <<'EOF'
+{"model":{"K":8,"d_model":128,"n_layers":2,"dropout":0.144},
+ "train":{"darwin_epochs":100,"linux_epochs":100,"darwin_batch_size":8192,"linux_batch_size":8192,
+          "lr":0.000483,"weight_decay":0.0006499,"patience":20,"log_every":25,"seed":42},
+ "loss":{"loss":"huber","huber_delta":0.88}}
+EOF
+  ;;
+esac
+
 python -m models.tabm --sfc_type 0 --suffix tabm_dkval_${C}_full_contam_f${FOLD} \
-  --config configs/tabm_dk_${C}.json --feature_set full_contam \
+  --config "$CFG" --feature_set full_contam \
   --val_split date_kfold --n_folds 5 --fold ${FOLD}
+
+rm -f "$CFG"
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
