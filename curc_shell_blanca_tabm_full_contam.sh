@@ -80,11 +80,11 @@ NFOLDS=5
 
 # This fold, all 4 TabM configs: {ocean, land} x {full, full_contam}.
 for FS in full full_contam; do
-#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_${FS}_f${F} --K 16 \
-#     --feature_set ${FS} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
-  python -m models.tabm --sfc_type 1 --suffix tabm_land_${FS}_f${F} --K 16 \
+  python -m models.tabm --sfc_type 0 --suffix tabm_ocean_${FS}_f${F} --K 16 \
     --feature_set ${FS} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+#   python -m models.tabm --sfc_type 1 --suffix tabm_land_${FS}_f${F} --K 16 \
+#     --feature_set ${FS} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
