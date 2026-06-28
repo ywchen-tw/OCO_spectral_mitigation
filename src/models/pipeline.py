@@ -459,22 +459,42 @@ FITQUAL_FEATURES = [
     'eof3_1_rel', 'diverging_steps', 'xco2_uncertainty',
 ]
 
-# Maps --feature_set name → spec.  'full' = sentinel (no change).  A spec has either
-# a 'drop' set (remove features) or an 'add' list (append continuous features).
+# Set 5 — ADD cloud/aerosol contamination features on top of `full`.  Forward-selected
+# from the disabled-feature pool and validated with date-blocked (date_kfold) CV: adding
+# them lifted held-out R² by ~+0.06 (ocean) / +0.07 (land) over the `full` baseline — an
+# order of magnitude more than the cross-band ratios.  PER-SURFACE because the dominant
+# contamination signals differ (ocean: declocking/water aerosol; land: dpfrac/humidity/
+# dust+ice).  `alb_sco2_over_wco2` carries a small real ocean gain (rank-5 perm. importance
+# on top of this set); it is ~0 on land but is included on both per request.  All columns
+# exist in the combined parquet (alb_sco2_over_wco2 is self-derived below for old CSVs).
+CONTAM_FEATURES: dict = {
+    0: ['max_declock_wco2', 'aod_water', 'dp_abp', 'h_cont_wco2', 't700',
+        'water_height', 'alb_sco2_over_wco2'],
+    1: ['dpfrac', 'fs_rel_0', 'dust_height', 'aod_ice', 'ice_height', 'dp_abp',
+        'water_height', 'aod_water', 't700', 'h_cont_wco2', 'alt_std',
+        'alb_sco2_over_wco2'],
+}
+
+# Maps --feature_set name → spec.  'full' = sentinel (no change).  A spec has one of:
+# a 'drop' set (remove features), an 'add' list (append for both surfaces), or an
+# 'add_per_sfc' dict {sfc_type: [features]} (per-surface append).
 _FEATURE_SETS: dict = {
     'full':            None,
     'no_xco2':         {'drop': XCO2_FEATURES},
     'no_spec':         {'drop': SPEC_FEATURES},
     'no_xco2_and_spec': {'drop': XCO2_FEATURES | SPEC_FEATURES},
     'full_fitqual':    {'add': FITQUAL_FEATURES},
+    'full_contam':     {'add_per_sfc': CONTAM_FEATURES},
 }
 
 
-def _resolve_feature_set(qt_features: list, feature_set: str) -> list:
+def _resolve_feature_set(qt_features: list, feature_set: str,
+                         sfc_type: 'int | None' = None) -> list:
     """Return qt_features with the named ablation applied (order preserved).
 
-    'drop' specs remove features; 'add' specs append continuous features not already
-    present (the appended columns must exist in the dataframe at fit time).
+    'drop' specs remove features; 'add' / 'add_per_sfc' specs append continuous
+    features not already present (the appended columns must exist in the dataframe
+    at fit time).  'add_per_sfc' selects the append list by ``sfc_type``.
     """
     if feature_set not in _FEATURE_SETS:
         raise ValueError(
@@ -486,6 +506,10 @@ def _resolve_feature_set(qt_features: list, feature_set: str) -> list:
     if 'drop' in spec:
         drop = spec['drop']
         return [f for f in qt_features if f not in drop]
+    if 'add_per_sfc' in spec:             # per-surface append
+        add_src = spec['add_per_sfc'].get(sfc_type, []) if sfc_type is not None else []
+        add = [f for f in add_src if f not in qt_features]
+        return list(qt_features) + add
     # 'add' — append features not already in the base list
     add = [f for f in spec['add'] if f not in qt_features]
     return list(qt_features) + add
@@ -529,6 +553,7 @@ _DERIVED_FEATURES = {
     'alb_o2a_over_cos_sza':   ('alb_o2a / cos(sza)',        ['alb_o2a', 'sza']),
     'alb_wco2_over_cos_sza':  ('alb_wco2 / cos(sza)',       ['alb_wco2', 'sza']),
     'alb_sco2_over_cos_sza':  ('alb_sco2 / cos(sza)',       ['alb_sco2', 'sza']),
+    'alb_sco2_over_wco2':     ('alb_sco2 / alb_wco2',       ['alb_sco2', 'alb_wco2']),
 }
 
 
@@ -582,6 +607,8 @@ def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
                 cos_sza = np.cos(np.radians(df['sza'].to_numpy(dtype=float)))
             band = col.replace('_over_cos_sza', '')   # 'alb_o2a' / 'alb_wco2' / 'alb_sco2'
             df[col] = df[band].to_numpy(dtype=float) / cos_sza
+        elif col == 'alb_sco2_over_wco2':
+            df[col] = df['alb_sco2'].to_numpy(dtype=float) / df['alb_wco2'].to_numpy(dtype=float)
         logger.debug("_ensure_derived_features: computed '%s' from base columns", col)
     logger.info(
         "_ensure_derived_features: computed %d missing derived column(s): %s",
@@ -696,7 +723,7 @@ class FeaturePipeline:
             )
 
         # Continuous features for this sfc_type, with the named ablation applied.
-        qt_features = _resolve_feature_set(_FEATURE_MAP[sfc_type], feature_set)
+        qt_features = _resolve_feature_set(_FEATURE_MAP[sfc_type], feature_set, sfc_type)
         fp_cols     = list(_FP_COLS)
 
         df = _ensure_derived_features(df)

@@ -300,7 +300,7 @@ def main():
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--feature_set', type=str, default='full',
                    choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec',
-                            'full_fitqual'])
+                            'full_fitqual', 'full_contam'])
     p.add_argument('--n_members', type=int, default=5)
     p.add_argument('--hidden_dims', type=str, default='64,32',
                    help="Comma-separated GaussianMLP hidden layer widths. Default "

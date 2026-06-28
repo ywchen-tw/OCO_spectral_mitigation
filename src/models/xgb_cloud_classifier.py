@@ -78,7 +78,7 @@ def main():
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--near_cloud_km', type=float, default=10.0)
     p.add_argument('--feature_set', type=str, default='full',
-                   choices=['full', 'no_xco2', 'no_spec', 'full_fitqual'])
+                   choices=['full', 'no_xco2', 'no_spec', 'full_fitqual', 'full_contam'])
     p.add_argument('--cloud_features', action='store_true',
                    help="Append the cloud-diagnostic feature block (fit-quality, "
                         "scattering dp, cloud aerosols, brightness, continuum, glint) "

@@ -213,7 +213,7 @@ def main():
     parser.add_argument('--fold', type=int, default=None,
                         help='Which date block (0-based) to hold out for date_kfold.')
     parser.add_argument('--feature_set', type=str, default='full',
-                        choices=['full', 'no_xco2', 'no_spec', 'full_fitqual'])
+                        choices=['full', 'no_xco2', 'no_spec', 'full_fitqual', 'full_contam'])
     parser.add_argument('--test_size', type=float, default=0.2)
     parser.add_argument('--suffix', type=str, default='')
     parser.add_argument('--pipeline', type=str, default=None)

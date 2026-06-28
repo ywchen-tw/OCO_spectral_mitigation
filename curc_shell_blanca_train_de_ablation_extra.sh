@@ -4,7 +4,7 @@
 #SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=4
 #SBATCH --mem=96G
-#SBATCH --time=8:00:00
+#SBATCH --time=16:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
 #SBATCH --output=sbatch-output_%x_%A_%a.txt
@@ -69,9 +69,24 @@ NFOLDS=5
 #   --near_cloud_target 0.98 --mondrian_col cld_dist_km \
 #   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-python -m models.deep_ensemble --sfc_type 1 --suffix de_land_no_xco2_and_spec_f${F} \
-  --feature_set no_xco2_and_spec --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_no_xco2_and_spec_f${F} \
+#   --feature_set no_xco2_and_spec --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#   --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+# ── (3) New feature group full_contam: adds cloud/aerosol contamination features on
+#       top of `full` (per-surface; see pipeline.CONTAM_FEATURES).  Date-blocked-CV GBDT
+#       screen projected ~+0.06 (ocean) / +0.07 (land) held-out R² over `full`.  Both
+#       surfaces, all folds, mirroring the production config (beta_nll + near_cloud_target
+#       0.98).  Suffix: de_{surface}_full_contam_f{F}.
+python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_full_contam_f${F} \
+  --feature_set full_contam --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
   --near_cloud_target 0.98 --mondrian_col cld_dist_km \
   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_full_contam_f${F} \
+#   --feature_set full_contam --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#   --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
