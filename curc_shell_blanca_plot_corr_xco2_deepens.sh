@@ -56,8 +56,13 @@ export OCO2_DATAROOT="$DATA_ROOT"
 # ─── model (deep-ensemble fold dirs; per-surface) ─────────────────────────────
 # Pool ALL folds (f0..f4) → cross-fold ensemble: mu = mean of 25 members,
 # sigma = total predictive std (each fold transformed by its own scaler).
+# Land model trained WITH snow footprints (--include_snow, arm B from the snow_flag
+# experiment): same full_contam feature set as de_land_full_contam, but snow_flag==1
+# rows kept in training so high-latitude/snow land footprints are corrected in-domain
+# instead of being flagged OOD.  Verdict: free win (non-snow unchanged) — see
+# results/model_comparison/snowflag_highlat_eval.csv.  Ocean has no snow → unchanged.
 OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_full_contam_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_full_contam_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_fc_snowdata_f*)
 
 # ─── cloud classifier (xgb_cloud fold dirs; per-surface) ──────────────────────
 # When set, build_deepens_plot_data.py also emits P(near) and the two extra
