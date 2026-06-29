@@ -311,15 +311,6 @@ def main():
                    help="Comma-separated GaussianMLP hidden layer widths. Default "
                         "'64,32' (the current 2-layer arch). e.g. '128,64,32' adds a "
                         "layer; '256,128,64' goes wider+deeper. Capacity sweep knob.")
-    p.add_argument('--member_archs', type=str, default=None,
-                   help="HETEROGENEOUS deep-ensemble (DE++): semicolon-separated list "
-                        "of per-member architectures, each a comma-separated width "
-                        "spec, e.g. '64,32;128,64;256,128,64;96,48'. Member m uses "
-                        "archs[m %% len(archs)] (cycled), so members differ in "
-                        "width/depth -> more decorrelation than the homogeneous "
-                        "ensemble (the lever that makes DE beat weight-tied models). "
-                        "When unset (default) ALL members use --hidden_dims (original "
-                        "homogeneous behavior, unchanged).")
     p.add_argument('--loss', type=str, default='gaussian_nll',
                    choices=['gaussian_nll', 'beta_nll', 'student_t'],
                    help="Member loss: gaussian_nll (default), beta_nll (Seitzer "
@@ -522,21 +513,10 @@ def main():
         batch_size = args.batch_size
     # internal val for early stopping = the calibration block (it is held out of training)
     hidden_dims = tuple(int(x) for x in args.hidden_dims.split(',') if x.strip())
-    # DE++ heterogeneous architectures: cycle a pool of per-member width specs so
-    # members differ structurally (more decorrelation).  Unset -> all use hidden_dims.
-    if args.member_archs:
-        arch_pool = [tuple(int(x) for x in a.split(',') if x.strip())
-                     for a in args.member_archs.split(';') if a.strip()]
-        member_dims = [arch_pool[m % len(arch_pool)] for m in range(args.n_members)]
-        print(f"[deep_ensemble] DE++ heterogeneous archs (pool of {len(arch_pool)}): "
-              + ", ".join(str(d) for d in member_dims))
-    else:
-        member_dims = [hidden_dims] * args.n_members
     members = []
     for m in range(args.n_members):
         ck = str(output_dir / f'member_{m}.pt')
-        print(f"  training member {m+1}/{args.n_members} (seed={args.seed + m}, "
-              f"arch={member_dims[m]})")
+        print(f"  training member {m+1}/{args.n_members} (seed={args.seed + m})")
         members.append(_train_member(X_tr, y_tr, X_cal, y_cal, n_features,
                                       seed=args.seed + m, device=device, batch_size=batch_size,
                                       n_epochs=epochs, patience=50, ckpt=ck,
@@ -545,7 +525,7 @@ def main():
                                       c_tr=c_tr, c_val=c_cal,
                                       cloud_aux_weight=args.cloud_aux_weight,
                                       cloud_pos_weight=cloud_pos_weight,
-                                      hidden_dims=member_dims[m]))
+                                      hidden_dims=hidden_dims))
 
     mu_cal, sig_cal = ensemble_predict(members, X_cal, device, loss=args.loss, nu=args.nu)
     mu_te, sig_te = ensemble_predict(members, X_te, device, loss=args.loss, nu=args.nu)
@@ -649,9 +629,7 @@ def main():
                      'aux_cloud': args.cloud_aux_weight > 0.0,
                      'cloud_aux_weight': args.cloud_aux_weight,
                      'cloud_bin_feature': args.cloud_bin_feature,
-                     'hidden_dims': list(hidden_dims),
-                     'member_archs': args.member_archs,
-                     'member_dims': [list(d) for d in member_dims]}, f)
+                     'hidden_dims': list(hidden_dims)}, f)
 
     g = results['mondrian']
     summary = RunSummary(
