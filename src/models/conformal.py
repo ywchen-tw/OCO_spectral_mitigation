@@ -56,6 +56,69 @@ def split_conformal(cal_y, cal_mu, cal_sigma, test_mu, test_sigma, alpha: float 
     return _intervals(test_mu, test_sigma, q), q
 
 
+# ── Conformalized Quantile Regression (Romano et al. 2019) ─────────────────────
+# For models that emit quantile intervals [lo, hi] directly (TabM's pinball q05/q95)
+# rather than (mu, sigma).  The nonconformity score is the signed distance OUTSIDE the
+# interval; the calibration quantile E shifts both edges -> [lo - E, hi + E].  E can be
+# NEGATIVE (shrinks an over-wide interval), so CQR fixes BOTH under- and over-coverage
+# while preserving the model's learned asymmetry (lo and hi move by the same E, but
+# start asymmetric).  Marginal coverage >= 1-alpha, finite-sample.
+
+def cqr_scores(y, lo, hi) -> np.ndarray:
+    """CQR nonconformity: max(lo - y, y - hi).  >0 iff y is outside [lo, hi]."""
+    y, lo, hi = map(lambda a: np.asarray(a, dtype=float), (y, lo, hi))
+    return np.maximum(lo - y, y - hi)
+
+
+def _cqr_intervals(lo, hi, mid, E) -> np.ndarray:
+    lo, hi, mid = map(lambda a: np.asarray(a, dtype=float), (lo, hi, mid))
+    new_lo, new_hi = lo - E, hi + E
+    # guard against the rare crossing when a large negative E over-shrinks
+    new_lo = np.minimum(new_lo, new_hi)
+    return np.column_stack([new_lo, mid, new_hi])
+
+
+def cqr_conformal(cal_y, cal_lo, cal_hi, test_lo, test_mid, test_hi, alpha: float = 0.10):
+    """Global CQR.  Returns (preds [N,3]=(lo-E, mid, hi+E), E)."""
+    E = conformal_quantile(cqr_scores(cal_y, cal_lo, cal_hi), alpha)
+    return _cqr_intervals(test_lo, test_hi, test_mid, E), E
+
+
+def mondrian_cqr(cal_y, cal_lo, cal_hi, cal_bin,
+                 test_lo, test_mid, test_hi, test_bin,
+                 alpha: float = 0.10, min_per_bin: int = 50,
+                 bin_alpha: 'dict | None' = None):
+    """Regime-conditional CQR: a separate shift ``E`` per bin (mirrors
+    ``mondrian_conformal`` but for quantile intervals).  Bins with < ``min_per_bin``
+    calibration points fall back to the global ``E``.  ``bin_alpha`` optionally
+    overrides ``alpha`` per bin (see ``regime_alphas``).  Returns (preds [N,3], E_by_bin).
+    """
+    cal_bin = np.asarray(cal_bin, dtype=int)
+    test_bin = np.asarray(test_bin, dtype=int)
+    scores = cqr_scores(cal_y, cal_lo, cal_hi)
+    test_lo = np.asarray(test_lo, dtype=float)
+    test_hi = np.asarray(test_hi, dtype=float)
+    test_mid = np.asarray(test_mid, dtype=float)
+
+    def _alpha(b):
+        return bin_alpha.get(int(b), alpha) if bin_alpha else alpha
+
+    new_lo = np.empty_like(test_lo)
+    new_hi = np.empty_like(test_hi)
+    E_by_bin = {}
+    for b in np.unique(test_bin):
+        a = _alpha(b)
+        m = cal_bin == b
+        E = conformal_quantile(scores[m], a) if m.sum() >= min_per_bin \
+            else conformal_quantile(scores, a)
+        E_by_bin[int(b)] = float(E)
+        tm = test_bin == b
+        new_lo[tm] = test_lo[tm] - E
+        new_hi[tm] = test_hi[tm] + E
+    new_lo = np.minimum(new_lo, new_hi)
+    return np.column_stack([new_lo, test_mid, new_hi]), E_by_bin
+
+
 def make_quantile_bins(values, n_bins: int, edges=None):
     """Assign each value to one of ``n_bins`` quantile bins.
 

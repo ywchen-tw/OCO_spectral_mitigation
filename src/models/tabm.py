@@ -42,6 +42,7 @@ from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_o
 from .splits import split_dataframe
 from .adapters import TabMAdapter
 from . import diagnostics as diag
+from . import conformal as cf
 # Reuse loss functions from the FT-Transformer module (imported, not duplicated).
 from .transformer import (
     huber_pinball_loss, quantile_loss, variance_penalty, mmd_loss_1d,
@@ -566,6 +567,24 @@ def main():
     parser.add_argument('--lambda_cloud', type=float, default=None,
                         help='Weight on the auxiliary cloud loss (default 0.1).')
     parser.add_argument('--seed', type=int, default=None, help='Random seed.')
+    # ── Conformalized Quantile Regression (post-hoc interval calibration) ────────
+    parser.add_argument('--conformal', action='store_true',
+                        help="Calibrate the quantile intervals with CQR: carve a "
+                             "calibration block from TRAIN, train on the rest, and emit "
+                             "tabm_raw / tabm_cqr / tabm_mondrian interval sets (point "
+                             "preds identical; only intervals differ).  Mirrors the DE "
+                             "conformal layer so coverage hits the nominal target.")
+    parser.add_argument('--calib_frac', type=float, default=0.15,
+                        help='Fraction of TRAIN carved as the conformal calibration set.')
+    parser.add_argument('--mondrian_col', type=str, default='cld_dist_km',
+                        help="Observable column to bin Mondrian-CQR by (default "
+                             "cld_dist_km; physical proxy for the cloud-contaminated tail).")
+    parser.add_argument('--mondrian_bins', type=int, default=10)
+    parser.add_argument('--near_cloud_target', type=float, default=None,
+                        help="If set (e.g. 0.95), raise the CQR target in the near-cloud "
+                             "(<=near_cloud_km) Mondrian bins to over-cover the tail. "
+                             "Requires --mondrian_col cld_dist_km.")
+    parser.add_argument('--near_cloud_km', type=float, default=10.0)
     parser.add_argument('--include_snow', action='store_true',
                         help="Keep snow/ice footprints (snow_flag==1) in train/holdout "
                              "instead of the default filter to snow_flag==0.  Mirrors "
@@ -645,14 +664,36 @@ def main():
     gc.collect()
     print(f"Split [{val_split}]: train={len(train_df):,}  held={len(held_df):,}")
 
-    # ── Fit pipeline on the TRAIN split only (or load a provided one) ──────────
+    # ── (--conformal) carve a calibration block out of TRAIN (date split if dates
+    # allow, else random); proper_df is what the model trains on.  Without --conformal
+    # proper_df == train_df and there is no calibration set (behaviour unchanged). ──
+    proper_df, calib_df = train_df, None
+    if args.conformal:
+        try:
+            if 'date' in train_df.columns and pd.to_datetime(
+                    train_df['date'].astype(str).str.replace("b'", "").str.replace("'", "")
+                    if train_df['date'].dtype == object else train_df['date']).nunique() >= 2:
+                proper_df, calib_df = split_dataframe(train_df, mode='date', test_size=args.calib_frac)
+            else:
+                proper_df, calib_df = split_dataframe(train_df, mode='random',
+                                                      test_size=args.calib_frac,
+                                                      random_state=int(run_cfg['split']['random_state']))
+        except Exception:
+            proper_df, calib_df = split_dataframe(train_df, mode='random',
+                                                  test_size=args.calib_frac,
+                                                  random_state=int(run_cfg['split']['random_state']))
+        print(f"  --conformal: proper={len(proper_df):,}  calib={len(calib_df):,}")
+    del train_df
+    gc.collect()
+
+    # ── Fit pipeline on the PROPER train split only (or load a provided one) ────
     pipeline_path = output_dir / 'tabm_pipeline.pkl'
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
     elif TabMAdapter.can_load(output_dir) and pipeline_path.exists():
         pipeline = FeaturePipeline.load(pipeline_path)
     else:
-        pipeline = FeaturePipeline.fit(train_df, sfc_type=surface_type,
+        pipeline = FeaturePipeline.fit(proper_df, sfc_type=surface_type,
                                        feature_set=feature_set,
                                        pca_augment=bool(run_cfg['pipeline']['pca_augment']))
         pipeline.save(pipeline_path)
@@ -678,21 +719,30 @@ def main():
         valid = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
         return X[valid], y[valid], frame.loc[valid]
 
-    X_train, y_train, train_valid = _prep(train_df)
+    X_train, y_train, train_valid = _prep(proper_df)
     X_held, y_held, held_valid = _prep(held_df)
-    print(f"X_train {X_train.shape}  X_held {X_held.shape}")
+    X_calib = y_calib = calib_valid = None
+    if calib_df is not None:
+        X_calib, y_calib, calib_valid = _prep(calib_df)
+    print(f"X_train {X_train.shape}  X_held {X_held.shape}"
+          + (f"  X_calib {X_calib.shape}" if X_calib is not None else ""))
 
-    cloud_train = cloud_held = None
+    # Early-stopping/validation set: the calibration block under --conformal (so the
+    # test fold stays fully held out), else the test fold itself (legacy behaviour).
+    if X_calib is not None:
+        X_val, y_val, val_meta = X_calib, y_calib, calib_valid
+    else:
+        X_val, y_val, val_meta = X_held, y_held, held_valid
+
+    cloud_train = cloud_val = None
     if aux_cloud:
         near_km = float(aux_cfg['near_cloud_km'])
-        cd_tr = train_valid['cld_dist_km'].to_numpy(dtype=float)
-        cd_hd = held_valid['cld_dist_km'].to_numpy(dtype=float)
-        if cloud_label == 'binary':
-            cloud_train = (cd_tr <= near_km).astype(np.float32)
-            cloud_held = (cd_hd <= near_km).astype(np.float32)
-        else:
-            cloud_train = _cloud_bin_labels(cd_tr)
-            cloud_held = _cloud_bin_labels(cd_hd)
+        def _lbl(meta):
+            cd = meta['cld_dist_km'].to_numpy(dtype=float)
+            return ((cd <= near_km).astype(np.float32) if cloud_label == 'binary'
+                    else _cloud_bin_labels(cd))
+        cloud_train = _lbl(train_valid)
+        cloud_val = _lbl(val_meta)
 
     # ── Load or train model ────────────────────────────────────────────────────
     if TabMAdapter.can_load(output_dir):
@@ -706,7 +756,7 @@ def main():
             epochs = int(run_cfg['train']['linux_epochs'])
             batch_size = int(run_cfg['train']['linux_batch_size'])
         model = train_tabm(
-            X_train, y_train, X_held, y_held, features=features,
+            X_train, y_train, X_val, y_val, features=features,
             output_dir=str(output_dir),
             K=int(run_cfg['model']['K']), d_model=int(run_cfg['model']['d_model']),
             n_layers=int(run_cfg['model']['n_layers']), dropout=float(run_cfg['model']['dropout']),
@@ -720,7 +770,7 @@ def main():
             y_init=y_train, seed=int(run_cfg['train']['seed']),
             aux_cloud=aux_cloud, cloud_label=cloud_label,
             lambda_cloud=float(aux_cfg['lambda_cloud']),
-            cloud_train=cloud_train, cloud_test=cloud_held,
+            cloud_train=cloud_train, cloud_test=cloud_val,
         )
         TabMAdapter(model, n_features=pipeline.n_features, K=int(run_cfg['model']['K']),
                     d_model=int(run_cfg['model']['d_model']), n_layers=int(run_cfg['model']['n_layers']),
@@ -731,15 +781,63 @@ def main():
 
     # ── Diagnostics on the held-out set ────────────────────────────────────────
     preds, members = _tabm_predict(model, X_held, want_members=True)
-    global_metrics = diag.compute_metrics(y_held, preds, members=members)
-    strat = diag.stratified_metrics(held_valid, y_held, preds)
-    calib = diag.calibration_report(global_metrics, strat)
+    # Headline prefix for the correction dump + run-summary artifact.  Under
+    # --conformal the per-interval metrics are tabm_{raw,cqr,mondrian}_*; the headline
+    # (production) interval is Mondrian-CQR.
     prefix = f"tabm_{val_split}"
-    diag.save_diagnostics(output_dir, prefix, global_metrics, strat, calib)
-    diag.save_correction_and_preds(output_dir, prefix, held_valid, y_held, preds)
-    print(f"[{prefix}] RMSE={global_metrics['rmse']:.4f}  MAE={global_metrics['mae']:.4f}  "
-          f"R²={global_metrics['r2']:.4f}  cov90={global_metrics['coverage_90']:.3f}  "
-          f"width={global_metrics['mean_interval_width']:.3f}  cross={global_metrics['crossing_rate']:.3g}")
+    metrics_prefix = f"tabm_mondrian_{val_split}" if args.conformal else prefix
+
+    if args.conformal:
+        # CQR calibration: emit raw / cqr / mondrian interval sets.  Point preds (q50)
+        # are identical across all three — only the lo/hi intervals differ.
+        preds_cal, _ = _tabm_predict(model, X_calib)
+        lo_c, mid_c, hi_c = preds_cal[:, 0], preds_cal[:, 1], preds_cal[:, 2]
+        lo_t, mid_t, hi_t = preds[:, 0], preds[:, 1], preds[:, 2]
+
+        def _binv(meta, mid):
+            if args.mondrian_col == 'mu':
+                return np.asarray(mid, dtype=float)
+            if args.mondrian_col not in meta.columns:
+                raise ValueError(f"--mondrian_col {args.mondrian_col!r} not in columns.")
+            v = meta[args.mondrian_col].to_numpy(dtype=float)
+            return np.where(np.isfinite(v), v, np.nanmedian(v[np.isfinite(v)]))
+
+        preds_cqr, E = cf.cqr_conformal(y_calib, lo_c, hi_c, lo_t, mid_t, hi_t, alpha=0.10)
+        bc, bt = _binv(calib_valid, mid_c), _binv(held_valid, mid_t)
+        cbin, edges = cf.make_quantile_bins(bc, args.mondrian_bins)
+        tbin, _ = cf.make_quantile_bins(bt, args.mondrian_bins, edges=edges)
+        bin_alpha = None
+        if args.near_cloud_target is not None:
+            if args.mondrian_col != 'cld_dist_km':
+                raise ValueError("--near_cloud_target requires --mondrian_col cld_dist_km")
+            is_near = calib_valid['cld_dist_km'].to_numpy(dtype=float) <= args.near_cloud_km
+            bin_alpha = cf.regime_alphas(cbin, is_near,
+                                         near_alpha=1.0 - args.near_cloud_target, far_alpha=0.10)
+            print(f"  near-cloud target {args.near_cloud_target} (<= {args.near_cloud_km}km): "
+                  f"{sum(a < 0.10 for a in bin_alpha.values())}/{len(bin_alpha)} bins elevated")
+        preds_mond, _ = cf.mondrian_cqr(y_calib, lo_c, hi_c, cbin, lo_t, mid_t, hi_t, tbin,
+                                        alpha=0.10, bin_alpha=bin_alpha)
+
+        for tag, pr in [('raw', preds), ('cqr', preds_cqr), ('mondrian', preds_mond)]:
+            g = diag.compute_metrics(y_held, pr)
+            strat = diag.stratified_metrics(held_valid, y_held, pr)
+            diag.save_diagnostics(output_dir, f"tabm_{tag}_{val_split}", g, strat)
+            print(f"[tabm_{tag}_{val_split}] RMSE={g['rmse']:.4f} R²={g['r2']:.4f} "
+                  f"cov90={g['coverage_90']:.4f} width={g['mean_interval_width']:.4f} "
+                  f"cross={g['crossing_rate']:.3g}")
+        # headline dump = Mondrian-CQR intervals (point pred shared)
+        diag.save_correction_and_preds(output_dir, f"tabm_{val_split}", held_valid, y_held, preds_mond)
+        global_metrics = diag.compute_metrics(y_held, preds_mond, members=members)
+    else:
+        global_metrics = diag.compute_metrics(y_held, preds, members=members)
+        strat = diag.stratified_metrics(held_valid, y_held, preds)
+        calib = diag.calibration_report(global_metrics, strat)
+        prefix = f"tabm_{val_split}"
+        diag.save_diagnostics(output_dir, prefix, global_metrics, strat, calib)
+        diag.save_correction_and_preds(output_dir, prefix, held_valid, y_held, preds)
+        print(f"[{prefix}] RMSE={global_metrics['rmse']:.4f}  MAE={global_metrics['mae']:.4f}  "
+              f"R²={global_metrics['r2']:.4f}  cov90={global_metrics['coverage_90']:.3f}  "
+              f"width={global_metrics['mean_interval_width']:.3f}  cross={global_metrics['crossing_rate']:.3g}")
 
     # ── Reused FT diagnostics ──────────────────────────────────────────────────
     plot_permutation_importance(model, X_held, y_held, features, str(output_dir),
@@ -781,7 +879,7 @@ def main():
             'run_config': str(run_cfg_path),
             'pipeline': str(pipeline_path),
             'model_best': str(output_dir / 'model_tabm_best.pt'),
-            'metrics_json': str(output_dir / f'{prefix}_metrics.json'),
+            'metrics_json': str(output_dir / f'{metrics_prefix}_metrics.json'),
         },
         config=run_cfg,
     )

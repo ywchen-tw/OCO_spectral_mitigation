@@ -331,7 +331,9 @@ def save_correction_and_preds(output_dir, prefix: str, meta: pd.DataFrame,
     df = pd.DataFrame({'y_true': np.asarray(y, dtype=float), 'mu': mid})
     if p.ndim > 1 and p.shape[1] >= 3:
         df['lo'] = p[:, 0]; df['hi'] = p[:, -1]
-    for c in ('cld_dist_km', 'sfc_type', 'aod_total', 'fp'):
+    # lat + snow_flag enable the high-latitude / snow-slice eval (snow_flag arm B/C
+    # experiment); included whenever present in meta so the dump matches DE's.
+    for c in ('cld_dist_km', 'sfc_type', 'aod_total', 'fp', 'lat', 'snow_flag'):
         if c in meta.columns:
             df[c] = meta[c].to_numpy()
     df.to_parquet(out / 'held_out_predictions.parquet', index=False)
