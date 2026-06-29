@@ -375,6 +375,11 @@ def main():
                    help="Observable variable for Mondrian bins: 'mu' (predicted-mean "
                         "deciles) or a column name, e.g. 'cld_dist_km' / 'aod_total' "
                         "(physical proxy for the cloud-contaminated tail).")
+    p.add_argument('--train_frac', type=float, default=1.0,
+                   help="Learning-curve knob: randomly subsample this fraction of the "
+                        "PROPER-TRAIN (calibration block and held-out fold untouched), "
+                        "so tail R2 vs training-set size is measured against an "
+                        "identical test set. 1.0 (default) = full train.")
     p.add_argument('--test_size', type=float, default=0.2)
     p.add_argument('--suffix', type=str, default='')
     p.add_argument('--seed', type=int, default=42, help='Base seed; member m uses seed+m.')
@@ -422,6 +427,16 @@ def main():
         proper_df, calib_df = split_dataframe(train_df, mode='random',
                                               test_size=args.calib_frac, random_state=args.seed)
     del train_df; gc.collect()
+
+    # Learning-curve knob: subsample ONLY the proper-train (calibration + held-out
+    # fold are untouched), so tail R2 vs N is measured against an identical test set
+    # across fractions.  Pipeline is (re)fit on the subsample below, so the whole
+    # model — normalization included — sees only train_frac of the data.
+    if args.train_frac < 1.0:
+        n_before = len(proper_df)
+        proper_df = proper_df.sample(frac=args.train_frac, random_state=args.seed)
+        print(f"[deep_ensemble] train_frac={args.train_frac}: proper-train "
+              f"{n_before} -> {len(proper_df)} rows (calib/held unchanged)")
 
     pipeline = FeaturePipeline.fit(proper_df, sfc_type=args.sfc_type, feature_set=args.feature_set)
     pipeline.save(output_dir / 'deep_ensemble_pipeline.pkl')
