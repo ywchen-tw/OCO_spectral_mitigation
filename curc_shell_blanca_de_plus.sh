@@ -95,8 +95,8 @@ COMMON="--loss beta_nll --beta 1.0 --n_members 10 --batch_size 8192 \
         --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}"
 
 # ── homogeneous M=10 (size-only arm; the heterogeneity-ablation control) ───────
-python -m models.deep_ensemble --sfc_type 0 --suffix deplus_ocean_homog_f${F} ${COMMON}
-# python -m models.deep_ensemble --sfc_type 1 --suffix deplus_land_homog_f${F}  --include_snow ${COMMON}
+# python -m models.deep_ensemble --sfc_type 0 --suffix deplus_ocean_homog_f${F} ${COMMON}
+python -m models.deep_ensemble --sfc_type 1 --suffix deplus_land_homog_f${F}  --include_snow ${COMMON}
 
 # ── heterogeneous M=10 (DE++; the production candidate) ────────────────────────
 # python -m models.deep_ensemble --sfc_type 0 --suffix deplus_ocean_hetero_f${F} --member_archs "${ARCHS}" ${COMMON}
