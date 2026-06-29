@@ -78,15 +78,15 @@ CONF="--conformal --calib_frac 0.15 --mondrian_col cld_dist_km --near_cloud_targ
 
 for FS in full full_contam; do
   # Ocean: no snow exists on ocean (all snow is sfc_type=1), so no --include_snow.
-  python -m models.tabm --sfc_type 0 --suffix tabm_ocean_${FS}_conf_f${F} --K 16 \
-    --feature_set ${FS} ${CONF} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+#   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_${FS}_conf_f${F} --K 16 \
+#     --feature_set ${FS} ${CONF} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
   # Land: --include_snow adopts the snow-experiment arm-B win (free high-lat coverage,
   # no cost to the bulk; the snow_flag FEATURE was neutral so we keep feature_set ${FS},
   # NOT full_contam_snow).  Compare these against the snow-INCLUDED DE baseline
   # de_land_fc_snowdata_f* (NOT de_land_full_contam, which is snow-excluded).
-#   python -m models.tabm --sfc_type 1 --suffix tabm_land_${FS}_conf_f${F} --K 16 \
-#     --feature_set ${FS} --include_snow ${CONF} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+  python -m models.tabm --sfc_type 1 --suffix tabm_land_${FS}_conf_f${F} --K 16 \
+    --feature_set ${FS} --include_snow ${CONF} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
