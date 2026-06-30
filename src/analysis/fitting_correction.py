@@ -51,6 +51,7 @@ def load_output_dict(filepath):
         'wco2_k4_fitting', 'wco2_k5_fitting', 'wco2_intercept_fitting',
         'sco2_k1_fitting', 'sco2_k2_fitting', 'sco2_k3_fitting',
         'sco2_k4_fitting', 'sco2_k5_fitting', 'sco2_intercept_fitting',
+        'o2a_kappa', 'wco2_kappa', 'sco2_kappa',   # gamma shape κ = k1²/k2
         'exp_intercept_o2a', 'exp_intercept_wco2', 'exp_intercept_sco2',
         # Reference clear-sky statistics
         'ref_o2a_k1_mean', 'ref_o2a_k1_std', 'ref_o2a_k2_mean', 'ref_o2a_k2_std',
@@ -203,6 +204,10 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
         'sco2_k3': combined['sco2_k3_fitting'],
         'sco2_k4': combined['sco2_k4_fitting'],
         'sco2_k5': combined['sco2_k5_fitting'],
+        # Gamma shape parameter κ = k1²/k2 per band
+        'o2a_kappa':  combined['o2a_kappa'],
+        'wco2_kappa': combined['wco2_kappa'],
+        'sco2_kappa': combined['sco2_kappa'],
         # XCO2
         'xco2_apriori':     combined.get('xco2_apriori'),
         'xco2_bc':          xco2_bc,
