@@ -41,7 +41,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .pipeline import FeaturePipeline, _ensure_derived_features
+from .pipeline import FeaturePipeline, _ensure_derived_features, resolve_target_col
 from .adapters import HybridAdapter
 from .transformer import (
     UncertainFTTransformerRefined,
@@ -67,6 +67,7 @@ def _default_run_config() -> dict:
         'data': {
             'sfc_type': 0,
             'snow_flag_value': 0,
+            'target': '10km',          # clear-sky reference: '10km' or '15km'
             'linux_data_name': 'combined_2016_2020_dates.parquet',
             'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
         },
@@ -592,6 +593,9 @@ def main():
     )
     parser.add_argument('--sfc_type', type=int, default=None,
                         help="Surface type (0=ocean, 1=land, 2=sea-ice)")
+    parser.add_argument('--target', type=str, default=None,
+                        help="Clear-sky reference for the regression target: '10km' "
+                             "(default, xco2_bc_anomaly) or '15km' (xco2_bc_anomaly_r15).")
     parser.add_argument('--suffix', type=str, default='',
                         help='Subfolder under results/model_hybrid/ (e.g. ocean_2016_2020)')
     parser.add_argument('--pipeline', type=str, default=None,
@@ -628,6 +632,8 @@ def main():
     run_cfg = _load_run_config(args.config)
     if args.sfc_type is not None:
         run_cfg['data']['sfc_type'] = int(args.sfc_type)
+    if args.target is not None:
+        run_cfg['data']['target'] = args.target
     if args.loss is not None:
         run_cfg['loss']['loss'] = args.loss
     if args.huber_delta is not None:
@@ -670,6 +676,13 @@ def main():
     df  = df[df['sfc_type'] == sfc_type]
     df  = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
 
+    target_col = resolve_target_col(run_cfg['data'].get('target'))
+    if target_col not in df.columns:
+        raise ValueError(
+            f"Target column '{target_col}' not in parquet; regenerate the combined "
+            f"parquet (spectral/fitting.py + fitting_correction.py) or pass --target 10km."
+        )
+
     # ── Pipeline: load or fit ──────────────────────────────────────────────────
     pipeline_path = output_dir / 'pipeline.pkl'
     if args.pipeline:
@@ -697,8 +710,8 @@ def main():
             axis=1,
         )
 
-    valid_rows = ~df['xco2_bc_anomaly'].isna()
-    y_all    = df['xco2_bc_anomaly'].values.astype(np.float32)
+    valid_rows = ~df[target_col].isna()
+    y_all    = df[target_col].values.astype(np.float32)
     X_qt_raw = df[pipeline.qt_features].to_numpy(dtype=np.float32)
     X_fp_raw = df[pipeline.fp_cols].to_numpy(dtype=np.float32)
     del df

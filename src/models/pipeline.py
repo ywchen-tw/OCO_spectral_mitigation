@@ -23,6 +23,7 @@ import argparse
 import pickle
 import logging
 from pathlib import Path
+from typing import Optional
 
 import sys
 
@@ -638,8 +639,32 @@ def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
 MAX_ABS_ANOMALY_PPM = 100.0
 
 
+# ── Regression target selection ───────────────────────────────────────────────
+# The model target is the clear-sky XCO2 anomaly.  Two clear-sky reference sets
+# exist in the combined parquet (produced by spectral/fitting.py): the default
+# 10 km set and the stricter 15 km set (xco2_bc_anomaly_r15).  Trainers resolve
+# the column through resolve_target_col() so the choice lives here, not hardcoded
+# per model.  Pass a short name ('10km'/'15km') or an explicit column name.
+DEFAULT_TARGET_COL = 'xco2_bc_anomaly'          # 10 km clear-sky reference
+TARGET_COLS = {
+    '10km': 'xco2_bc_anomaly',
+    '15km': 'xco2_bc_anomaly_r15',
+}
+
+
+def resolve_target_col(target: Optional[str] = None) -> str:
+    """Map a short name ('10km'/'15km') or explicit column to the target column.
+
+    ``None``/empty → DEFAULT_TARGET_COL.  An unrecognised string is returned
+    verbatim so callers may pass any column present in the parquet.
+    """
+    if not target:
+        return DEFAULT_TARGET_COL
+    return TARGET_COLS.get(target, target)
+
+
 def filter_target_outliers(df: pd.DataFrame, max_abs_ppm: float = MAX_ABS_ANOMALY_PPM,
-                           target_col: str = 'xco2_bc_anomaly') -> pd.DataFrame:
+                           target_col: str = DEFAULT_TARGET_COL) -> pd.DataFrame:
     """Drop rows whose target magnitude exceeds ``max_abs_ppm``.
 
     NaN targets are kept here (the per-model ``isfinite`` mask handles those);

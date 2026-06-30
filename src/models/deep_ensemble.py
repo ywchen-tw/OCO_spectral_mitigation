@@ -42,7 +42,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers
+from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
 from .splits import split_dataframe
 from . import conformal as cf
 from . import diagnostics as diag
@@ -306,6 +306,8 @@ def main():
                         "instead of the default filter to snow_flag==0.  Required for the "
                         "full_contam_snow feature set to be meaningful (else the flag is "
                         "constant).  Snow is land-only, so this only affects sfc_type=1.")
+    p.add_argument('--target', type=str, default=None,
+                   help="Clear-sky reference for the regression target: '10km' (default, xco2_bc_anomaly) or '15km' (xco2_bc_anomaly_r15).")
     p.add_argument('--n_members', type=int, default=5)
     p.add_argument('--hidden_dims', type=str, default='64,32',
                    help="Comma-separated GaussianMLP hidden layer widths. Default "
@@ -407,7 +409,10 @@ def main():
     else:
         df = df[df['snow_flag'] == 0]
     df = _ensure_derived_features(df)
-    df = filter_target_outliers(df)
+    target_col = resolve_target_col(args.target)
+    if target_col not in df.columns:
+        raise ValueError(f"Target column '{target_col}' not in parquet; regenerate the combined parquet (spectral/fitting.py + fitting_correction.py) or pass --target 10km.")
+    df = filter_target_outliers(df, target_col=target_col)
 
     train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,
                                         random_state=args.seed,
@@ -443,7 +448,7 @@ def main():
 
     def _prep(frame):
         X = pipeline.transform(frame)
-        y = frame['xco2_bc_anomaly'].to_numpy(dtype=np.float32)
+        y = frame[target_col].to_numpy(dtype=np.float32)
         valid = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
         return X[valid], y[valid], frame.loc[valid]
 

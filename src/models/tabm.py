@@ -38,7 +38,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers
+from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
 from .splits import split_dataframe
 from .adapters import TabMAdapter
 from . import diagnostics as diag
@@ -230,6 +230,7 @@ def _default_run_config() -> dict:
         'data': {
             'sfc_type': 0,
             'snow_flag_value': 0,
+            'target': '10km',          # clear-sky reference: '10km' or '15km'
             'linux_data_name': 'combined_2016_2020_dates.parquet',
             'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
         },
@@ -553,6 +554,10 @@ def main():
                         choices=['full', 'no_xco2', 'no_spec', 'full_fitqual',
                                  'full_contam', 'full_contam_snow'],
                         help="Feature ablation set (see pipeline._FEATURE_SETS).")
+    parser.add_argument('--target', type=str, default=None,
+                        help="Clear-sky reference for the regression target: "
+                             "'10km' (default, xco2_bc_anomaly) or '15km' "
+                             "(xco2_bc_anomaly_r15).")
     parser.add_argument('--K', type=int, default=None,
                         help="Ensemble size override (K=1 is the degenerate-MLP ablation). "
                              "Overrides model.K from --config.")
@@ -603,6 +608,8 @@ def main():
         run_cfg['split']['val_split'] = args.val_split
     if args.feature_set is not None:
         run_cfg['pipeline']['feature_set'] = args.feature_set
+    if args.target is not None:
+        run_cfg['data']['target'] = args.target
     if args.K is not None:
         run_cfg['model']['K'] = int(args.K)
     if args.loss is not None:
@@ -651,7 +658,13 @@ def main():
     else:
         df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
     df = _ensure_derived_features(df)
-    df = filter_target_outliers(df)
+    target_col = resolve_target_col(run_cfg['data'].get('target'))
+    if target_col not in df.columns:
+        raise ValueError(
+            f"Target column '{target_col}' not in parquet; regenerate the combined "
+            f"parquet (spectral/fitting.py + fitting_correction.py) or pass --target 10km."
+        )
+    df = filter_target_outliers(df, target_col=target_col)
 
     # ── Split the RAW dataframe FIRST (leakage discipline) ─────────────────────
     train_df, held_df = split_dataframe(
@@ -715,7 +728,7 @@ def main():
     # ── Transform (train-fitted pipeline applied to both splits) ───────────────
     def _prep(frame):
         X = pipeline.transform(frame)
-        y = frame['xco2_bc_anomaly'].to_numpy(dtype=np.float32)
+        y = frame[target_col].to_numpy(dtype=np.float32)
         valid = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
         return X[valid], y[valid], frame.loc[valid]
 

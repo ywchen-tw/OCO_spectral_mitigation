@@ -36,7 +36,7 @@ from utils import get_storage_dir
 
 # Cloud-diagnostic features (--cloud_features), appended OUTSIDE the FeaturePipeline.
 # All per-sounding L2 retrieval quantities — deployable (no MODIS) and NOT derived
-# from cld_dist (unlike the leaky r25_*/ref_* neighborhood features).  Lifts ocean
+# from cld_dist (unlike the leaky r15_*/ref_* neighborhood features).  Lifts ocean
 # OOD AUC ~0.69->0.76 locally; land (already at ceiling) is unchanged.  XGBoost is
 # tree-based so the scale mismatch vs the pipeline-scaled base is irrelevant.
 CLOUD_DIAG_FEATURES = [

@@ -67,15 +67,15 @@ results/figures/cld_dist_analysis/
         ref_signal_hierarchy.png
         ref_alb_decoupled_exp_residuals.png
         obs_vs_ref_scatter_{ocean,land}.png
-    r25_corrected/   (Sections R0–R7 with r25 reference, requires r25_* columns)
-        r25_diff_scatter_{k1,k2,alb,exp}.png
-        r25_coverage_bias.png
-        r25_std_profiles.png
-        r25_corrected_{k1,k2,alb,exp}_profiles.png
-        r25_zscore_{k1,k2,alb,exp}_profiles.png
-        r25_signal_hierarchy.png
-        r25_alb_decoupled_exp_residuals.png
-        obs_vs_r25_scatter_{ocean,land}.png
+    r15_corrected/   (Sections R0–R7 with r15 reference, requires r15_* columns)
+        r15_diff_scatter_{k1,k2,alb,exp}.png
+        r15_coverage_bias.png
+        r15_std_profiles.png
+        r15_corrected_{k1,k2,alb,exp}_profiles.png
+        r15_zscore_{k1,k2,alb,exp}_profiles.png
+        r15_signal_hierarchy.png
+        r15_alb_decoupled_exp_residuals.png
+        obs_vs_r15_scatter_{ocean,land}.png
 
 Code structure
 --------------
@@ -128,15 +128,15 @@ Supplementary
     plot_distributions_vs_cld_dist()    Box-plots of key variables by cld_dist bin
     plot_alb_binned_profile()           Albedo binned profiles
 
-Ref-corrected analyses (R0–R7)   — requires ref_* or r25_* columns
+Ref-corrected analyses (R0–R7)   — requires ref_* or r15_* columns
     Registry
         _REF_PAIRS          (obs, ref_mean, ref_std, diff_col, band, term, color) × 12
-        _R25_PAIRS          Same structure for r25_* reference (min_cld_dist=25 km)
+        _R15_PAIRS          Same structure for r15_* reference (min_cld_dist=15 km)
     Helpers
-        add_ref_anomalies() / add_r25_anomalies()   Compute obs-ref diff and z-score columns
-        _has_ref_data()     / _has_r25_data()        Presence checks
+        add_ref_anomalies() / add_r15_anomalies()   Compute obs-ref diff and z-score columns
+        _has_ref_data()     / _has_r15_data()        Presence checks
         _binned_ref_profile()                        Shared binned-profile subplot helper
-    Plots (all accept pairs=, tag= for ref / r25 dispatch)
+    Plots (all accept pairs=, tag= for ref / r15 dispatch)
         R0  plot_ref_diff_vs_cld_dist()              Hexbin scatter of obs−ref vs cld_dist
         R1  plot_ref_coverage_bias()                 Selection bias: has-ref vs no-ref
         R2  plot_ref_std_profiles()                  Reference σ vs cld_dist
@@ -202,9 +202,9 @@ from analysis.xco2 import (
     _XCO2_TARGET_CONFIG, run_xco2_target_analysis,
 )
 from analysis.ref_corrected import (
-    _REF_PAIRS, _R25_PAIRS,
-    _has_ref_data, _has_r25_data,
-    add_ref_anomalies, add_r25_anomalies,
+    _REF_PAIRS, _R15_PAIRS,
+    _has_ref_data, _has_r15_data,
+    add_ref_anomalies, add_r15_anomalies,
     plot_ref_diff_vs_cld_dist, plot_ref_coverage_bias,
     plot_ref_std_profiles, plot_ref_corrected_profiles,
     plot_ref_zscore_profiles, plot_ref_signal_hierarchy,
@@ -699,56 +699,56 @@ def main():
     else:
         logger.warning("No ref_* columns found — skipping Sections R1–R7")
 
-    # ── Sections R1–R7 (r25 reference, min_cld_dist=25 km) ───────────────────
-    if 0:#_has_r25_data(df):
-        r25_outdir = str(result_dir / 'figures' / analysis_dir / 'r25_corrected')
-        logger.info("Adding r25-corrected anomaly columns …")
-        df_r25 = add_r25_anomalies(df)
+    # ── Sections R1–R7 (r15 reference, min_cld_dist=15 km) ───────────────────
+    if 0:#_has_r15_data(df):
+        r15_outdir = str(result_dir / 'figures' / analysis_dir / 'r15_corrected')
+        logger.info("Adding r15-corrected anomaly columns …")
+        df_r15 = add_r15_anomalies(df)
 
-        logger.info("R0 [r25]: fp − r25 scatter vs cloud distance …")
-        plot_ref_diff_vs_cld_dist(df_r25, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R0 [r15]: fp − r15 scatter vs cloud distance …")
+        plot_ref_diff_vs_cld_dist(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R1 [r25]: r25 coverage bias analysis …")
-        plot_ref_coverage_bias(df_r25, bins, labels, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R1 [r15]: r15 coverage bias analysis …")
+        plot_ref_coverage_bias(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R2 [r25]: r25 std profiles (scene heterogeneity) …")
-        plot_ref_std_profiles(df_r25, bins, labels, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R2 [r15]: r15 std profiles (scene heterogeneity) …")
+        plot_ref_std_profiles(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R3 [r25]: r25-corrected anomaly profiles …")
-        plot_ref_corrected_profiles(df_r25, bins, labels, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R3 [r15]: r15-corrected anomaly profiles …")
+        plot_ref_corrected_profiles(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R4 [r25]: r25 z-score profiles …")
-        plot_ref_zscore_profiles(df_r25, bins, labels, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R4 [r15]: r15 z-score profiles …")
+        plot_ref_zscore_profiles(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R5 [r25]: r25-corrected signal hierarchy …")
-        plot_ref_signal_hierarchy(df_r25, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R5 [r15]: r15-corrected signal hierarchy …")
+        plot_ref_signal_hierarchy(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R6 [r25]: r25 albedo-decoupled exp_intercept residuals …")
-        plot_ref_alb_decoupled_exp(df_r25, bins, labels, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R6 [r15]: r15 albedo-decoupled exp_intercept residuals …")
+        plot_ref_alb_decoupled_exp(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R7 [r25]: Obs vs r25 scatter …")
-        plot_obs_vs_ref_scatter(df_r25, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R7 [r15]: Obs vs r15 scatter …")
+        plot_obs_vs_ref_scatter(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R8 [r25]: Multi-variable delta comparison …")
-        plot_ref_delta_multivar(df_r25, bins, labels, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R8 [r15]: Multi-variable delta comparison …")
+        plot_ref_delta_multivar(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R9 [r25]: Cross-band delta coherence …")
-        plot_ref_cross_band_delta(df_r25, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R9 [r15]: Cross-band delta coherence …")
+        plot_ref_cross_band_delta(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R10 [r25]: Delta decay length scale …")
-        plot_ref_delta_decay(df_r25, bins, labels, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R10 [r15]: Delta decay length scale …")
+        plot_ref_delta_decay(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R11 [r25]: Delta vs XCO2 BC anomaly …")
-        plot_ref_delta_vs_xco2(df_r25, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R11 [r15]: Delta vs XCO2 BC anomaly …")
+        plot_ref_delta_vs_xco2(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info("R12 [r25]: Partial correlation of delta vs XCO2 anomaly …")
-        plot_ref_delta_partial_xco2(df_r25, r25_outdir, pairs=_R25_PAIRS, tag='r25')
+        logger.info("R12 [r15]: Partial correlation of delta vs XCO2 anomaly …")
+        plot_ref_delta_partial_xco2(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
 
-        logger.info(f"All r25-corrected figures written to {r25_outdir}")
-        del df_r25
+        logger.info(f"All r15-corrected figures written to {r15_outdir}")
+        del df_r15
         gc.collect()
     else:
-        logger.warning("No r25_* columns found — skipping r25 Sections R1–R7")
+        logger.warning("No r15_* columns found — skipping r15 Sections R1–R7")
 
     # ── surface-type loop: process ocean then land sequentially ───────────────
     if 'sfc_type' in df.columns:

@@ -47,7 +47,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers
+from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
 from .splits import split_dataframe
 from . import diagnostics as diag
 from search.tracking import RunSummary, get_git_commit_hash
@@ -217,6 +217,9 @@ def main():
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--feature_set', type=str, default='full',
                    choices=['full', 'no_xco2', 'no_spec', 'full_fitqual', 'full_contam'])
+    p.add_argument('--target', type=str, default=None,
+                   help="Clear-sky reference for the regression target: '10km' "
+                        "(default, xco2_bc_anomaly) or '15km' (xco2_bc_anomaly_r15).")
     p.add_argument('--geom_mode', type=str, default='concat', choices=['none', 'concat', 'film'])
     p.add_argument('--n_harmonics', type=int, default=4)
     p.add_argument('--test_size', type=float, default=0.2)
@@ -243,7 +246,13 @@ def main():
     df = df[df['sfc_type'] == args.sfc_type]
     df = df[df['snow_flag'] == 0]
     df = _ensure_derived_features(df)
-    df = filter_target_outliers(df)
+    target_col = resolve_target_col(args.target)
+    if target_col not in df.columns:
+        raise ValueError(
+            f"Target column '{target_col}' not in parquet; regenerate the combined "
+            f"parquet (spectral/fitting.py + fitting_correction.py) or pass --target 10km."
+        )
+    df = filter_target_outliers(df, target_col=target_col)
 
     train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,
                                         random_state=args.seed,
@@ -255,7 +264,7 @@ def main():
     def _prep(frame):
         X = pipeline.transform(frame)
         G, gnames = build_periodic_features(frame, GEOM_ANGLE_COLS, args.n_harmonics)
-        y = frame['xco2_bc_anomaly'].to_numpy(dtype=np.float32)
+        y = frame[target_col].to_numpy(dtype=np.float32)
         valid = (np.isfinite(y) & np.all(np.isfinite(X), axis=1)
                  & np.all(np.isfinite(G), axis=1))
         return X[valid], G[valid], y[valid], frame.loc[valid], gnames

@@ -15,7 +15,7 @@ import torch.nn as nn
 import copy
 import gc
 from sklearn.model_selection import train_test_split
-from .pipeline import FeaturePipeline
+from .pipeline import FeaturePipeline, resolve_target_col
 from .adapters import _ResBlock, _MLP, RidgeAdapter, MLPAdapter
 from search.tracking import RunSummary, get_git_commit_hash, write_run_summary
 import platform
@@ -35,6 +35,7 @@ def _default_run_config() -> dict:
         'data': {
             'sfc_type': 0,
             'snow_flag_value': 0,
+            'target': '10km',          # clear-sky reference: '10km' or '15km'
             'linux_data_name': 'combined_2016_2020_dates.parquet',
             'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
         },
@@ -106,6 +107,10 @@ def main():
     parser = argparse.ArgumentParser(description="MLP + Ridge XCO2 bias correction")
     parser.add_argument('--sfc_type', type=int, default=0,
                         help="Surface type filter for training and evaluation (default: 0 = ocean only).")
+    parser.add_argument('--target', type=str, default=None,
+                        help="Clear-sky reference for the regression target: "
+                             "'10km' (default, xco2_bc_anomaly) or '15km' "
+                             "(xco2_bc_anomaly_r15).")
     parser.add_argument('--suffix', type=str, default='',
                         help='Subfolder name appended to the base output directory '
                              '(e.g. --suffix v2_reduced).  '
@@ -128,6 +133,8 @@ def main():
 
     run_cfg = _load_run_config(args.config)
     run_cfg['data']['sfc_type'] = int(args.sfc_type)
+    if args.target is not None:
+        run_cfg['data']['target'] = args.target
     run_cfg['pipeline'] = {
         'scaler': args.scaler,
         'pca_augment': bool(args.pca_augment),
@@ -160,6 +167,13 @@ def main():
     df = df[df['sfc_type'] == sfc_type]
     df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
 
+    target_col = resolve_target_col(run_cfg['data'].get('target'))
+    if target_col not in df.columns:
+        raise ValueError(
+            f"Target column '{target_col}' not in parquet; regenerate the combined "
+            f"parquet or pass --target 10km."
+        )
+
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
     else:
@@ -176,6 +190,7 @@ def main():
             output_dir=output_dir,
             pipeline=pipeline,
             test_csv=None,
+            target_col=target_col,
             perm_max_rows=int(run_cfg['importance']['perm_max_rows']),
             run_cfg=run_cfg,
             ledger_path=ledger_path,
@@ -314,6 +329,7 @@ def compute_xco2_anomaly_date_id(fp_date, fp_orbit_id, fp_lat, cld_dist_km, xco2
 # ─── LR mitigation test ────────────────────────────────────────────────────────
 
 def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
+                    target_col: str = 'xco2_bc_anomaly',
                     perm_max_rows: int = 5000, run_cfg: dict | None = None,
                     ledger_path=None, run_id: str | None = None,
                     commit: str | None = None, script_name: str | None = None):
@@ -354,13 +370,13 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     rng_plot = np.random.default_rng(int(cfg['seeds']['plot_rng_seed']))
 
     # Keep only the 3 columns needed downstream — avoids copying all df columns for the filtered subset
-    df_xco2_anomaly = df.loc[df['xco2_bc_anomaly'].notna(), ['xco2_bc', 'xco2_bc_anomaly', 'cld_dist_km']]
+    df_xco2_anomaly = df.loc[df[target_col].notna(), ['xco2_bc', target_col, 'cld_dist_km']]
 
     _checkpoint("before pipeline.transform + train_test_split")
     features    = pipeline.features
     # pipeline.transform() already returns float32; copy=False is a no-op if dtype already matches
     X_all       = pipeline.transform(df).astype(np.float32, copy=False)
-    valid_rows  = ~df['xco2_bc_anomaly'].isna()
+    valid_rows  = ~df[target_col].isna()
     # df_X is the single valid-row subset used for both training and later inference
     df_X        = X_all[valid_rows.values]
     df_all_X    = X_all
@@ -369,9 +385,11 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     # This frees ~25-35 feature columns (~50% of df's memory) before train_test_split.
     _keep_cols = ['lon', 'lat', 'xco2_bc', 'xco2_raw', 'xco2_bc_anomaly',
                   'date', 'orbit_id', 'cld_dist_km', 'o2a_k1', 'o2a_k2']
+    if target_col not in _keep_cols:
+        _keep_cols.append(target_col)
     df = df[[c for c in _keep_cols if c in df.columns]]
     gc.collect()
-    y           = df['xco2_bc_anomaly'][valid_rows].values
+    y           = df[target_col][valid_rows].values
 
     # Drop rows with NaN/inf features for training only — df_X stays intact for inference
     # (inference code below already applies its own isfinite mask over df_X)
@@ -434,11 +452,11 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
 
     # Extract all needed numpy arrays; free df_xco2_anomaly immediately after
     df_xco2_bc             = df_xco2_anomaly['xco2_bc'].to_numpy()
-    df_xco2_bc_anomaly     = df_xco2_anomaly['xco2_bc_anomaly'].to_numpy()
+    df_xco2_bc_anomaly     = df_xco2_anomaly[target_col].to_numpy()
     _cd_orig_for_masks     = df_xco2_anomaly['cld_dist_km'].to_numpy()  # for row masks below
     del df_xco2_anomaly
     df_all_xco2_bc         = df['xco2_bc'].to_numpy()
-    df_all_xco2_bc_anomaly = df['xco2_bc_anomaly'].to_numpy()
+    df_all_xco2_bc_anomaly = df[target_col].to_numpy()
 
     # Determine training data and clear-sky reference level
     if test_csv is None:
@@ -811,7 +829,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     print("_date shape", _date.shape)
     print("_orbit_id shape", _orbit_id.shape)
 
-    anomaly_orig    = df['xco2_bc_anomaly'].to_numpy()
+    anomaly_orig    = df[target_col].to_numpy()
     # Use _all variants (shape = full df N=84780) — subset arrays (38987,) mismatched _lat
     _checkpoint("compute_xco2_anomaly: calling LR")
     anomaly_lr  = compute_xco2_anomaly_date_id(_date, _orbit_id, _lat, _cld_dist, xco2_bc_corrected_all,     **_anomaly_args)
@@ -883,7 +901,7 @@ def mitigation_test(df, output_dir, pipeline: FeaturePipeline, test_csv=None,
     mask_r1        = _cd_orig > 10
     mask_r2        = _cd_orig < 10
     _cd_all_arr    = np.array(df['cld_dist_km'])
-    _anom_all_orig = np.array(df['xco2_bc_anomaly'])
+    _anom_all_orig = np.array(df[target_col])
     mask_r3        = (_cd_all_arr < 10) & np.isnan(_anom_all_orig)
     del _cd_all_arr, _anom_all_orig
 

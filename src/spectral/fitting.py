@@ -92,9 +92,14 @@ def log_transmittance_model_9(tau, k1, k2, k3, k4, k5, k6, k7, k8, k9, intercept
             - (1/9) * k9 * tau**9
             + intercept)
 
-def transmittance_model(tau, k1, k2, intercept):
-    """Gamma-distribution transmittance model: (1 + τ·k1/k2)^(−k2) · intercept."""
-    return (1 + tau * k1 / k2) ** (-k2) * intercept
+def transmittance_model(tau, l_mean, kappa, intercept):
+    """Gamma-distribution transmittance model: γ·(1 + SOD·⟨l'⟩/κ)^(−κ).
+
+    l_mean   = ⟨l'⟩  (mean path-length enhancement, first cumulant k1)
+    kappa    = κ      (gamma shape parameter = ⟨l'⟩²/var(l') = k1²/k2)
+    intercept = γ     (surface reflectance)
+    """
+    return (1 + tau * l_mean / kappa) ** (-kappa) * intercept
 
 def universal_quantile_loss(params, x, y, model_func, q=0.05, outlier_threshold=None):
     """
@@ -522,8 +527,8 @@ def fit_spectral_model(tau, ln_T, fit_order):
     n_pos       = min(2, fit_order)  # k1 (and k2 if order>=2) must be >0
     lb          = [0.0] * n_pos + [-np.inf] * (n_params - n_pos)
     ub          = [np.inf] * n_params
-    p0         = [1.0, 0.5] + [0.01] * (n_params - n_pos)  # Initial guess: small positive k's, zero intercept
-    popt, _     = curve_fit(model_func, tau_sorted, ln_T_smooth,)# bounds=(lb, ub), p0=p0)
+    p0         = [1.0, 0.5][:n_pos] + [0.01] * (n_params - n_pos)  # Initial guess: small positive k's, zero intercept
+    popt, _     = curve_fit(model_func, tau_sorted, ln_T_smooth, bounds=(lb, ub), p0=p0)
     
     # discard_fraction = 0.004  # Discard the top 0.4% of tau values to focus on the lower envelope
     # tau_fit = tau_sorted[: int(len(tau_sorted)*(1-discard_fraction))]
@@ -827,9 +832,24 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
 
     kappa_fitting     = np.full((3, N, MAX_KAPPAS), np.nan)
     intercept_fitting = np.full((3, N), np.nan)
-    
 
-    if not os.path.isfile(output_file) or overwrite:
+    # A cached file from before κ was added (or from before the positivity
+    # bounds) lacks the gamma-shape datasets; refit rather than reuse it.
+    cached_has_kappa = False
+    if os.path.isfile(output_file):
+        try:
+            with h5py.File(output_file, "r") as f:
+                cached_has_kappa = all(
+                    key in f for key in ("o2a_kappa", "wco2_kappa", "sco2_kappa")
+                )
+        except OSError:
+            cached_has_kappa = False
+
+    if not os.path.isfile(output_file) or overwrite or not cached_has_kappa:
+        if os.path.isfile(output_file) and not cached_has_kappa and not overwrite:
+            logger.info(
+                f"[{orbit_id}] Cached {output_file} has no κ datasets; refitting."
+            )
         # ── 2. Transmittance for all soundings and bands at once ───────────────
         logger.info(f"[{orbit_id}] Computing transmittances for {N} soundings...")
         T_all    = compute_transmittance(od["radiances"], od["toa_sol"])  # [3, N, 1016]
@@ -905,6 +925,12 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     exp_intercept_wco2 = np.exp(intercept_fitting[1])
     exp_intercept_sco2 = np.exp(intercept_fitting[2])
 
+    # ── 3c. Gamma shape parameter κ = ⟨l'⟩²/var(l') = k1²/k2 ───────────────
+    # Derived from the first two cumulants; undefined where k2 ≤ 0.
+    with np.errstate(divide='ignore', invalid='ignore'):
+        gamma_kappa = kappa_fitting[:, :, 0]**2 / kappa_fitting[:, :, 1]  # [3, N]
+    gamma_kappa[kappa_fitting[:, :, 1] <= 0] = np.nan
+
     # ── 4. Lite variable extraction (vectorised) ───────────────────────────
     def _lite(key):
         """Extract one Lite variable for all soundings; NaN where not matched."""
@@ -957,11 +983,11 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     xco2_bc_anomaly, ref_means, ref_stds = compute_xco2_anomaly(
         od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args)
 
-    # ── 6b. Second reference set with stricter min_cld_dist=25 km ─────────
-    anomaly_args_25 = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 25.0}
-    xco2_raw_anomaly_25 = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args_25)
-    xco2_bc_anomaly_25, ref_means_25, ref_stds_25 = compute_xco2_anomaly(
-        od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_25)
+    # ── 6b. Second reference set with stricter min_cld_dist=15 km ─────────
+    anomaly_args_15 = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 15.0}
+    xco2_raw_anomaly_15 = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args_15)
+    xco2_bc_anomaly_15, ref_means_15, ref_stds_15 = compute_xco2_anomaly(
+        od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_15)
 
     # -- 6c. Calculate fp areas from lite vertex longitudes and latitudes --
     fp_area_km2 = np.full(N, np.nan)
@@ -1000,6 +1026,10 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "sco2_k4_fitting":        kappa_fitting[2, :, 3],
         "sco2_k5_fitting":        kappa_fitting[2, :, 4],
         "sco2_intercept_fitting": intercept_fitting[2],
+        # Gamma shape parameter κ = k1²/k2 per band (NaN where k2 ≤ 0)
+        "o2a_kappa":   gamma_kappa[0],
+        "wco2_kappa":  gamma_kappa[1],
+        "sco2_kappa":  gamma_kappa[2],
         # Geometry
         "date":      np.array([date]*N, dtype='S'),
         "orbit_id":  np.array([orbit_id]*N, dtype='S'),
@@ -1131,39 +1161,39 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "ref_exp_int_wco2_std":  ref_stds["exp_int_wco2"],
         "ref_exp_int_sco2_mean": ref_means["exp_int_sco2"],
         "ref_exp_int_sco2_std":  ref_stds["exp_int_sco2"],
-        # ── Reference set with stricter min_cld_dist=25 km (r25 prefix) ──
-        "xco2_raw_anomaly_r25":      xco2_raw_anomaly_25,
-        "xco2_bc_anomaly_r25":       xco2_bc_anomaly_25,
-        "r25_o2a_k1_mean":           ref_means_25["o2a_k1"],
-        "r25_o2a_k1_std":            ref_stds_25["o2a_k1"],
-        "r25_o2a_k2_mean":           ref_means_25["o2a_k2"],
-        "r25_o2a_k2_std":            ref_stds_25["o2a_k2"],
-        "r25_o2a_k3_mean":           ref_means_25["o2a_k3"],
-        "r25_o2a_k3_std":            ref_stds_25["o2a_k3"],
-        "r25_wco2_k1_mean":          ref_means_25["wco2_k1"],
-        "r25_wco2_k1_std":           ref_stds_25["wco2_k1"],
-        "r25_wco2_k2_mean":          ref_means_25["wco2_k2"],
-        "r25_wco2_k2_std":           ref_stds_25["wco2_k2"],
-        "r25_wco2_k3_mean":          ref_means_25["wco2_k3"],
-        "r25_wco2_k3_std":           ref_stds_25["wco2_k3"],
-        "r25_sco2_k1_mean":          ref_means_25["sco2_k1"],
-        "r25_sco2_k1_std":           ref_stds_25["sco2_k1"],
-        "r25_sco2_k2_mean":          ref_means_25["sco2_k2"],
-        "r25_sco2_k2_std":           ref_stds_25["sco2_k2"],
-        "r25_sco2_k3_mean":          ref_means_25["sco2_k3"],
-        "r25_sco2_k3_std":           ref_stds_25["sco2_k3"],
-        "r25_alb_o2a_mean":          ref_means_25["alb_o2a"],
-        "r25_alb_o2a_std":           ref_stds_25["alb_o2a"],
-        "r25_alb_wco2_mean":         ref_means_25["alb_wco2"],
-        "r25_alb_wco2_std":          ref_stds_25["alb_wco2"],
-        "r25_alb_sco2_mean":         ref_means_25["alb_sco2"],
-        "r25_alb_sco2_std":          ref_stds_25["alb_sco2"],
-        "r25_exp_int_o2a_mean":      ref_means_25["exp_int_o2a"],
-        "r25_exp_int_o2a_std":       ref_stds_25["exp_int_o2a"],
-        "r25_exp_int_wco2_mean":     ref_means_25["exp_int_wco2"],
-        "r25_exp_int_wco2_std":      ref_stds_25["exp_int_wco2"],
-        "r25_exp_int_sco2_mean":     ref_means_25["exp_int_sco2"],
-        "r25_exp_int_sco2_std":      ref_stds_25["exp_int_sco2"],
+        # ── Reference set with stricter min_cld_dist=15 km (r15 prefix) ──
+        "xco2_raw_anomaly_r15":      xco2_raw_anomaly_15,
+        "xco2_bc_anomaly_r15":       xco2_bc_anomaly_15,
+        "r15_o2a_k1_mean":           ref_means_15["o2a_k1"],
+        "r15_o2a_k1_std":            ref_stds_15["o2a_k1"],
+        "r15_o2a_k2_mean":           ref_means_15["o2a_k2"],
+        "r15_o2a_k2_std":            ref_stds_15["o2a_k2"],
+        "r15_o2a_k3_mean":           ref_means_15["o2a_k3"],
+        "r15_o2a_k3_std":            ref_stds_15["o2a_k3"],
+        "r15_wco2_k1_mean":          ref_means_15["wco2_k1"],
+        "r15_wco2_k1_std":           ref_stds_15["wco2_k1"],
+        "r15_wco2_k2_mean":          ref_means_15["wco2_k2"],
+        "r15_wco2_k2_std":           ref_stds_15["wco2_k2"],
+        "r15_wco2_k3_mean":          ref_means_15["wco2_k3"],
+        "r15_wco2_k3_std":           ref_stds_15["wco2_k3"],
+        "r15_sco2_k1_mean":          ref_means_15["sco2_k1"],
+        "r15_sco2_k1_std":           ref_stds_15["sco2_k1"],
+        "r15_sco2_k2_mean":          ref_means_15["sco2_k2"],
+        "r15_sco2_k2_std":           ref_stds_15["sco2_k2"],
+        "r15_sco2_k3_mean":          ref_means_15["sco2_k3"],
+        "r15_sco2_k3_std":           ref_stds_15["sco2_k3"],
+        "r15_alb_o2a_mean":          ref_means_15["alb_o2a"],
+        "r15_alb_o2a_std":           ref_stds_15["alb_o2a"],
+        "r15_alb_wco2_mean":         ref_means_15["alb_wco2"],
+        "r15_alb_wco2_std":          ref_stds_15["alb_wco2"],
+        "r15_alb_sco2_mean":         ref_means_15["alb_sco2"],
+        "r15_alb_sco2_std":          ref_stds_15["alb_sco2"],
+        "r15_exp_int_o2a_mean":      ref_means_15["exp_int_o2a"],
+        "r15_exp_int_o2a_std":       ref_stds_15["exp_int_o2a"],
+        "r15_exp_int_wco2_mean":     ref_means_15["exp_int_wco2"],
+        "r15_exp_int_wco2_std":      ref_stds_15["exp_int_wco2"],
+        "r15_exp_int_sco2_mean":     ref_means_15["exp_int_sco2"],
+        "r15_exp_int_sco2_std":      ref_stds_15["exp_int_sco2"],
     }
     
     

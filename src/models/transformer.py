@@ -22,7 +22,7 @@ import platform
 import time
 import matplotlib.pyplot as plt
 from matplotlib import colors
-from .pipeline import FeaturePipeline, _ensure_derived_features
+from .pipeline import FeaturePipeline, _ensure_derived_features, resolve_target_col
 from .adapters import FTAdapter
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
@@ -49,6 +49,7 @@ def _default_run_config() -> dict:
         'data': {
             'sfc_type': 0,
             'snow_flag_value': 0,
+            'target': '10km',          # clear-sky reference: '10km' or '15km'
             'linux_data_name': 'combined_2016_2020_dates.parquet',
             'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
         },
@@ -1201,17 +1202,18 @@ def evaluate_model_X_text(model, X_test, y_test, fig_dir):
     fig.savefig(os.path.join(fig_dir, "pred_vs_true.png"), dpi=150, bbox_inches='tight')
     
 
-def evaluate_model_X_all(model, 
-                         fdir, data_fname, 
+def evaluate_model_X_all(model,
+                         fdir, data_fname,
                          qt, features,
-                         fig_dir, sfc_type=0,):
+                         fig_dir, sfc_type=0,
+                         target_col: str = 'xco2_bc_anomaly',):
     
     # Load and preprocess the entire data set (same as in training_data_load)
     data_path = os.path.join(fdir, data_fname)
     df = pd.read_parquet(data_path) if data_path.endswith('.parquet') else pd.read_csv(data_path)
     df = df[df['sfc_type'] == sfc_type]
     df = df[df['snow_flag'] == 0]
-    # df = df[df['xco2_bc_anomaly'].notna()]  # Drop rows with missing target variable
+    # df = df[df[target_col].notna()]  # Drop rows with missing target variable
 
     # One-hot encode footprint number into 8 binary columns (fp_0 … fp_7)
     fp_dummies = pd.concat(
@@ -1228,7 +1230,7 @@ def evaluate_model_X_all(model,
         X_all = np.hstack([X_all, fp_values])  # add one-hot columns to the end of X
         
     xco2_bc = df['xco2_bc'].values
-    xco2_bc_anomaly = df['xco2_bc_anomaly'].values
+    xco2_bc_anomaly = df[target_col].values
     
     
     preds_np  = _batched_predict(model, np.asarray(X_all, dtype=np.float32))
@@ -1254,7 +1256,8 @@ def evaluate_model_X_all(model,
     fig.savefig(os.path.join(fig_dir, "pred_vs_true.png"), dpi=150, bbox_inches='tight')
 
 
-def plot_evaluation_by_regime(model, df, qt, features, output_dir):
+def plot_evaluation_by_regime(model, df, qt, features, output_dir,
+                              target_col: str = 'xco2_bc_anomaly'):
     """3×4 evaluation plot matching mlp_lr_models.py lines 734-822.
 
     Row structure (mirrors mlp_lr_models.py lines 706-721):
@@ -1299,7 +1302,7 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir):
     q50 = preds[:, 1]
     q95 = preds[:, 2]
     uncertainty  = np.clip(q95 - q05, 0, None)
-    true_anomaly = df['xco2_bc_anomaly'].values.astype(float)
+    true_anomaly = df[target_col].values.astype(float)
     xco2_bc      = df['xco2_bc'].values.astype(float)
 
     # ── Recompute anomaly from FT-corrected XCO2 (mirrors mlp_lr_models.py L641-643) ──
@@ -1696,6 +1699,10 @@ def main():
     parser.add_argument('--no-pca-augment', dest='pca_augment', action='store_false',
                         help='Disable PCA-score augmentation.')
     parser.set_defaults(pca_augment=None)
+    parser.add_argument('--target', type=str, default=None,
+                        help="Clear-sky reference for the regression target: "
+                             "'10km' (default, xco2_bc_anomaly) or '15km' "
+                             "(xco2_bc_anomaly_r15).")
     parser.add_argument('--config', type=str, default=None,
                         help='Path to a JSON config file that overrides data/model/training '
                              'hyperparameters. Unspecified keys keep defaults.')
@@ -1704,6 +1711,8 @@ def main():
     run_cfg = _load_run_config(args.config)
     if args.sfc_type is not None:
         run_cfg['data']['sfc_type'] = int(args.sfc_type)
+    if args.target is not None:
+        run_cfg['data']['target'] = args.target
     if args.loss is not None:
         run_cfg['loss']['loss'] = args.loss
     if args.huber_delta is not None:
@@ -1742,6 +1751,12 @@ def main():
     df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
     df = df[df['sfc_type'] == surface_type]
     df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
+    target_col = resolve_target_col(run_cfg['data'].get('target'))
+    if target_col not in df.columns:
+        raise ValueError(
+            f"Target column '{target_col}' not in parquet; regenerate the combined "
+            f"parquet (spectral/fitting.py + fitting_correction.py) or pass --target 10km."
+        )
 
     # ── Pipeline: load or fit ──────────────────────────────────────────────────
     pipeline_path = output_dir / 'pipeline.pkl'
@@ -1773,8 +1788,8 @@ def main():
             axis=1,
         )
 
-    valid_rows = ~df['xco2_bc_anomaly'].isna()
-    y_all    = df['xco2_bc_anomaly'].values.astype(np.float32)
+    valid_rows = ~df[target_col].isna()
+    y_all    = df[target_col].values.astype(np.float32)
     X_qt_raw = df[pipeline.qt_features].to_numpy(dtype=np.float32)   # (N, n_qt)
     X_fp_raw = df[pipeline.fp_cols].to_numpy(dtype=np.float32)       # (N, 8)
     del df
@@ -1922,7 +1937,8 @@ def main():
     df_eval = pd.read_parquet(_dp2) if _dp2.endswith('.parquet') else pd.read_csv(_dp2)
     df_eval = df_eval[df_eval['sfc_type'] == surface_type]
     df_eval = df_eval[df_eval['snow_flag'] == 0]
-    plot_evaluation_by_regime(model, df_eval, pipeline.qt, pipeline.features, str(output_dir))
+    plot_evaluation_by_regime(model, df_eval, pipeline.qt, pipeline.features, str(output_dir),
+                              target_col=target_col)
     del df_eval
     gc.collect()
 

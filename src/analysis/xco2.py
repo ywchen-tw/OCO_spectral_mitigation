@@ -520,7 +520,7 @@ def run_xco2_sign_analysis(
     sfc_outdir: str,
     run_ref: bool = False,
     ref_pairs=None,
-    r25_pairs=None,
+    r15_pairs=None,
     split_col: str = 'xco2_bc_anomaly',
     split_label: str = None,
 ) -> None:
@@ -540,7 +540,7 @@ def run_xco2_sign_analysis(
     sfc_outdir  : per-surface output directory (e.g. …/ocean)
     run_ref     : if True and ref_* columns are present, run R0–R7 per subset
     ref_pairs   : _REF_PAIRS from ca_ref_corrected (pass-through)
-    r25_pairs   : _R25_PAIRS from ca_ref_corrected (unused currently)
+    r15_pairs   : _R15_PAIRS from ca_ref_corrected (unused currently)
     split_col   : column to split on (default: xco2_bc_anomaly)
     split_label : human-readable label for split_col (default: derived from col name)
     """

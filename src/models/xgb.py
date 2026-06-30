@@ -29,7 +29,7 @@ from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from .pipeline import FeaturePipeline, _ensure_derived_features
+from .pipeline import FeaturePipeline, _ensure_derived_features, resolve_target_col
 from .adapters import XGBoostAdapter
 from utils import get_storage_dir
 
@@ -41,6 +41,7 @@ def _default_run_config() -> dict:
         'data': {
             'sfc_type': 0,
             'snow_flag_value': 0,
+            'target': '10km',          # clear-sky reference: '10km' or '15km'
             'linux_data_name': 'combined_2016_2020_dates.parquet',
             'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
         },
@@ -355,6 +356,9 @@ def main():
                         help='Path to a saved FeaturePipeline (.pkl). '
                              'If omitted, a new pipeline is fitted on the training data '
                              'and saved to <output_dir>/pipeline.pkl.')
+    parser.add_argument('--target', type=str, default=None,
+                        help="Clear-sky reference for the regression target: '10km' "
+                             "(default, xco2_bc_anomaly) or '15km' (xco2_bc_anomaly_r15).")
     parser.add_argument('--pca-augment', dest='pca_augment', action='store_true',
                         help='Append selected PC scores after scaled features '
                              '(land: PC1/PC4/PC8; ocean: PC3/PC6).  '
@@ -371,6 +375,8 @@ def main():
     run_cfg = _load_run_config(args.config)
     if args.sfc_type is not None:
         run_cfg['data']['sfc_type'] = int(args.sfc_type)
+    if args.target is not None:
+        run_cfg['data']['target'] = args.target
     if args.pca_augment is not None:
         run_cfg['pipeline']['pca_augment'] = bool(args.pca_augment)
     run_cfg['pipeline']['pipeline_arg'] = args.pipeline
@@ -435,10 +441,17 @@ def main():
             )], axis=1,
         )
 
-    valid_rows = ~df['xco2_bc_anomaly'].isna()
+    target_col = resolve_target_col(run_cfg['data'].get('target'))
+    if target_col not in df.columns:
+        raise ValueError(
+            f"Target column '{target_col}' not in parquet; regenerate the combined "
+            f"parquet (spectral/fitting.py + fitting_correction.py) or pass --target 10km."
+        )
+
+    valid_rows = ~df[target_col].isna()
     X_all = pipeline.transform(df)
     X     = X_all[valid_rows.values].astype(np.float32)
-    y     = df['xco2_bc_anomaly'][valid_rows].values.astype(np.float32)
+    y     = df[target_col][valid_rows].values.astype(np.float32)
     del X_all, df   # df is no longer needed; free before split
     gc.collect()
     _checkpoint("after pipeline.transform  (df freed)")

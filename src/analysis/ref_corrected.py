@@ -6,11 +6,11 @@ Ref-corrected analysis functions extracted from combined_analyze.py (Sections R0
 Contents
 --------
 - _REF_PAIRS               Registry of (obs, ref_mean, ref_std, diff_col, band, term, color) × 15 (k1+k2+k3 × 3 bands + alb × 3 + exp_int × 3)
-- _R25_PAIRS               Same structure for r25_* reference (min_cld_dist=25 km)
+- _R15_PAIRS               Same structure for r15_* reference (min_cld_dist=15 km)
 - add_ref_anomalies        Compute obs-ref diff and z-score columns
-- add_r25_anomalies        Compute obs-r25 diff and z-score columns
+- add_r15_anomalies        Compute obs-r15 diff and z-score columns
 - _has_ref_data            Presence check for ref_* columns
-- _has_r25_data            Presence check for r25_* columns
+- _has_r15_data            Presence check for r15_* columns
 - _binned_ref_profile      Shared binned-profile subplot helper
 - plot_ref_diff_vs_cld_dist    R0: Hexbin scatter of obs−ref vs cld_dist
 - plot_ref_coverage_bias       R1: Selection bias — has-ref vs no-ref
@@ -52,23 +52,23 @@ _REF_PAIRS: list[tuple] = [
     ('exp_sco2_intercept', 'ref_exp_int_sco2_mean', 'ref_exp_int_sco2_std', 'dexp_sco2', 'SCO\u2082', 'exp_int',   'C2'),
 ]
 
-# r25 reference set (min_cld_dist=25 km) — mirrors _REF_PAIRS with r25_ prefix columns
-_R25_PAIRS: list[tuple] = [
-    ('o2a_k1',             'r25_o2a_k1_mean',       'r25_o2a_k1_std',       'dr25k1_o2a',   'O\u2082A',  'k\u2081',   'C0'),
-    ('o2a_k2',             'r25_o2a_k2_mean',       'r25_o2a_k2_std',       'dr25k2_o2a',   'O\u2082A',  'k\u2082',   'C0'),
-    ('o2a_k3',             'r25_o2a_k3_mean',       'r25_o2a_k3_std',       'dr25k3_o2a',   'O\u2082A',  'k\u2083',   'C0'),
-    ('wco2_k1',            'r25_wco2_k1_mean',      'r25_wco2_k1_std',      'dr25k1_wco2',  'WCO\u2082', 'k\u2081',   'C1'),
-    ('wco2_k2',            'r25_wco2_k2_mean',      'r25_wco2_k2_std',      'dr25k2_wco2',  'WCO\u2082', 'k\u2082',   'C1'),
-    ('wco2_k3',            'r25_wco2_k3_mean',      'r25_wco2_k3_std',      'dr25k3_wco2',  'WCO\u2082', 'k\u2083',   'C1'),
-    ('sco2_k1',            'r25_sco2_k1_mean',      'r25_sco2_k1_std',      'dr25k1_sco2',  'SCO\u2082', 'k\u2081',   'C2'),
-    ('sco2_k2',            'r25_sco2_k2_mean',      'r25_sco2_k2_std',      'dr25k2_sco2',  'SCO\u2082', 'k\u2082',   'C2'),
-    ('sco2_k3',            'r25_sco2_k3_mean',      'r25_sco2_k3_std',      'dr25k3_sco2',  'SCO\u2082', 'k\u2083',   'C2'),
-    ('alb_o2a',            'r25_alb_o2a_mean',      'r25_alb_o2a_std',      'dr25alb_o2a',  'O\u2082A',  'albedo',    'C0'),
-    ('alb_wco2',           'r25_alb_wco2_mean',     'r25_alb_wco2_std',     'dr25alb_wco2', 'WCO\u2082', 'albedo',    'C1'),
-    ('alb_sco2',           'r25_alb_sco2_mean',     'r25_alb_sco2_std',     'dr25alb_sco2', 'SCO\u2082', 'albedo',    'C2'),
-    ('exp_o2a_intercept',  'r25_exp_int_o2a_mean',  'r25_exp_int_o2a_std',  'dr25exp_o2a',  'O\u2082A',  'exp_int',   'C0'),
-    ('exp_wco2_intercept', 'r25_exp_int_wco2_mean', 'r25_exp_int_wco2_std', 'dr25exp_wco2', 'WCO\u2082', 'exp_int',   'C1'),
-    ('exp_sco2_intercept', 'r25_exp_int_sco2_mean', 'r25_exp_int_sco2_std', 'dr25exp_sco2', 'SCO\u2082', 'exp_int',   'C2'),
+# r15 reference set (min_cld_dist=15 km) — mirrors _REF_PAIRS with r15_ prefix columns
+_R15_PAIRS: list[tuple] = [
+    ('o2a_k1',             'r15_o2a_k1_mean',       'r15_o2a_k1_std',       'dr15k1_o2a',   'O\u2082A',  'k\u2081',   'C0'),
+    ('o2a_k2',             'r15_o2a_k2_mean',       'r15_o2a_k2_std',       'dr15k2_o2a',   'O\u2082A',  'k\u2082',   'C0'),
+    ('o2a_k3',             'r15_o2a_k3_mean',       'r15_o2a_k3_std',       'dr15k3_o2a',   'O\u2082A',  'k\u2083',   'C0'),
+    ('wco2_k1',            'r15_wco2_k1_mean',      'r15_wco2_k1_std',      'dr15k1_wco2',  'WCO\u2082', 'k\u2081',   'C1'),
+    ('wco2_k2',            'r15_wco2_k2_mean',      'r15_wco2_k2_std',      'dr15k2_wco2',  'WCO\u2082', 'k\u2082',   'C1'),
+    ('wco2_k3',            'r15_wco2_k3_mean',      'r15_wco2_k3_std',      'dr15k3_wco2',  'WCO\u2082', 'k\u2083',   'C1'),
+    ('sco2_k1',            'r15_sco2_k1_mean',      'r15_sco2_k1_std',      'dr15k1_sco2',  'SCO\u2082', 'k\u2081',   'C2'),
+    ('sco2_k2',            'r15_sco2_k2_mean',      'r15_sco2_k2_std',      'dr15k2_sco2',  'SCO\u2082', 'k\u2082',   'C2'),
+    ('sco2_k3',            'r15_sco2_k3_mean',      'r15_sco2_k3_std',      'dr15k3_sco2',  'SCO\u2082', 'k\u2083',   'C2'),
+    ('alb_o2a',            'r15_alb_o2a_mean',      'r15_alb_o2a_std',      'dr15alb_o2a',  'O\u2082A',  'albedo',    'C0'),
+    ('alb_wco2',           'r15_alb_wco2_mean',     'r15_alb_wco2_std',     'dr15alb_wco2', 'WCO\u2082', 'albedo',    'C1'),
+    ('alb_sco2',           'r15_alb_sco2_mean',     'r15_alb_sco2_std',     'dr15alb_sco2', 'SCO\u2082', 'albedo',    'C2'),
+    ('exp_o2a_intercept',  'r15_exp_int_o2a_mean',  'r15_exp_int_o2a_std',  'dr15exp_o2a',  'O\u2082A',  'exp_int',   'C0'),
+    ('exp_wco2_intercept', 'r15_exp_int_wco2_mean', 'r15_exp_int_wco2_std', 'dr15exp_wco2', 'WCO\u2082', 'exp_int',   'C1'),
+    ('exp_sco2_intercept', 'r15_exp_int_sco2_mean', 'r15_exp_int_sco2_std', 'dr15exp_sco2', 'SCO\u2082', 'exp_int',   'C2'),
 ]
 
 
@@ -146,26 +146,26 @@ def _has_ref_data(df: pd.DataFrame) -> bool:
     return any(c.startswith('ref_') for c in df.columns)
 
 
-def add_r25_anomalies(df: pd.DataFrame) -> pd.DataFrame:
-    """Add obs-r25 difference and z-score columns for every entry in _R25_PAIRS.
+def add_r15_anomalies(df: pd.DataFrame) -> pd.DataFrame:
+    """Add obs-r15 difference and z-score columns for every entry in _R15_PAIRS.
 
     New columns:
-      d{term}_{band}  = obs - r25_mean          e.g. dr25k1_o2a
-      z{term}_{band}  = (obs - r25_mean)/r25_std e.g. zr25k1_o2a
+      d{term}_{band}  = obs - r15_mean          e.g. dr15k1_o2a
+      z{term}_{band}  = (obs - r15_mean)/r15_std e.g. zr15k1_o2a
     """
     new_cols = {}
-    for obs, ref_m, ref_s, dcol, _, _, _ in _R25_PAIRS:
+    for obs, ref_m, ref_s, dcol, _, _, _ in _R15_PAIRS:
         if obs in df.columns and ref_m in df.columns:
             new_cols[dcol] = df[obs] - df[ref_m]
-            zcol = 'z' + dcol[1:]   # 'dr25k1_o2a' → 'zr25k1_o2a'
+            zcol = 'z' + dcol[1:]   # 'dr15k1_o2a' → 'zr15k1_o2a'
             if ref_s in df.columns:
                 new_cols[zcol] = new_cols[dcol] / df[ref_s].replace(0, np.nan)
     return df.assign(**new_cols)
 
 
-def _has_r25_data(df: pd.DataFrame) -> bool:
-    """Return True if at least one r25 column is present in df."""
-    return any(c.startswith('r25_') for c in df.columns)
+def _has_r15_data(df: pd.DataFrame) -> bool:
+    """Return True if at least one r15 column is present in df."""
+    return any(c.startswith('r15_') for c in df.columns)
 
 
 def _binned_ref_profile(ax, sdf: pd.DataFrame, diff_col: str,
@@ -1171,7 +1171,7 @@ def plot_ref_delta_partial_xco2(df: pd.DataFrame, outdir: str,
         return
 
     # Build confounder list that actually exist
-    _alb_cols = [c for c in df.columns if c.startswith('alb_') and 'ref' not in c and 'r25' not in c]
+    _alb_cols = [c for c in df.columns if c.startswith('alb_') and 'ref' not in c and 'r15' not in c]
     _conf_candidates = _alb_cols + ['airmass']
     if 'sza' in df.columns:
         _conf_candidates.append('sza')
