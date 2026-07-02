@@ -33,6 +33,82 @@ def get_storage_dir():
         return Path(Config.get_data_path('default'))
 
 
+# ─── Vertical-profile resampling (sigma grid) ───────────────────────────────────
+# fitting.py stores the RAW native-grid (72-level GEOS) T / specific-humidity /
+# CO2-prior profiles plus the per-sounding pressure grid and surface pressure.
+# Here they are resampled onto a fixed sigma = P/Psurf grid so profiles are
+# comparable across soundings (and PCA-compressible downstream).  Sigma is used
+# rather than absolute pressure because surface pressure spans ~706–1022 hPa over
+# land glint: sigma pins the surface at sigma=1 for every sounding, keeping the
+# near-surface / boundary-layer structure (where the cloud-proximity XCO2 bias is
+# expected) on the same grid index everywhere.  Denser near the surface.
+# Column names t_sigma_NN / q_sigma_NN / co2prior_sigma_NN index into this array.
+SIGMA_LEVELS = np.array([
+    0.02, 0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.60,
+    0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 0.98, 1.00,
+], dtype=np.float64)
+
+
+def _interp_profile_to_sigma(prof, p_native, psurf, sigma_levels=SIGMA_LEVELS):
+    """Resample one native profile onto the fixed sigma = P/Psurf grid.
+
+    Interpolates in log-sigma (≡ log-pressure shifted by log Psurf), the natural
+    coordinate for atmospheric profiles.  ``np.interp`` clamps to the endpoint
+    value outside the native support, so no unphysical extrapolation occurs:
+    sigma is bounded by construction (top ≈ 1.5 Pa / Psurf; bottom ≈ 1.0 at the
+    surface), so target levels never fall "underground".  Returns all-NaN when
+    Psurf or the profile is unusable.
+    """
+    L = len(sigma_levels)
+    if not np.isfinite(psurf) or psurf <= 0:
+        return np.full(L, np.nan)
+    sig_native = np.asarray(p_native, dtype=np.float64) / psurf
+    prof = np.asarray(prof, dtype=np.float64)
+    good = np.isfinite(sig_native) & np.isfinite(prof) & (sig_native > 0)
+    if good.sum() < 2:
+        return np.full(L, np.nan)
+    x = np.log(sig_native[good])
+    order = np.argsort(x)                       # np.interp requires increasing x
+    return np.interp(np.log(sigma_levels), x[order], prof[good][order])
+
+
+def compute_sigma_profile_columns(combined, sigma_levels=SIGMA_LEVELS):
+    """Build flat sigma-grid profile columns from the raw profiles in `combined`.
+
+    Reads the [N, n_lev] arrays t_profile / q_profile / co2prior_profile, the
+    pressure grid p_profile, and psurf_met (all written by fitting.py).  Returns a
+    dict of flat per-level columns t_sigma_NN / q_sigma_NN / co2prior_sigma_NN
+    (NN = index into ``sigma_levels``) plus tropopause_sigma (= P_trop / Psurf).
+    Returns {} when the raw profile keys are absent (older fitting_details.h5).
+    """
+    required = ('t_profile', 'q_profile', 'co2prior_profile', 'p_profile', 'psurf_met')
+    if not all(k in combined for k in required):
+        return {}
+    P     = np.asarray(combined['p_profile'], dtype=np.float64)   # [N, n_lev]
+    psurf = np.asarray(combined['psurf_met'], dtype=np.float64)   # [N]
+    N, L  = P.shape[0], len(sigma_levels)
+
+    cols = {}
+    for src, prefix in (('t_profile', 't_sigma'),
+                        ('q_profile', 'q_sigma'),
+                        ('co2prior_profile', 'co2prior_sigma')):
+        prof = np.asarray(combined[src], dtype=np.float64)        # [N, n_lev]
+        sig  = np.full((N, L), np.nan, dtype=np.float32)
+        for k in range(N):
+            sig[k] = _interp_profile_to_sigma(prof[k], P[k], psurf[k], sigma_levels)
+        for lev in range(L):
+            cols[f'{prefix}_{lev:02d}'] = sig[:, lev]
+
+    if 'tropopause_pressure' in combined:
+        tp = np.asarray(combined['tropopause_pressure'], dtype=np.float64)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            cols['tropopause_sigma'] = np.where(
+                np.isfinite(psurf) & (psurf > 0), tp / psurf, np.nan
+            ).astype(np.float32)
+    logger.info("compute_sigma_profile_columns: %d sigma levels × 3 profiles + tropopause_sigma (N=%d)", L, N)
+    return cols
+
+
 # ─── HDF5 loader ──────────────────────────────────────────────────────────────
 
 def load_output_dict(filepath):
@@ -99,6 +175,11 @@ def load_output_dict(filepath):
         "chi2_o2a", "chi2_wco2", "chi2_sco2",
         "rms_rel_o2a", "rms_rel_wco2", "rms_rel_sco2",
         "eof3_1_rel", "diverging_steps", "xco2_uncertainty",
+        # Raw native-grid atmospheric profiles + pressure grid + surface pressure
+        # (2-D [N, n_lev]); resampled to the sigma grid by compute_sigma_profile_columns.
+        # Absent in older files → skipped, and the sigma columns are simply not built.
+        "t_profile", "q_profile", "co2prior_profile", "p_profile", "psurf_met",
+        "tropopause_pressure", "tropopause_temp",
         # r15 reference set (min_cld_dist=15 km)
         'xco2_raw_anomaly_r15', 'xco2_bc_anomaly_r15',
         'r15_o2a_k1_mean', 'r15_o2a_k1_std', 'r15_o2a_k2_mean', 'r15_o2a_k2_std',
@@ -442,6 +523,14 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
 
 
 
+    # Tropopause scalars (pass-through) + sigma-grid atmospheric profiles.
+    # Both are no-ops for older fitting_details.h5 that lack the raw profile /
+    # tropopause datasets (guarded so no all-None columns are created).
+    if 'tropopause_pressure' in combined:
+        final_dict['tropopause_pressure'] = combined['tropopause_pressure']
+        final_dict['tropopause_temp']     = combined.get('tropopause_temp')
+    final_dict.update(compute_sigma_profile_columns(combined))
+
     df = pd.DataFrame(final_dict)
     df = df[df.xco2_bc > 0]  # Filter out invalid XCO2 value
 
@@ -497,6 +586,16 @@ def raw_processing_multipe_dates(fdir, date_list, output_fname, n_workers=8):
     return out_path
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Build the per-date feature parquet from spectral-fit outputs.")
+    parser.add_argument('--date', default=None,
+                        help="Process a single date (YYYY-MM-DD or YYYYMMDD). "
+                             "If omitted, the built-in date_list below is used. "
+                             "Used by the per-date SLURM launcher "
+                             "(curc_shell_blanca_build_feature_dataset_perdate.sh).")
+    args = parser.parse_args()
+
     storage_dir = get_storage_dir()
     fdir      = storage_dir / 'results'
     # # List of dates to process
@@ -516,7 +615,7 @@ def main():
                                          '20171105', 
                                                      '20171201',
                  '20180101', '20180201', 
-                #  '20180301', 
+                 '20180301', 
                  '20180401',
                  '20180501', '20180601', '20180701', '20180801',
                  '20180901', '20181001', '20181101', '20181201',
@@ -528,26 +627,26 @@ def main():
                  '20200903', 
                              '20201001', '20201101', '20201201',
                  
-                #  '20160115', '20160215', '20160315', '20160415',
-                #  '20160515', '20160615', '20160715', 
-                #                                      '20160821',
-                #  '20160915', '20161015', '20161115', '20161215',
-                #  '20170115', '20170215', '20170315', '20170415',
-                #  '20170515', '20170615', '20170715', 
-                #              '20171015', '20171115', '20171215',
-                #  '20180115', 
-                #              '20180212', 
-                #                          '20180315', '20180415',
-                #  '20180515', '20180615', '20180715', '20180815',
-                #  '20180915', '20181015', 
-                #                          '20181117', 
-                #                                      '20181215',
-                #  '20190115', '20190215', '20190315', '20190415',
-                #  '20190515', '20190615', '20190715', '20190815',
-                #  '20190915', '20191015', '20191115', '20191215',
-                #  '20200115', '20200215', '20200315', '20200415',
-                #  '20200515', '20200615', '20200715', '20200815',
-                #  '20200915', '20201015', '20201115', '20201215'
+                 '20160115', '20160215', '20160315', '20160415',
+                 '20160515', '20160615', '20160715', 
+                                                     '20160821',
+                 '20160915', '20161015', '20161115', '20161215',
+                 '20170115', '20170215', '20170315', '20170415',
+                 '20170515', '20170615', '20170715', 
+                             '20171015', '20171115', '20171215',
+                 '20180115', 
+                             '20180212', 
+                                         '20180315', '20180415',
+                 '20180515', '20180615', '20180715', '20180815',
+                 '20180915', '20181015', 
+                                         '20181117', 
+                                                     '20181215',
+                 '20190115', '20190215', '20190315', '20190415',
+                 '20190515', '20190615', '20190715', '20190815',
+                 '20190915', '20191015', '20191115', '20191215',
+                 '20200115', '20200215', '20200315', '20200415',
+                 '20200515', '20200615', '20200715', '20200815',
+                 '20200915', '20201015', '20201115', '20201215'
                  ]
     
     # date_list = [
@@ -586,10 +685,21 @@ def main():
                 # ]  
     
         
+    # --date overrides the built-in list (one date per SLURM job).  Accepts
+    # YYYY-MM-DD or YYYYMMDD; normalise to the YYYYMMDD the loop expects.
+    if args.date:
+        date_list = [args.date.replace('-', '')]
+
     for date in date_list:
         date_dt = datetime.strptime(date, '%Y%m%d')
         print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
         raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+
+    # Per-date mode (SLURM launcher): build only this date's parquet and stop.
+    # The multi-date combine below must run once, after ALL per-date jobs finish
+    # — never inside a per-date job — so skip it whenever --date is given.
+    if args.date:
+        return
 
     # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
     # csv_output_dir = os.path.join(fdir, 'csv_collection')

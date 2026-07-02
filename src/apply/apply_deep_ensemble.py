@@ -81,7 +81,7 @@ def _check_required_columns(df, pipeline):
             f"input is missing {len(missing)} required column(s) the model needs: "
             f"{missing[:12]}{' …' if len(missing) > 12 else ''}\n"
             "  → the parquet was likely produced by an incompatible pipeline version; "
-            "regenerate it through the current fitting_correction pipeline.")
+            "regenerate it through the current build_feature_dataset pipeline.")
 
 
 def _domain_report(X, pipeline, thresh=8.0):

@@ -445,7 +445,7 @@ def main():
     if target_col not in df.columns:
         raise ValueError(
             f"Target column '{target_col}' not in parquet; regenerate the combined "
-            f"parquet (spectral/fitting.py + fitting_correction.py) or pass --target 10km."
+            f"parquet (spectral/fitting.py + build_feature_dataset.py) or pass --target 10km."
         )
 
     valid_rows = ~df[target_col].isna()

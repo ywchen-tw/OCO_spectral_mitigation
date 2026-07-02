@@ -213,7 +213,7 @@ def main():
     if target_col not in df.columns:
         raise ValueError(
             f"Target column '{target_col}' not in parquet; regenerate the combined "
-            f"parquet (spectral/fitting.py + fitting_correction.py) or pass --target 10km.")
+            f"parquet (spectral/fitting.py + build_feature_dataset.py) or pass --target 10km.")
     df = filter_target_outliers(df, target_col=target_col)
 
     train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,

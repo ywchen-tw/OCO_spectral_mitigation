@@ -487,17 +487,39 @@ CONTAM_SNOW_FEATURES: dict = {
     1: list(CONTAM_FEATURES[1]) + ['snow_flag'],       # land: + snow indicator
 }
 
-# Maps --feature_set name → spec.  'full' = sentinel (no change).  A spec has one of:
-# a 'drop' set (remove features), an 'add' list (append for both surfaces), or an
-# 'add_per_sfc' dict {sfc_type: [features]} (per-surface append).
+# Set 7 — full (== full_contam_snow) PLUS the per-band gamma shape κ = k1²/k2
+# (o2a/wco2/sco2_kappa, propagated into the combined parquet by spectral/fitting.py
+# → build_feature_dataset.py).  κ is the cloud-scattering pathlength-distribution shape:
+# small κ ⇒ broad pathlength spread (multiple-scattering / cloud contamination),
+# large κ ⇒ near-deterministic pathlength (clear).  Experimental — used to test
+# whether κ adds signal over `full`.  Same three columns for both surfaces.
+# κ spans ~24 orders of magnitude (k2 → 0 blows it up), so it is log1p-compressed
+# (see _LOG1P_FEATURES) — essential for the NN/TabM models; harmless for XGBoost.
+KAPPA_FEATURES = ['o2a_kappa', 'wco2_kappa', 'sco2_kappa']
+
+# Maps --feature_set name → spec.  A spec may combine any of: an 'add' list
+# (append for both surfaces), an 'add_per_sfc' dict {sfc_type: [features]}
+# (per-surface append), and a 'drop' set (remove features).  Appends are applied
+# BEFORE drops, so a drop can remove an appended feature.  ``None`` is a sentinel
+# meaning "base _FEATURE_MAP unchanged".
+#
+# The baseline 'full' now == the old 'full_contam_snow': base features PLUS the
+# per-surface cloud/aerosol contamination set PLUS the land snow_flag.  The
+# ablation sets (no_xco2 / no_spec / no_xco2_and_spec) are defined RELATIVE to
+# this new full — they append the same contam_snow set, then drop the named
+# group(s).  'full_contam_snow' is kept as an explicit alias of the new 'full'.
+# 'reduced' is the OLD 'full' — the bare per-surface _FEATURE_MAP with no
+# contamination / snow additions.
 _FEATURE_SETS: dict = {
-    'full':            None,
-    'no_xco2':         {'drop': XCO2_FEATURES},
-    'no_spec':         {'drop': SPEC_FEATURES},
-    'no_xco2_and_spec': {'drop': XCO2_FEATURES | SPEC_FEATURES},
+    'full':            {'add_per_sfc': CONTAM_SNOW_FEATURES},
+    'reduced':         None,
+    'no_xco2':         {'add_per_sfc': CONTAM_SNOW_FEATURES, 'drop': XCO2_FEATURES},
+    'no_spec':         {'add_per_sfc': CONTAM_SNOW_FEATURES, 'drop': SPEC_FEATURES},
+    'no_xco2_and_spec': {'add_per_sfc': CONTAM_SNOW_FEATURES, 'drop': XCO2_FEATURES | SPEC_FEATURES},
     'full_fitqual':    {'add': FITQUAL_FEATURES},
     'full_contam':     {'add_per_sfc': CONTAM_FEATURES},
     'full_contam_snow': {'add_per_sfc': CONTAM_SNOW_FEATURES},
+    'full_kappa':      {'add_per_sfc': CONTAM_SNOW_FEATURES, 'add': KAPPA_FEATURES},
 }
 
 
@@ -505,27 +527,29 @@ def _resolve_feature_set(qt_features: list, feature_set: str,
                          sfc_type: 'int | None' = None) -> list:
     """Return qt_features with the named ablation applied (order preserved).
 
-    'drop' specs remove features; 'add' / 'add_per_sfc' specs append continuous
-    features not already present (the appended columns must exist in the dataframe
-    at fit time).  'add_per_sfc' selects the append list by ``sfc_type``.
+    A spec may combine appends and a drop.  Appends run first: 'add' appends the
+    same features for both surfaces, 'add_per_sfc' selects the append list by
+    ``sfc_type`` (appended columns must exist in the dataframe at fit time).  A
+    'drop' set then removes features (including any just appended).  ``None`` is a
+    sentinel leaving the base list unchanged.
     """
     if feature_set not in _FEATURE_SETS:
         raise ValueError(
             f"feature_set must be one of {sorted(_FEATURE_SETS)}, got {feature_set!r}"
         )
     spec = _FEATURE_SETS[feature_set]
-    if spec is None:                      # 'full' — unchanged
+    if spec is None:                      # sentinel — base list unchanged
         return list(qt_features)
-    if 'drop' in spec:
-        drop = spec['drop']
-        return [f for f in qt_features if f not in drop]
+    result = list(qt_features)
     if 'add_per_sfc' in spec:             # per-surface append
         add_src = spec['add_per_sfc'].get(sfc_type, []) if sfc_type is not None else []
-        add = [f for f in add_src if f not in qt_features]
-        return list(qt_features) + add
-    # 'add' — append features not already in the base list
-    add = [f for f in spec['add'] if f not in qt_features]
-    return list(qt_features) + add
+        result += [f for f in add_src if f not in result]
+    if 'add' in spec:                     # append (both surfaces)
+        result += [f for f in spec['add'] if f not in result]
+    if 'drop' in spec:                    # remove named group(s)
+        drop = spec['drop']
+        result = [f for f in result if f not in drop]
+    return result
 
 # Features with heavy right tails (orders-of-magnitude spread) that benefit
 # from log1p compression before the scaler. Covers all possible AOD components
@@ -535,6 +559,9 @@ _LOG1P_FEATURES = frozenset([
     'aod_total', 'aod_bc',
     'aod_dust', 'aod_ice', 'aod_water',
     'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate',
+    # gamma shape κ = k1²/k2 spans ~24 orders of magnitude — log-compress so the
+    # NN/TabM scalers are not dominated by k2→0 outliers (harmless for XGBoost).
+    'o2a_kappa', 'wco2_kappa', 'sco2_kappa',
 ])
 
 
@@ -741,9 +768,12 @@ class FeaturePipeline:
             features (land: PC1/PC4/PC8; ocean: PC3/PC6).  Compatible with
             all model types; for FT-Transformer this is the only PCA mode.
         feature_set : named ablation set selecting which continuous features
-            survive: 'full' (default, no drop), 'no_xco2' (drop
-            xco2_raw_minus_apriori), or 'no_spec' (drop k1/k2/k3 and
-            exp_intercept / exp_intercept-alb).  See _FEATURE_SETS.  The
+            survive.  'full' (default) is base + per-surface contamination +
+            land snow_flag (the old 'full_contam_snow').  'reduced' is the bare
+            base features (the old 'full').  'no_xco2' / 'no_spec'
+            / 'no_xco2_and_spec' start from this new full and drop
+            xco2_raw_minus_apriori / the k1-k3 + exp_intercept spectroscopy
+            group / both.  See _FEATURE_SETS.  The
             resulting ``n_features`` / ``features`` remain the single
             authoritative source — callers must never hard-code feature counts.
 
@@ -919,9 +949,12 @@ def main():
                              '(land: PC1/PC4/PC8; ocean: PC3/PC6).')
     parser.add_argument('--feature-set', default='full',
                         choices=sorted(_FEATURE_SETS),
-                        help="Feature ablation set: 'full' (default), 'no_xco2' "
-                             "(drop xco2_raw_minus_apriori), or 'no_spec' (drop "
-                             "k1/k2/k3 + exp_intercept/exp_intercept-alb).")
+                        help="Feature ablation set. 'full' (default) = base + "
+                             "per-surface contamination + land snow_flag. "
+                             "'reduced' = bare base features (the old 'full'). "
+                             "'no_xco2'/'no_spec'/'no_xco2_and_spec' drop "
+                             "xco2_raw_minus_apriori / k1-k3+exp_intercept / both "
+                             "from the new full.")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,

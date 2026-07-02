@@ -617,7 +617,7 @@ _CROSS_BAND_PAIRS = [
     ('sco2', 'o2a',  'SCO₂/O₂A'),
     ('sco2', 'wco2', 'SCO₂/WCO₂'),
 ]
-# (column prefix, row label) — must match fitting_correction.py naming
+# (column prefix, row label) — must match build_feature_dataset.py naming
 _CROSS_BAND_QUANTITIES = [
     ('alb',               'albedo ratio',          'C0'),
     ('exp_int',           'exp_intercept ratio',   'C1'),
@@ -630,7 +630,7 @@ def plot_cross_band_ratio_profiles(df, bins, labels, outdir):
 
     3×3 grid — rows: quantity (albedo, exp_intercept, exp_intercept − alb);
     cols: band pair (WCO₂/O₂A, SCO₂/O₂A, SCO₂/WCO₂).  Reads the precomputed
-    `{prefix}_{num}_over_{den}` columns from fitting_correction.py; isolates
+    `{prefix}_{num}_over_{den}` columns from build_feature_dataset.py; isolates
     band-to-band shape changes a single-band profile cannot reveal.
     """
     cols = {f'{pfx}_{num}_over_{den}'

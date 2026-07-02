@@ -792,6 +792,102 @@ def plot_orbit_fitting_examples(od, fit_orders, output_dir):
             plot_done[tag] = True
 
 
+# ─── Atmospheric-profile extraction (L2 Met + CO2Prior) ─────────────────────────
+# Records the RAW native-grid profiles (72 GEOS levels) plus the per-sounding
+# pressure grid and surface pressure.  The resampling onto a common sigma = P/Psurf
+# grid (and PCA compression) is done downstream in analysis/build_feature_dataset.py,
+# so the choice of vertical grid can change without re-running the expensive
+# spectral fit.  All arrays are aligned to the orbit's sounding order.
+
+def _read_profile_source(h5file, sid_key, profile_specs, scalar_specs):
+    """Read sounding_id + requested profile/scalar datasets from an L2 granule.
+
+    Returns (sid_index {sid -> flat row}, {name: [M, 72] array}, {name: [M] array}).
+    All (frame, footprint, ...) arrays are flattened to (M, ...) with M = frame*8.
+    """
+    with h5py.File(h5file, "r") as f:
+        sid = f[sid_key][...].astype(np.int64).reshape(-1)
+        profiles = {name: f[path][...].reshape(sid.size, -1) for name, path in profile_specs.items()}
+        scalars  = {name: f[path][...].reshape(-1) for name, path in scalar_specs.items()}
+    sid_index = {int(s): i for i, s in enumerate(sid)}
+    return sid_index, profiles, scalars
+
+
+def load_profile_data(met_file, cpr_file, sounding_ids):
+    """Extract raw T / specific-humidity / CO2-prior profiles + tropopause info.
+
+    Profiles are kept on their native 72-level GEOS grid; the pressure grid and
+    surface pressure are returned alongside so build_feature_dataset.py can resample
+    onto a sigma grid.  All arrays are aligned to ``sounding_ids`` (orbit order),
+    NaN where a sounding is not matched in the granule.
+
+    Met and CO2Prior share the same pressure grid for a given sounding (identical
+    ``sounding_id`` and GEOS source), so a single ``p_profile`` (from Met) is
+    returned and used for all three profiles downstream.
+
+    Returns a dict of per-sounding arrays (N = len(sounding_ids)):
+        t_profile, q_profile, co2prior_profile, p_profile : [N, 72]
+            temperature (K), specific humidity (kg/kg), CO2 prior (mol/mol),
+            pressure grid (Pa)
+        psurf_met           : [N]  (Pa)  — surface pressure (for sigma = P/Psurf)
+        tropopause_pressure : [N]  (Pa)  — blended tropopause pressure
+        tropopause_temp     : [N]  (K)
+    """
+    sids = np.asarray(sounding_ids, dtype=np.int64)
+    N = len(sids)
+
+    # L2 Met: temperature + specific-humidity profiles, pressure grid, surface
+    # pressure, and tropopause scalars.
+    met_idx, met_prof, met_scal = _read_profile_source(
+        met_file, "SoundingGeometry/sounding_id",
+        profile_specs={
+            "T": "Meteorology/temperature_profile_met",
+            "Q": "Meteorology/specific_humidity_profile_met",
+            "P": "Meteorology/vector_pressure_levels_met",
+        },
+        scalar_specs={
+            "psurf":  "Meteorology/surface_pressure_met",
+            "trop_p": "Meteorology/blended_tropopause_pressure_met",
+            "trop_t": "Meteorology/tropopause_temperature_met",
+        },
+    )
+    # L2 CO2Prior: CO2 prior profile (on the matching pressure grid).
+    cpr_idx, cpr_prof, _ = _read_profile_source(
+        cpr_file, "SoundingGeometry/sounding_id",
+        profile_specs={"C": "CO2Prior/co2_prior_profile_cpr"},
+        scalar_specs={},
+    )
+
+    n_lev = met_prof["P"].shape[1]
+    met_rows = np.fromiter((met_idx.get(int(s), -1) for s in sids), dtype=np.int64, count=N)
+    cpr_rows = np.fromiter((cpr_idx.get(int(s), -1) for s in sids), dtype=np.int64, count=N)
+    m_ok, c_ok = met_rows >= 0, cpr_rows >= 0
+
+    out = {
+        "t_profile":           np.full((N, n_lev), np.nan, dtype=np.float32),
+        "q_profile":           np.full((N, n_lev), np.nan, dtype=np.float32),
+        "co2prior_profile":    np.full((N, n_lev), np.nan, dtype=np.float32),
+        "p_profile":           np.full((N, n_lev), np.nan, dtype=np.float32),
+        "psurf_met":           np.full(N, np.nan, dtype=np.float32),
+        "tropopause_pressure": np.full(N, np.nan, dtype=np.float32),
+        "tropopause_temp":     np.full(N, np.nan, dtype=np.float32),
+    }
+    if m_ok.any():
+        mr = met_rows[m_ok]
+        out["t_profile"][m_ok] = met_prof["T"][mr]
+        out["q_profile"][m_ok] = met_prof["Q"][mr]
+        out["p_profile"][m_ok] = met_prof["P"][mr]
+        out["psurf_met"][m_ok]           = met_scal["psurf"][mr]
+        out["tropopause_pressure"][m_ok] = met_scal["trop_p"][mr]
+        out["tropopause_temp"][m_ok]     = met_scal["trop_t"][mr]
+    if c_ok.any():
+        out["co2prior_profile"][c_ok] = cpr_prof["C"][cpr_rows[c_ok]]
+
+    logger.info("load_profile_data: matched %d/%d Met, %d/%d CO2Prior soundings (%d levels)",
+                int(m_ok.sum()), N, int(c_ok.sum()), N, n_lev)
+    return out
+
+
 # ─── Orbit orchestration ───────────────────────────────────────────────────────
 
 def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=True):
@@ -959,6 +1055,12 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     weighted_cld_idx = shared_data.get("weighted_cld_dist_index", {})
     fp_weighted_cld_dist = np.array([weighted_cld_idx.get(int(sid), np.nan) for sid in od["sounding_id"]])
 
+    # ── 5b. Atmospheric profiles (L2 Met + CO2Prior) on the sigma grid ────────
+    logger.info(f"[{orbit_id}] Extracting atmospheric profiles (sigma grid)...")
+    profiles = load_profile_data(
+        sat[orbit_id]["oco_met"], sat[orbit_id]["oco_co2prior"], od["sounding_id"],
+    )
+
     # ── 6. XCO2 anomaly (vectorised lat-window) ────────────────────────────
     logger.info(f"[{orbit_id}] Computing XCO2 anomalies...")
     anomaly_args = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
@@ -1115,6 +1217,18 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "tcwv":        _lite("tcwv"),
         "operation_mode": _lite("operation_mode"),
         "water_height": _lite("water_height"),
+        # Tropopause (L2 Met) — pressure (Pa) and temperature (K).  Normalised
+        # (sigma) tropopause is derived from these + psurf in build_feature_dataset.py.
+        "tropopause_pressure": profiles["tropopause_pressure"],
+        "tropopause_temp":     profiles["tropopause_temp"],
+        # Raw native-grid atmospheric profiles (72 GEOS levels) + pressure grid
+        # (Pa) and Met surface pressure (Pa).  Resampled to a sigma grid + PCA
+        # compressed downstream in build_feature_dataset.py.
+        "t_profile":        profiles["t_profile"],
+        "q_profile":        profiles["q_profile"],
+        "co2prior_profile": profiles["co2prior_profile"],
+        "p_profile":        profiles["p_profile"],
+        "psurf_met":        profiles["psurf_met"],
         # Spectral-fit-quality diagnostics (Tier-A candidate features for the
         # cloud-contamination tail; see TABM_PLAN "New-feature investigation").
         "chi2_o2a":     _lite("chi2_o2a"),

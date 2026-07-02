@@ -252,7 +252,7 @@ def main():
     df = _ensure_derived_features(df)
     target_col = resolve_target_col(args.target)
     if target_col not in df.columns:
-        raise ValueError(f"Target column '{target_col}' not in parquet; regenerate the combined parquet (spectral/fitting.py + fitting_correction.py) or pass --target 10km.")
+        raise ValueError(f"Target column '{target_col}' not in parquet; regenerate the combined parquet (spectral/fitting.py + build_feature_dataset.py) or pass --target 10km.")
     df = filter_target_outliers(df, target_col=target_col)
 
     # ── Split RAW first, fit pipeline on train only ────────────────────────────
