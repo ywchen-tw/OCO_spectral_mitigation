@@ -101,7 +101,11 @@ for DATE in "${DATES[@]}"; do
 #SBATCH --account=blanca-airs
 #SBATCH --qos=preemptable
 
-module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
+module load git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
+# This job is submitted from the launcher (non-login shell / compute node), so it
+# does NOT inherit an interactive shell's conda setup and the \`anaconda\` module is
+# not resolvable here.  Initialise conda directly from the base install instead.
+source /projects/yuch8913/software/anaconda/etc/profile.d/conda.sh
 conda activate data
 # Prepend conda's libs so netCDF4/h5py loads the conda-compiled libhdf5 rather
 # than the one injected by \`module load hdf5/...\` (ABI mismatch → NC_EHDF -101).
