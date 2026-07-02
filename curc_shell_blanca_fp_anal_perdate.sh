@@ -3,31 +3,30 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
 #SBATCH --ntasks-per-node=8
-#SBATCH --time=6:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
 #SBATCH --output=sbatch-output_%x_%A_%a.txt
-#SBATCH --job-name=bfd
+#SBATCH --job-name=oco_fp_anal
 #SBATCH --account=blanca-airs
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
 #SBATCH --requeue
 
-# PER-DATE ARRAY JOB for the feature-dataset build (build_feature_dataset.py).
+# PER-DATE ARRAY JOB for spectral fitting (src/spectral/fitting.py).
 #
 # Dual-mode, so the array range always matches the active date list — no manual
 # --array bookkeeping.  Run it on a LOGIN node:
-#     bash curc_shell_blanca_build_feature_dataset_perdate.sh
+#     bash curc_shell_blanca_fp_anal_perdate.sh
 # In this "controller" pass it counts the active dates and resubmits ITSELF as a
-# job array (--array=0-(N-1)%MAX_JOBS).  Each array task then builds ONE date's
-# parquet (results/csv_collection/combined_<date>_all_orbits.parquet) via
-# `python src/analysis/build_feature_dataset.py --date ...`.
+# job array (--array=0-(N-1)%MAX_JOBS).  Each array task then fits ONE date
+# (DATES[$SLURM_ARRAY_TASK_ID]) via `python src/spectral/fitting.py --date ...`,
+# re-running the standard `module load ... anaconda` / `conda activate` block so
+# it works regardless of how it was launched.
 #
 # MAX_JOBS caps how many array tasks run at once (SLURM's %N throttle).
-# Prerequisite: each date's fitting_details_<date>_*.h5 must already exist
-# (produced by curc_shell_blanca_fp_anal_perdate.sh).
 
-MAX_JOBS=12
+MAX_JOBS=16
 
 # ── Date sets (YYYYMMDD), same three sets as build_feature_dataset.py main() ────
 # Set 1 — 2020-only
@@ -86,13 +85,15 @@ N=${#DATES[@]}
 # ── Controller pass: not inside an array task → submit the array and exit ───────
 if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
     if [[ "$N" -eq 0 ]]; then echo "No dates selected."; exit 1; fi
-    echo "Submitting ${N} per-date build jobs (array 0-$((N - 1)), max ${MAX_JOBS} concurrent)."
+    echo "Submitting ${N} per-date fitting jobs (array 0-$((N - 1)), max ${MAX_JOBS} concurrent)."
     exec sbatch --array=0-$((N - 1))%${MAX_JOBS} "$(readlink -f "$0")"
 fi
 
-# ── Array task: build one date's parquet ────────────────────────────────────────
+# ── Array task: fit one date ────────────────────────────────────────────────────
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
 conda activate data
+# NOTE: do NOT `pip install` here — concurrent array tasks writing the same env
+# can race.  Provision pyproj/geopandas/shapely once beforehand (fp_anal.sh).
 
 # Prepend conda's libs so netCDF4/h5py loads the conda-compiled libhdf5 rather
 # than the one injected by `module load hdf5/...` (ABI mismatch → NC_EHDF -101).
@@ -108,7 +109,7 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 RAW="${DATES[$SLURM_ARRAY_TASK_ID]}"
 DATE="${RAW:0:4}-${RAW:4:2}-${RAW:6:2}"
 echo "Processing date: $DATE  (array task ${SLURM_ARRAY_TASK_ID}/${N})"
-python src/analysis/build_feature_dataset.py --date "$DATE"
+python src/spectral/fitting.py --date "$DATE" #--delete-ocofiles
 if [ $? -ne 0 ]; then
     echo "Failed to process date: $DATE"
     exit 1
