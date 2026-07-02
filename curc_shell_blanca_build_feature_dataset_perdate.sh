@@ -1,4 +1,3 @@
-
 #!/bin/env bash
 #
 # Per-date launcher for build_feature_dataset.py.
@@ -90,8 +89,6 @@ for DATE in "${DATES[@]}"; do
     fi
 
     sbatch <<EOF
-
-
 #!/bin/env bash
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
