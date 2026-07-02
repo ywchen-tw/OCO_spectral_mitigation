@@ -11,37 +11,25 @@
 #SBATCH --account=blanca-airs
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
-#SBATCH --array=0-11%12
 #SBATCH --requeue
+# NOTE: no static --array here.  The range is derived from whichever date set is
+# active (see ALL= below) and applied via self-resubmission (bootstrap block).
 
 # PER-DATE ARRAY JOB for spectral fitting (src/spectral/fitting.py).
 # Submit directly (same pattern as curc_shell_blanca_train_deep_ensemble.sh):
 #     sbatch curc_shell_blanca_fp_anal_perdate.sh
 # Each array task fits ONE date (DATES[$SLURM_ARRAY_TASK_ID]) in parallel.
 #
-# --array=0-(N-1)%MAX  — N = number of active dates, MAX = max concurrent tasks.
-#   The `%12` is your "max jobs" cap (edit it to throttle differently).  #SBATCH
-#   directives are read by sbatch BEFORE any shell runs, so this range cannot be a
-#   shell variable — it must match the active date count (this script prints it).
-#   Currently the 2020 set → 12 dates → 0-11.  When you widen the dates below,
-#   set the range to the printed "Total unique dates", or override at submit time:
+# The array RANGE is computed automatically from the active date set: the script
+# first runs as a plain (non-array) job, counts the unique dates, then resubmits
+# itself with --array=0-(N-1)%MAX_CONCURRENT.  Change the active set on the ALL=
+# line and the range follows — no #SBATCH edit needed.  MAX_CONCURRENT (below) is
+# the "max jobs at once" throttle.  You can still override at submit time:
 #     sbatch --array=0-<N-1>%<MAX> curc_shell_blanca_fp_anal_perdate.sh
+# (an explicit --array is honored and skips the auto-resubmit).
 
-module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
-conda activate data
-# NOTE: do NOT `pip install` here — concurrent array tasks writing the same env
-# can race.  Provision pyproj/geopandas/shapely once beforehand (fp_anal.sh).
-
-# Prepend conda's libs so netCDF4/h5py loads the conda-compiled libhdf5 rather
-# than the one injected by `module load hdf5/...` (ABI mismatch → NC_EHDF -101).
-if [[ "$(uname -s)" == "Linux" ]]; then
-    export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
-else
-    export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
-fi
-export HDF5_USE_FILE_LOCKING=FALSE
-
-cd /projects/yuch8913/OCO_spectral_mitigation
+# Max concurrent array tasks (the `%N` throttle).
+MAX_CONCURRENT=12
 
 # ── Date sets (YYYYMMDD), same three sets as build_feature_dataset.py main() ────
 # Set 1 — 2020-only
@@ -92,15 +80,43 @@ DATES_EVENTS=(
 # Active set(s) — union + de-duplicate (preserve first-seen order).  Currently
 # 2020 only; add the other arrays here to widen (then update --array above).
 ALL=( "${DATES_2016_2020[@]}" )
+# ALL=( "${DATES_EVENTS[@]}" )
 # ALL=( "${DATES_2020[@]}" "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
 DATES=()
 while IFS= read -r d; do DATES+=("$d"); done < <(printf '%s\n' "${ALL[@]}" | awk '!seen[$0]++')
-echo "Total unique dates: ${#DATES[@]}  (ensure --array=0-$(( ${#DATES[@]} - 1 )))"
+N=${#DATES[@]}
+echo "Total unique dates: $N"
+
+# ── Bootstrap: derive the array range from the active date set ────────────────────
+# If we're not inside an array task yet (SLURM_ARRAY_TASK_ID unset), resubmit this
+# same script as an array sized to the active date set, then exit.  This keeps the
+# --array range in sync with ALL= automatically — no #SBATCH edit needed.
+if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
+    RANGE="0-$(( N - 1 ))%${MAX_CONCURRENT}"
+    echo "Bootstrapping array job: --array=$RANGE"
+    exec sbatch --array="$RANGE" "$0"
+fi
+
+module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
+conda activate data
+# NOTE: do NOT `pip install` here — concurrent array tasks writing the same env
+# can race.  Provision pyproj/geopandas/shapely once beforehand (fp_anal.sh).
+
+# Prepend conda's libs so netCDF4/h5py loads the conda-compiled libhdf5 rather
+# than the one injected by `module load hdf5/...` (ABI mismatch → NC_EHDF -101).
+if [[ "$(uname -s)" == "Linux" ]]; then
+    export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
+else
+    export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+fi
+export HDF5_USE_FILE_LOCKING=FALSE
+
+cd /projects/yuch8913/OCO_spectral_mitigation
 
 # ── This task's date ────────────────────────────────────────────────────────────
 IDX=${SLURM_ARRAY_TASK_ID:-0}
-if [ "$IDX" -ge "${#DATES[@]}" ]; then
-    echo "Array index $IDX >= ${#DATES[@]} dates — nothing to do."
+if [ "$IDX" -ge "$N" ]; then
+    echo "Array index $IDX >= $N dates — nothing to do."
     exit 0
 fi
 RAW="${DATES[$IDX]}"
