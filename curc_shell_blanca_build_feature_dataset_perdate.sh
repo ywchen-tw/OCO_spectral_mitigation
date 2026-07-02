@@ -1,4 +1,17 @@
 #!/bin/env bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=8
+#SBATCH --ntasks-per-node=8
+#SBATCH --time=6:00:00
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
+#SBATCH --output=sbatch-output_%x_%j.txt
+#SBATCH --job-name=bfd_${DATE}
+#SBATCH --account=blanca-airs
+#SBATCH --qos=preemptable
+
+
+#!/bin/env bash
 #
 # Per-date launcher for build_feature_dataset.py.
 #
@@ -89,17 +102,7 @@ for DATE in "${DATES[@]}"; do
     fi
 
     sbatch <<EOF
-#!/bin/env bash
-#SBATCH --nodes=1
-#SBATCH --ntasks=8
-#SBATCH --ntasks-per-node=8
-#SBATCH --time=6:00:00
-#SBATCH --mail-type=FAIL
-#SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
-#SBATCH --output=sbatch-output_%x_%j.txt
-#SBATCH --job-name=bfd_${DATE}
-#SBATCH --account=blanca-airs
-#SBATCH --qos=preemptable
+
 
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
 conda activate data
