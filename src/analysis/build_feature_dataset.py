@@ -688,10 +688,10 @@ def main():
     if args.date:
         date_list = [args.date.replace('-', '')]
 
-    for date in date_list:
-        date_dt = datetime.strptime(date, '%Y%m%d')
-        print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-        raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+    # for date in date_list:
+    #     date_dt = datetime.strptime(date, '%Y%m%d')
+    #     print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+    #     raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
     # Per-date mode (SLURM launcher): build only this date's parquet and stop.
     # The multi-date combine below must run once, after ALL per-date jobs finish
