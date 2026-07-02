@@ -11,22 +11,37 @@
 #SBATCH --account=blanca-airs
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
+#SBATCH --array=0-11%12
 #SBATCH --requeue
 
 # PER-DATE ARRAY JOB for spectral fitting (src/spectral/fitting.py).
+# Submit directly (same pattern as curc_shell_blanca_train_deep_ensemble.sh):
+#     sbatch curc_shell_blanca_fp_anal_perdate.sh
+# Each array task fits ONE date (DATES[$SLURM_ARRAY_TASK_ID]) in parallel.
 #
-# Dual-mode, so the array range always matches the active date list — no manual
-# --array bookkeeping.  Run it on a LOGIN node:
-#     bash curc_shell_blanca_fp_anal_perdate.sh
-# In this "controller" pass it counts the active dates and resubmits ITSELF as a
-# job array (--array=0-(N-1)%MAX_JOBS).  Each array task then fits ONE date
-# (DATES[$SLURM_ARRAY_TASK_ID]) via `python src/spectral/fitting.py --date ...`,
-# re-running the standard `module load ... anaconda` / `conda activate` block so
-# it works regardless of how it was launched.
-#
-# MAX_JOBS caps how many array tasks run at once (SLURM's %N throttle).
+# --array=0-(N-1)%MAX  — N = number of active dates, MAX = max concurrent tasks.
+#   The `%12` is your "max jobs" cap (edit it to throttle differently).  #SBATCH
+#   directives are read by sbatch BEFORE any shell runs, so this range cannot be a
+#   shell variable — it must match the active date count (this script prints it).
+#   Currently the 2020 set → 12 dates → 0-11.  When you widen the dates below,
+#   set the range to the printed "Total unique dates", or override at submit time:
+#     sbatch --array=0-<N-1>%<MAX> curc_shell_blanca_fp_anal_perdate.sh
 
-MAX_JOBS=16
+module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
+conda activate data
+# NOTE: do NOT `pip install` here — concurrent array tasks writing the same env
+# can race.  Provision pyproj/geopandas/shapely once beforehand (fp_anal.sh).
+
+# Prepend conda's libs so netCDF4/h5py loads the conda-compiled libhdf5 rather
+# than the one injected by `module load hdf5/...` (ABI mismatch → NC_EHDF -101).
+if [[ "$(uname -s)" == "Linux" ]]; then
+    export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
+else
+    export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+fi
+export HDF5_USE_FILE_LOCKING=FALSE
+
+cd /projects/yuch8913/OCO_spectral_mitigation
 
 # ── Date sets (YYYYMMDD), same three sets as build_feature_dataset.py main() ────
 # Set 1 — 2020-only
@@ -75,40 +90,22 @@ DATES_EVENTS=(
 )
 
 # Active set(s) — union + de-duplicate (preserve first-seen order).  Currently
-# 2020 only; add the other arrays here to widen (the range auto-adjusts).
-ALL=( "${DATES_2020[@]}" )
+# 2020 only; add the other arrays here to widen (then update --array above).
+ALL=( "${DATES_2016_2020[@]}" )
 # ALL=( "${DATES_2020[@]}" "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
 DATES=()
 while IFS= read -r d; do DATES+=("$d"); done < <(printf '%s\n' "${ALL[@]}" | awk '!seen[$0]++')
-N=${#DATES[@]}
+echo "Total unique dates: ${#DATES[@]}  (ensure --array=0-$(( ${#DATES[@]} - 1 )))"
 
-# ── Controller pass: not inside an array task → submit the array and exit ───────
-if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
-    if [[ "$N" -eq 0 ]]; then echo "No dates selected."; exit 1; fi
-    echo "Submitting ${N} per-date fitting jobs (array 0-$((N - 1)), max ${MAX_JOBS} concurrent)."
-    exec sbatch --array=0-$((N - 1))%${MAX_JOBS} "$(readlink -f "$0")"
+# ── This task's date ────────────────────────────────────────────────────────────
+IDX=${SLURM_ARRAY_TASK_ID:-0}
+if [ "$IDX" -ge "${#DATES[@]}" ]; then
+    echo "Array index $IDX >= ${#DATES[@]} dates — nothing to do."
+    exit 0
 fi
-
-# ── Array task: fit one date ────────────────────────────────────────────────────
-module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
-conda activate data
-# NOTE: do NOT `pip install` here — concurrent array tasks writing the same env
-# can race.  Provision pyproj/geopandas/shapely once beforehand (fp_anal.sh).
-
-# Prepend conda's libs so netCDF4/h5py loads the conda-compiled libhdf5 rather
-# than the one injected by `module load hdf5/...` (ABI mismatch → NC_EHDF -101).
-if [[ "$(uname -s)" == "Linux" ]]; then
-    export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
-else
-    export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
-fi
-export HDF5_USE_FILE_LOCKING=FALSE
-
-cd /projects/yuch8913/OCO_spectral_mitigation
-
-RAW="${DATES[$SLURM_ARRAY_TASK_ID]}"
+RAW="${DATES[$IDX]}"
 DATE="${RAW:0:4}-${RAW:4:2}-${RAW:6:2}"
-echo "Processing date: $DATE  (array task ${SLURM_ARRAY_TASK_ID}/${N})"
+echo "Processing date: $DATE  (array task ${IDX})"
 python src/spectral/fitting.py --date "$DATE" #--delete-ocofiles
 if [ $? -ne 0 ]; then
     echo "Failed to process date: $DATE"
