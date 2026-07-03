@@ -88,8 +88,8 @@ class TabMLayer(nn.Module):
 
 
 class TabMBlock(nn.Module):
-    """Pre-activation residual block (mirrors _ResBlock in adapters.py) with
-    per-member TabMLayer inner projections and a shared skip path."""
+    """Pre-activation residual block with per-member TabMLayer inner
+    projections and a shared skip path."""
 
     def __init__(self, d: int, K: int, dropout: float):
         super().__init__()
