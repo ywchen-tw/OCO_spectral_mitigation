@@ -75,17 +75,17 @@ NFOLDS=5
 # Production loss (beta_nll, beta=1.0) + near-cloud conformal over-coverage, both
 # surfaces, +profile block.  --profile-pca is explicit (opt-in) so intent is
 # obvious in the job log.  A/B partner: de_{surface}_beta_nll_f${F} (no profile).
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_f${F} \
-    --profile-pca \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
-# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_f${F} \
+# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_f${F} \
 #     --profile-pca \
 #     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
 #     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
 #     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_f${F} \
+    --profile-pca \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Feature-set ablations (+profile) ──────────────────────────────────────────
 # Same production config, each with one feature block dropped, both surfaces.
