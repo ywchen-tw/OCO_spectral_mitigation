@@ -40,25 +40,33 @@
 # with --near_cloud_target 0.98; ocean = no snow, land = --include_snow (matches
 # the de_land_fc_snowdata baseline).  One fold per array task; 4 runs/task.
 #
+# All runs carry the vertical-profile EOF block (--profile-pca; +12 EOF PCs + 2
+# tropopause scalars auto-loaded from results/profile_pca/) and a _prof suffix so
+# they never overwrite any profile-less DE++ results.  PREREQUISITE: fit the
+# transformers first (curc_shell_blanca_profile_pca_fit.sh).
+#
 # After all folds finish (no GPU needed).  BOTH arms (homog M=10 and hetero M=10)
 # are full first-class runs — each gets a vs-production verdict, plus the matched
 # hetero-vs-homog ablation:
-#   # 1) each M=10 arm vs production DE (M=5) — the "did size/diversity help" verdict
+#   # 1) each M=10 arm vs production DE (M=5) — the "did size/diversity help" verdict.
+#   #    NOTE: DE_prod here is PROFILE-LESS, so this delta conflates profile + size/
+#   #    diversity; for the isolated profile effect compare against a _prof M=5 DE
+#   #    (de_{surface}_beta_nll_prof_f* from curc_shell_blanca_de_profile.sh).
 #   for ARM in homog hetero; do
 #     PYTHONPATH=src python -m models.aggregate_folds \
-#       --dirs "results/model_deep_ensemble/deplus_ocean_${ARM}_f*"  --label "DE++_${ARM}" \
-#       --dirs 'results/model_deep_ensemble/de_ocean_full_contam_f*' --label DE_prod \
-#       --out "results/model_comparison/deplus_${ARM}_vs_prod_ocean.md"
+#       --dirs "results/model_deep_ensemble/deplus_ocean_${ARM}_prof_f*" --label "DE++_${ARM}" \
+#       --dirs 'results/model_deep_ensemble/de_ocean_full_contam_f*'     --label DE_prod \
+#       --out "results/model_comparison/deplus_${ARM}_prof_vs_prod_ocean.md"
 #     PYTHONPATH=src python -m models.aggregate_folds \
-#       --dirs "results/model_deep_ensemble/deplus_land_${ARM}_f*"   --label "DE++_${ARM}" \
-#       --dirs 'results/model_deep_ensemble/de_land_fc_snowdata_f*'  --label DE_prod \
-#       --out "results/model_comparison/deplus_${ARM}_vs_prod_land.md"
+#       --dirs "results/model_deep_ensemble/deplus_land_${ARM}_prof_f*"  --label "DE++_${ARM}" \
+#       --dirs 'results/model_deep_ensemble/de_land_fc_snowdata_f*'      --label DE_prod \
+#       --out "results/model_comparison/deplus_${ARM}_prof_vs_prod_land.md"
 #   done
-#   # 2) heterogeneity ablation AT SCALE — hetero vs homog at matched M=10
+#   # 2) heterogeneity ablation AT SCALE — hetero vs homog at matched M=10 (+profile)
 #   for SURF in ocean land; do
 #     PYTHONPATH=src python -m models.aggregate_folds \
-#       --dirs "results/model_deep_ensemble/deplus_${SURF}_hetero_f*" --label hetero \
-#       --dirs "results/model_deep_ensemble/deplus_${SURF}_homog_f*"  --label homog \
+#       --dirs "results/model_deep_ensemble/deplus_${SURF}_hetero_prof_f*" --label hetero \
+#       --dirs "results/model_deep_ensemble/deplus_${SURF}_homog_prof_f*"  --label homog \
 #       --out "results/model_comparison/deplus_hetero_ablation_${SURF}.md"
 #   done
 # NOTE: aggregate_folds reads the alphabetically-first metrics json (de_mondrian_*),
@@ -90,16 +98,16 @@ NFOLDS=5
 # specs cycled across the 10 members (members 7-10 reuse the first 4) -> diverse
 # capacities, more decorrelation.
 ARCHS="64,32;128,64;256,128,64;96,48;160,80;64,64,32"
-COMMON="--loss beta_nll --beta 1.0 --n_members 10 --batch_size 8192 \
+COMMON="--profile-pca --loss beta_nll --beta 1.0 --n_members 10 --batch_size 8192 \
         --feature_set full --near_cloud_target 0.98 --mondrian_col cld_dist_km \
         --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}"
 
 # ── homogeneous M=10 (size-only arm; the heterogeneity-ablation control) ───────
-# python -m models.deep_ensemble --sfc_type 0 --suffix deplus_ocean_homog_f${F} ${COMMON}
-# python -m models.deep_ensemble --sfc_type 1 --suffix deplus_land_homog_f${F}  --include_snow ${COMMON}
+# python -m models.deep_ensemble --sfc_type 0 --suffix deplus_ocean_homog_prof_f${F} ${COMMON}
+# python -m models.deep_ensemble --sfc_type 1 --suffix deplus_land_homog_prof_f${F}  --include_snow ${COMMON}
 
 # ── heterogeneous M=10 (DE++; the production candidate) ────────────────────────
-# python -m models.deep_ensemble --sfc_type 0 --suffix deplus_ocean_hetero_f${F} --member_archs "${ARCHS}" ${COMMON}
-python -m models.deep_ensemble --sfc_type 1 --suffix deplus_land_hetero_f${F}  --include_snow --member_archs "${ARCHS}" ${COMMON}
+# python -m models.deep_ensemble --sfc_type 0 --suffix deplus_ocean_hetero_prof_f${F} --member_archs "${ARCHS}" ${COMMON}
+python -m models.deep_ensemble --sfc_type 1 --suffix deplus_land_hetero_prof_f${F}  --include_snow --member_archs "${ARCHS}" ${COMMON}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
