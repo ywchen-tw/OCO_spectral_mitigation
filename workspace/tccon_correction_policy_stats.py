@@ -45,10 +45,15 @@ TCCON_DIR = DATA_ROOT / 'data/TCCON'
 CACHE = DATA_ROOT / 'results/model_comparison/tccon_policy/plotdata'
 OUTDIR = DATA_ROOT / 'results/model_comparison/tccon_policy'
 
-DE_OCEAN = sorted((DATA_ROOT / 'results/model_deep_ensemble').glob('de_ocean_full_contam_f*'))
-# Land model trained WITH snow (--include_snow, arm B) — matches the production land
-# model in curc_shell_blanca_plot_corr_xco2_deepens.sh so policy stats stay consistent.
-DE_LAND = sorted((DATA_ROOT / 'results/model_deep_ensemble').glob('de_land_fc_snowdata_f*'))
+# Model globs — MUST match OCEAN_MODEL_DIRS/LAND_MODEL_DIRS in
+# curc_shell_blanca_plot_corr_xco2_deepens.sh so the policy stats use the SAME DE
+# model as the per-case plots.  Overridable via --ocean-model-glob/--land-model-glob.
+# Default: the M=5 full+profile-pca DE (de_profile.sh); snow kept by default,
+# snow_flag not a feature, so high-lat land is corrected in-domain.
+_DEF_OCEAN_GLOB = 'de_ocean_beta_nll_prof_f*'
+_DEF_LAND_GLOB  = 'de_land_beta_nll_prof_f*'
+DE_OCEAN = sorted((DATA_ROOT / 'results/model_deep_ensemble').glob(_DEF_OCEAN_GLOB))
+DE_LAND  = sorted((DATA_ROOT / 'results/model_deep_ensemble').glob(_DEF_LAND_GLOB))
 XGB_OCEAN = sorted((DATA_ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_ocean_f*'))
 XGB_LAND = sorted((DATA_ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_land_f*'))
 
@@ -221,7 +226,27 @@ def main():
     ap.add_argument('--window-min', type=float, default=60.0)
     ap.add_argument('--force', action='store_true', help="rebuild plot_data cache")
     ap.add_argument('--limit', type=int, default=None, help="first N runnable cases")
+    ap.add_argument('--model-tag', default='',
+                    help="namespace outputs + cache under tccon_policy/<tag>/ so DE "
+                         "model versions don't overwrite each other (match the plot "
+                         "script's MODEL_TAG).")
+    ap.add_argument('--ocean-model-glob', default=_DEF_OCEAN_GLOB,
+                    help="glob (under results/model_deep_ensemble) for the ocean DE folds.")
+    ap.add_argument('--land-model-glob', default=_DEF_LAND_GLOB,
+                    help="glob (under results/model_deep_ensemble) for the land DE folds.")
     args = ap.parse_args()
+
+    # Resolve model folds + namespace paths by --model-tag (reassign module globals
+    # used by build_plotdata()/main()).
+    global DE_OCEAN, DE_LAND, CACHE, OUTDIR
+    mdir = DATA_ROOT / 'results/model_deep_ensemble'
+    DE_OCEAN = sorted(mdir.glob(args.ocean_model_glob))
+    DE_LAND  = sorted(mdir.glob(args.land_model_glob))
+    if args.model_tag:
+        OUTDIR = DATA_ROOT / 'results/model_comparison/tccon_policy' / args.model_tag
+        CACHE  = OUTDIR / 'plotdata'
+    print(f"DE ocean folds: {len(DE_OCEAN)} ({args.ocean_model_glob}); "
+          f"land folds: {len(DE_LAND)} ({args.land_model_glob}); out → {OUTDIR}")
     OUTDIR.mkdir(parents=True, exist_ok=True)
 
     cases = parse_cases()

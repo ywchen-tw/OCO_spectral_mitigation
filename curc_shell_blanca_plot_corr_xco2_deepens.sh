@@ -54,25 +54,26 @@ DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 
 # ─── model (deep-ensemble fold dirs; per-surface) ─────────────────────────────
-# Pool ALL folds (f0..f4) → cross-fold ensemble: mu = mean of 50 members
-# (5 folds × M=10), sigma = total predictive std (each fold transformed by its
+# Pool ALL folds (f0..f4) → cross-fold ensemble: mu = mean of 25 members
+# (5 folds × M=5), sigma = total predictive std (each fold transformed by its
 # own scaler).
-# M=10 HOMOGENEOUS deep ensemble + the vertical-profile EOF block (--profile-pca:
-# 12 EOF PCs of the sigma-grid T/q/CO2-prior profiles + 2 tropopause scalars,
-# appended to the `full` feature set — embedded in each fold's pipeline pkl, so no
-# extra build flag is needed).  Profile is a large near-cloud-tail win (global ΔR²
-# ocean +0.033 / land +0.148; land near-cloud bottom-5% R² 0.45→0.76) — see
-# results/model_comparison/de_{ocean,land}_profile_ab.md.  Homogeneous M=10 ties
-# heterogeneous at scale, so use homogeneous (deplus_hetero_ablation_*.md).
-# Land model trained WITH snow footprints (--include_snow) but NO snow_flag feature
-# (dropped in the 2026-07 feature-set simplification): snow rows kept in training so
-# high-latitude/snow land footprints are corrected in-domain instead of flagged OOD.
-# Ocean has no snow → unchanged.
+# M=5 deep ensemble + the vertical-profile EOF block (--profile-pca: 12 EOF PCs of
+# the sigma-grid T/q/CO2-prior profiles + 2 tropopause scalars, appended to the
+# `full` feature set — embedded in each fold's pipeline pkl, so no extra build flag
+# is needed).  This is the production M=5 DE from curc_shell_blanca_de_profile.sh.
+# Profile is a large near-cloud-tail win (global ΔR² ocean +0.033 / land +0.148;
+# land near-cloud bottom-5% R² 0.45→0.76) — see de_{ocean,land}_profile_ab.md.
+# Snow: both surfaces KEEP snow footprints (CLI default; --exclude_snow would drop
+# them), and snow_flag is NOT a feature (dropped in the 2026-07 simplification) —
+# so high-latitude/snow land is corrected in-domain, not flagged OOD.
 # PREREQUISITE: input parquets must carry the sigma-grid profile + tropopause
 # columns (build via curc_shell_blanca_build_feature_dataset_perdate.sh) or the
 # profile-PCA transform in build_deepens_plot_data.py raises KeyError.
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/deplus_ocean_homog_prof_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/deplus_land_homog_prof_f*)
+# MODEL_TAG names the model version; it namespaces OUT_BASE so different DE
+# versions never overwrite each other's plot outputs.
+MODEL_TAG=de_beta_nll_prof_m5
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_f*)
 
 # ─── cloud classifier (xgb_cloud fold dirs; per-surface) ──────────────────────
 # When set, build_deepens_plot_data.py also emits P(near) and the two extra
@@ -83,7 +84,9 @@ OCEAN_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_ocean_f*)
 LAND_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_land_f*)
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
-OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble
+# OUT_BASE is namespaced by MODEL_TAG so each DE model version writes to its own
+# tree (e.g. .../deep_ensemble/de_beta_nll_prof_m5/combined_<date>_<site>/).
+OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${MODEL_TAG}
 
 # ─── TCCON collocation knobs (shared by per-case plot + aggregate reports) ─────
 # Keep these in sync across plot_corrected_xco2.py, tccon_comparison_report.py,
@@ -367,15 +370,23 @@ python workspace/tccon_comparison_report.py \
 
 
 # (8) correction-policy stats (uncorrected vs full_mu vs lat-gates; rebuilds its own plotdata cache)
+#     --model-tag namespaces its cache + outputs under tccon_policy/${MODEL_TAG}/ and
+#     the *-model-glob args pin it to the SAME DE model as the per-case plots.
+POLICY_DIR="$DATA_ROOT"/results/model_comparison/tccon_policy/${MODEL_TAG}
 echo ""
 echo "############ AGGREGATE: tccon_correction_policy_stats ############"
 python workspace/tccon_correction_policy_stats.py \
-    --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN"
+    --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN" \
+    --model-tag "$MODEL_TAG" \
+    --ocean-model-glob 'de_ocean_beta_nll_prof_f*' \
+    --land-model-glob  'de_land_beta_nll_prof_f*'
 
 # (9) lat-gate ON vs OFF figures (reads tccon_policy_station_means.csv from step 8)
 #     Both the all-station figure and the excl-Ny-Ålesund variant (the only |lat|>75
 #     station, so the gate touches nothing once it is dropped).
 echo ""
 echo "############ AGGREGATE: plot_latgate_tccon_comparison ############"
-python workspace/plot_latgate_tccon_comparison.py --lat-gate 75
-python workspace/plot_latgate_tccon_comparison.py --lat-gate 75 --exclude-sites ny
+python workspace/plot_latgate_tccon_comparison.py --lat-gate 75 \
+    --means "$POLICY_DIR/tccon_policy_station_means.csv" --output-dir "$POLICY_DIR"
+python workspace/plot_latgate_tccon_comparison.py --lat-gate 75 --exclude-sites ny \
+    --means "$POLICY_DIR/tccon_policy_station_means.csv" --output-dir "$POLICY_DIR"
