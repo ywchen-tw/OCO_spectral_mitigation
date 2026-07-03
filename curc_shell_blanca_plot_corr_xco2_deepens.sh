@@ -390,13 +390,14 @@ python workspace/tccon_correction_policy_stats.py \
     --ocean-model-glob 'de_ocean_beta_nll_prof_f*' \
     --land-model-glob  'de_land_beta_nll_prof_f*'
 
-# (9) lat-gate ON vs OFF figures (reads tccon_policy_station_means.csv from step 8)
-#     Both the all-station figure and the excl-Ny-Ålesund variant (the only |lat|>75
-#     station, so the gate touches nothing once it is dropped).  --fname-suffix stamps
-#     the radius into the figure filenames so a radius sweep's figures coexist.
+# (9) station-day original-vs-corrected comparison (reads station_means from step 8)
+#     Two variants: ALL stations, and EXCLUDING Ny-Ålesund (the sole |lat|>75 site),
+#     so the corrected-vs-uncorrected verdict is shown with and without that outlier.
+#     (The |lat|>L gate was dropped — the full correction beat it at every radius.)
+#     --fname-suffix stamps the radius so a sweep's figures coexist.
 echo ""
-echo "############ AGGREGATE: plot_latgate_tccon_comparison ############"
-python workspace/plot_latgate_tccon_comparison.py --lat-gate 75 --fname-suffix "_${RADIUS_TAG}" \
+echo "############ AGGREGATE: plot_tccon_station_comparison ############"
+python workspace/plot_tccon_station_comparison.py --fname-suffix "_${RADIUS_TAG}" \
     --means "$POLICY_DIR/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"
-python workspace/plot_latgate_tccon_comparison.py --lat-gate 75 --exclude-sites ny --fname-suffix "_${RADIUS_TAG}" \
+python workspace/plot_tccon_station_comparison.py --exclude-sites ny --fname-suffix "_${RADIUS_TAG}" \
     --means "$POLICY_DIR/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"

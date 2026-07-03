@@ -1,4 +1,4 @@
-"""tccon_correction_policy_stats.py — compare 3 correction policies vs TCCON.
+"""tccon_correction_policy_stats.py — uncorrected vs corrected XCO2 vs TCCON.
 
 For each `run_case` in curc_shell_blanca_plot_corr_xco2_deepens.sh that has a local
 parquet + TCCON file, this builds the deep-ensemble + xgb-cloud corrections (via
@@ -10,13 +10,13 @@ It then compares, per footprint and pooled across all cases, how close each
 corrected XCO2 is to the coincident TCCON window-mean:
 
   uncorrected   xco2_bc
-  full_mu       xco2_bc - mu                 (current correction)
-  latgate{L}    xco2_bc - mu*1[|lat|<=L]     (skip correction at |lat| > L)
+  full_mu       xco2_bc - mu                 (the deep-ensemble correction)
 
-No dependency on the parquet truth anomaly (xco2_bc_anomaly); footprints are kept
-by a sane band around the station only.
+(The |lat|>L lat-gate scenarios were dropped — the radius sweep showed the full
+correction beats the gate at every radius.)  No dependency on the parquet truth
+anomaly (xco2_bc_anomaly); footprints are kept by a sane band around the station.
 
-Outputs: a per-case CSV and a pooled-footprint summary (overall + latitude bands).
+Outputs: a per-case CSV and a pooled-footprint summary (overall + near/far cloud).
 
 Run: PYTHONPATH=src python workspace/tccon_correction_policy_stats.py
 """
@@ -57,14 +57,11 @@ DE_LAND  = sorted((DATA_ROOT / 'results/model_deep_ensemble').glob(_DEF_LAND_GLO
 XGB_OCEAN = sorted((DATA_ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_ocean_f*'))
 XGB_LAND = sorted((DATA_ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_land_f*'))
 
-# Latitude gates: skip the correction where |lat| > L (degrees), N and S.
-LAT_GATES = (80.0, 75.0, 70.0)
-
-# scenario label -> column in plot_data (lat-gate columns are derived in match_case)
+# scenario label -> column in plot_data.  (The |lat|>L lat-gate scenarios were
+# dropped — the radius sweep showed the full correction beats the gate everywhere.)
 SCEN = {
     'uncorrected': 'xco2_bc',
     'full_mu': 'deep_ensemble_corrected_xco2',
-    **{f'latgate{int(L)}': f'latgate{int(L)}' for L in LAT_GATES},
 }
 GATE = {0: 5.0, 1: 15.0}   # per-surface near-cloud threshold (km)
 
@@ -194,12 +191,6 @@ def match_case(case, plotdata, radius_km=100.0, window_min=60.0):
     near['site'] = Path(case['tccon']).name[:2]
     near['gate_km'] = near['sfc_type'].map(GATE)
     near['is_near_cloud'] = near['cld_dist_km'].le(near['gate_km'])
-    # latitude-gated corrections: apply mu only where |lat| <= L
-    xb = near['xco2_bc'].to_numpy(float)
-    mu = near['pred_anomaly'].to_numpy(float)
-    alat = near['lat'].abs().to_numpy(float)
-    for L in LAT_GATES:
-        near[f'latgate{int(L)}'] = xb - np.where(alat <= L, mu, 0.0)
     return near
 
 
@@ -275,11 +266,10 @@ def main():
             print("  no coincident TCCON / no footprints in radius — skipped")
             continue
         st = _stats(near)
-        nhi = int((near['lat'].abs() > min(LAT_GATES)).sum())
-        print(f"  {len(near):,} footprints ≤{args.radius_km:g}km ({nhi} with |lat|>{int(min(LAT_GATES))}), "
+        print(f"  {len(near):,} footprints ≤{args.radius_km:g}km, "
               f"TCCON_ref={near['tccon_ref'].iloc[0]:.2f}ppm  | bias: "
               + "  ".join(f"{k}={st[k]['bias']:+.2f}" for k in
-                          ('uncorrected', 'full_mu', f'latgate{int(min(LAT_GATES))}') if k in st))
+                          ('uncorrected', 'full_mu') if k in st))
         for name, s in st.items():
             per_case.append(dict(date=c['date'], site=near['site'].iloc[0],
                                  surf=c['surf'], scenario=name, **s))
@@ -306,12 +296,11 @@ def main():
         for name, s in _stats(frame).items():
             out.append(dict(subset=label, scenario=name, **s))
         return out
-    alat = allfp['lat'].abs()
     summary = []
     summary += summarize(allfp, 'all')
-    for L in LAT_GATES:
-        summary += summarize(allfp[alat > L], f'lat>{int(L)}')
-    summary += summarize(allfp[alat <= min(LAT_GATES)], f'lat<={int(min(LAT_GATES))}')
+    if 'is_near_cloud' in allfp:
+        summary += summarize(allfp[allfp['is_near_cloud']], 'near_cloud')
+        summary += summarize(allfp[~allfp['is_near_cloud'].astype(bool)], 'far_cloud')
     sdf = pd.DataFrame(summary)
     sdf.to_csv(OUTDIR / f'tccon_policy_pooled_summary{sfx}.csv', index=False)
 
