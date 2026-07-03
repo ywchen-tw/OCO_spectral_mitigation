@@ -172,6 +172,13 @@ def main():
                     tmu = float(sub['xco2'].mean()); tsd = float(sub['xco2'].std()); n_tc = len(sub)
         raw_mu = np.nanmean(raw) if has_raw else np.nan
         raw_sd = np.nanstd(raw) if has_raw else np.nan
+        # Per-FOOTPRINT RMSE to the TCCON window-mean: sqrt(mean((fp - tmu)^2)).
+        # Unlike |mean bias| this penalises within-case scatter too (bias^2 + var),
+        # so a scatter-reducing correction shows up even when the mean is unchanged.
+        rmse_before = float(np.sqrt(np.nanmean((orig - tmu) ** 2))) if n_tc else np.nan
+        rmse_after  = float(np.sqrt(np.nanmean((corr - tmu) ** 2))) if n_tc else np.nan
+        rmse_raw    = (float(np.sqrt(np.nanmean((raw - tmu) ** 2)))
+                       if (n_tc and has_raw) else np.nan)
         rows.append(dict(
             site=site, date=c['date'], n_oco=len(near), n_tccon=n_tc,
             raw_mu=raw_mu, raw_sd=raw_sd,
@@ -181,6 +188,7 @@ def main():
             bias_raw=(raw_mu - tmu) if (n_tc and has_raw) else np.nan,
             bias_before=(np.nanmean(orig) - tmu) if n_tc else np.nan,
             bias_after=(np.nanmean(corr) - tmu) if n_tc else np.nan,
+            rmse_raw=rmse_raw, rmse_before=rmse_before, rmse_after=rmse_after,
         ))
 
     if not rows:
@@ -206,32 +214,41 @@ def main():
     site_agg = pd.DataFrame()
     if len(cmp):
         bb, ba = cmp['bias_before'].to_numpy(), cmp['bias_after'].to_numpy()
+        rb, ra = cmp['rmse_before'].to_numpy(), cmp['rmse_after'].to_numpy()
         lines += ['', '## Aggregate (cases with TCCON)', '',
                   f"- mean |bias|:  before **{np.nanmean(np.abs(bb)):.2f}** → after **{np.nanmean(np.abs(ba)):.2f}** ppm",
                   f"- RMS bias:    before **{np.sqrt(np.nanmean(bb**2)):.2f}** → after **{np.sqrt(np.nanmean(ba**2)):.2f}** ppm",
                   f"- mean OCO std: before **{cmp['orig_sd'].mean():.2f}** → after **{cmp['corr_sd'].mean():.2f}** ppm",
-                  f"- improved (|bias| down) in **{int((np.abs(ba)<np.abs(bb)).sum())}/{len(cmp)}** cases"]
+                  f"- mean per-footprint RMSE-to-TCCON: before **{np.nanmean(rb):.2f}** → after **{np.nanmean(ra):.2f}** ppm",
+                  f"- improved (|bias| down) in **{int((np.abs(ba)<np.abs(bb)).sum())}/{len(cmp)}** cases",
+                  f"- improved (per-footprint RMSE down) in **{int((ra<rb).sum())}/{len(cmp)}** cases"]
 
         # ── per-site aggregate ─────────────────────────────────────────────────
         c2 = cmp.copy()
         c2['abs_before'] = c2['bias_before'].abs(); c2['abs_after'] = c2['bias_after'].abs()
         c2['improved'] = c2['abs_after'] < c2['abs_before']
+        c2['improved_rmse'] = c2['rmse_after'] < c2['rmse_before']
         site_agg = (c2.groupby('site')
                     .agg(n=('date', 'size'),
                          mean_abs_bias_before=('abs_before', 'mean'),
                          mean_abs_bias_after=('abs_after', 'mean'),
+                         mean_rmse_before=('rmse_before', 'mean'),
+                         mean_rmse_after=('rmse_after', 'mean'),
                          mean_sd_before=('orig_sd', 'mean'),
                          mean_sd_after=('corr_sd', 'mean'),
-                         n_improved=('improved', 'sum'))
-                    .reset_index().sort_values('mean_abs_bias_after'))
+                         n_improved=('improved', 'sum'),
+                         n_improved_rmse=('improved_rmse', 'sum'))
+                    .reset_index().sort_values('mean_rmse_after'))
         site_agg.to_csv(P_SITE_CSV, index=False)
-        lines += ['', '## Per-site aggregate (cases with TCCON, sorted by post-correction |bias|)', '',
-                  '| site | n | mean \\|bias\\| before | after | mean σ before | after | improved |',
-                  '|---|--:|--:|--:|--:|--:|--:|']
+        lines += ['', '## Per-site aggregate (cases with TCCON, sorted by post-correction RMSE)', '',
+                  '| site | n | mean \\|bias\\| before | after | mean RMSE before | after | mean σ before | after | \\|bias\\|↓ | RMSE↓ |',
+                  '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|']
         for _, s in site_agg.iterrows():
             lines.append(f"| {s['site']} | {int(s['n'])} | {s['mean_abs_bias_before']:.2f} | "
-                         f"**{s['mean_abs_bias_after']:.2f}** | {s['mean_sd_before']:.2f} | "
-                         f"{s['mean_sd_after']:.2f} | {int(s['n_improved'])}/{int(s['n'])} |")
+                         f"**{s['mean_abs_bias_after']:.2f}** | {s['mean_rmse_before']:.2f} | "
+                         f"**{s['mean_rmse_after']:.2f}** | {s['mean_sd_before']:.2f} | "
+                         f"{s['mean_sd_after']:.2f} | {int(s['n_improved'])}/{int(s['n'])} | "
+                         f"{int(s['n_improved_rmse'])}/{int(s['n'])} |")
     P_MD.write_text('\n'.join(lines) + '\n')
     print('\n'.join(lines))
 
@@ -312,14 +329,19 @@ def main():
                      capsize=3, capthick=0.8, markeredgecolor='black',
                      markeredgewidth=0.6, label='after', zorder=4)
         axB.axvline(0, color='k', lw=1)
-        # annotation box: mean ± std of the per-case bias for each series
+        # annotation box: per-case bias (mean ± std) AND mean per-footprint
+        # RMSE-to-TCCON for each series — RMSE captures scatter the |bias| misses.
         _btxt = []
-        for _lbl, _col in (('raw', 'bias_raw'), ('before', 'bias_before'), ('after', 'bias_after')):
+        for _lbl, _col, _rcol in (('raw', 'bias_raw', 'rmse_raw'),
+                                  ('before', 'bias_before', 'rmse_before'),
+                                  ('after', 'bias_after', 'rmse_after')):
             if _col == 'bias_raw' and not has_raw:
                 continue
             _b = cmp[_col].to_numpy(float); _b = _b[np.isfinite(_b)]
+            _r = cmp[_rcol].to_numpy(float); _r = _r[np.isfinite(_r)]
             if _b.size:
-                _btxt.append(f"{_lbl}:  {np.mean(_b):+.2f} ± {np.std(_b):.2f}")
+                _rtxt = f"   RMSE {np.mean(_r):.2f}" if _r.size else ""
+                _btxt.append(f"{_lbl}:  bias {np.mean(_b):+.2f} ± {np.std(_b):.2f}{_rtxt}")
         if _btxt:
             axB.text(0.04, 0.96, '\n'.join(_btxt), transform=axB.transAxes,
                      va='top', ha='left', fontsize=10,
