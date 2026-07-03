@@ -675,6 +675,115 @@ def filter_target_outliers(df: pd.DataFrame, max_abs_ppm: float = MAX_ABS_ANOMAL
     return df[~drop]
 
 
+def _compute_anomaly_group(idx_list, fp_lat, cld_dist_km, xco2,
+                           lat_thres, std_thres, min_cld_dist, chunk_size):
+    """Compute XCO2 anomaly for a single (date, orbit_id) group.
+
+    Top-level function so joblib can pickle it for parallel dispatch.
+
+    Returns
+    -------
+    (idx, anomaly_vals) : indices into the original array and their anomaly values
+    """
+    idx    = np.array(idx_list)
+    g_lat  = fp_lat[idx]
+    g_dist = cld_dist_km[idx]
+    g_xco2 = xco2[idx]
+    M      = len(idx)
+
+    valid_lat  = ~np.isnan(g_lat)
+    clear_mask = valid_lat & (g_dist > min_cld_dist)
+
+    ref_lat  = np.where(clear_mask, g_lat,  np.nan)
+    ref_xco2 = np.where(clear_mask, g_xco2, np.nan)
+
+    g_ref_mean = np.full(M, np.nan)
+    g_ref_std  = np.full(M, np.nan)
+
+    for start in range(0, M, chunk_size):
+        end   = min(start + chunk_size, M)
+        q_lat = g_lat[start:end]
+
+        lat_diff  = np.abs(q_lat[:, None] - ref_lat[None, :])
+        in_window = lat_diff <= lat_thres
+        xco2_win  = np.where(in_window, ref_xco2[None, :], np.nan)
+        has_refs  = in_window.any(axis=1)
+
+        c_mean = np.full(end - start, np.nan)
+        c_std  = np.full(end - start, np.nan)
+        if has_refs.any():
+            c_mean[has_refs] = np.nanmean(xco2_win[has_refs], axis=1)
+            c_std[has_refs]  = np.nanstd( xco2_win[has_refs], axis=1)
+
+        g_ref_mean[start:end] = c_mean
+        g_ref_std[start:end]  = c_std
+        del lat_diff, in_window, xco2_win
+
+    valid = valid_lat & ~np.isnan(g_ref_mean) & (g_ref_std <= std_thres)
+    return idx[valid], g_xco2[valid] - g_ref_mean[valid]
+
+
+def compute_xco2_anomaly_date_id(fp_date, fp_orbit_id, fp_lat, cld_dist_km, xco2,
+                         lat_thres=0.5, std_thres=2.0, min_cld_dist=10.0,
+                         chunk_size=512, n_jobs=-1):
+    """XCO2 anomaly relative to nearby clear-sky soundings within the same orbit.
+
+    Groups footprints by (date, orbit_id) and processes each group
+    independently, so the pairwise broadcast is O(M²) per orbit rather than
+    O(N²) over the full dataset.  Within each group every footprint already
+    shares the same date and orbit_id, so no cross-group comparisons are made.
+
+    Parameters
+    ----------
+    fp_date      : [N] footprint date (string or any equality-comparable type)
+    fp_orbit_id  : [N] orbit ID (int, str, or float)
+    fp_lat       : [N] footprint latitudes (may contain NaN)
+    cld_dist_km  : [N] nearest-cloud distance in km (may contain NaN)
+    xco2         : [N] XCO2 values (may contain NaN)
+    lat_thres    : float, half-width of latitude search window (degrees)
+    std_thres    : float, maximum allowed std of reference XCO2 (ppm)
+    min_cld_dist : float, minimum cloud distance for clear-sky reference (km)
+    chunk_size   : int, query rows per iteration within each group.
+                   Each group typically has O(1 000) rows, so the default 512
+                   usually means 1-2 iterations per group with small arrays.
+    n_jobs       : int, number of parallel workers (default: -1 = all cores).
+
+    Returns
+    -------
+    anomaly : [N] float array, NaN where reference is unavailable or noisy
+    """
+    from joblib import Parallel, delayed
+
+    fp_date     = np.asarray(fp_date)
+    fp_orbit_id = np.asarray(fp_orbit_id)
+    fp_lat      = np.asarray(fp_lat,      dtype=float)
+    xco2        = np.asarray(xco2,        dtype=float)
+    cld_dist_km = np.asarray(cld_dist_km, dtype=float)
+
+    chunk_size = int(chunk_size)
+    anomaly    = np.full(len(fp_lat), np.nan)
+
+    # Build index groups: {(date, orbit_id): [row indices]}
+    groups: dict = {}
+    for i, key in enumerate(zip(fp_date, fp_orbit_id)):
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(i)
+
+    results = Parallel(n_jobs=n_jobs, prefer='threads')(
+        delayed(_compute_anomaly_group)(
+            idx_list, fp_lat, cld_dist_km, xco2,
+            lat_thres, std_thres, min_cld_dist, chunk_size
+        )
+        for idx_list in groups.values()
+    )
+
+    for valid_idx, valid_vals in results:
+        anomaly[valid_idx] = valid_vals
+
+    return anomaly
+
+
 def _resolve_profile_pca(spec, sfc_type: int):
     """Resolve the ``profile_pca`` argument to a fitted ProfilePCA or None.
 

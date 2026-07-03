@@ -44,7 +44,7 @@ from .adapters import TabMAdapter
 from . import diagnostics as diag
 from . import conformal as cf
 # Reuse loss functions from the FT-Transformer module (imported, not duplicated).
-from .transformer import (
+from .tabm_eval import (
     huber_pinball_loss, quantile_loss, variance_penalty, mmd_loss_1d,
     plot_permutation_importance, evaluate_model_X_text, plot_evaluation_by_regime,
 )
