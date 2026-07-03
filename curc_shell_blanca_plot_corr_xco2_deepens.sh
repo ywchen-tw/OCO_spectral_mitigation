@@ -347,6 +347,14 @@ python workspace/tccon_comparison_report.py \
     --output-dir "$OUT_BASE" \
     --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN"
 
+# command for local run
+# python workspace/tccon_comparison_report.py \
+#     --script   curc_shell_blanca_plot_corr_xco2_deepens.sh \
+#     --out-base results/model_comparison/deep_ensemble \
+#     --output-dir results/model_comparison/deep_ensemble \
+#     --radius-km 100 --window-min 60
+
+
 # (8) correction-policy stats (uncorrected vs full_mu vs lat-gates; rebuilds its own plotdata cache)
 echo ""
 echo "############ AGGREGATE: tccon_correction_policy_stats ############"
