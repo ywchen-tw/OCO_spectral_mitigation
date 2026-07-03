@@ -41,7 +41,8 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, resolve_target_col
+from .pipeline import (FeaturePipeline, _ensure_derived_features, resolve_target_col,
+                       filter_target_outliers)
 from .adapters import HybridAdapter
 from .transformer import (
     UncertainFTTransformerRefined,
@@ -682,6 +683,9 @@ def main():
             f"Target column '{target_col}' not in parquet; regenerate the combined "
             f"parquet (spectral/fitting.py + build_feature_dataset.py) or pass --target 10km."
         )
+    # Default procedure: drop non-physical |anomaly|>100 ppm target outliers before
+    # fitting (they collapse R² while barely moving MAE — the land signature).
+    df = filter_target_outliers(df, target_col=target_col)
 
     # ── Pipeline: load or fit ──────────────────────────────────────────────────
     pipeline_path = output_dir / 'pipeline.pkl'

@@ -29,7 +29,8 @@ from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, resolve_target_col
+from .pipeline import (FeaturePipeline, _ensure_derived_features, resolve_target_col,
+                       filter_target_outliers)
 from .adapters import XGBoostAdapter
 from utils import get_storage_dir
 
@@ -367,6 +368,14 @@ def main():
     parser.add_argument('--no-pca-augment', dest='pca_augment', action='store_false',
                         help='Disable PCA-score augmentation.')
     parser.set_defaults(pca_augment=None)
+    parser.add_argument('--feature-set', dest='feature_set', default='full',
+                        choices=['full', 'reduced', 'no_xco2', 'no_spec', 'no_xco2_and_spec',
+                                 'full_fitqual', 'full_contam', 'full_contam_snow', 'full_kappa'],
+                        help="Feature ablation set (default 'full').")
+    parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
+                        help='Append the profile-EOF + tropopause block (ProfilePCA). Bare flag / '
+                             '"auto" loads results/model_mlp_lr/profile_pca_<surface>.pkl; or pass a '
+                             '.pkl path. Carried through every feature set → full+profile is the "new full".')
     parser.add_argument('--config', type=str, default=None,
                         help='Path to a JSON config file that overrides data/model/training '
                              'hyperparameters. Unspecified keys keep defaults.')
@@ -379,6 +388,8 @@ def main():
         run_cfg['data']['target'] = args.target
     if args.pca_augment is not None:
         run_cfg['pipeline']['pca_augment'] = bool(args.pca_augment)
+    run_cfg['pipeline']['feature_set'] = args.feature_set
+    run_cfg['pipeline']['profile_pca'] = (True if args.profile_pca == 'auto' else args.profile_pca)
     run_cfg['pipeline']['pipeline_arg'] = args.pipeline
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -416,6 +427,20 @@ def main():
     df = df[df['sfc_type'] == sfc_type]
     df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
     print(f"  Rows after filter: {len(df):,}", flush=True)
+
+    # Resolve the regression target and drop non-physical |anomaly|>100 ppm
+    # outliers up front (default procedure, as in the other trainers): a handful of
+    # fill-value / QF-escapee soundings dominate squared error and collapse R²
+    # (especially on land) while barely moving MAE.  Filtering before the pipeline
+    # fit also keeps the RobustStandardScaler statistics clean.
+    target_col = resolve_target_col(run_cfg['data'].get('target'))
+    if target_col not in df.columns:
+        raise ValueError(
+            f"Target column '{target_col}' not in parquet; regenerate the combined "
+            f"parquet (spectral/fitting.py + build_feature_dataset.py) or pass --target 10km."
+        )
+    df = filter_target_outliers(df, target_col=target_col)
+    print(f"  Rows after target-outlier filter: {len(df):,}", flush=True)
     _checkpoint("after data load + filter")
 
     # ── Pipeline: load or fit ──────────────────────────────────────────────
@@ -423,7 +448,9 @@ def main():
         pipeline = FeaturePipeline.load(args.pipeline)
     else:
         pipeline = FeaturePipeline.fit(df, sfc_type=sfc_type,
-                                       pca_augment=bool(run_cfg['pipeline']['pca_augment']))
+                                       pca_augment=bool(run_cfg['pipeline']['pca_augment']),
+                                       feature_set=run_cfg['pipeline'].get('feature_set', 'full'),
+                                       profile_pca=run_cfg['pipeline'].get('profile_pca'))
         pipeline_path = output_dir / 'pipeline.pkl'
         pipeline.save(pipeline_path)
         print(f"  Pipeline fitted and saved → {pipeline_path}", flush=True)
@@ -439,13 +466,6 @@ def main():
                 {f'fp_{i}': (df['fp'] == i).astype(np.float32) for i in missing_fp},
                 index=df.index,
             )], axis=1,
-        )
-
-    target_col = resolve_target_col(run_cfg['data'].get('target'))
-    if target_col not in df.columns:
-        raise ValueError(
-            f"Target column '{target_col}' not in parquet; regenerate the combined "
-            f"parquet (spectral/fitting.py + build_feature_dataset.py) or pass --target 10km."
         )
 
     valid_rows = ~df[target_col].isna()

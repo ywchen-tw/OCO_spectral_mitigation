@@ -29,7 +29,7 @@
 # (an explicit --array is honored and skips the auto-resubmit).
 
 # Max concurrent array tasks (the `%N` throttle).
-MAX_CONCURRENT=12
+MAX_CONCURRENT=36
 
 # ── Date sets (YYYYMMDD), same three sets as build_feature_dataset.py main() ────
 # Set 1 — 2020-only

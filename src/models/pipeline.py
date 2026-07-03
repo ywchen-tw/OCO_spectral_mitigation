@@ -510,6 +510,13 @@ KAPPA_FEATURES = ['o2a_kappa', 'wco2_kappa', 'sco2_kappa']
 # group(s).  'full_contam_snow' is kept as an explicit alias of the new 'full'.
 # 'reduced' is the OLD 'full' — the bare per-surface _FEATURE_MAP with no
 # contamination / snow additions.
+#
+# PROFILE BLOCK (profile EOFs + tropopause) is ORTHOGONAL to these sets — it is
+# not a raw column so it lives outside _FEATURE_SETS, supplied via
+# FeaturePipeline.fit(..., profile_pca=...).  When supplied it is appended to
+# EVERY set and never dropped, so `full`+profile_pca is the "new full" (active
+# features + profile EOFs + tropopause) and no_xco2/no_spec/no_xco2_and_spec
+# remove only the xco2 / spectroscopy raw features from that new full.
 _FEATURE_SETS: dict = {
     'full':            {'add_per_sfc': CONTAM_SNOW_FEATURES},
     'reduced':         None,
@@ -712,16 +719,37 @@ def filter_target_outliers(df: pd.DataFrame, max_abs_ppm: float = MAX_ABS_ANOMAL
     return df[~drop]
 
 
+def _resolve_profile_pca(spec, sfc_type: int):
+    """Resolve the ``profile_pca`` argument to a fitted ProfilePCA or None.
+
+    Accepts a ProfilePCA instance, a path (str/Path), ``True`` (load the default
+    per-surface pkl <storage>/results/model_mlp_lr/profile_pca_<surface>.pkl), or
+    None/False (no profile block).
+    """
+    if spec is None or spec is False:
+        return None
+    from .profile_pca import ProfilePCA
+    if isinstance(spec, ProfilePCA):
+        return spec
+    if spec is True:
+        from utils import get_storage_dir
+        surf = 'ocean' if sfc_type == 0 else 'land'
+        spec = get_storage_dir() / f'results/model_mlp_lr/profile_pca_{surf}.pkl'
+    return ProfilePCA.load(spec)
+
+
 class FeaturePipeline:
     """Shared feature pipeline for all XCO2 bias-correction models.
 
     Encapsulates:
     - Feature selection (sfc_type-specific continuous features)
     - QuantileTransformer fitting on continuous features
+    - Optional profile-EOF / tropopause block (ProfilePCA), standardized and
+      appended after the scaled features (see ``profile_pca`` in ``fit``)
     - fp_{0..7} one-hot encoding appended raw (not QT-transformed)
 
     The ``features`` attribute contains the full ordered list used as model
-    input: ``qt_features + fp_cols``.
+    input: ``qt_features [+ pc_names] [+ profile_names] + fp_cols``.
     """
 
     def __init__(self,
@@ -735,7 +763,10 @@ class FeaturePipeline:
                  pca_appender: 'PCAScoreAppender | None' = None,
                  pc1_col_idx: 'int | None' = None,
                  log1p_cols: 'list | None' = None,
-                 feature_set: str = 'full'):
+                 feature_set: str = 'full',
+                 profile_pca=None,
+                 profile_scaler=None,
+                 profile_names: 'list | None' = None):
         self.sfc_type    = sfc_type
         self.qt          = qt
         self.qt_features = qt_features
@@ -746,6 +777,12 @@ class FeaturePipeline:
         self.pc1_col_idx   = pc1_col_idx
         self.log1p_cols    = log1p_cols or []   # qt_feature names pre-transformed by log1p
         self.feature_set   = feature_set        # named ablation set ('full', 'no_xco2', 'no_spec')
+        # Profile-EOF/tropopause block (ProfilePCA + its own StandardScaler); None
+        # when profiles are disabled.  Orthogonal to feature_set — always carried
+        # through, never dropped by the no_xco2/no_spec ablations.
+        self.profile_pca    = profile_pca
+        self.profile_scaler = profile_scaler
+        self.profile_names  = profile_names or []
 
     # ── Construction ──────────────────────────────────────────────────────────
 
@@ -753,7 +790,8 @@ class FeaturePipeline:
     def fit(cls, df: pd.DataFrame, sfc_type: int = 1,
             scaler: str = 'robust_standard',
             pca_augment: bool = False,
-            feature_set: str = 'full') -> 'FeaturePipeline':
+            feature_set: str = 'full',
+            profile_pca=None) -> 'FeaturePipeline':
         """Fit a new pipeline on df.
 
         Parameters
@@ -776,6 +814,20 @@ class FeaturePipeline:
             group / both.  See _FEATURE_SETS.  The
             resulting ``n_features`` / ``features`` remain the single
             authoritative source — callers must never hard-code feature counts.
+        profile_pca : profile-EOF/tropopause block, ORTHOGONAL to feature_set.
+            A ProfilePCA instance, a path to a saved per-surface pkl, ``True``
+            (load the default <storage>/results/model_mlp_lr/profile_pca_<surface>.pkl),
+            or None to disable.  When supplied, the block's score columns
+            (t_pc01…, q_pc01…, co2prior_pc01…, tropopause_sigma, tropopause_temp)
+            are standardized by their own StandardScaler and appended after the
+            scaled features — and are carried through EVERY feature set: the
+            no_xco2/no_spec ablations drop only qt raw features, never profiles.
+            So `full`+profile_pca is the "new full" (active features + profile
+            EOFs + tropopause); `no_xco2`+profile_pca removes only the xco2 term
+            from it; etc.  NOTE: rows whose profiles are NaN (e.g. the 2016-2020
+            mid-month dates built before fitting.py emitted profiles) become
+            NaN in the block and are dropped downstream by each trainer's
+            finite-feature filter — regenerate those dates first for full coverage.
 
         IMPORTANT (leakage discipline): for blocked-split validation, fit on the
         train split only.  Call ``split_dataframe(df, mode=...)`` first, then
@@ -826,19 +878,40 @@ class FeaturePipeline:
             # pc1_col_idx: column index of the first appended PC in transform() output
             pc1_col_idx = len(features) - len(fp_cols) - len(pc_names)
 
+        # Optional profile-EOF/tropopause block: standardized and appended between
+        # the scaled/PC block and the fp one-hots.  Carried through all feature sets.
+        profile_obj    = _resolve_profile_pca(profile_pca, sfc_type)
+        profile_scaler = None
+        profile_names  = []
+        if profile_obj is not None:
+            Xp = profile_obj.transform(df)                          # [N, k], may hold NaN
+            finite = np.isfinite(Xp).all(axis=1)
+            if finite.sum() < 2:
+                raise ValueError(
+                    "profile_pca block has <2 finite rows — the profile/tropopause "
+                    "columns are (nearly) all NaN for this data (older fitting.py?).")
+            profile_scaler = StandardScaler().fit(Xp[finite])
+            profile_names  = list(profile_obj.feature_names)
+            features       = [f for f in features if f not in fp_cols] + profile_names + fp_cols
+
         logger.info(
             "FeaturePipeline fitted: sfc_type=%d, scaler=%s, pca_augment=%s, "
-            "feature_set=%s, %d qt_features + %d fp cols = %d total",
+            "feature_set=%s, %d qt_features + %d profile + %d fp cols = %d total",
             sfc_type, scaler, pca_augment, feature_set,
-            len(qt_features), len(fp_cols), len(features),
+            len(qt_features), len(profile_names), len(fp_cols), len(features),
         )
         logger.info(
             "FeaturePipeline log1p pre-transform: %s", log1p_cols or "none"
         )
+        if profile_names:
+            logger.info("FeaturePipeline profile block (%d cols): %s",
+                        len(profile_names), profile_names)
         return cls(sfc_type=sfc_type, qt=qt,
                    qt_features=qt_features, fp_cols=fp_cols, features=features,
                    scaler_type=scaler, pca_appender=pca_appender, pc1_col_idx=pc1_col_idx,
-                   log1p_cols=log1p_cols, feature_set=feature_set)
+                   log1p_cols=log1p_cols, feature_set=feature_set,
+                   profile_pca=profile_obj, profile_scaler=profile_scaler,
+                   profile_names=profile_names)
 
     # ── Transformation ────────────────────────────────────────────────────────
 
@@ -866,6 +939,14 @@ class FeaturePipeline:
         pca_appender = getattr(self, 'pca_appender', None)
         if pca_appender is not None:
             X_qt = pca_appender.transform_append(X_qt, self.sfc_type)
+        # Append the standardized profile-EOF/tropopause block, if present
+        # (backward compat: old pickles lack these attrs).  Order matches fit:
+        # [scaled qt | pc scores | profile block | fp one-hots].
+        profile_pca = getattr(self, 'profile_pca', None)
+        if profile_pca is not None:
+            Xp = profile_pca.transform(df).astype(np.float32)
+            Xp = self.profile_scaler.transform(Xp).astype(np.float32)
+            X_qt = np.concatenate([X_qt, Xp], axis=1)
         X_fp = df[self.fp_cols].to_numpy(dtype=np.float32)
         result = np.concatenate([X_qt, X_fp], axis=1)
         del X_qt       # free before return
@@ -902,6 +983,17 @@ class FeaturePipeline:
         path = Path(path)
         if not path.is_absolute():
             path = get_storage_dir() / path
+        # A pipeline may embed a ProfilePCA whose helper classes pin
+        # __module__='profile_pca'.  Import profile_pca.py first so that module
+        # name is registered in sys.modules, else pickle.load raises
+        # ModuleNotFoundError when profile_pca hasn't been imported yet.
+        try:
+            from . import profile_pca as _pp  # noqa: F401
+        except Exception:
+            try:
+                import profile_pca as _pp     # noqa: F401
+            except Exception:
+                pass
         with open(path, 'rb') as f:
             obj = pickle.load(f)
         if not isinstance(obj, cls):
@@ -915,9 +1007,10 @@ class FeaturePipeline:
         pca_augment = getattr(self, 'pca_appender', None) is not None
         log1p_cols  = getattr(self, 'log1p_cols', [])
         feature_set = getattr(self, 'feature_set', 'full')
+        n_profile   = len(getattr(self, 'profile_names', []))
         return (f"FeaturePipeline(sfc_type={self.sfc_type}, "
                 f"scaler={scaler_type!r}, pca_augment={pca_augment}, "
-                f"feature_set={feature_set!r}, "
+                f"feature_set={feature_set!r}, profile={n_profile or 'off'}, "
                 f"log1p={log1p_cols or 'none'}, "
                 f"n_qt_features={len(self.qt_features)}, "
                 f"n_features={self.n_features})")
@@ -955,6 +1048,10 @@ def main():
                              "'no_xco2'/'no_spec'/'no_xco2_and_spec' drop "
                              "xco2_raw_minus_apriori / k1-k3+exp_intercept / both "
                              "from the new full.")
+    parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
+                        help='Append the profile-EOF + tropopause block (ProfilePCA). Bare flag / '
+                             '"auto" loads results/model_mlp_lr/profile_pca_<surface>.pkl; or pass a '
+                             '.pkl path. Carried through every feature set (no_xco2/no_spec keep it).')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -983,10 +1080,12 @@ def main():
     df = df[df['snow_flag'] == 0]
     print(f"  Rows after sfc_type={args.sfc_type} + snow_flag==0: {len(df):,}", flush=True)
 
+    _prof = True if args.profile_pca == 'auto' else args.profile_pca
     pipeline = FeaturePipeline.fit(df, sfc_type=args.sfc_type,
                                    scaler=args.scaler,
                                    pca_augment=args.pca_augment,
-                                   feature_set=args.feature_set)
+                                   feature_set=args.feature_set,
+                                   profile_pca=_prof)
     print(f"  {pipeline}", flush=True)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     pipeline.save(out_path)

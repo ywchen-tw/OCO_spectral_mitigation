@@ -213,7 +213,14 @@ def main():
     parser.add_argument('--fold', type=int, default=None,
                         help='Which date block (0-based) to hold out for date_kfold.')
     parser.add_argument('--feature_set', type=str, default='full',
-                        choices=['full', 'no_xco2', 'no_spec', 'full_fitqual', 'full_contam'])
+                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec',
+                                 'full_fitqual', 'full_contam'])
+    parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
+                        help='Append the profile-EOF + tropopause block (ProfilePCA). '
+                             'Bare flag / "auto" loads results/model_mlp_lr/profile_pca_<surface>.pkl; '
+                             'or pass an explicit .pkl path. Orthogonal to --feature_set: it is '
+                             'carried through every set (no_xco2/no_spec keep it). This makes '
+                             'full+profile the "new full".')
     parser.add_argument('--test_size', type=float, default=0.2)
     parser.add_argument('--suffix', type=str, default='')
     parser.add_argument('--pipeline', type=str, default=None)
@@ -264,8 +271,9 @@ def main():
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
     else:
+        _prof = True if args.profile_pca == 'auto' else args.profile_pca
         pipeline = FeaturePipeline.fit(train_df, sfc_type=args.sfc_type,
-                                       feature_set=args.feature_set)
+                                       feature_set=args.feature_set, profile_pca=_prof)
         pipeline.save(output_dir / 'gbdt_pipeline.pkl')
     features = pipeline.features
 
