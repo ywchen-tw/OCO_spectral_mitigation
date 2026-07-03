@@ -54,15 +54,25 @@ DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 
 # ─── model (deep-ensemble fold dirs; per-surface) ─────────────────────────────
-# Pool ALL folds (f0..f4) → cross-fold ensemble: mu = mean of 25 members,
-# sigma = total predictive std (each fold transformed by its own scaler).
-# Land model trained WITH snow footprints (--include_snow, arm B from the snow_flag
-# experiment): same full_contam feature set as de_land_full_contam, but snow_flag==1
-# rows kept in training so high-latitude/snow land footprints are corrected in-domain
-# instead of being flagged OOD.  Verdict: free win (non-snow unchanged) — see
-# results/model_comparison/snowflag_highlat_eval.csv.  Ocean has no snow → unchanged.
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_full_contam_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_fc_snowdata_f*)
+# Pool ALL folds (f0..f4) → cross-fold ensemble: mu = mean of 50 members
+# (5 folds × M=10), sigma = total predictive std (each fold transformed by its
+# own scaler).
+# M=10 HOMOGENEOUS deep ensemble + the vertical-profile EOF block (--profile-pca:
+# 12 EOF PCs of the sigma-grid T/q/CO2-prior profiles + 2 tropopause scalars,
+# appended to the `full` feature set — embedded in each fold's pipeline pkl, so no
+# extra build flag is needed).  Profile is a large near-cloud-tail win (global ΔR²
+# ocean +0.033 / land +0.148; land near-cloud bottom-5% R² 0.45→0.76) — see
+# results/model_comparison/de_{ocean,land}_profile_ab.md.  Homogeneous M=10 ties
+# heterogeneous at scale, so use homogeneous (deplus_hetero_ablation_*.md).
+# Land model trained WITH snow footprints (--include_snow) but NO snow_flag feature
+# (dropped in the 2026-07 feature-set simplification): snow rows kept in training so
+# high-latitude/snow land footprints are corrected in-domain instead of flagged OOD.
+# Ocean has no snow → unchanged.
+# PREREQUISITE: input parquets must carry the sigma-grid profile + tropopause
+# columns (build via curc_shell_blanca_build_feature_dataset_perdate.sh) or the
+# profile-PCA transform in build_deepens_plot_data.py raises KeyError.
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/deplus_ocean_homog_prof_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/deplus_land_homog_prof_f*)
 
 # ─── cloud classifier (xgb_cloud fold dirs; per-surface) ──────────────────────
 # When set, build_deepens_plot_data.py also emits P(near) and the two extra
