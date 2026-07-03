@@ -218,7 +218,7 @@ def main():
                         help='Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow.')
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                         help='Append the profile-EOF + tropopause block (ProfilePCA). '
-                             'Bare flag / "auto" loads results/model_mlp_lr/profile_pca_<surface>.pkl; '
+                             'Bare flag / "auto" loads results/profile_pca/profile_pca_<surface>.pkl; '
                              'or pass an explicit .pkl path. Orthogonal to --feature_set: it is '
                              'carried through every set (no_xco2/no_spec keep it). This makes '
                              'full+profile the "new full".')

@@ -17,7 +17,7 @@ outliers (|anomaly|>100 ppm) are dropped by default (as in the trainers).
 
 Run (from repo root):
     PYTHONPATH=src python -m models.test_unused_features \
-      --data <combined_2020_dates.parquet> --ppca-dir results/model_mlp_lr
+      --data <combined_2020_dates.parquet> --ppca-dir results/profile_pca
 """
 
 import argparse
@@ -168,7 +168,7 @@ def main():
     _default = ('combined_2016_2020_dates.parquet' if platform.system() == 'Linux'
                 else 'combined_2020_dates.parquet')
     data_path = Path(args.data) if args.data else storage / 'results/csv_collection' / _default
-    ppca_dir  = Path(args.ppca_dir) if args.ppca_dir else storage / 'results/model_mlp_lr'
+    ppca_dir  = Path(args.ppca_dir) if args.ppca_dir else storage / 'results/profile_pca'
     out_csv   = Path(args.out) if args.out else storage / 'results/model_xgb/unused_feature_ablation_2020.csv'
     target_col = resolve_target_col(args.target)
 

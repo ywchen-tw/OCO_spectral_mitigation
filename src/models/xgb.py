@@ -373,7 +373,7 @@ def main():
                         help="Feature ablation set (default 'full').")
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                         help='Append the profile-EOF + tropopause block (ProfilePCA). Bare flag / '
-                             '"auto" loads results/model_mlp_lr/profile_pca_<surface>.pkl; or pass a '
+                             '"auto" loads results/profile_pca/profile_pca_<surface>.pkl; or pass a '
                              '.pkl path. Carried through every feature set → full+profile is the "new full".')
     parser.add_argument('--exclude-snow', dest='exclude_snow', action='store_true',
                         help='Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow '

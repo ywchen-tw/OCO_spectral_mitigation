@@ -628,6 +628,12 @@ def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
 # every model family (and both splits) sees the identical, consistent target.
 MAX_ABS_ANOMALY_PPM = 100.0
 
+# Dedicated location for the per-surface ProfilePCA transformers
+# (profile_pca_ocean.pkl / profile_pca_land.pkl), relative to get_storage_dir().
+# Kept separate from any model output subfolder so the profile-EOF block is a
+# shared, model-agnostic artifact.
+PROFILE_PCA_DIR = 'results/profile_pca'
+
 
 # ── Regression target selection ───────────────────────────────────────────────
 # The model target is the clear-sky XCO2 anomaly.  Two clear-sky reference sets
@@ -788,7 +794,7 @@ def _resolve_profile_pca(spec, sfc_type: int):
     """Resolve the ``profile_pca`` argument to a fitted ProfilePCA or None.
 
     Accepts a ProfilePCA instance, a path (str/Path), ``True`` (load the default
-    per-surface pkl <storage>/results/model_mlp_lr/profile_pca_<surface>.pkl), or
+    per-surface pkl <storage>/results/profile_pca/profile_pca_<surface>.pkl), or
     None/False (no profile block).
     """
     if spec is None or spec is False:
@@ -799,7 +805,7 @@ def _resolve_profile_pca(spec, sfc_type: int):
     if spec is True:
         from utils import get_storage_dir
         surf = 'ocean' if sfc_type == 0 else 'land'
-        spec = get_storage_dir() / f'results/model_mlp_lr/profile_pca_{surf}.pkl'
+        spec = get_storage_dir() / PROFILE_PCA_DIR / f'profile_pca_{surf}.pkl'
     return ProfilePCA.load(spec)
 
 
@@ -880,7 +886,7 @@ class FeaturePipeline:
             authoritative source — callers must never hard-code feature counts.
         profile_pca : profile-EOF/tropopause block, ORTHOGONAL to feature_set.
             A ProfilePCA instance, a path to a saved per-surface pkl, ``True``
-            (load the default <storage>/results/model_mlp_lr/profile_pca_<surface>.pkl),
+            (load the default <storage>/results/profile_pca/profile_pca_<surface>.pkl),
             or None to disable.  When supplied, the block's score columns
             (t_pc01…, q_pc01…, co2prior_pc01…, tropopause_sigma, tropopause_temp)
             are standardized by their own StandardScaler and appended after the
@@ -1113,7 +1119,7 @@ def main():
                              "from full.")
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                         help='Append the profile-EOF + tropopause block (ProfilePCA). Bare flag / '
-                             '"auto" loads results/model_mlp_lr/profile_pca_<surface>.pkl; or pass a '
+                             '"auto" loads results/profile_pca/profile_pca_<surface>.pkl; or pass a '
                              '.pkl path. Carried through every feature set (no_xco2/no_spec keep it).')
     parser.add_argument('--exclude-snow', dest='exclude_snow', action='store_true',
                         help='Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow.')

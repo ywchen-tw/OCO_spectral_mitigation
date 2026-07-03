@@ -31,11 +31,11 @@ Typical usage
     # n_components=4 keeps only the leading bulk EOFs — these are reanalysis priors,
     # not observations, so higher modes are model noise, not signal.
     land = ProfilePCA.fit(df[df.sfc_type == 1], n_components=4)
-    land.save("results/model_mlp_lr/profile_pca_land.pkl")
+    land.save("results/profile_pca/profile_pca_land.pkl")
     print(land.explained_variance_report())
 
     # later, on the full 2016-2020 frame — transform each surface with its own model:
-    land  = ProfilePCA.load("results/model_mlp_lr/profile_pca_land.pkl")
+    land  = ProfilePCA.load("results/profile_pca/profile_pca_land.pkl")
     scores = land.transform_df(df_full[df_full.sfc_type == 1])   # aligned to that index
     df_full = df_full.join(scores)                               # append PC columns
 
@@ -521,7 +521,7 @@ def main():
     parser.add_argument('--out-dir', default=None,
                         help='Directory for the per-surface artifacts '
                              '(profile_pca_<surface>.pkl, reports, plots).  '
-                             'Defaults to <storage_dir>/results/model_mlp_lr')
+                             'Defaults to <storage_dir>/results/profile_pca')
     parser.add_argument('--n-components', default='4',
                         help="int → fixed PCs per group (default 4, the leading bulk "
                              "modes — these are reanalysis priors, not observations, so "
@@ -558,7 +558,7 @@ def main():
                      else 'combined_2020_dates.parquet')
     data_path = _resolve(args.data,
                          storage_dir / 'results/csv_collection' / _default_name)
-    out_dir   = _resolve(args.out_dir, storage_dir / 'results/model_mlp_lr')
+    out_dir   = _resolve(args.out_dir, storage_dir / 'results/profile_pca')
     scores_base = _resolve(args.scores_out, None)
 
     # n_components: '5' → int 5; '0.999' → float 0.999

@@ -189,7 +189,7 @@ def main():
     ap.add_argument('--data', default=None,
                     help='combined parquet (default: 2016-2020 under storage_dir)')
     ap.add_argument('--ppca-dir', default=None,
-                    help='dir with profile_pca_<surface>.pkl (default results/model_mlp_lr)')
+                    help='dir with profile_pca_<surface>.pkl (default results/profile_pca)')
     ap.add_argument('--sfc_type', type=int, default=None, choices=[0, 1],
                     help='one surface only (default: both)')
     ap.add_argument('--target', default='10km', help="'10km'(default)/'15km'/col name")
@@ -208,7 +208,7 @@ def main():
     _default = ('combined_2016_2020_dates.parquet' if platform.system() == 'Linux'
                 else 'combined_2020_dates.parquet')
     data_path = Path(args.data) if args.data else storage / 'results/csv_collection' / _default
-    ppca_dir  = Path(args.ppca_dir) if args.ppca_dir else storage / 'results/model_mlp_lr'
+    ppca_dir  = Path(args.ppca_dir) if args.ppca_dir else storage / 'results/profile_pca'
     out_csv   = Path(args.out) if args.out else storage / 'results/model_xgb/profile_ab_summary.csv'
     target_col = resolve_target_col(args.target)
     cfg = _default_run_config()
