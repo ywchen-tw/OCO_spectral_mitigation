@@ -104,10 +104,10 @@ COMMON="--profile-pca --loss beta_nll --beta 1.0 --n_members 10 --batch_size 819
 
 # ── homogeneous M=10 (size-only arm; the heterogeneity-ablation control) ───────
 # python -m models.deep_ensemble --sfc_type 0 --suffix deplus_ocean_homog_prof_f${F} ${COMMON}
-python -m models.deep_ensemble --sfc_type 1 --suffix deplus_land_homog_prof_f${F}  --include_snow ${COMMON}
+# python -m models.deep_ensemble --sfc_type 1 --suffix deplus_land_homog_prof_f${F}  --include_snow ${COMMON}
 
 # ── heterogeneous M=10 (DE++; the production candidate) ────────────────────────
-# python -m models.deep_ensemble --sfc_type 0 --suffix deplus_ocean_hetero_prof_f${F} --member_archs "${ARCHS}" ${COMMON}
+python -m models.deep_ensemble --sfc_type 0 --suffix deplus_ocean_hetero_prof_f${F} --member_archs "${ARCHS}" ${COMMON}
 # python -m models.deep_ensemble --sfc_type 1 --suffix deplus_land_hetero_prof_f${F}  --include_snow --member_archs "${ARCHS}" ${COMMON}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
