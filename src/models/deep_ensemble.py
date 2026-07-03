@@ -300,6 +300,12 @@ def main():
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--feature_set', type=str, default='full',
                    choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec'])
+    p.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
+                   help="Append the vertical-profile EOF block (opt-in; default off). Bare "
+                        "--profile-pca or =auto loads results/profile_pca/profile_pca_<sfc>.pkl; "
+                        "or pass a pkl path.")
+    p.add_argument('--no-profile-pca', dest='profile_pca', action='store_const', const=False,
+                   help="Disable the vertical-profile EOF block for this run.")
     p.add_argument('--include_snow', action='store_true',
                    help="[deprecated / now default] Snow footprints are KEPT by default; "
                         "this flag is a harmless no-op kept for backward compatibility.")
@@ -444,7 +450,9 @@ def main():
         print(f"[deep_ensemble] train_frac={args.train_frac}: proper-train "
               f"{n_before} -> {len(proper_df)} rows (calib/held unchanged)")
 
-    pipeline = FeaturePipeline.fit(proper_df, sfc_type=args.sfc_type, feature_set=args.feature_set)
+    _profile_pca = True if args.profile_pca in (True, 'auto') else args.profile_pca
+    pipeline = FeaturePipeline.fit(proper_df, sfc_type=args.sfc_type, feature_set=args.feature_set,
+                                   profile_pca=_profile_pca)
     pipeline.save(output_dir / 'deep_ensemble_pipeline.pkl')
 
     def _prep(frame):

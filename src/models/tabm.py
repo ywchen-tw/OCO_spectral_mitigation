@@ -265,6 +265,7 @@ def _default_run_config() -> dict:
         'pipeline': {
             'feature_set': 'full',
             'pca_augment': False,
+            'profile_pca': False,  # vertical-profile EOF block; opt-in via --profile-pca
         },
         'aux_cloud': {
             'enabled': False,
@@ -553,6 +554,12 @@ def main():
     parser.add_argument('--feature_set', type=str, default=None,
                         choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec'],
                         help="Feature ablation set (see pipeline._FEATURE_SETS).")
+    parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
+                        help="Append the vertical-profile EOF block (default ON). Bare "
+                             "--profile-pca or =auto loads results/profile_pca/profile_pca_<sfc>.pkl; "
+                             "or pass an explicit pkl path.")
+    parser.add_argument('--no-profile-pca', dest='profile_pca', action='store_const', const=False,
+                        help="Disable the vertical-profile EOF block for this run.")
     parser.add_argument('--target', type=str, default=None,
                         help="Clear-sky reference for the regression target: "
                              "'10km' (default, xco2_bc_anomaly) or '15km' "
@@ -608,6 +615,9 @@ def main():
         run_cfg['split']['val_split'] = args.val_split
     if args.feature_set is not None:
         run_cfg['pipeline']['feature_set'] = args.feature_set
+    if args.profile_pca is not None:
+        run_cfg['pipeline']['profile_pca'] = (True if args.profile_pca == 'auto'
+                                              else args.profile_pca)
     if args.target is not None:
         run_cfg['data']['target'] = args.target
     if args.K is not None:
@@ -710,7 +720,8 @@ def main():
     else:
         pipeline = FeaturePipeline.fit(proper_df, sfc_type=surface_type,
                                        feature_set=feature_set,
-                                       pca_augment=bool(run_cfg['pipeline']['pca_augment']))
+                                       pca_augment=bool(run_cfg['pipeline']['pca_augment']),
+                                       profile_pca=run_cfg['pipeline'].get('profile_pca', True))
         pipeline.save(pipeline_path)
     features = pipeline.features
 
