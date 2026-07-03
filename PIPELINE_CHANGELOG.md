@@ -1,6 +1,59 @@
 # Pipeline & Model Infrastructure Changelog
 
-**Last updated**: 2026-03-03
+**Last updated**: 2026-07-03
+
+---
+
+## 2026-07-03 — Model Consolidation: Remove Legacy Trainers, Keep TabM / XGBoost / Deep Ensemble
+
+### Motivation
+
+The active model stack is now **TabM**, **XGBoost/LightGBM (GBDT baselines)**, and the **Deep Ensemble**.  The earlier exploratory trainers — MLP+Ridge, the FT-Transformer regressor, the Dual-Tower Hybrid, and the two cloud-proximity classifiers — were kept only for historical comparison and had become dead weight (and, for `full_kappa`, a latent crash).  This change removes them, extracts the shared code they carried, and cleans up the artifact directory naming that referenced the deleted models.
+
+### Removed model files
+
+- `src/models/hybrid.py` — Dual-Tower Hybrid (MLP anchor + FT-Transformer) regressor.
+- `src/models/mlp_lr.py` — MLP + Ridge regressor.
+- `src/models/transformer.py` — FT-Transformer regressor (its reusable half was extracted, see below).
+- `src/models/classifier_mlp.py` — LR + MLP cloud-proximity (`cld_dist_km < 10`) classifiers.
+- `src/models/classifier_transformer.py` — FT-Transformer cloud-proximity classifier.
+- `src/apply/apply.py`, `src/apply/apply_with_cloud.py` — the multi-model (Ridge/MLP/FT/Hybrid + classifier) deployment scripts.  `apply_deep_ensemble.py` remains the inference path for the current stack.
+- CURC launchers: `curc_shell_blanca_train_{hybrid,mlp,transformer,mlp_cld,transformer_cld,compare}.sh`, and `log/hybrid_model_plan.md`.
+
+> Note: deleting the apply layer also dropped the only apply-to-new-data path for XGBoost (it is train/eval only for now — add a slim deploy script if needed).
+
+### Extracted / relocated shared code
+
+- **`src/models/tabm_eval.py`** (new) — TabM is the sole remaining consumer of the loss/eval utilities that lived in `transformer.py`.  Split them out verbatim: `quantile_loss`, `huber_pinball_loss`, `variance_penalty`, `mmd_loss_1d`, `_batched_predict`, `evaluate_model_X_text`, `plot_evaluation_by_regime`, `plot_permutation_importance`.  `tabm.py` now imports from `tabm_eval`.
+- **`compute_xco2_anomaly_date_id`** (+ `_compute_anomaly_group`) moved from `mlp_lr.py` into `pipeline.py` (joblib imported lazily inside the function).
+- **`src/models/adapters.py`** slimmed **997 → 246 lines**: removed `RidgeAdapter`, `MLPAdapter`, `FTAdapter`, `HybridAdapter`, `LogisticAdapter`, `MLPClassifierAdapter`, `FTClassifierAdapter`, and the module-level `_ResBlock`/`_MLP` helpers (all had zero remaining references).  Kept `ModelAdapter` (base), `TabMAdapter`, `XGBoostAdapter`.
+
+### Feature-set cleanup
+
+- Removed the **`full_kappa`** feature set and the `KAPPA_FEATURES` group from `pipeline.py`.  The per-band gamma shape κ = k1²/k2 has genuine `k2→0` `+inf` blow-ups that the scaler rejects (the path crashed at fit), and κ was bottom-cluster on ocean / within noise on land in the ablation.  The raw `o2a/wco2/sco2_kappa` columns remain in the parquet, just unwired.  Also dropped the kappa columns from `_LOG1P_FEATURES` and the `full_kappa` choice from the `--feature_set` lists in `xgb`/`gbdt_baselines`/`tabm`/`deep_ensemble`.
+- Active feature sets are now: **`full` / `no_xco2` / `no_spec` / `no_xco2_and_spec`**.
+
+### Artifact directory renames
+
+- **ProfilePCA transformers** → dedicated `results/profile_pca/` (`profile_pca_{ocean,land}.pkl`), out of the model subfolder.  New constant `pipeline.PROFILE_PCA_DIR` is the single source of truth for the default-load path.
+- **FeaturePipeline CLI output** → `results/model_mlp_lr/` renamed to `results/feature_pipeline/`.  Existing `pipeline.pkl` files were preserved into `results/feature_pipeline/<run>/`; the ~148 MB of old mlp_lr run artifacts (weights/plots/ridge+mlp pkls) were removed.
+
+### `src/search/` — autoresearch reduced to XGBoost only
+
+- Removed the `mlp_lr` / `ft_transformer` / `hybrid` families (their trainers are gone): deleted `MLP_SPACE`/`FT_SPACE`/`HYBRID_SPACE`, the transformer head-compat repair, and their branches in `build_run_config` / `build_trial_command` / `_family_output_dir` / `_primary_metric_name` / metric-CSV map.
+- `SUPPORTED_FAMILIES` is now `("xgb",)`; the `--family` defaults/choices in `search.py`, `loop.py`, and `confirm.py` moved from `mlp_lr` to `xgb`.
+
+### Verification
+
+Import gate green after every step:
+
+```bash
+python -c "import models.tabm, models.deep_ensemble, models.xgb, models.gbdt_baselines, \
+models.mlp_baseline, models.tabm_eval; import apply.apply_deep_ensemble; \
+import search.search, search.loop, search.confirm"
+```
+
+Both ProfilePCA pkls load from the new `results/profile_pca/` location; the relocated anomaly function reproduces clear-sky-referenced anomalies on a smoke test.
 
 ---
 
