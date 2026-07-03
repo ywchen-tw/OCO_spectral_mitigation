@@ -42,5 +42,12 @@ python -m models.profile_pca \
     --data results/csv_collection/combined_2016_2020_dates.parquet \
     --out-dir results/profile_pca
 
-echo "=== fitted transformers ==="
-ls -la results/profile_pca/profile_pca_ocean.pkl results/profile_pca/profile_pca_land.pkl
+# NOTE: on CURC get_storage_dir() (e.g. /scratch/alpine/.../spec_anal) differs from
+# this code dir, and profile_pca.py resolves the relative --out-dir against the
+# STORAGE dir — that is exactly where the DE trainer auto-loads the pkls from, so
+# the placement is correct.  Verify there (a relative `ls` from the code dir would
+# spuriously fail and set a non-zero job exit code).
+STORAGE=$(python -c "from utils import get_storage_dir; print(get_storage_dir())" 2>/dev/null | tail -1)
+echo "=== fitted transformers (storage=${STORAGE}) ==="
+ls -la "${STORAGE}/results/profile_pca/profile_pca_ocean.pkl" \
+       "${STORAGE}/results/profile_pca/profile_pca_land.pkl"
