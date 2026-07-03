@@ -299,7 +299,7 @@ def main():
     p.add_argument('--n_folds', type=int, default=None)
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--feature_set', type=str, default='full',
-                   choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec', 'full_kappa'])
+                   choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec'])
     p.add_argument('--include_snow', action='store_true',
                    help="[deprecated / now default] Snow footprints are KEPT by default; "
                         "this flag is a harmless no-op kept for backward compatibility.")

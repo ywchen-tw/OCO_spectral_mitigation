@@ -369,7 +369,7 @@ def main():
                         help='Disable PCA-score augmentation.')
     parser.set_defaults(pca_augment=None)
     parser.add_argument('--feature-set', dest='feature_set', default='full',
-                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec', 'full_kappa'],
+                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec'],
                         help="Feature ablation set (default 'full').")
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                         help='Append the profile-EOF + tropopause block (ProfilePCA). Bare flag / '

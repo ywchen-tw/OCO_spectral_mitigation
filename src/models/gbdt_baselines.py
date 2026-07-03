@@ -213,7 +213,7 @@ def main():
     parser.add_argument('--fold', type=int, default=None,
                         help='Which date block (0-based) to hold out for date_kfold.')
     parser.add_argument('--feature_set', type=str, default='full',
-                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec', 'full_kappa'])
+                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec'])
     parser.add_argument('--exclude_snow', dest='exclude_snow', action='store_true',
                         help='Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow.')
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,

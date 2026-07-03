@@ -466,26 +466,14 @@ SPEC_FEATURES = frozenset([
 # feature set.  The snow footprints themselves (the DATA) are kept by default in the
 # trainers (opt out with --exclude-snow); snow_flag is only used there as a filter column.
 
-# full_kappa — `full` PLUS the per-band gamma shape κ = k1²/k2
-# (o2a/wco2/sco2_kappa, propagated into the combined parquet by spectral/fitting.py
-# → build_feature_dataset.py).  κ is the cloud-scattering pathlength-distribution shape:
-# small κ ⇒ broad pathlength spread (multiple-scattering / cloud contamination),
-# large κ ⇒ near-deterministic pathlength (clear).  Experimental — used to test
-# whether κ adds signal over `full`.  Same three columns for both surfaces.
-# κ spans ~24 orders of magnitude (k2 → 0 blows it up), so it is log1p-compressed
-# (see _LOG1P_FEATURES) — essential for the NN/TabM models; harmless for XGBoost.
-KAPPA_FEATURES = ['o2a_kappa', 'wco2_kappa', 'sco2_kappa']
-
-# Maps --feature_set name → spec.  A spec may combine any of: an 'add' list
-# (append for both surfaces), an 'add_per_sfc' dict {sfc_type: [features]}
-# (per-surface append), and a 'drop' set (remove features).  Appends are applied
-# BEFORE drops, so a drop can remove an appended feature.  ``None`` is a sentinel
-# meaning "base _FEATURE_MAP unchanged".
+# Maps --feature_set name → spec.  The resolver (_resolve_feature_set) supports a
+# 'drop' set (remove features), plus 'add'/'add_per_sfc' appends for future use;
+# every current set is drop-only (or the ``None`` sentinel = base unchanged).
+# Appends, if present, run BEFORE drops so a drop can remove an appended feature.
 #
 # Contamination features are part of the base _FEATURES_SFC0/1, so the base IS the
 # active feature set: 'full' == base (``None`` sentinel = unchanged).  The
-# no_xco2 / no_spec / no_xco2_and_spec ablations drop the named group from full;
-# full_kappa adds the experimental gamma-shape kappa columns.
+# no_xco2 / no_spec / no_xco2_and_spec ablations drop the named group from full.
 #
 # PROFILE BLOCK (profile EOFs + tropopause) is ORTHOGONAL to these sets — it is
 # not a raw column so it lives outside _FEATURE_SETS, supplied via
@@ -498,7 +486,6 @@ _FEATURE_SETS: dict = {
     'no_xco2':          {'drop': XCO2_FEATURES},
     'no_spec':          {'drop': SPEC_FEATURES},
     'no_xco2_and_spec': {'drop': XCO2_FEATURES | SPEC_FEATURES},
-    'full_kappa':       {'add': KAPPA_FEATURES},
 }
 
 
@@ -538,9 +525,6 @@ _LOG1P_FEATURES = frozenset([
     'aod_total', 'aod_bc',
     'aod_dust', 'aod_ice', 'aod_water',
     'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate',
-    # gamma shape κ = k1²/k2 spans ~24 orders of magnitude — log-compress so the
-    # NN/TabM scalers are not dominated by k2→0 outliers (harmless for XGBoost).
-    'o2a_kappa', 'wco2_kappa', 'sco2_kappa',
 ])
 
 

@@ -551,7 +551,7 @@ def main():
     parser.add_argument('--fold', type=int, default=None,
                         help='Which date block (0-based) to hold out for date_kfold.')
     parser.add_argument('--feature_set', type=str, default=None,
-                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec', 'full_kappa'],
+                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec'],
                         help="Feature ablation set (see pipeline._FEATURE_SETS).")
     parser.add_argument('--target', type=str, default=None,
                         help="Clear-sky reference for the regression target: "
