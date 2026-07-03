@@ -27,7 +27,7 @@
 # Prerequisite: each date's fitting_details_<date>_*.h5 must already exist
 # (produced by curc_shell_blanca_fp_anal_perdate.sh).
 
-MAX_JOBS=12
+MAX_JOBS=24
 
 # ── Date sets (YYYYMMDD), same three sets as build_feature_dataset.py main() ────
 # Set 1 — 2020-only

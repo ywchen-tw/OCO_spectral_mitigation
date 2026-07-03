@@ -647,7 +647,7 @@ def main():
                  '20200915', '20201015', '20201115', '20201215'
                  ]
     
-    # date_list = [
+    date_list = [
                 #  '20141203', '20141217', 
                 #  '20150213', '20150218', '20150317', '20150323',
                 #  '20150518', '20150520', '20150605', '20150629',  
@@ -679,8 +679,10 @@ def main():
                 #  '20210703', '20210727', '20210825', 
                 #  '20210906', '20210908', '20210926', 
                 #  '20211016', '20211229',
+                
+                '20150715', '20150801', '20160821'
                   
-                # ]  
+                ]  
     
         
     # --date overrides the built-in list (one date per SLURM job).  Accepts
@@ -699,11 +701,11 @@ def main():
     if args.date:
         return
 
-    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
-    csv_output_dir = os.path.join(fdir, 'csv_collection')
-    output_fname = 'combined_2016_2020_dates.parquet'
-    # output_fname = 'combined_2020_dates.parquet'
-    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+    # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    # csv_output_dir = os.path.join(fdir, 'csv_collection')
+    # output_fname = 'combined_2016_2020_dates.parquet'
+    # # output_fname = 'combined_2020_dates.parquet'
+    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()
