@@ -23,8 +23,8 @@ from .tracking import RunSummary, get_git_commit_hash
 from .promotion import decide_promotion
 
 
-SUPPORTED_FAMILIES = ("mlp_lr", "ft_transformer", "hybrid", "xgb")
-EXECUTABLE_FAMILIES = {"mlp_lr", "ft_transformer", "hybrid", "xgb"}
+SUPPORTED_FAMILIES = ("xgb",)
+EXECUTABLE_FAMILIES = {"xgb"}
 
 
 @dataclass(frozen=True)
@@ -71,78 +71,6 @@ class SearchPlan:
     incumbent_path: str | None = None
 
 
-MLP_SPACE = SearchSpace(
-    family="mlp_lr",
-    integer_ranges={
-        "mlp.batch_size": (2048, 8192),
-        "mlp.max_epochs": (250, 500),
-        "mlp.patience": (20, 40),
-        "mlp.cosine_t_max": (80, 180),
-        "importance.perm_max_rows": (2000, 8000),
-        "importance.perm_repeats": (3, 7),
-    },
-    float_log_ranges={
-        "ridge.alpha": (1e-2, 10.0),
-        "mlp.lr": (1e-4, 2e-3),
-        "mlp.weight_decay": (1e-6, 3e-3),
-        "mlp.cosine_eta_min": (1e-7, 1e-5),
-    },
-    float_ranges={
-        "mlp.grad_clip_norm": (0.5, 2.0),
-        "loss.huber_delta": (0.5, 2.0),
-        "loss.pred_l1_weight": (0.0, 0.1),
-    },
-    categorical={
-        "split.stratify_by_pc1": (True, False),
-        "pipeline.scaler": ("robust_standard", "pca_whitening"),
-        "pipeline.pca_augment": (True, False),
-    },
-)
-
-FT_SPACE = SearchSpace(
-    family="ft_transformer",
-    integer_ranges={
-        "d_token": (64, 160),
-        "n_layers": (3, 6),
-        "n_heads": (4, 8),
-        "d_ff": (128, 512),
-    },
-    float_log_ranges={
-        "lr": (3e-4, 2e-3),
-        "weight_decay": (1e-6, 1e-3),
-    },
-    float_ranges={
-        "range_loss_weight": (0.0, 0.05),
-    },
-    categorical={
-        "loss_fn": ("quantile", "huber"),
-        "range_loss_type": ("variance", "mmd"),
-    },
-)
-
-HYBRID_SPACE = SearchSpace(
-    family="hybrid",
-    integer_ranges={
-        "d_token": (64, 160),
-        "n_layers": (3, 6),
-        "n_heads": (4, 8),
-        "d_ff": (128, 512),
-        "mlp_hidden": (128, 384),
-        "fusion_dim": (64, 192),
-    },
-    float_log_ranges={
-        "lr": (1e-4, 8e-4),
-        "weight_decay": (1e-6, 1e-3),
-    },
-    float_ranges={
-        "range_loss_weight": (0.0, 0.05),
-    },
-    categorical={
-        "loss_fn": ("quantile", "huber"),
-        "range_loss_type": ("variance", "mmd"),
-    },
-)
-
 XGB_SPACE = SearchSpace(
     family="xgb",
     integer_ranges={
@@ -161,9 +89,6 @@ XGB_SPACE = SearchSpace(
 )
 
 SEARCH_SPACES = {
-    "mlp_lr": MLP_SPACE,
-    "ft_transformer": FT_SPACE,
-    "hybrid": HYBRID_SPACE,
     "xgb": XGB_SPACE,
 }
 
@@ -182,40 +107,7 @@ def family_search_space(family: str) -> SearchSpace:
 
 
 def sample_config(family: str, rng: random.Random) -> dict[str, Any]:
-    sampled = family_search_space(family).sample(rng)
-    if family in {"ft_transformer", "hybrid"}:
-        sampled = _ensure_transformer_head_compat(sampled)
-    return sampled
-
-
-def _ensure_transformer_head_compat(config: dict[str, Any]) -> dict[str, Any]:
-    """Ensure sampled transformer configs satisfy d_token % n_heads == 0.
-
-    The model constructor requires embed_dim to be divisible by num_heads.
-    Search spaces may sample invalid pairs independently, so we repair them
-    deterministically before writing search configs.
-    """
-    fixed = dict(config)
-    d_token = int(fixed.get("d_token", 128))
-    n_heads = int(fixed.get("n_heads", 8))
-
-    if n_heads <= 0:
-        n_heads = 1
-
-    if d_token % n_heads != 0:
-        divisors = [h for h in range(1, min(d_token, 32) + 1) if d_token % h == 0]
-        if not divisors:
-            n_heads = 1
-        else:
-            at_most = [h for h in divisors if h <= n_heads]
-            if at_most:
-                n_heads = max(at_most)
-            else:
-                n_heads = min(divisors)
-
-    fixed["d_token"] = d_token
-    fixed["n_heads"] = n_heads
-    return fixed
+    return family_search_space(family).sample(rng)
 
 
 def _nest_config(flat: dict[str, Any]) -> dict[str, Any]:
@@ -230,47 +122,6 @@ def _nest_config(flat: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_run_config(family: str, flat_config: dict[str, Any]) -> dict[str, Any]:
-    nested = _nest_config(flat_config)
-    if family == "mlp_lr":
-        return nested
-    if family == "ft_transformer":
-        return {
-            "model": {
-                "d_token": int(flat_config["d_token"]),
-                "n_heads": int(flat_config["n_heads"]),
-                "n_layers": int(flat_config["n_layers"]),
-                "d_ff": int(flat_config["d_ff"]),
-            },
-            "loss": {
-                "loss": str(flat_config["loss_fn"]),
-                "range_loss_weight": float(flat_config["range_loss_weight"]),
-                "range_loss_type": str(flat_config["range_loss_type"]),
-            },
-            "search": {
-                "lr": float(flat_config["lr"]),
-                "weight_decay": float(flat_config["weight_decay"]),
-            },
-        }
-    if family == "hybrid":
-        return {
-            "model": {
-                "d_token": int(flat_config["d_token"]),
-                "n_heads": int(flat_config["n_heads"]),
-                "n_layers": int(flat_config["n_layers"]),
-                "d_ff": int(flat_config["d_ff"]),
-                "mlp_hidden": int(flat_config["mlp_hidden"]),
-                "fusion_dim": int(flat_config["fusion_dim"]),
-            },
-            "loss": {
-                "loss": str(flat_config["loss_fn"]),
-                "range_loss_weight": float(flat_config["range_loss_weight"]),
-                "range_loss_type": str(flat_config["range_loss_type"]),
-            },
-            "search": {
-                "lr": float(flat_config["lr"]),
-                "weight_decay": float(flat_config["weight_decay"]),
-            },
-        }
     if family == "xgb":
         return {
             "xgb": {
@@ -282,7 +133,7 @@ def build_run_config(family: str, flat_config: dict[str, Any]) -> dict[str, Any]
                 "colsample_bytree": float(flat_config["colsample_bytree"]),
             },
         }
-    return nested
+    return _nest_config(flat_config)
 
 
 def build_trial_suffix(run_id: str, trial_index: int) -> str:
@@ -291,15 +142,6 @@ def build_trial_suffix(run_id: str, trial_index: int) -> str:
 
 def build_trial_command(repo_root: str | Path, family: str, config_path: str, suffix: str) -> list[str]:
     repo_root = Path(repo_root)
-    if family == "mlp_lr":
-        script = repo_root / "src" / "models" / "mlp_lr.py"
-        return [sys.executable, str(script), "--suffix", suffix, "--config", config_path]
-    if family == "ft_transformer":
-        script = repo_root / "src" / "models" / "transformer.py"
-        return [sys.executable, str(script), "--suffix", suffix, "--config", config_path]
-    if family == "hybrid":
-        script = repo_root / "src" / "models" / "hybrid.py"
-        return [sys.executable, str(script), "--suffix", suffix, "--config", config_path]
     if family == "xgb":
         script = repo_root / "src" / "models" / "xgb.py"
         return [sys.executable, str(script), "--suffix", suffix, "--config", config_path]
@@ -307,24 +149,12 @@ def build_trial_command(repo_root: str | Path, family: str, config_path: str, su
 
 
 def _family_output_dir(repo_root: Path, family: str, suffix: str) -> Path:
-    if family == "mlp_lr":
-        return repo_root / "results" / "model_mlp_lr" / suffix
-    if family == "ft_transformer":
-        return repo_root / "results" / "model_ft_transformer" / suffix
-    if family == "hybrid":
-        return repo_root / "results" / "model_hybrid" / suffix
     if family == "xgb":
         return repo_root / "results" / "model_xgb" / suffix
     raise ValueError(f"Unsupported family: {family}")
 
 
 def _primary_metric_name(family: str) -> str:
-    if family == "mlp_lr":
-        return "mlp_test_rmse"
-    if family == "ft_transformer":
-        return "ft_test_rmse"
-    if family == "hybrid":
-        return "hybrid_test_rmse"
     if family == "xgb":
         return "xgb_test_rmse"
     return "test_rmse"
@@ -332,8 +162,6 @@ def _primary_metric_name(family: str) -> str:
 
 def _extract_primary_metric(output_dir: Path, family: str) -> float:
     csv_by_family = {
-        "ft_transformer": output_dir / "stratified_pc1_rmse_Transformer.csv",
-        "hybrid": output_dir / "stratified_pc1_rmse_Hybrid.csv",
         "xgb": output_dir / "stratified_pc1_rmse_XGB.csv",
     }
     path = csv_by_family.get(family)
@@ -469,7 +297,7 @@ def _write_search_manifest(repo_root: Path, plan: SearchPlan, results: list[Tria
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Autoresearch-style hyperparameter search")
-    parser.add_argument("--family", choices=SUPPORTED_FAMILIES, default="mlp_lr")
+    parser.add_argument("--family", choices=SUPPORTED_FAMILIES, default="xgb")
     parser.add_argument("--n-trials", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--repo-root", type=str, default=str(Path(__file__).resolve().parents[1]))

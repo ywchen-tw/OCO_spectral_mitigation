@@ -1098,11 +1098,11 @@ def main():
     parser.add_argument('--sfc-type', type=int, default=1, choices=[0, 1],
                         help='Surface type filter: 0=ocean, 1=land (default: 1)')
     parser.add_argument('--suffix',   type=str, default='',
-                        help='Subfolder under results/model_mlp_lr/ used to derive the default '
+                        help='Subfolder under results/feature_pipeline/ used to derive the default '
                              '--out path.  Ignored when --out is supplied explicitly.')
     parser.add_argument('--out',      default=None,
                         help='Output path for pipeline.pkl.  '
-                             'Defaults to <storage_dir>/results/model_mlp_lr/<suffix>/pipeline.pkl')
+                             'Defaults to <storage_dir>/results/feature_pipeline/<suffix>/pipeline.pkl')
     parser.add_argument('--scaler',   default='robust_standard',
                         choices=['robust_standard', 'pca_whitening'],
                         help='Scaler type: robust_standard (default) or pca_whitening '
@@ -1139,7 +1139,7 @@ def main():
 
     data_path = _resolve(args.data,
                          storage_dir / 'results/csv_collection/combined_2020_dates.parquet')
-    base_dir  = storage_dir / 'results/model_mlp_lr'
+    base_dir  = storage_dir / 'results/feature_pipeline'
     out_dir   = base_dir / args.suffix if args.suffix else base_dir
     out_path  = _resolve(args.out, out_dir / 'pipeline.pkl')
 

@@ -22,7 +22,7 @@ from .search import TrialResult, run_trial
 
 @dataclass(frozen=True)
 class ConfirmationConfig:
-    family: str = "mlp_lr"
+    family: str = "xgb"
     repo_root: str = "."
     repeats: int = 3
     epsilon: float = 1e-4
@@ -280,7 +280,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Confirmation and promotion gate")
     parser.add_argument("--candidate-summary", type=str, required=True)
     parser.add_argument("--incumbent-summary", type=str, required=True)
-    parser.add_argument("--family", choices=["mlp_lr", "ft_transformer", "hybrid", "xgb"], default="mlp_lr")
+    parser.add_argument("--family", choices=["xgb"], default="xgb")
     parser.add_argument("--repo-root", type=str, default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--epsilon", type=float, default=1e-4)

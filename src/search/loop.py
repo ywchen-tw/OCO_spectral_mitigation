@@ -32,7 +32,7 @@ from .search import (
 
 @dataclass(frozen=True)
 class LoopConfig:
-    family: str = "mlp_lr"
+    family: str = "xgb"
     seed: int = 42
     max_trials: int = 12
     max_duration_seconds: float = 300.0
@@ -195,7 +195,7 @@ def run_autoresearch_loop(
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Time-budgeted autoresearch loop")
-    parser.add_argument("--family", choices=SUPPORTED_FAMILIES, default="mlp_lr")
+    parser.add_argument("--family", choices=SUPPORTED_FAMILIES, default="xgb")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-trials", type=int, default=12)
     parser.add_argument("--max-duration-seconds", type=float, default=300.0)
