@@ -91,7 +91,7 @@ NFOLDS=5
 # capacities, more decorrelation.
 ARCHS="64,32;128,64;256,128,64;96,48;160,80;64,64,32"
 COMMON="--loss beta_nll --beta 1.0 --n_members 10 --batch_size 8192 \
-        --feature_set full_contam --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+        --feature_set full --near_cloud_target 0.98 --mondrian_col cld_dist_km \
         --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}"
 
 # ── homogeneous M=10 (size-only arm; the heterogeneity-ablation control) ───────

@@ -41,7 +41,7 @@ def _default_run_config() -> dict:
     return {
         'data': {
             'sfc_type': 0,
-            'snow_flag_value': 0,
+            'snow_flag_value': None,   # None = KEEP snow (default); 0 = exclude snow footprints
             'target': '10km',          # clear-sky reference: '10km' or '15km'
             'linux_data_name': 'combined_2016_2020_dates.parquet',
             'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
@@ -369,13 +369,15 @@ def main():
                         help='Disable PCA-score augmentation.')
     parser.set_defaults(pca_augment=None)
     parser.add_argument('--feature-set', dest='feature_set', default='full',
-                        choices=['full', 'reduced', 'no_xco2', 'no_spec', 'no_xco2_and_spec',
-                                 'full_fitqual', 'full_contam', 'full_contam_snow', 'full_kappa'],
+                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec', 'full_kappa'],
                         help="Feature ablation set (default 'full').")
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                         help='Append the profile-EOF + tropopause block (ProfilePCA). Bare flag / '
                              '"auto" loads results/model_mlp_lr/profile_pca_<surface>.pkl; or pass a '
                              '.pkl path. Carried through every feature set → full+profile is the "new full".')
+    parser.add_argument('--exclude-snow', dest='exclude_snow', action='store_true',
+                        help='Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow '
+                             '(high-latitude footprints; snow_flag varies only when snow is kept).')
     parser.add_argument('--config', type=str, default=None,
                         help='Path to a JSON config file that overrides data/model/training '
                              'hyperparameters. Unspecified keys keep defaults.')
@@ -390,6 +392,8 @@ def main():
         run_cfg['pipeline']['pca_augment'] = bool(args.pca_augment)
     run_cfg['pipeline']['feature_set'] = args.feature_set
     run_cfg['pipeline']['profile_pca'] = (True if args.profile_pca == 'auto' else args.profile_pca)
+    if args.exclude_snow:
+        run_cfg['data']['snow_flag_value'] = 0
     run_cfg['pipeline']['pipeline_arg'] = args.pipeline
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -425,8 +429,17 @@ def main():
     df = (pd.read_parquet(data_path) if data_path.endswith('.parquet')
           else pd.read_csv(data_path))
     df = df[df['sfc_type'] == sfc_type]
-    df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
-    print(f"  Rows after filter: {len(df):,}", flush=True)
+    # Snow footprints are KEPT by default (snow_flag_value=None) — they add the
+    # high-latitude soundings the production filter used to drop, and the snow_flag
+    # feature only varies when they are present.  --exclude-snow re-applies the
+    # snow_flag==0 filter.
+    _snow_val = run_cfg['data']['snow_flag_value']
+    if _snow_val is not None:
+        df = df[df['snow_flag'] == _snow_val]
+        print(f"  Rows after sfc+snow(=={_snow_val}) filter: {len(df):,}", flush=True)
+    else:
+        print(f"  Rows after sfc filter (snow KEPT): {len(df):,} "
+              f"({int((df['snow_flag']==1).sum()):,} snow)", flush=True)
 
     # Resolve the regression target and drop non-physical |anomaly|>100 ppm
     # outliers up front (default procedure, as in the other trainers): a handful of

@@ -299,13 +299,13 @@ def main():
     p.add_argument('--n_folds', type=int, default=None)
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--feature_set', type=str, default='full',
-                   choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec',
-                            'full_fitqual', 'full_contam', 'full_contam_snow'])
+                   choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec', 'full_kappa'])
     p.add_argument('--include_snow', action='store_true',
-                   help="Keep snow/ice footprints (snow_flag==1) in train/cal/holdout "
-                        "instead of the default filter to snow_flag==0.  Required for the "
-                        "full_contam_snow feature set to be meaningful (else the flag is "
-                        "constant).  Snow is land-only, so this only affects sfc_type=1.")
+                   help="[deprecated / now default] Snow footprints are KEPT by default; "
+                        "this flag is a harmless no-op kept for backward compatibility.")
+    p.add_argument('--exclude_snow', action='store_true',
+                   help="Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow "
+                        "(land-only; only affects sfc_type=1).")
     p.add_argument('--target', type=str, default=None,
                    help="Clear-sky reference for the regression target: '10km' (default, xco2_bc_anomaly) or '15km' (xco2_bc_anomaly_r15).")
     p.add_argument('--n_members', type=int, default=5)
@@ -403,11 +403,12 @@ def main():
     _dp = args.data if args.data else os.path.join(fdir, data_name)
     df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
     df = df[df['sfc_type'] == args.sfc_type]
-    if args.include_snow:
-        logger.info("--include_snow: keeping snow_flag==1 footprints (%d of %d rows are snow)",
-                    int((df['snow_flag'] == 1).sum()), len(df))
-    else:
+    if args.exclude_snow:
         df = df[df['snow_flag'] == 0]
+        logger.info("--exclude_snow: filtered to snow_flag==0 (%d rows)", len(df))
+    else:
+        logger.info("keeping snow footprints (default): %d of %d rows are snow",
+                    int((df['snow_flag'] == 1).sum()), len(df))
     df = _ensure_derived_features(df)
     target_col = resolve_target_col(args.target)
     if target_col not in df.columns:

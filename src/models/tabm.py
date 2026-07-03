@@ -551,8 +551,7 @@ def main():
     parser.add_argument('--fold', type=int, default=None,
                         help='Which date block (0-based) to hold out for date_kfold.')
     parser.add_argument('--feature_set', type=str, default=None,
-                        choices=['full', 'no_xco2', 'no_spec', 'full_fitqual',
-                                 'full_contam', 'full_contam_snow'],
+                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec', 'full_kappa'],
                         help="Feature ablation set (see pipeline._FEATURE_SETS).")
     parser.add_argument('--target', type=str, default=None,
                         help="Clear-sky reference for the regression target: "
@@ -591,9 +590,10 @@ def main():
                              "Requires --mondrian_col cld_dist_km.")
     parser.add_argument('--near_cloud_km', type=float, default=10.0)
     parser.add_argument('--include_snow', action='store_true',
-                        help="Keep snow/ice footprints (snow_flag==1) in train/holdout "
-                             "instead of the default filter to snow_flag==0.  Mirrors "
-                             "deep_ensemble --include_snow (snow-flag arm-B/C experiment).")
+                        help="[deprecated / now default] Snow footprints are KEPT by default; "
+                             "this flag is a harmless no-op kept for backward compatibility.")
+    parser.add_argument('--exclude_snow', action='store_true',
+                        help="Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow.")
     parser.add_argument('--data', type=str, default=None,
                         help='Override the input data file (default: platform data_name in '
                              'results/csv_collection/). Use for local multi-date testing.')
@@ -652,11 +652,13 @@ def main():
     _dp = args.data if args.data else os.path.join(fdir, data_name)
     df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
     df = df[df['sfc_type'] == surface_type]
-    if args.include_snow:
-        print(f"  --include_snow: keeping snow_flag==1 footprints "
-              f"({int((df['snow_flag'] == 1).sum())} of {len(df)} rows are snow)")
-    else:
+    if args.exclude_snow:
         df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
+        print(f"  --exclude_snow: filtered to snow_flag=={run_cfg['data']['snow_flag_value']} "
+              f"({len(df)} rows)")
+    else:
+        print(f"  keeping snow footprints (default): "
+              f"{int((df['snow_flag'] == 1).sum())} of {len(df)} rows are snow")
     df = _ensure_derived_features(df)
     target_col = resolve_target_col(run_cfg['data'].get('target'))
     if target_col not in df.columns:

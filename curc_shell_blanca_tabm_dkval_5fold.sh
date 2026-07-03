@@ -94,7 +94,7 @@ EOF
 esac
 
 python -m models.tabm --sfc_type 0 --suffix tabm_dkval_${C}_full_contam_f${FOLD} \
-  --config "$CFG" --feature_set full_contam \
+  --config "$CFG" --feature_set full \
   --val_split date_kfold --n_folds 5 --fold ${FOLD}
 
 rm -f "$CFG"

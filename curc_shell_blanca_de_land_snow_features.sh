@@ -58,7 +58,7 @@ nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,
 GPU_MONITOR_PID=$!
 
 # 4 feature sets (identical to the current ocean comparison).
-FS_LIST=(full_contam no_spec no_xco2 no_xco2_and_spec)
+FS_LIST=(full no_spec no_xco2 no_xco2_and_spec)
 NFS=${#FS_LIST[@]}
 FS=${FS_LIST[$(( SLURM_ARRAY_TASK_ID % NFS ))]}
 FOLD=$(( SLURM_ARRAY_TASK_ID / NFS ))

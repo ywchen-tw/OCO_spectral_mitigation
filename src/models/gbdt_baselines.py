@@ -213,8 +213,9 @@ def main():
     parser.add_argument('--fold', type=int, default=None,
                         help='Which date block (0-based) to hold out for date_kfold.')
     parser.add_argument('--feature_set', type=str, default='full',
-                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec',
-                                 'full_fitqual', 'full_contam'])
+                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec', 'full_kappa'])
+    parser.add_argument('--exclude_snow', dest='exclude_snow', action='store_true',
+                        help='Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow.')
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                         help='Append the profile-EOF + tropopause block (ProfilePCA). '
                              'Bare flag / "auto" loads results/model_mlp_lr/profile_pca_<surface>.pkl; '
@@ -255,7 +256,9 @@ def main():
     _dp = args.data if args.data else os.path.join(fdir, data_name)
     df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
     df = df[df['sfc_type'] == args.sfc_type]
-    df = df[df['snow_flag'] == 0]
+    # Snow footprints KEPT by default (--exclude_snow to drop them).
+    if args.exclude_snow:
+        df = df[df['snow_flag'] == 0]
     df = _ensure_derived_features(df)
     target_col = resolve_target_col(args.target)
     if target_col not in df.columns:

@@ -95,7 +95,7 @@ NFOLDS=5
 TUNED=tabm_tuned_ocean.json
 
 # This fold, all 4 TabM configs: {ocean, land} x {full, full_contam}.
-for FS in full full_contam; do
+for FS in full; do
   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_${FS}_f${F} --config ${TUNED} \
     --feature_set ${FS} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 

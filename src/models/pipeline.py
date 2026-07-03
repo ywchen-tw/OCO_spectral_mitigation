@@ -348,10 +348,12 @@ _FEATURES_SFC0 = [
     # 'dust_height', 'ice_height', 'water_height',
     # 'snr_o2a', 'snr_wco2', 'snr_sco2',
     'pol_ang_rad',
-    's31', 
+    's31',
     # 's32',
-    # 't700',
     'tcwv',
+    # ── cloud/aerosol contamination (merged from CONTAM_FEATURES; ocean) ──
+    'max_declock_wco2', 'aod_water', 'dp_abp', 'h_cont_wco2', 't700',
+    'water_height', 'alb_sco2_over_wco2',
 ]
 
 _FEATURES_SFC1 = [
@@ -418,10 +420,13 @@ _FEATURES_SFC1 = [
     # 'dust_height', 'ice_height', 'water_height',
     # 'snr_o2a', 'snr_wco2', 'snr_sco2',
     'pol_ang_rad',
-    's31', 
+    's31',
     # 's32',
-    # 't700', 
     'tcwv',
+    # ── cloud/aerosol contamination (merged from CONTAM_FEATURES; land) ──
+    'dpfrac', 'fs_rel_0', 'dust_height', 'aod_ice', 'ice_height', 'dp_abp',
+    'water_height', 'aod_water', 't700', 'h_cont_wco2', 'alt_std',
+    'alb_sco2_over_wco2',
 ]
 
 _FEATURE_MAP = {0: _FEATURES_SFC0, 1: _FEATURES_SFC1}
@@ -449,45 +454,19 @@ SPEC_FEATURES = frozenset([
     'sco2_k1', 'sco2_k2',
 ])
 
-# Set 4 — ADD spectral-fit-quality diagnostics on top of `full` (cloud-contamination
-# fingerprints from the sounding's own spectrum/fit; see TABM_PLAN "New-feature
-# investigation").  These columns are produced by spectral/fitting.py — the combined
-# parquet must be REGENERATED before this set can be fitted (else KeyError on the
-# missing columns).  Same for both surface types.
-FITQUAL_FEATURES = [
-    'chi2_o2a', 'chi2_wco2', 'chi2_sco2',
-    'rms_rel_o2a', 'rms_rel_wco2', 'rms_rel_sco2',
-    'eof3_1_rel', 'diverging_steps', 'xco2_uncertainty',
-]
+# Cloud/aerosol contamination features are part of the base _FEATURES_SFC0/1 above
+# (always active) — forward-selected from the disabled-feature pool and validated with
+# date-blocked (date_kfold) CV: ~+0.06 (ocean) / +0.07 (land) held-out R² over the
+# pre-contam base (declocking/water aerosol on ocean; dpfrac/humidity/dust+ice on land).
+# They are permanent base features, so there is no separate CONTAM_FEATURES group and no
+# contam ablation.
 
-# Set 5 — ADD cloud/aerosol contamination features on top of `full`.  Forward-selected
-# from the disabled-feature pool and validated with date-blocked (date_kfold) CV: adding
-# them lifted held-out R² by ~+0.06 (ocean) / +0.07 (land) over the `full` baseline — an
-# order of magnitude more than the cross-band ratios.  PER-SURFACE because the dominant
-# contamination signals differ (ocean: declocking/water aerosol; land: dpfrac/humidity/
-# dust+ice).  `alb_sco2_over_wco2` carries a small real ocean gain (rank-5 perm. importance
-# on top of this set); it is ~0 on land but is included on both per request.  All columns
-# exist in the combined parquet (alb_sco2_over_wco2 is self-derived below for old CSVs).
-CONTAM_FEATURES: dict = {
-    0: ['max_declock_wco2', 'aod_water', 'dp_abp', 'h_cont_wco2', 't700',
-        'water_height', 'alb_sco2_over_wco2'],
-    1: ['dpfrac', 'fs_rel_0', 'dust_height', 'aod_ice', 'ice_height', 'dp_abp',
-        'water_height', 'aod_water', 't700', 'h_cont_wco2', 'alt_std',
-        'alb_sco2_over_wco2'],
-}
+# snow_flag is NOT a model feature.  The land A/B (test_snow_features.py) showed it is
+# neutral — ~0 ΔR²/ΔRMSE even with snow footprints present — so it is not added to any
+# feature set.  The snow footprints themselves (the DATA) are kept by default in the
+# trainers (opt out with --exclude-snow); snow_flag is only used there as a filter column.
 
-# Set 6 — full_contam PLUS the binary snow/ice flag (land only; all snow footprints
-# are sfc_type=1).  Tests whether an explicit snow indicator lifts high-latitude
-# (polar) accuracy on footprints that the production pipeline currently filters out
-# (snow_flag==0).  Requires training with --include_snow so the flag actually varies.
-# snow_flag is 0/1 — RobustStandardScaler maps a zero-IQR column to scale=1 then
-# StandardScaler unit-variances it, so the binary needs no special passthrough.
-CONTAM_SNOW_FEATURES: dict = {
-    0: list(CONTAM_FEATURES[0]),                       # ocean: unchanged (no snow)
-    1: list(CONTAM_FEATURES[1]) + ['snow_flag'],       # land: + snow indicator
-}
-
-# Set 7 — full (== full_contam_snow) PLUS the per-band gamma shape κ = k1²/k2
+# full_kappa — `full` PLUS the per-band gamma shape κ = k1²/k2
 # (o2a/wco2/sco2_kappa, propagated into the combined parquet by spectral/fitting.py
 # → build_feature_dataset.py).  κ is the cloud-scattering pathlength-distribution shape:
 # small κ ⇒ broad pathlength spread (multiple-scattering / cloud contamination),
@@ -503,13 +482,10 @@ KAPPA_FEATURES = ['o2a_kappa', 'wco2_kappa', 'sco2_kappa']
 # BEFORE drops, so a drop can remove an appended feature.  ``None`` is a sentinel
 # meaning "base _FEATURE_MAP unchanged".
 #
-# The baseline 'full' now == the old 'full_contam_snow': base features PLUS the
-# per-surface cloud/aerosol contamination set PLUS the land snow_flag.  The
-# ablation sets (no_xco2 / no_spec / no_xco2_and_spec) are defined RELATIVE to
-# this new full — they append the same contam_snow set, then drop the named
-# group(s).  'full_contam_snow' is kept as an explicit alias of the new 'full'.
-# 'reduced' is the OLD 'full' — the bare per-surface _FEATURE_MAP with no
-# contamination / snow additions.
+# Contamination features are part of the base _FEATURES_SFC0/1, so the base IS the
+# active feature set: 'full' == base (``None`` sentinel = unchanged).  The
+# no_xco2 / no_spec / no_xco2_and_spec ablations drop the named group from full;
+# full_kappa adds the experimental gamma-shape kappa columns.
 #
 # PROFILE BLOCK (profile EOFs + tropopause) is ORTHOGONAL to these sets — it is
 # not a raw column so it lives outside _FEATURE_SETS, supplied via
@@ -518,15 +494,11 @@ KAPPA_FEATURES = ['o2a_kappa', 'wco2_kappa', 'sco2_kappa']
 # features + profile EOFs + tropopause) and no_xco2/no_spec/no_xco2_and_spec
 # remove only the xco2 / spectroscopy raw features from that new full.
 _FEATURE_SETS: dict = {
-    'full':            {'add_per_sfc': CONTAM_SNOW_FEATURES},
-    'reduced':         None,
-    'no_xco2':         {'add_per_sfc': CONTAM_SNOW_FEATURES, 'drop': XCO2_FEATURES},
-    'no_spec':         {'add_per_sfc': CONTAM_SNOW_FEATURES, 'drop': SPEC_FEATURES},
-    'no_xco2_and_spec': {'add_per_sfc': CONTAM_SNOW_FEATURES, 'drop': XCO2_FEATURES | SPEC_FEATURES},
-    'full_fitqual':    {'add': FITQUAL_FEATURES},
-    'full_contam':     {'add_per_sfc': CONTAM_FEATURES},
-    'full_contam_snow': {'add_per_sfc': CONTAM_SNOW_FEATURES},
-    'full_kappa':      {'add_per_sfc': CONTAM_SNOW_FEATURES, 'add': KAPPA_FEATURES},
+    'full':             None,
+    'no_xco2':          {'drop': XCO2_FEATURES},
+    'no_spec':          {'drop': SPEC_FEATURES},
+    'no_xco2_and_spec': {'drop': XCO2_FEATURES | SPEC_FEATURES},
+    'full_kappa':       {'add': KAPPA_FEATURES},
 }
 
 
@@ -806,10 +778,9 @@ class FeaturePipeline:
             features (land: PC1/PC4/PC8; ocean: PC3/PC6).  Compatible with
             all model types; for FT-Transformer this is the only PCA mode.
         feature_set : named ablation set selecting which continuous features
-            survive.  'full' (default) is base + per-surface contamination +
-            land snow_flag (the old 'full_contam_snow').  'reduced' is the bare
-            base features (the old 'full').  'no_xco2' / 'no_spec'
-            / 'no_xco2_and_spec' start from this new full and drop
+            survive.  'full' (default) is the base, which now includes the
+            per-surface contamination features (snow_flag is NOT a feature).
+            'no_xco2' / 'no_spec' / 'no_xco2_and_spec' start from full and drop
             xco2_raw_minus_apriori / the k1-k3 + exp_intercept spectroscopy
             group / both.  See _FEATURE_SETS.  The
             resulting ``n_features`` / ``features`` remain the single
@@ -1042,16 +1013,17 @@ def main():
                              '(land: PC1/PC4/PC8; ocean: PC3/PC6).')
     parser.add_argument('--feature-set', default='full',
                         choices=sorted(_FEATURE_SETS),
-                        help="Feature ablation set. 'full' (default) = base + "
-                             "per-surface contamination + land snow_flag. "
-                             "'reduced' = bare base features (the old 'full'). "
-                             "'no_xco2'/'no_spec'/'no_xco2_and_spec' drop "
+                        help="Feature ablation set. 'full' (default) = base "
+                             "(includes per-surface contamination; snow_flag is not a "
+                             "feature). 'no_xco2'/'no_spec'/'no_xco2_and_spec' drop "
                              "xco2_raw_minus_apriori / k1-k3+exp_intercept / both "
-                             "from the new full.")
+                             "from full.")
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                         help='Append the profile-EOF + tropopause block (ProfilePCA). Bare flag / '
                              '"auto" loads results/model_mlp_lr/profile_pca_<surface>.pkl; or pass a '
                              '.pkl path. Carried through every feature set (no_xco2/no_spec keep it).')
+    parser.add_argument('--exclude-snow', dest='exclude_snow', action='store_true',
+                        help='Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow.')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -1077,8 +1049,11 @@ def main():
     print(f"  Rows before filtering: {len(df):,}", flush=True)
 
     df = df[df['sfc_type'] == args.sfc_type]
-    df = df[df['snow_flag'] == 0]
-    print(f"  Rows after sfc_type={args.sfc_type} + snow_flag==0: {len(df):,}", flush=True)
+    # Snow footprints KEPT by default (--exclude-snow to drop them).
+    if args.exclude_snow:
+        df = df[df['snow_flag'] == 0]
+    print(f"  Rows after sfc_type={args.sfc_type} filter "
+          f"(snow {'excluded' if args.exclude_snow else 'KEPT'}): {len(df):,}", flush=True)
 
     _prof = True if args.profile_pca == 'auto' else args.profile_pca
     pipeline = FeaturePipeline.fit(df, sfc_type=args.sfc_type,

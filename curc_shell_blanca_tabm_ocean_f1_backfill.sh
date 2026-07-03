@@ -49,7 +49,7 @@ nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used,
            --format=csv --loop=10 > gpu_monitor_${SLURM_JOB_ID}.csv &
 GPU_MONITOR_PID=$!
 
-for FS in full full_contam; do
+for FS in full; do
   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_${FS}_f1 --K 16 \
     --feature_set ${FS} --val_split date_kfold --n_folds 5 --fold 1
 done

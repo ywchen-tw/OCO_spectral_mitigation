@@ -76,7 +76,7 @@ F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
 CONF="--conformal --calib_frac 0.15 --mondrian_col cld_dist_km --near_cloud_target 0.95"
 
-for FS in full full_contam; do
+for FS in full; do
   # Ocean: no snow exists on ocean (all snow is sfc_type=1), so no --include_snow.
   python -m models.tabm --sfc_type 0 --suffix tabm_ocean_${FS}_conf_f${F} --K 16 \
     --feature_set ${FS} ${CONF} --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}

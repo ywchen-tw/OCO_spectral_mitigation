@@ -75,7 +75,7 @@ EPOCHS=60
 # Ocean search (the surface we have a DE baseline for).  Each task = one search seed
 # = one trial.  Aggregate all tasks afterwards with --aggregate (globs *_s*_trials.csv).
 python tabm_hpo_search.py --seed ${SEED} --n_trials ${N_PER} \
-  --sfc_type 0 --feature_set full_contam \
+  --sfc_type 0 --feature_set full \
   --val_split date_kfold --n_folds 5 --fold 0 --epochs ${EPOCHS}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true

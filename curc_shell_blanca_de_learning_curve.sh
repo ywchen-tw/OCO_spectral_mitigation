@@ -72,7 +72,7 @@ GPU_MONITOR_PID=$!
 FRACS=(0.25 0.5 0.75 1.0)
 FR=${FRACS[$SLURM_ARRAY_TASK_ID]}
 COMMON="--loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-        --feature_set full_contam --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+        --feature_set full --near_cloud_target 0.98 --mondrian_col cld_dist_km \
         --val_split date_kfold --n_folds 5 --fold 0 --train_frac ${FR}"
 
 python -m models.deep_ensemble --sfc_type 0 --suffix lc_ocean_fr${FR}_f0 ${COMMON}

@@ -85,7 +85,7 @@ NFOLDS=5
 #   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 python -m models.deep_ensemble --sfc_type 1 --suffix de_land_full_contam_f${F} \
-  --feature_set full_contam --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+  --feature_set full --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
   --near_cloud_target 0.98 --mondrian_col cld_dist_km \
   --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
