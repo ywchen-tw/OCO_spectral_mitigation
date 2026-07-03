@@ -81,11 +81,11 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_f${F
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_f${F} \
-    --profile-pca \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_f${F} \
+#     --profile-pca \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Feature-set ablations (+profile) ──────────────────────────────────────────
 # Same production config, each with one feature block dropped, both surfaces.
@@ -93,18 +93,18 @@ python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_f${F}
 # touch it), so these isolate each block's contribution ON TOP OF the profile block.
 # A/B partners: de_{surface}_{FS}_f${F} (same ablation, no profile).
 # Suffix: de_{surface}_{FS}_prof_f${F}.
-for FS in no_xco2 no_spec no_xco2_and_spec; do
-  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_f${F} \
-      --profile-pca --feature_set ${FS} \
-      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# for FS in no_xco2 no_spec no_xco2_and_spec; do
+#   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_f${F} \
+#       --profile-pca --feature_set ${FS} \
+#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_f${F} \
-      --profile-pca --feature_set ${FS} \
-      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
+#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_f${F} \
+#       --profile-pca --feature_set ${FS} \
+#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true

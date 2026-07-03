@@ -98,6 +98,16 @@ def main():
             _tccon_cache[name] = load_tccon(str(p))
         return _tccon_cache[name]
 
+    def source_parquet(date):
+        """Locate the pre-apply source parquet (carries xco2_raw, absent from
+        plot_data.parquet). Returns a Path or None."""
+        name = f"combined_{date}_all_orbits.parquet"
+        for base in (Path('results/csv_collection'), storage / 'results/csv_collection'):
+            p = base / name
+            if p.exists():
+                return p
+        return None
+
     rows = []
     for c in cases:
         site = c['site'] or c['tccon'][:2]
@@ -107,6 +117,13 @@ def main():
         if not pq.exists():
             continue
         oco = pd.read_parquet(pq)
+        # merge raw (pre-bias-correction) XCO2 from the source parquet — plot_data
+        # only carries xco2_bc. Match on (time, lon, lat), which pass through unchanged.
+        sp = source_parquet(c['date'])
+        if sp is not None:
+            src = (pd.read_parquet(sp, columns=['time', 'lon', 'lat', 'xco2_raw'])
+                     .drop_duplicates(['time', 'lon', 'lat']))
+            oco = oco.merge(src, on=['time', 'lon', 'lat'], how='left')
         # drop guarded
         g = np.zeros(len(oco), bool)
         for gc in ('clim_guard', 'anomaly_guard'):
@@ -130,6 +147,9 @@ def main():
             continue
         orig = near['xco2_bc'].to_numpy(float)
         corr = near[CORR].to_numpy(float)
+        raw = (near['xco2_raw'].to_numpy(float) if 'xco2_raw' in near.columns
+               else np.full(len(near), np.nan))
+        has_raw = np.isfinite(raw).any()
 
         # TCCON within ±window of the OCO pass that day
         tmu = tsd = np.nan; n_tc = 0
@@ -140,11 +160,15 @@ def main():
                 sub = tc[(tc['time'] >= ot.min() - w) & (tc['time'] <= ot.max() + w)]
                 if len(sub):
                     tmu = float(sub['xco2'].mean()); tsd = float(sub['xco2'].std()); n_tc = len(sub)
+        raw_mu = np.nanmean(raw) if has_raw else np.nan
+        raw_sd = np.nanstd(raw) if has_raw else np.nan
         rows.append(dict(
             site=site, date=c['date'], n_oco=len(near), n_tccon=n_tc,
+            raw_mu=raw_mu, raw_sd=raw_sd,
             orig_mu=np.nanmean(orig), orig_sd=np.nanstd(orig),
             corr_mu=np.nanmean(corr), corr_sd=np.nanstd(corr),
             tccon_mu=tmu, tccon_sd=tsd,
+            bias_raw=(raw_mu - tmu) if (n_tc and has_raw) else np.nan,
             bias_before=(np.nanmean(orig) - tmu) if n_tc else np.nan,
             bias_after=(np.nanmean(corr) - tmu) if n_tc else np.nan,
         ))
@@ -206,30 +230,48 @@ def main():
         cmp = cmp.sort_values('bias_before').reset_index(drop=True)
         fig, (axA, axB) = plt.subplots(1, 2, figsize=(16, 7))
         # (a) scatter vs TCCON (1:1)
+        if cmp['raw_mu'].notna().any():
+            axA.errorbar(cmp['tccon_mu'], cmp['raw_mu'], xerr=cmp['tccon_sd'], yerr=cmp['raw_sd'],
+                         fmt='o', ms=7, color='darkorange', alpha=0.7, elinewidth=0.8,
+                         markeredgecolor='black', markeredgewidth=0.6, label='raw XCO₂')
         axA.errorbar(cmp['tccon_mu'], cmp['orig_mu'], xerr=cmp['tccon_sd'], yerr=cmp['orig_sd'],
-                     fmt='o', ms=5, color='steelblue', alpha=0.5, elinewidth=0.8, label='original XCO₂_bc')
+                     fmt='o', ms=7, color='steelblue', alpha=0.7, elinewidth=0.8,
+                     markeredgecolor='black', markeredgewidth=0.6, label='original XCO₂_bc')
         axA.errorbar(cmp['tccon_mu'], cmp['corr_mu'], xerr=cmp['tccon_sd'], yerr=cmp['corr_sd'],
-                     fmt='o', ms=5, color='green', alpha=0.7, elinewidth=0.8, label='corrected')
-        lo = float(np.nanmin([cmp['tccon_mu'].min(), cmp['corr_mu'].min(), cmp['orig_mu'].min()])) - 1
-        hi = float(np.nanmax([cmp['tccon_mu'].max(), cmp['corr_mu'].max(), cmp['orig_mu'].max()])) + 1
+                     fmt='o', ms=7, color='green', alpha=0.8, elinewidth=0.8,
+                     markeredgecolor='black', markeredgewidth=0.6, label='corrected')
+        lo = float(np.nanmin([cmp['tccon_mu'].min(), cmp['corr_mu'].min(),
+                              cmp['orig_mu'].min(), cmp['raw_mu'].min()])) - 1
+        hi = float(np.nanmax([cmp['tccon_mu'].max(), cmp['corr_mu'].max(),
+                              cmp['orig_mu'].max(), cmp['raw_mu'].max()])) + 1
         axA.plot([lo, hi], [lo, hi], 'k--', lw=1, label='1:1')
-        # ── OLS fits: OCO-2 (y) vs TCCON (x), before & after correction ──────────
+        # ── OLS fits: OCO-2 (y) vs TCCON (x), raw / before / after correction ────
         _xline = np.array([lo, hi])
+        _series = [('orig_mu', 'steelblue', 'before'), ('corr_mu', 'green', 'after')]
+        if cmp['raw_mu'].notna().any():
+            _series = [('raw_mu', 'darkorange', 'raw')] + _series
+
+        def _rmse_to_tccon(col):
+            _d = (cmp[col] - cmp['tccon_mu']).to_numpy(float)
+            _d = _d[np.isfinite(_d)]
+            return float(np.sqrt(np.mean(_d ** 2))) if _d.size else np.nan
+
         _fits = {}
-        for _col, _color, _lbl in [('orig_mu', 'steelblue', 'before'),
-                                   ('corr_mu', 'green', 'after')]:
+        for _col, _color, _lbl in _series:
             _f = _ols_fit(cmp['tccon_mu'], cmp[_col])
+            if _f is not None:
+                _f['rmse'] = _rmse_to_tccon(_col)
             _fits[_lbl] = _f
             if _f is not None:
                 axA.plot(_xline, _f['intercept'] + _f['slope'] * _xline,
                          '-', color=_color, lw=1.6, alpha=0.9, zorder=4)
-        # annotation box with slope ± SE and R² for both series
+        # annotation box with slope ± SE, R² and RMSE-to-TCCON for each series
         _txt = []
-        for _lbl in ('before', 'after'):
+        for _col, _color, _lbl in _series:
             _f = _fits.get(_lbl)
             if _f is not None:
                 _txt.append(f"{_lbl}:  slope = {_f['slope']:.3f} ± {_f['slope_se']:.3f}   "
-                            f"R² = {_f['r2']:.3f}")
+                            f"R² = {_f['r2']:.3f}   RMSE = {_f['rmse']:.2f}")
         if _txt:
             axA.text(0.04, 0.96, '\n'.join(_txt), transform=axA.transAxes,
                      va='top', ha='left', fontsize=10,
@@ -238,16 +280,45 @@ def main():
         axA.set_title('OCO-2 vs TCCON (mean ± std)'); axA.legend(loc='lower right')
         axA.grid(alpha=0.3)
         axA.set_xlim(lo, hi); axA.set_ylim(lo, hi); axA.set_aspect('equal')
-        # (b) bias before→after dumbbell, per case
+        # (b) bias raw→before→after dumbbell, per case (errorbar = OCO-2 σ)
         y = np.arange(len(cmp))
-        for yi, (bb, ba) in enumerate(zip(cmp['bias_before'], cmp['bias_after'])):
-            axB.plot([bb, ba], [yi, yi], '-', color='lightgray', lw=1.5, zorder=1)
-        axB.scatter(cmp['bias_before'], y, color='steelblue', s=28, label='before', zorder=2)
-        axB.scatter(cmp['bias_after'], y, color='green', s=28, label='after', zorder=3)
+        has_raw = cmp['bias_raw'].notna().any()
+        for yi in range(len(cmp)):
+            pts = [cmp['bias_before'].iloc[yi], cmp['bias_after'].iloc[yi]]
+            if has_raw and np.isfinite(cmp['bias_raw'].iloc[yi]):
+                pts.append(cmp['bias_raw'].iloc[yi])
+            axB.plot([min(pts), max(pts)], [yi, yi], '-', color='lightgray', lw=1.5, zorder=1)
+        if has_raw:
+            axB.errorbar(cmp['bias_raw'], y, xerr=cmp['raw_sd'], fmt='o', ms=7,
+                         color='darkorange', ecolor='darkorange', elinewidth=0.8,
+                         capsize=3, capthick=0.8, markeredgecolor='black',
+                         markeredgewidth=0.6, label='raw', zorder=2)
+        axB.errorbar(cmp['bias_before'], y, xerr=cmp['orig_sd'], fmt='o', ms=7,
+                     color='steelblue', ecolor='steelblue', elinewidth=0.8,
+                     capsize=3, capthick=0.8, markeredgecolor='black',
+                     markeredgewidth=0.6, label='before', zorder=3)
+        axB.errorbar(cmp['bias_after'], y, xerr=cmp['corr_sd'], fmt='o', ms=7,
+                     color='green', ecolor='green', elinewidth=0.8,
+                     capsize=3, capthick=0.8, markeredgecolor='black',
+                     markeredgewidth=0.6, label='after', zorder=4)
         axB.axvline(0, color='k', lw=1)
+        # annotation box: mean ± std of the per-case bias for each series
+        _btxt = []
+        for _lbl, _col in (('raw', 'bias_raw'), ('before', 'bias_before'), ('after', 'bias_after')):
+            if _col == 'bias_raw' and not has_raw:
+                continue
+            _b = cmp[_col].to_numpy(float); _b = _b[np.isfinite(_b)]
+            if _b.size:
+                _btxt.append(f"{_lbl}:  {np.mean(_b):+.2f} ± {np.std(_b):.2f}")
+        if _btxt:
+            axB.text(0.04, 0.96, '\n'.join(_btxt), transform=axB.transAxes,
+                     va='top', ha='left', fontsize=10,
+                     bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
         axB.set_yticks(y); axB.set_yticklabels([f"{r.site} {r.date}" for r in cmp.itertuples()], fontsize=6)
-        axB.set_xlabel('XCO₂ bias to TCCON (ppm)'); axB.set_title('Bias before → after correction')
-        axB.legend(); axB.grid(alpha=0.3, axis='x')
+        axB.set_xlabel('XCO₂ bias to TCCON (ppm)')
+        axB.set_title('Bias to TCCON: raw → before → after' if has_raw
+                      else 'Bias before → after correction')
+        axB.legend(loc='lower right'); axB.grid(alpha=0.3, axis='x')
         fig.tight_layout()
         fig.savefig(out_dir / 'tccon_comparison.png', dpi=200, bbox_inches='tight')
         plt.close(fig)
