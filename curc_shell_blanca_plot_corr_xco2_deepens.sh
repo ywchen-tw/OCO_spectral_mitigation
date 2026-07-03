@@ -199,6 +199,7 @@ run_case  2015-07-15   ma20140930_20150727.public.qc.nc     -60.95   -59.01    -
 run_case  2015-05-18   ny20050316_20250524.public.qc.nc      11.09    13.09    78.47    79.65   368.0  388.5  land  poster  ny  no
 run_case  2015-05-20   ny20050316_20250524.public.qc.nc      11.47    14.61    78.47    79.48   363.0  391.0  land  poster  ny  no
 run_case  2015-06-05   ny20050316_20250524.public.qc.nc       9.98    13.62    77.88    79.37   384.0  404.5  both  poster  ny  yes
+run_case  2015-07-15   ny20050316_20250524.public.qc.nc      10.50    15.30    78.20    79.50   394.0  402.5  land  poster  ny  yes
 # 2016-05-29: nearest OCO sounding 94 km, only 14 footprints ≤100km — marginal clip
 # run_case  2016-05-29   ny20050316_20250524.public.qc.nc       8.28    12.37    78.04    79.37   404.5  407.5  both  poster  ny
 run_case  2016-07-09   ny20050316_20250524.public.qc.nc       9.17    14.91    78.47    79.93   397.5  405.5  both  poster  ny  no
