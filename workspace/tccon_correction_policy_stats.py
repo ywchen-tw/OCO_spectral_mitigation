@@ -234,7 +234,11 @@ def main():
                     help="glob (under results/model_deep_ensemble) for the ocean DE folds.")
     ap.add_argument('--land-model-glob', default=_DEF_LAND_GLOB,
                     help="glob (under results/model_deep_ensemble) for the land DE folds.")
+    ap.add_argument('--fname-suffix', default='',
+                    help="Appended before the extension of every output CSV filename "
+                         "(e.g. '_r100km') so a radius sweep's stats coexist.")
     args = ap.parse_args()
+    sfx = args.fname_suffix
 
     # Resolve model folds + namespace paths by --model-tag (reassign module globals
     # used by build_plotdata()/main()).
@@ -294,7 +298,7 @@ def main():
     if not pooled:
         print("\nNo matched cases."); return
     allfp = pd.concat(pooled, ignore_index=True)
-    pd.DataFrame(per_case).to_csv(OUTDIR / 'tccon_policy_per_case.csv', index=False)
+    pd.DataFrame(per_case).to_csv(OUTDIR / f'tccon_policy_per_case{sfx}.csv', index=False)
 
     # ── pooled footprint-level summary: overall + near/far cloud ───────────────
     def summarize(frame, label):
@@ -309,7 +313,7 @@ def main():
         summary += summarize(allfp[alat > L], f'lat>{int(L)}')
     summary += summarize(allfp[alat <= min(LAT_GATES)], f'lat<={int(min(LAT_GATES))}')
     sdf = pd.DataFrame(summary)
-    sdf.to_csv(OUTDIR / 'tccon_policy_pooled_summary.csv', index=False)
+    sdf.to_csv(OUTDIR / f'tccon_policy_pooled_summary{sfx}.csv', index=False)
 
     order = list(SCEN.keys())
     sdf['scenario'] = pd.Categorical(sdf['scenario'], order, ordered=True)
@@ -321,7 +325,7 @@ def main():
     print(sdf[['subset', 'scenario', 'n', 'bias', 'rmse', 'std']].to_string(index=False))
     # ── station-day calibration: regress mean corrected OCO on TCCON ───────────
     cm = pd.DataFrame(case_means)
-    cm.to_csv(OUTDIR / 'tccon_policy_station_means.csv', index=False)
+    cm.to_csv(OUTDIR / f'tccon_policy_station_means{sfx}.csv', index=False)
     reg = []
     for name in SCEN:
         if name not in cm.columns:
@@ -337,7 +341,7 @@ def main():
                         mean_resid=float(np.mean(y - x)),
                         rms_resid=float(np.sqrt(np.mean((y - x) ** 2)))))
     rdf = pd.DataFrame(reg)
-    rdf.to_csv(OUTDIR / 'tccon_policy_station_regression.csv', index=False)
+    rdf.to_csv(OUTDIR / f'tccon_policy_station_regression{sfx}.csv', index=False)
     rdf['scenario'] = pd.Categorical(rdf['scenario'], order, ordered=True)
     rdf = rdf.sort_values('scenario')
     for cc in ('slope', 'intercept', 'r2', 'mean_resid', 'rms_resid'):
@@ -347,9 +351,9 @@ def main():
     print(rdf[['scenario', 'n_stationdays', 'slope', 'intercept', 'r2',
                'mean_resid', 'rms_resid']].to_string(index=False))
 
-    print(f"\nPer-case  → {OUTDIR / 'tccon_policy_per_case.csv'}")
-    print(f"Summary   → {OUTDIR / 'tccon_policy_pooled_summary.csv'}")
-    print(f"Station regression → {OUTDIR / 'tccon_policy_station_regression.csv'}")
+    print(f"\nPer-case  → {OUTDIR / f'tccon_policy_per_case{sfx}.csv'}")
+    print(f"Summary   → {OUTDIR / f'tccon_policy_pooled_summary{sfx}.csv'}")
+    print(f"Station regression → {OUTDIR / f'tccon_policy_station_regression{sfx}.csv'}")
 
 
 if __name__ == '__main__':

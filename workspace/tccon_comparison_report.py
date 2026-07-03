@@ -71,10 +71,20 @@ def main():
     ap.add_argument('--output-dir', default='results/model_comparison/deep_ensemble')
     ap.add_argument('--radius-km', type=float, default=100.0)
     ap.add_argument('--window-min', type=float, default=60.0)
+    ap.add_argument('--fname-suffix', default='',
+                    help="Appended before the extension of every output filename "
+                         "(e.g. '_r100km') so a parameter sweep's reports coexist.")
     args = ap.parse_args()
 
     out_base = Path(args.out_base)
     out_dir = Path(args.output_dir); out_dir.mkdir(parents=True, exist_ok=True)
+    sfx = args.fname_suffix
+    # Output paths (suffix inserted before the extension).
+    P_CSV      = out_dir / f'tccon_comparison{sfx}.csv'
+    P_MD       = out_dir / f'tccon_comparison{sfx}.md'
+    P_PNG      = out_dir / f'tccon_comparison{sfx}.png'
+    P_SITE_CSV = out_dir / f'tccon_comparison_by_site{sfx}.csv'
+    P_SITE_PNG = out_dir / f'tccon_comparison_by_site{sfx}.png'
     storage = get_storage_dir()
 
     # ── parse active run_case lines ────────────────────────────────────────────
@@ -179,7 +189,7 @@ def main():
               file=sys.stderr)
         return
     rep = pd.DataFrame(rows).sort_values(['site', 'date']).reset_index(drop=True)
-    rep.to_csv(out_dir / 'tccon_comparison.csv', index=False)
+    rep.to_csv(P_CSV, index=False)
 
     cmp = rep[rep['n_tccon'] > 0].copy()
     # ── markdown ───────────────────────────────────────────────────────────────
@@ -214,7 +224,7 @@ def main():
                          mean_sd_after=('corr_sd', 'mean'),
                          n_improved=('improved', 'sum'))
                     .reset_index().sort_values('mean_abs_bias_after'))
-        site_agg.to_csv(out_dir / 'tccon_comparison_by_site.csv', index=False)
+        site_agg.to_csv(P_SITE_CSV, index=False)
         lines += ['', '## Per-site aggregate (cases with TCCON, sorted by post-correction |bias|)', '',
                   '| site | n | mean \\|bias\\| before | after | mean σ before | after | improved |',
                   '|---|--:|--:|--:|--:|--:|--:|']
@@ -222,7 +232,7 @@ def main():
             lines.append(f"| {s['site']} | {int(s['n'])} | {s['mean_abs_bias_before']:.2f} | "
                          f"**{s['mean_abs_bias_after']:.2f}** | {s['mean_sd_before']:.2f} | "
                          f"{s['mean_sd_after']:.2f} | {int(s['n_improved'])}/{int(s['n'])} |")
-    (out_dir / 'tccon_comparison.md').write_text('\n'.join(lines) + '\n')
+    P_MD.write_text('\n'.join(lines) + '\n')
     print('\n'.join(lines))
 
     # ── figure ─────────────────────────────────────────────────────────────────
@@ -320,7 +330,7 @@ def main():
                       else 'Bias before → after correction')
         axB.legend(loc='lower right'); axB.grid(alpha=0.3, axis='x')
         fig.tight_layout()
-        fig.savefig(out_dir / 'tccon_comparison.png', dpi=200, bbox_inches='tight')
+        fig.savefig(P_PNG, dpi=200, bbox_inches='tight')
         plt.close(fig)
 
         # ── per-site bar chart: mean |bias| and σ, before vs after ─────────────
@@ -340,11 +350,11 @@ def main():
             bx2.set_ylabel('mean OCO-2 σ (ppm)')
             bx2.set_title('Per-site mean scatter (σ) before → after'); bx2.legend(); bx2.grid(alpha=0.3, axis='y')
             fig2.tight_layout()
-            fig2.savefig(out_dir / 'tccon_comparison_by_site.png', dpi=200, bbox_inches='tight')
+            fig2.savefig(P_SITE_PNG, dpi=200, bbox_inches='tight')
             plt.close(fig2)
-        print(f"\n[saved] {out_dir/'tccon_comparison.csv'}\n[saved] {out_dir/'tccon_comparison.md'}"
-              f"\n[saved] {out_dir/'tccon_comparison.png'}\n[saved] {out_dir/'tccon_comparison_by_site.csv'}"
-              f"\n[saved] {out_dir/'tccon_comparison_by_site.png'}")
+        print(f"\n[saved] {P_CSV}\n[saved] {P_MD}"
+              f"\n[saved] {P_PNG}\n[saved] {P_SITE_CSV}"
+              f"\n[saved] {P_SITE_PNG}")
 
 
 if __name__ == '__main__':

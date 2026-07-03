@@ -91,8 +91,12 @@ OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${MODEL_TAG}
 # ─── TCCON collocation knobs (shared by per-case plot + aggregate reports) ─────
 # Keep these in sync across plot_corrected_xco2.py, tccon_comparison_report.py,
 # and tccon_correction_policy_stats.py so all three match the same footprints.
-RADIUS_KM=100
-WINDOW_MIN=60
+# RADIUS_KM is env-overridable for a radius sweep (e.g. `RADIUS_KM=50 bash <script>`);
+# it is stamped into the FINAL aggregate-plot filenames (via RADIUS_TAG below), not
+# the output dir, so a 50/100 km sweep's summary plots don't overwrite each other.
+RADIUS_KM="${RADIUS_KM:-100}"
+WINDOW_MIN="${WINDOW_MIN:-60}"
+RADIUS_TAG="r${RADIUS_KM}km"
 
 # REQUIRE_TCCON=1 → SKIP cases whose 12th run_case column (TCCON_AVAIL) is not "yes"
 # (stations with no TCCON measurement within ±WINDOW_MIN of the OCO overpass).
@@ -353,12 +357,15 @@ run_case  2020-09-16   pr20140923_20251024.public.qc.nc       1.43     2.71    4
 # Both parse the active run_case lines above and summarize across cases.
 
 # (7) before/after-vs-TCCON comparison across all cases (reads each case's plot_data.parquet)
+#     --fname-suffix stamps the radius into the report/plot filenames so a radius
+#     sweep's summaries coexist (tccon_comparison_r100km.png vs _r50km.png).
 echo ""
 echo "############ AGGREGATE: tccon_comparison_report ############"
 python workspace/tccon_comparison_report.py \
     --script   "$SCRIPT_NAME" \
     --out-base "$OUT_BASE" \
     --output-dir "$OUT_BASE" \
+    --fname-suffix "_${RADIUS_TAG}" \
     --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN"
 
 # command for local run
@@ -370,23 +377,26 @@ python workspace/tccon_comparison_report.py \
 
 
 # (8) correction-policy stats (uncorrected vs full_mu vs lat-gates; rebuilds its own plotdata cache)
-#     --model-tag namespaces its cache + outputs under tccon_policy/${MODEL_TAG}/ and
-#     the *-model-glob args pin it to the SAME DE model as the per-case plots.
+#     --model-tag namespaces its cache + outputs under tccon_policy/<MODEL_TAG>/ and the
+#     *-model-glob args pin it to the SAME DE model as the per-case plots.  Radius is
+#     NOT in the dir — it is stamped into the output CSV/plot filenames (--fname-suffix),
+#     so a radius sweep's stats + figures coexist in one dir.
 POLICY_DIR="$DATA_ROOT"/results/model_comparison/tccon_policy/${MODEL_TAG}
 echo ""
 echo "############ AGGREGATE: tccon_correction_policy_stats ############"
 python workspace/tccon_correction_policy_stats.py \
     --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN" \
-    --model-tag "$MODEL_TAG" \
+    --model-tag "$MODEL_TAG" --fname-suffix "_${RADIUS_TAG}" \
     --ocean-model-glob 'de_ocean_beta_nll_prof_f*' \
     --land-model-glob  'de_land_beta_nll_prof_f*'
 
 # (9) lat-gate ON vs OFF figures (reads tccon_policy_station_means.csv from step 8)
 #     Both the all-station figure and the excl-Ny-Ålesund variant (the only |lat|>75
-#     station, so the gate touches nothing once it is dropped).
+#     station, so the gate touches nothing once it is dropped).  --fname-suffix stamps
+#     the radius into the figure filenames so a radius sweep's figures coexist.
 echo ""
 echo "############ AGGREGATE: plot_latgate_tccon_comparison ############"
-python workspace/plot_latgate_tccon_comparison.py --lat-gate 75 \
-    --means "$POLICY_DIR/tccon_policy_station_means.csv" --output-dir "$POLICY_DIR"
-python workspace/plot_latgate_tccon_comparison.py --lat-gate 75 --exclude-sites ny \
-    --means "$POLICY_DIR/tccon_policy_station_means.csv" --output-dir "$POLICY_DIR"
+python workspace/plot_latgate_tccon_comparison.py --lat-gate 75 --fname-suffix "_${RADIUS_TAG}" \
+    --means "$POLICY_DIR/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"
+python workspace/plot_latgate_tccon_comparison.py --lat-gate 75 --exclude-sites ny --fname-suffix "_${RADIUS_TAG}" \
+    --means "$POLICY_DIR/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"

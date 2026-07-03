@@ -57,6 +57,9 @@ def main():
     ap.add_argument('--output-dir', default=str(OUTDIR))
     ap.add_argument('--exclude-sites', default='',
                     help="Comma-separated TCCON site codes to drop (e.g. 'ny').")
+    ap.add_argument('--fname-suffix', default='',
+                    help="Appended before the extension of the output figure name "
+                         "(e.g. '_r100km') so a parameter sweep's figures coexist.")
     args = ap.parse_args()
     L = int(args.lat_gate)
     gate_col = f'latgate{L}'
@@ -147,7 +150,7 @@ def main():
     axB.set_title(_btitle)
     axB.legend(loc='lower right', fontsize=8); axB.grid(alpha=0.3, axis='x')
     fig.tight_layout()
-    out = out_dir / f'tccon_latgate{L}_comparison{tag}.png'
+    out = out_dir / f'tccon_latgate{L}_comparison{tag}{args.fname_suffix}.png'
     fig.savefig(out, dpi=200, bbox_inches='tight'); plt.close(fig)
 
     # headline numbers
