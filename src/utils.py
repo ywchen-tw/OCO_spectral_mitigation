@@ -377,20 +377,23 @@ class oco2_rad_nadir:
         xco2_bc   = np.zeros_like(self.lon_l1b); xco2_bc[...] = np.nan
         sfc_pres  = np.zeros_like(self.lon_l1b); sfc_pres[...] = np.nan
 
-        for i in range(xco2.shape[0]):
-            for j in range(xco2.shape[1]):
-                logic = (snd_id_lt==snd_id_l1b[i, j])
-                if logic.sum() == 1:
-                    try:
-                        xco2[i, j] = xco2_lt[logic]
-                        xco2_bc[i, j] = xco2_bc_lt[logic]
-                        sfc_pres[i, j] = sfc_pres_lt[logic]
-                    except:
-                        xco2[i, j] = xco2_lt[logic][0]
-                        xco2_bc[i, j] = xco2_bc_lt[logic][0]
-                        sfc_pres[i, j] = sfc_pres_lt[logic][0]
-                elif logic.sum() > 1:
-                    sys.exit('Error   [oco_rad_nadir]: More than one point is found.')
+        # Vectorised Lite -> L1B sounding_id match via searchsorted (replaces
+        # the per-cell full-array comparison, which scanned the whole Lite ID
+        # array n_track*8 times).  Semantics preserved: exactly-one match
+        # assigns; more than one match aborts.
+        sorter    = np.argsort(snd_id_lt, kind='stable')
+        lt_sorted = snd_id_lt[sorter]
+        flat_id   = snd_id_l1b.reshape(-1)
+        left      = np.searchsorted(lt_sorted, flat_id, side='left')
+        right     = np.searchsorted(lt_sorted, flat_id, side='right')
+        n_match   = right - left
+        if np.any(n_match > 1):
+            sys.exit('Error   [oco_rad_nadir]: More than one point is found.')
+        one = n_match == 1
+        rows = sorter[np.clip(left, 0, len(lt_sorted) - 1)][one]
+        xco2.reshape(-1)[one]     = xco2_lt[rows]
+        xco2_bc.reshape(-1)[one]  = xco2_bc_lt[rows]
+        sfc_pres.reshape(-1)[one] = sfc_pres_lt[rows]
 
         self.xco2      = xco2
         self.xco2_bc   = xco2_bc

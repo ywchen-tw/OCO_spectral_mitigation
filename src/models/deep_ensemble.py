@@ -39,45 +39,19 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
-from tqdm import tqdm
 
 from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
 from .splits import split_dataframe
 from . import conformal as cf
 from . import diagnostics as diag
+from . import train_common as tc
+from .train_common import cuda_device_supported as _cuda_device_supported  # back-compat name
 from search.tracking import RunSummary, get_git_commit_hash
 from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
 
 Z90 = 1.6448536269514722  # Gaussian 90% two-sided
-
-
-def _cuda_device_supported():
-    """True only if the current CUDA GPU's compute capability is in this PyTorch
-    build's kernel arch list.  On CURC preemptable QOS a job can land on an older
-    card (e.g. Tesla P100, sm_60) whose kernels this PyTorch wasn't compiled for;
-    selecting it would crash mid-train with `no kernel image is available`.  When
-    unsupported we log and fall back to CPU instead of dying."""
-    try:
-        major, minor = torch.cuda.get_device_capability()
-        cap = major * 10 + minor
-        # get_arch_list() → e.g. ['sm_70', 'sm_75', ..., 'sm_120']
-        supported = [int(a.split('_')[1]) for a in torch.cuda.get_arch_list()
-                     if a.startswith('sm_')]
-        if supported and cap < min(supported):
-            logger.warning(
-                "CUDA GPU %s has compute capability sm_%d, below this PyTorch "
-                "build's minimum (%s) — falling back to CPU.",
-                torch.cuda.get_device_name(0), cap,
-                ", ".join(f"sm_{s}" for s in sorted(supported)))
-            return False
-        return True
-    except Exception as e:  # any probing failure → don't risk a hard crash
-        logger.warning("Could not verify CUDA device compatibility (%s) — "
-                       "falling back to CPU.", e)
-        return False
 
 
 class GaussianMLP(nn.Module):
@@ -93,16 +67,33 @@ class GaussianMLP(nn.Module):
     representation (validated to lift near-cloud XCO2 accuracy in the tabm
     ablation).  When off, the architecture/state_dict is identical to the
     single-task model, so existing checkpoints load unchanged.
+
+    dropout / norm are regularization options (review §7.3 Phase 2/3 ablation):
+    dropout p after each activation (train-only — model.eval() disables it, so
+    NO MC-dropout at inference; the ensemble provides the epistemic spread) and
+    LayerNorm/BatchNorm after each Linear.  Both default OFF, in which case the
+    constructed module — and its state_dict keys — is byte-identical to the
+    historical architecture, so all existing production checkpoints load.
     """
 
     def __init__(self, n_features: int, hidden_dims=(64, 32),
-                 aux_cloud: bool = False):
+                 aux_cloud: bool = False, dropout: float = 0.0,
+                 norm: str = 'none'):
         super().__init__()
+        if norm not in ('none', 'layer', 'batch'):
+            raise ValueError(f"norm must be 'none'|'layer'|'batch', got {norm!r}")
         dims = [n_features] + list(hidden_dims)
         layers = []
         for a, b in zip(dims[:-1], dims[1:]):
-            layers += [nn.Linear(a, b), nn.ReLU()]
-        self.body = nn.Sequential(*layers)          # default (64,32) == prior arch:
+            layers.append(nn.Linear(a, b))
+            if norm == 'layer':
+                layers.append(nn.LayerNorm(b))
+            elif norm == 'batch':
+                layers.append(nn.BatchNorm1d(b))
+            layers.append(nn.ReLU())
+            if dropout > 0.0:
+                layers.append(nn.Dropout(dropout))
+        self.body = nn.Sequential(*layers)          # defaults (64,32)/no-reg == prior arch:
         self.head = nn.Linear(dims[-1], 2)          # body.0/body.2 Linear, head — keys match
         self.aux_cloud = aux_cloud
         if aux_cloud:
@@ -182,12 +173,13 @@ def _raw_to_var(raw2: np.ndarray, loss: str, nu: float) -> np.ndarray:
 
 def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
                   batch_size, n_epochs, patience, ckpt,
-                  loss='gaussian_nll', nu=4.0, beta=0.5, w_tr=None, w_val=None,
+                  loss='beta_nll', nu=4.0, beta=0.5, w_tr=None, w_val=None,
                   c_tr=None, c_val=None, cloud_aux_weight=0.0, cloud_pos_weight=None,
-                  hidden_dims=(64, 32)):
+                  hidden_dims=(64, 32), dropout=0.0, norm='none',
+                  gpu_resident=None, deterministic=False):
     crit = _make_criterion(loss, nu, beta)
     aux_cloud = cloud_aux_weight > 0.0
-    torch.manual_seed(seed); np.random.seed(seed)
+    gen = tc.set_seeds(seed, deterministic)
     if w_tr is None:
         w_tr = np.ones(len(y_tr), dtype=np.float32)
     if w_val is None:
@@ -196,56 +188,31 @@ def _train_member(X_tr, y_tr, X_val, y_val, n_features, *, seed, device,
         c_tr = np.zeros(len(y_tr), dtype=np.float32)
     if c_val is None:
         c_val = np.zeros(len(y_val), dtype=np.float32)
-    tr = TensorDataset(torch.tensor(X_tr), torch.tensor(y_tr),
-                       torch.tensor(w_tr), torch.tensor(c_tr))
-    va = TensorDataset(torch.tensor(X_val), torch.tensor(y_val),
-                       torch.tensor(w_val), torch.tensor(c_val))
-    pin = device.type in ("cuda", "mps"); nw = min(8, os.cpu_count() or 1)
-    tl = DataLoader(tr, batch_size=batch_size, shuffle=True, pin_memory=pin,
-                    num_workers=nw, persistent_workers=nw > 0)
-    vl = DataLoader(va, batch_size=batch_size, shuffle=False, pin_memory=pin,
-                    num_workers=nw, persistent_workers=nw > 0)
-    model = GaussianMLP(n_features, hidden_dims=hidden_dims, aux_cloud=aux_cloud).to(device)
+    cfg = tc.TrainConfig(epochs=n_epochs, batch_size=batch_size, patience=patience,
+                         seed=seed, deterministic=deterministic,
+                         gpu_resident=gpu_resident)
+    tl = tc.make_batches((X_tr, y_tr, w_tr, c_tr), batch_size, shuffle=True,
+                         device=device, generator=gen, gpu_resident=gpu_resident)
+    vl = tc.make_batches((X_val, y_val, w_val, c_val), batch_size, shuffle=False,
+                         device=device, generator=gen, gpu_resident=gpu_resident)
+    model = GaussianMLP(n_features, hidden_dims=hidden_dims, aux_cloud=aux_cloud,
+                        dropout=dropout, norm=norm).to(device)
     bce = None
     if aux_cloud:
         pw = (torch.tensor(float(cloud_pos_weight), device=device)
               if cloud_pos_weight is not None else None)
         bce = nn.BCEWithLogitsLoss(pos_weight=pw)
-    opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=1e-3,
-                total_steps=n_epochs * len(tl), pct_start=0.05, div_factor=25,
-                final_div_factor=1000)
-    best, no_imp = float("inf"), 0
-    for epoch in range(n_epochs):
-        model.train()
-        for xb, yb, wb, cb in tl:
-            xb, yb, wb, cb = xb.to(device), yb.to(device), wb.to(device), cb.to(device)
-            opt.zero_grad()
-            out = model(xb)
-            loss_val = crit(out[0], out[1], yb, wb)
-            if bce is not None:
-                loss_val = loss_val + cloud_aux_weight * bce(out[2], cb)
-            loss_val.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step(); sched.step()
-        model.eval(); vloss = 0.0
-        with torch.no_grad():
-            for xb, yb, wb, cb in vl:
-                xb, yb, wb, cb = xb.to(device), yb.to(device), wb.to(device), cb.to(device)
-                out = model(xb)
-                v = crit(out[0], out[1], yb, wb)
-                if bce is not None:
-                    v = v + cloud_aux_weight * bce(out[2], cb)
-                vloss += v.item()
-        vloss /= len(vl)
-        if vloss < best:
-            best, no_imp = vloss, 0
-            torch.save(model.state_dict(), ckpt)
-        else:
-            no_imp += 1
-        if patience is not None and no_imp >= patience:
-            break
-    model.load_state_dict(torch.load(ckpt, map_location=device))
+
+    def criterion(mdl, batch):
+        xb, yb, wb, cb = batch
+        out = mdl(xb)
+        l = crit(out[0], out[1], yb, wb)
+        if bce is not None:
+            l = l + cloud_aux_weight * bce(out[2], cb)
+        return l
+
+    model, _stats = tc.train_model(model, criterion, tl, vl, cfg, ckpt, device,
+                                   log_prefix=f'[member seed={seed}]')
     return model.cpu()
 
 
@@ -262,15 +229,22 @@ def _member_predict(model, X, device, batch_size=8192, loss='gaussian_nll', nu=4
 
 
 def ensemble_predict(members, X, device, loss='gaussian_nll', nu=4.0):
-    """Mixture ensemble → (mu*, sigma*).  Per-member variance respects the loss."""
-    mu_stack, var_stack = [], []
+    """Mixture ensemble → (mu*, sigma*).  Per-member variance respects the loss.
+
+    Accumulates running moments (Σmu, Σ(var+mu²)) instead of materialising the
+    [M, N] member stacks — peak memory is O(N), which matters for the multi-
+    million-row scoring runs in build_deepens_plot_data."""
+    if not members:
+        raise ValueError("ensemble_predict requires at least one member")
+    sum_mu = np.zeros(len(X), dtype=np.float64)
+    sum_m2 = np.zeros(len(X), dtype=np.float64)
     for m in members:
         mu, var = _member_predict(m, X, device, loss=loss, nu=nu)
-        mu_stack.append(mu); var_stack.append(var)
-    mu_stack = np.stack(mu_stack)            # [M, N]
-    var_stack = np.stack(var_stack)
-    mu_star = mu_stack.mean(0)
-    var_star = (var_stack + mu_stack ** 2).mean(0) - mu_star ** 2
+        sum_mu += mu
+        sum_m2 += var + mu.astype(np.float64) ** 2
+    M = len(members)
+    mu_star = sum_mu / M
+    var_star = sum_m2 / M - mu_star ** 2
     sigma_star = np.sqrt(np.maximum(var_star, 1e-12))
     return mu_star.astype(np.float32), sigma_star.astype(np.float32)
 
@@ -354,11 +328,11 @@ def main():
                         "ensemble (the lever that makes DE beat weight-tied models). "
                         "When unset (default) ALL members use --hidden_dims (original "
                         "homogeneous behavior, unchanged).")
-    p.add_argument('--loss', type=str, default='gaussian_nll',
+    p.add_argument('--loss', type=str, default='beta_nll',
                    choices=['gaussian_nll', 'beta_nll', 'student_t'],
-                   help="Member loss: gaussian_nll (default), beta_nll (Seitzer "
-                        "mean-fit fix), or student_t (heavy-tailed, for the "
-                        "near-cloud tail).")
+                   help="Member loss: beta_nll (default — the adopted production "
+                        "choice; Seitzer mean-fit fix), gaussian_nll, or student_t "
+                        "(heavy-tailed, for the near-cloud tail).")
     p.add_argument('--nu', type=float, default=4.0,
                    help='Student-t degrees of freedom (fixed; >2). Lower = heavier tails.')
     p.add_argument('--beta', type=float, default=0.5,
@@ -367,6 +341,23 @@ def main():
                    help='Override platform default (Darwin 2048 / Linux 4096).')
     p.add_argument('--epochs', type=int, default=None,
                    help='Override platform default (Darwin 100 / Linux 500).')
+    p.add_argument('--dropout', type=float, default=0.0,
+                   help="Dropout p after each hidden activation (train-only; no "
+                        "MC-dropout at inference — the ensemble provides the "
+                        "spread). 0.0 (default) = off, architecture unchanged.")
+    p.add_argument('--norm', type=str, default='none',
+                   choices=['none', 'layer', 'batch'],
+                   help="Normalization after each hidden Linear: LayerNorm or "
+                        "BatchNorm1d. 'none' (default) keeps the historical "
+                        "architecture/state_dict.")
+    p.add_argument('--deterministic', action='store_true',
+                   help='Pin cuDNN/torch algorithms for bit-reproducibility '
+                        '(slower; for verification runs).')
+    p.add_argument('--gpu_resident', type=str, default='auto',
+                   choices=['auto', 'on', 'off'],
+                   help="Keep train/val tensors resident on the device instead of "
+                        "a worker DataLoader. 'auto' (default): resident when the "
+                        "data fits device memory.")
     p.add_argument('--calib_frac', type=float, default=0.15,
                    help='Fraction of TRAIN dates carved out as the conformal '
                         'calibration block (date split when possible).')
@@ -466,6 +457,19 @@ def main():
                                               test_size=args.calib_frac, random_state=args.seed)
     del train_df; gc.collect()
 
+    # Training-date manifest: the machine-readable leakage guard for the TCCON
+    # validation chain (workspace scripts refuse/flag case dates found in here,
+    # replacing the manual comment-based exclusions in the run_case list).
+    def _date_list(frame):
+        if 'date' not in frame.columns:
+            return []
+        s = frame['date'].astype(str).str.replace("b'", "", regex=False)
+        return sorted(s.str.replace("'", "", regex=False).unique().tolist())
+    with open(output_dir / 'training_dates.json', 'w', encoding='utf-8') as f:
+        json.dump({'train_dates': _date_list(proper_df),
+                   'calib_dates': _date_list(calib_df),
+                   'held_dates': _date_list(held_df)}, f, indent=2)
+
     # Learning-curve knob: subsample ONLY the proper-train (calibration + held-out
     # fold are untouched), so tail R2 vs N is measured against an identical test set
     # across fractions.  Pipeline is (re)fit on the subsample below, so the whole
@@ -564,17 +568,11 @@ def main():
               f"(near<={args.near_cloud_km}km): {int(n_pos)}/{len(c_tr)} train rows "
               f"positive ({100 * n_pos / len(c_tr):.1f}%), pos_weight={cloud_pos_weight:.3f}")
 
-    if torch.cuda.is_available() and _cuda_device_supported():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
-    epochs, batch_size = (100, 2048) if platform.system() == "Darwin" else (500, 4096)
-    if args.epochs is not None:
-        epochs = args.epochs
-    if args.batch_size is not None:
-        batch_size = args.batch_size
+    device = tc.select_device()
+    train_cfg = tc.TrainConfig(epochs=args.epochs, batch_size=args.batch_size,
+                               seed=args.seed, deterministic=args.deterministic).resolved()
+    epochs, batch_size = train_cfg.epochs, train_cfg.batch_size
+    gpu_resident = {'auto': None, 'on': True, 'off': False}[args.gpu_resident]
     # internal val for early stopping = the calibration block (it is held out of training)
     hidden_dims = tuple(int(x) for x in args.hidden_dims.split(',') if x.strip())
     # DE++ heterogeneous architectures: cycle a pool of per-member width specs so
@@ -594,13 +592,16 @@ def main():
               f"arch={member_dims[m]})")
         members.append(_train_member(X_tr, y_tr, X_cal, y_cal, n_features,
                                       seed=args.seed + m, device=device, batch_size=batch_size,
-                                      n_epochs=epochs, patience=50, ckpt=ck,
+                                      n_epochs=epochs, patience=train_cfg.patience, ckpt=ck,
                                       loss=args.loss, nu=args.nu, beta=args.beta,
                                       w_tr=w_tr, w_val=w_cal,
                                       c_tr=c_tr, c_val=c_cal,
                                       cloud_aux_weight=args.cloud_aux_weight,
                                       cloud_pos_weight=cloud_pos_weight,
-                                      hidden_dims=member_dims[m]))
+                                      hidden_dims=member_dims[m],
+                                      dropout=args.dropout, norm=args.norm,
+                                      gpu_resident=gpu_resident,
+                                      deterministic=args.deterministic))
 
     mu_cal, sig_cal = ensemble_predict(members, X_cal, device, loss=args.loss, nu=args.nu)
     mu_te, sig_te = ensemble_predict(members, X_te, device, loss=args.loss, nu=args.nu)
@@ -706,7 +707,9 @@ def main():
                      'cloud_bin_feature': args.cloud_bin_feature,
                      'hidden_dims': list(hidden_dims),
                      'member_archs': args.member_archs,
-                     'member_dims': [list(d) for d in member_dims]}, f)
+                     'member_dims': [list(d) for d in member_dims],
+                     'dropout': args.dropout, 'norm': args.norm,
+                     'train_config': train_cfg.to_dict()}, f)
 
     g = results['mondrian']
     summary = RunSummary(
@@ -726,7 +729,10 @@ def main():
                 'n_members': args.n_members, 'calib_frac': args.calib_frac,
                 'feature_set': args.feature_set, 'seed': args.seed,
                 'loss': args.loss, 'nu': args.nu, 'beta': args.beta,
-                'cloud_aux_weight': args.cloud_aux_weight},
+                'cloud_aux_weight': args.cloud_aux_weight,
+                'dropout': args.dropout, 'norm': args.norm,
+                'hidden_dims': list(hidden_dims),
+                **{f'train_{k}': v for k, v in train_cfg.to_dict().items()}},
     )
     with open(output_dir / 'run_summary.json', 'w', encoding='utf-8') as f:
         json.dump(summary.to_dict(), f, indent=2, sort_keys=True)

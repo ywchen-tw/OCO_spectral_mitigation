@@ -34,6 +34,8 @@ import json
 import urllib.request
 import urllib.parse
 
+from constants import CLOUD_DIST_BAND_WIDTH_DEG, CLOUD_DIST_BAND_OVERLAP_DEG
+
 logger = logging.getLogger(__name__)
 
 # Optional dependencies
@@ -572,8 +574,8 @@ class GeometryProcessor:
     def calculate_nearest_cloud_distances_banded(
         self,
         footprints_by_granule: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
-        band_width_deg: float = 5.0,
-        band_overlap_deg: float = 1.0,
+        band_width_deg: float = CLOUD_DIST_BAND_WIDTH_DEG,
+        band_overlap_deg: float = CLOUD_DIST_BAND_OVERLAP_DEG,
         max_distance_km: float = 30.0,
         weighted_max_distance_km: float = 50.0,
         oco2_granule_id: str = "",
@@ -595,8 +597,10 @@ class GeometryProcessor:
         Args:
             footprints_by_granule: OCO-2 footprints organized by granule
             cloud_pixels: List of cloud pixels (legacy mode)
-            band_width_deg: Latitude band width in degrees (default: 10°)
-            band_overlap_deg: Overlap buffer in degrees (default: 1°)
+            band_width_deg: Latitude band width in degrees
+                (default: constants.CLOUD_DIST_BAND_WIDTH_DEG)
+            band_overlap_deg: Overlap buffer in degrees
+                (default: constants.CLOUD_DIST_BAND_OVERLAP_DEG)
             max_distance_km: Maximum distance to report
             weighted_max_distance_km: Radius used for weighted cloud distance
             cloud_lons: Numpy array of cloud longitudes (array mode)

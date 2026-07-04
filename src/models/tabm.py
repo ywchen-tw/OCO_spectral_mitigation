@@ -43,6 +43,7 @@ from .splits import split_dataframe
 from .adapters import TabMAdapter
 from . import diagnostics as diag
 from . import conformal as cf
+from . import train_common as tc
 # Reuse loss functions from the FT-Transformer module (imported, not duplicated).
 from .tabm_eval import (
     huber_pinball_loss, quantile_loss, variance_penalty, mmd_loss_1d,
@@ -250,9 +251,9 @@ def _default_run_config() -> dict:
             'linux_epochs': 500,
             'darwin_batch_size': 2048,
             'linux_batch_size': 8192,
-            'lr': 1e-3,
-            'weight_decay': 1e-4,
-            'patience': 50,
+            'lr': tc.TrainConfig.lr,
+            'weight_decay': tc.TrainConfig.weight_decay,
+            'patience': tc.TrainConfig.patience,
             'log_every': 10,
             'seed': 42,
         },
@@ -317,8 +318,9 @@ def train_tabm(X_train, y_train, X_test, y_test, features, *,
                output_dir: str = ".",
                K: int = 16, d_model: int = 256, n_layers: int = 4, dropout: float = 0.2,
                batch_size: int = 8192, n_epochs: int = 100,
-               max_lr: float = 1e-3, weight_decay: float = 1e-4,
-               log_every: int = 10, patience: 'int | None' = 50,
+               max_lr: float = tc.TrainConfig.lr,
+               weight_decay: float = tc.TrainConfig.weight_decay,
+               log_every: int = 10, patience: 'int | None' = tc.TrainConfig.patience,
                loss_fn: str = 'huber', huber_delta: float = 1.0,
                range_loss_weight: float = 0.0, range_loss_type: str = 'variance',
                y_init: 'np.ndarray | None' = None,
@@ -334,15 +336,8 @@ def train_tabm(X_train, y_train, X_test, y_test, features, *,
     default mean-member q50.  Writes model_tabm_best.pt (keys: epoch,
     model_state_dict, val_loss, val_mae, val_r2).
     """
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
+    gen = tc.set_seeds(seed)
+    device = tc.select_device()   # includes the unsupported-CUDA-card guard
 
     n_cloud_classes = 4 if (aux_cloud and cloud_label == 'bins') else 1
 
@@ -371,7 +366,8 @@ def train_tabm(X_train, y_train, X_test, y_test, features, *,
     n_workers = min(8, os.cpu_count() or 1)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                               pin_memory=pin, num_workers=n_workers,
-                              persistent_workers=n_workers > 0, prefetch_factor=2)
+                              persistent_workers=n_workers > 0, prefetch_factor=2,
+                              generator=gen, worker_init_fn=tc.seed_worker)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
                             pin_memory=pin, num_workers=n_workers,
                             persistent_workers=n_workers > 0)
@@ -382,11 +378,10 @@ def train_tabm(X_train, y_train, X_test, y_test, features, *,
     if y_init is not None:
         model.init_from_targets(y_init)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=max_lr, weight_decay=weight_decay)
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        optimizer, max_lr=max_lr, total_steps=n_epochs * len(train_loader),
-        pct_start=0.05, div_factor=25, final_div_factor=1000,
-    )
+    optimizer, scheduler = tc.make_optimizer_scheduler(
+        model, tc.TrainConfig(epochs=n_epochs, batch_size=batch_size,
+                              lr=max_lr, weight_decay=weight_decay),
+        steps_per_epoch=len(train_loader))
     grad_scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
 
     bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight) if (aux_cloud and cloud_label == 'binary') else None
@@ -455,7 +450,7 @@ def train_tabm(X_train, y_train, X_test, y_test, features, *,
                     loss = _anomaly_loss(members, batch_y)
             grad_scaler.scale(loss).backward()
             grad_scaler.unscale_(optimizer)
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=tc.TrainConfig.grad_clip)
             grad_scaler.step(optimizer)
             grad_scaler.update()
             scheduler.step()
@@ -522,7 +517,7 @@ def train_tabm(X_train, y_train, X_test, y_test, features, *,
             f"No checkpoint saved to {ckpt_path}. Training produced only NaN losses — "
             "check for NaN/Inf in input features."
         )
-    best = torch.load(ckpt_path, map_location=device)
+    best = torch.load(ckpt_path, map_location=device, weights_only=True)
     model.load_state_dict(best["model_state_dict"])
     tqdm.write("=" * 60)
     tqdm.write(f"  Training complete.  Best epoch={best['epoch']}  "
@@ -787,8 +782,8 @@ def main():
             K=int(run_cfg['model']['K']), d_model=int(run_cfg['model']['d_model']),
             n_layers=int(run_cfg['model']['n_layers']), dropout=float(run_cfg['model']['dropout']),
             batch_size=batch_size, n_epochs=epochs,
-            max_lr=float(run_cfg['train'].get('lr', 1e-3)),
-            weight_decay=float(run_cfg['train'].get('weight_decay', 1e-4)),
+            max_lr=float(run_cfg['train'].get('lr', tc.TrainConfig.lr)),
+            weight_decay=float(run_cfg['train'].get('weight_decay', tc.TrainConfig.weight_decay)),
             log_every=int(run_cfg['train']['log_every']), patience=int(run_cfg['train']['patience']),
             loss_fn=run_cfg['loss']['loss'], huber_delta=float(run_cfg['loss']['huber_delta']),
             range_loss_weight=float(run_cfg['loss']['range_loss_weight']),

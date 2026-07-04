@@ -18,11 +18,14 @@ os.environ.setdefault('HDF5_USE_FILE_LOCKING', 'FALSE')
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+from constants import (FIT_ORDER, ANOMALY_LAT_THRES_DEG, ANOMALY_STD_THRES_PPM,
+                       ANOMALY_MIN_CLD_DIST_KM, anomaly_args as production_anomaly_args)
 from utils import oco2_rad_nadir
 from netCDF4 import Dataset as dataset
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, lsq_linear
 from scipy.interpolate import UnivariateSpline
 from scipy.signal import savgol_filter
+from concurrent.futures import ProcessPoolExecutor
 
 from analysis.results import k1k2_analysis
 from abs_util.fp_atm import oco_fp_atm_abs
@@ -32,7 +35,6 @@ import argparse
 import logging
 import glob
 from config import Config
-from shapely.geometry import Polygon
 from pyproj import Transformer
 
 
@@ -341,6 +343,8 @@ def load_orbit_data(sat, orbit_id):
         valid_l1b   : bool  [N]   True where L1B sounding was found
     """
     # --- Per-footprint optical depths (from oco_fp_atm_abs) ---
+    # tau / toa_sol are stored float64 but carried as float32 (halves the five
+    # [3, N, 1016] orbit arrays); the per-sounding fits promote back to float64.
     m1 = 0.5 # coefficient for Stokes Vector I signal in the sensor
     fp_tau_file = sat[orbit_id]["fp_tau_file"]
     with h5py.File(fp_tau_file, "r") as f:
@@ -348,34 +352,37 @@ def load_orbit_data(sat, orbit_id):
         fp_number      = f["fp_number"][...].astype(int)
         fp_sza         = f["sza"][...]
         fp_vza         = f["vza"][...]
-        o2a_tau        = f["o2a_tau_output"][...]
-        o2a_toa_sol    = f["o2a_toa_sol_output"][...] * m1
-        wco2_tau       = f["wco2_tau_output"][...]
-        wco2_toa_sol   = f["wco2_toa_sol_output"][...] * m1
-        sco2_tau       = f["sco2_tau_output"][...]
-        sco2_toa_sol   = f["sco2_toa_sol_output"][...] * m1
+        o2a_tau        = f["o2a_tau_output"][...].astype(np.float32)
+        o2a_toa_sol    = (f["o2a_toa_sol_output"][...] * m1).astype(np.float32)
+        wco2_tau       = f["wco2_tau_output"][...].astype(np.float32)
+        wco2_toa_sol   = (f["wco2_toa_sol_output"][...] * m1).astype(np.float32)
+        sco2_tau       = f["sco2_tau_output"][...].astype(np.float32)
+        sco2_toa_sol   = (f["sco2_toa_sol_output"][...] * m1).astype(np.float32)
     N = len(fp_sounding_id)
 
     # --- L1B radiances ---
     l1b = oco2_rad_nadir(l1b_file=sat[orbit_id]["oco_l1b"], lt_file=sat["oco_lite"])
 
-    # Build O(1) lookup: (sounding_id, fp_number) -> along-track index
-    l1b_index = {}
+    # Vectorised (sounding_id, fp_number) -> along-track index match, one
+    # searchsorted per footprint column (replaces the 8 × n_track dict build).
+    track_inds = np.full(N, -1, dtype=np.int64)
     for fp in range(8):
-        for track in range(l1b.snd_id.shape[0]):
-            l1b_index[(int(l1b.snd_id[track, fp]), fp)] = track
-
-    # Vectorised extraction of track indices for each tau-file sounding
-    track_inds = np.array(
-        [l1b_index.get((int(sid), int(fp)), -1)
-         for sid, fp in zip(fp_sounding_id, fp_number)]
-    )
+        sel = fp_number == fp
+        if not sel.any():
+            continue
+        col = l1b.snd_id[:, fp].astype(np.int64)
+        order = np.argsort(col, kind='stable')
+        col_sorted = col[order]
+        pos = np.searchsorted(col_sorted, fp_sounding_id[sel])
+        pos_c = np.clip(pos, 0, len(col_sorted) - 1)
+        hit = col_sorted[pos_c] == fp_sounding_id[sel]
+        track_inds[sel] = np.where(hit, order[pos_c], -1)
     valid = track_inds >= 0
 
     fp_lon    = np.full(N, np.nan)
     fp_lat    = np.full(N, np.nan)
     fp_wvls   = np.full((3, 8, 1016), np.nan)  # placeholder; wavelengths are not used in fitting but for plotting
-    radiances = np.full((3, N, 1016), np.nan)
+    radiances = np.full((3, N, 1016), np.nan, dtype=np.float32)
 
     # print("np.array([l1b.get_wvl_o2_a(i) for i in range(8)]) shape:", np.array([l1b.get_wvl_o2_a(i) for i in range(8)]).shape)
     fp_wvls[0, :, :] = np.array([l1b.get_wvl_o2_a(i) for i in range(8)])
@@ -504,6 +511,42 @@ def fit_bottom_spline(x, y, n_bins=100, q=0.05, s=0.5):
     
     return spline, np.array(bin_centers), np.array(bin_quantiles)
 
+MAX_KAPPAS = 5     # store k1..k5 in fitting_details; higher kappas are not saved
+SAVGOL_WINDOW = 51
+SAVGOL_ORDER = 3
+
+
+def _solve_cumulant(A, y, fit_order):
+    """Solve the cumulant expansion exactly (linear least squares).
+
+    The model ln T = intercept − k1·τ + ½k2·τ² − … is linear in its
+    parameters, so the historical per-sounding ``curve_fit`` call was an
+    iterative solver for a (bounded) linear problem.  Solve unconstrained via
+    SVD ``lstsq`` first; only when the k1/k2 ≥ 0 bounds are violated fall back
+    to the exact bounded solver (BVLS).  Where the bounds are inactive both
+    paths coincide with the ``curve_fit`` optimum (to solver tolerance).
+
+    Parameters
+    ----------
+    A : [n_chan, fit_order+1] design matrix from get_design_matrix(tau, order)
+        (coefficient vector ordered [intercept, k1, ..., k_order])
+    y : [n_chan] log-transmittance values (smoothed or raw)
+
+    Returns
+    -------
+    popt : 1-D array in the historical curve_fit order [k1..k_order, intercept]
+    """
+    coef = np.linalg.lstsq(A, y, rcond=None)[0]
+    n_pos = min(2, fit_order)  # k1 (and k2 if order>=2) must be >= 0
+    if np.any(coef[1:1 + n_pos] < 0.0):
+        n_params = fit_order + 1
+        lb = np.full(n_params, -np.inf)
+        lb[1:1 + n_pos] = 0.0
+        coef = lsq_linear(A, y, bounds=(lb, np.full(n_params, np.inf)),
+                          method='bvls').x
+    return np.concatenate([coef[1:], coef[:1]])
+
+
 def fit_spectral_model(tau, ln_T, fit_order, smooth=True):
     """Fit a cumulant expansion to log-transmittance vs optical depth.
 
@@ -512,6 +555,10 @@ def fit_spectral_model(tau, ln_T, fit_order, smooth=True):
     noise.  With smooth=False the raw ln_T is fitted directly — used to
     produce the parallel "_nosg" parameter set that quantifies how much the
     pre-smoothing biases k1/k2 (review item M9a) without a separate rerun.
+
+    The model is linear in [k1..k_order, intercept], so the fit is an exact
+    linear least-squares solve (see _solve_cumulant) rather than iterative
+    curve_fit — same optimum, ~10× faster.
 
     Parameters
     ----------
@@ -524,57 +571,93 @@ def fit_spectral_model(tau, ln_T, fit_order, smooth=True):
     -------
     popt : 1-D array [k1, k2, ..., k_order, intercept]
     """
-    model_func  = LOG_TRANSMITTANCE_MODELS[fit_order]
-    sort_idx    = np.argsort(tau)
-    tau_sorted  = tau[sort_idx]
-    ln_T_sorted = ln_T[sort_idx]
+    tau  = np.asarray(tau, dtype=np.float64)
+    ln_T = np.asarray(ln_T, dtype=np.float64)
+    sort_idx   = np.argsort(tau)
+    tau_sorted = tau[sort_idx]
     if smooth:
-        ln_T_smooth = savgol_filter(ln_T[sort_idx], window_length=51, polyorder=3)
+        y = savgol_filter(ln_T[sort_idx],
+                          window_length=SAVGOL_WINDOW, polyorder=SAVGOL_ORDER)
     else:
-        ln_T_smooth = ln_T_sorted
-    
-    # if fit_order >= 5:
-    #     tau_sorted = np.concatenate([tau_sorted, [tau_sorted[-1]*5, tau_sorted[-1]*10]])  # Add extra points to anchor the fit
-    #     ln_T_smooth = np.concatenate([ln_T_smooth, [ln_T_smooth[-1], ln_T_smooth[-1]]])  # Use the last value for the extra points
-    
-    n_params    = fit_order + 1  # k1..kN + intercept
-    n_pos       = min(2, fit_order)  # k1 (and k2 if order>=2) must be >0
-    lb          = [0.0] * n_pos + [-np.inf] * (n_params - n_pos)
-    ub          = [np.inf] * n_params
-    p0         = [1.0, 0.5][:n_pos] + [0.01] * (n_params - n_pos)  # Initial guess: small positive k's, zero intercept
-    popt, _     = curve_fit(model_func, tau_sorted, ln_T_smooth, bounds=(lb, ub), p0=p0)
-    
-    # discard_fraction = 0.004  # Discard the top 0.4% of tau values to focus on the lower envelope
-    # tau_fit = tau_sorted[: int(len(tau_sorted)*(1-discard_fraction))]
-    # ln_T_fit = ln_T_sorted[: int(len(ln_T_sorted)*(1-discard_fraction))]
-    
-    
-    
-    # # 1. Run the fit
-    # spline_model, centers, quantiles = fit_bottom_spline(tau_fit, ln_T_fit, n_bins=100, q=0.01, s=0.5)
+        y = ln_T[sort_idx]
+    A = get_design_matrix(tau_sorted, fit_order)
+    return _solve_cumulant(A, y, fit_order)
 
-    # # 2. Generate smooth points for plotting
-    # x_smooth = np.linspace(tau_fit.min(), tau_fit.max(), 100)
-    # y_smooth = spline_model(x_smooth)
-    
-    
-    # plt.figure(figsize=(10, 6))
-    # plt.scatter(tau, ln_T, s=2, alpha=0.2, color='gray', label='Original Data')
-    # plt.scatter(centers, quantiles, color='red', s=15, label='Bin 5th Percentiles')
-    # plt.plot(x_smooth, y_smooth, color='blue', linewidth=2, label='Spline Floor')
-    # plt.legend()
-    # plt.show()
-    # sys.exit(0)
-    
-    
-    # popt, _     = curve_fit(model_func, x_smooth, y_smooth)
-    
-    
-    return popt
+
+def _fit_chunk(j_indices, tau_slab, lnT_slab, fit_orders, dual_fit):
+    """Fit all bands for a contiguous chunk of soundings (worker-safe).
+
+    Parameters
+    ----------
+    j_indices : [m] global sounding indices (ascending), for plot bookkeeping
+    tau_slab  : [3, m, n_chan] optical depths, edge channels already excluded
+    lnT_slab  : [3, m, n_chan] log-transmittance, edge channels excluded
+    fit_orders: (o2a, wco2, sco2) truncation orders
+    dual_fit  : also fit the raw (no-Savitzky-Golay) ln_T
+
+    Returns
+    -------
+    (j_indices, kappa [3,m,MAX_KAPPAS], intercept [3,m],
+     kappa_nosg, intercept_nosg,
+     plot_cands {(i_band, j_global) -> full popt})   — plot candidates are the
+    first success per band in this chunk plus every j_global % 1000 == 0
+    success, a superset of what the sequential plotting rule selects.
+    """
+    m = len(j_indices)
+    kappa          = np.full((3, m, MAX_KAPPAS), np.nan)
+    intercept      = np.full((3, m), np.nan)
+    kappa_nosg     = np.full((3, m, MAX_KAPPAS), np.nan)
+    intercept_nosg = np.full((3, m), np.nan)
+    plot_cands = {}
+    band_seen  = [False, False, False]
+
+    for jl in range(m):
+        for i_band, band_order in enumerate(fit_orders):
+            tau_j = np.asarray(tau_slab[i_band, jl], dtype=np.float64)
+            ln_j  = np.asarray(lnT_slab[i_band, jl], dtype=np.float64)
+            mask = ~np.isnan(ln_j) & ~np.isnan(tau_j)
+            if mask.sum() < band_order + 2:   # need more points than free params
+                continue
+            tau_m = tau_j[mask]
+            sort_idx = np.argsort(tau_m)
+            tau_s    = tau_m[sort_idx]
+            y_raw    = ln_j[mask][sort_idx]
+            try:
+                y_sg = savgol_filter(y_raw, window_length=SAVGOL_WINDOW,
+                                     polyorder=SAVGOL_ORDER)
+            except ValueError:
+                # fewer valid channels than the SG window — historical skip
+                continue
+            A = get_design_matrix(tau_s, band_order)
+            try:
+                popt = _solve_cumulant(A, y_sg, band_order)
+            except (np.linalg.LinAlgError, ValueError):
+                continue
+            n_k = min(band_order, MAX_KAPPAS)
+            intercept[i_band, jl]       = popt[-1]
+            kappa[i_band, jl, :n_k]     = popt[:n_k]
+
+            j_global = int(j_indices[jl])
+            if not band_seen[i_band] or j_global % 1000 == 0:
+                plot_cands[(i_band, j_global)] = popt
+                band_seen[i_band] = True
+
+            if dual_fit:
+                # Parallel fit on the RAW (unsmoothed) ln_T; failures leave NaN.
+                try:
+                    popt_ns = _solve_cumulant(A, y_raw, band_order)
+                    intercept_nosg[i_band, jl]       = popt_ns[-1]
+                    kappa_nosg[i_band, jl, :n_k]     = popt_ns[:n_k]
+                except (np.linalg.LinAlgError, ValueError):
+                    pass
+
+    return j_indices, kappa, intercept, kappa_nosg, intercept_nosg, plot_cands
 
 
 def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
-                         lat_thres=0.5, std_thres=2.0, min_cld_dist=10.0,
+                         lat_thres=ANOMALY_LAT_THRES_DEG,
+                         std_thres=ANOMALY_STD_THRES_PPM,
+                         min_cld_dist=ANOMALY_MIN_CLD_DIST_KM,
                          chunk_size=128, extra_vars=None):
     """XCO2 anomaly relative to nearby clear-sky soundings.
 
@@ -794,7 +877,7 @@ def plot_orbit_fitting_examples(od, fit_orders, output_dir):
 
             try:
                 popt = fit_spectral_model(tau_j[mask], ln_T_j[mask], band_order)
-            except (RuntimeError, ValueError):
+            except (RuntimeError, ValueError, np.linalg.LinAlgError):
                 continue
 
             plot_fitting_example(
@@ -904,15 +987,16 @@ def load_profile_data(met_file, cpr_file, sounding_ids):
 
 # ─── Orbit orchestration ───────────────────────────────────────────────────────
 
-def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=True,
-                  dual_fit=True):
+def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=True,
+                  dual_fit=True, fit_workers=1):
     """Fit the spectral cumulant model for all soundings in one orbit.
 
     Workflow
     --------
     1. Load per-orbit L1B radiances and optical depths (load_orbit_data).
     2. Compute transmittances for all soundings at once (compute_transmittance).
-    3. Loop over soundings to fit the cumulant model (fit_spectral_model).
+    3. Fit the cumulant model in contiguous chunks (_fit_chunk), optionally
+       across worker processes; example plots are rendered afterwards.
     4. Extract Lite retrieval variables via vectorised index lookup.
     5. Compute XCO2 anomalies with vectorised lat-window approach.
     6. Write results to fitting_details.h5.
@@ -927,6 +1011,8 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     dual_fit    : bool  additionally fit WITHOUT Savitzky-Golay smoothing and
                   store the parallel parameter set as *_fitting_nosg datasets,
                   so the smoothed-vs-raw comparison (M9a) needs no second run.
+    fit_workers : int  number of processes for the fit stage; 1 = in-process
+                  (results are identical regardless of worker count).
     """
     date        = sat['date'].strftime("%Y-%m-%d")
     output_dir  = f"{sat['result_dir']}/{date}/{orbit_id}"
@@ -942,7 +1028,6 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     
     tags       = ["o2a", "wco2", "sco2"]
     fit_orders = list(fit_order)   # (o2a_order, wco2_order, sco2_order)
-    MAX_KAPPAS = 5                 # store k1..k5; higher kappas are not saved
 
     kappa_fitting     = np.full((3, N, MAX_KAPPAS), np.nan)
     intercept_fitting = np.full((3, N), np.nan)
@@ -983,55 +1068,58 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         T_all    = compute_transmittance(od["radiances"], od["toa_sol"])  # [3, N, 1016]
         ln_T_all = np.where(T_all > 0, np.log(T_all), np.nan)            # [3, N, 1016]
 
-        # ── 3. Per-sounding spectral fitting ───────────────────────────────────
-        logger.info(f"[{orbit_id}] Fitting spectral models...")
-        plot_done = {tag: False for tag in tags}   # save one example plot per band
+        # ── 3. Chunked spectral fitting (optionally multi-process) ─────────────
+        valid_idx = np.where(od["valid_l1b"])[0]
+        chunk_size = 256
+        n_chunks = max(1, int(np.ceil(len(valid_idx) / chunk_size)))
+        chunks = np.array_split(valid_idx, n_chunks)
+        logger.info(f"[{orbit_id}] Fitting spectral models for {len(valid_idx)} "
+                    f"soundings in {n_chunks} chunks (fit_workers={fit_workers})...")
 
-        for j in range(N):
-            if j % 500 == 0:
-                logger.info(f"  [{orbit_id}] sounding {j}/{N}")
+        def _chunk_args(chunk):
+            # Edge channels excluded here once, matching the historical [1:-1].
+            return (chunk,
+                    od["tau"][:, chunk, 1:-1],
+                    ln_T_all[:, chunk, 1:-1],
+                    tuple(fit_orders), dual_fit)
 
-            if not od["valid_l1b"][j]:
+        plot_cands = {}
+        if fit_workers > 1 and len(chunks) > 1:
+            with ProcessPoolExecutor(max_workers=fit_workers) as pool:
+                futures = [pool.submit(_fit_chunk, *_chunk_args(c)) for c in chunks]
+                results = [f.result() for f in futures]
+        else:
+            results = [_fit_chunk(*_chunk_args(c)) for c in chunks]
+
+        for n_done, (j_idx, k_c, ic_c, kns_c, icns_c, cands) in enumerate(results, 1):
+            kappa_fitting[:, j_idx, :]      = k_c
+            intercept_fitting[:, j_idx]     = ic_c
+            kappa_fitting_nosg[:, j_idx, :] = kns_c
+            intercept_fitting_nosg[:, j_idx] = icns_c
+            plot_cands.update(cands)
+            if n_done % 10 == 0 or n_done == len(results):
+                logger.info(f"  [{orbit_id}] chunk {n_done}/{len(results)} merged")
+
+        # Example plots, outside the (possibly multi-process) numeric loop.
+        # Replays the sequential selection rule: first successful fit per band,
+        # plus every 1000th sounding — plot_cands is a superset of these.
+        plot_done = {tag: False for tag in tags}
+        for i_band, j in sorted(plot_cands, key=lambda t: (t[1], t[0])):
+            tag, band_order = tags[i_band], fit_orders[i_band]
+            if not (not plot_done[tag] or j % 1000 == 0):
                 continue
+            tau_j  = od["tau"][i_band, j][1:-1]
+            ln_T_j = ln_T_all[i_band, j][1:-1]
+            mask = ~np.isnan(ln_T_j) & ~np.isnan(tau_j)
+            plot_fitting_example(
+                tag, int(od["fp_number"][j]), int(od["sounding_id"][j]),
+                od["wvl"][i_band, od["fp_number"][j]],
+                od["radiances"][i_band, j], T_all[i_band, j],
+                tau_j[mask], ln_T_j[mask], plot_cands[(i_band, j)],
+                band_order, output_dir,
+            )
+            plot_done[tag] = True
 
-            for i_band, (tag, band_order) in enumerate(zip(tags, fit_orders)):
-                # tau_j  = od["tau"][i_band, j]      # [1016]
-                # ln_T_j = ln_T_all[i_band, j]        # [1016]
-                tau_j  = od["tau"][i_band, j][1:-1]   # Exclude edge channels which often have NaNs or artifacts
-                ln_T_j = ln_T_all[i_band, j][1:-1] # Exclude edge channels which often have NaNs or artifacts
-
-                mask = ~np.isnan(ln_T_j) & ~np.isnan(tau_j)
-                if mask.sum() < band_order + 2:     # need more points than free params
-                    continue
-
-                try:
-                    popt = fit_spectral_model(tau_j[mask], ln_T_j[mask], band_order)
-                except (RuntimeError, ValueError):
-                    continue
-
-                intercept_fitting[i_band, j]            = popt[-1]
-                n_kappas = min(band_order, MAX_KAPPAS)
-                kappa_fitting[i_band, j, :n_kappas]     = popt[:n_kappas]
-
-                if dual_fit:
-                    # Parallel fit on the RAW (unsmoothed) ln_T; failures leave NaN.
-                    try:
-                        popt_ns = fit_spectral_model(
-                            tau_j[mask], ln_T_j[mask], band_order, smooth=False)
-                        intercept_fitting_nosg[i_band, j]        = popt_ns[-1]
-                        kappa_fitting_nosg[i_band, j, :n_kappas] = popt_ns[:n_kappas]
-                    except (RuntimeError, ValueError):
-                        pass
-
-                if not plot_done[tag] or j % 1000 == 0:  # Save an example plot for the first successful fit of each band
-                    plot_fitting_example(
-                        tag, int(od["fp_number"][j]), int(od["sounding_id"][j]),
-                        od["wvl"][i_band, od["fp_number"][j]],
-                        od["radiances"][i_band, j], T_all[i_band, j],
-                        tau_j[mask], ln_T_j[mask], popt, band_order, output_dir,
-                    )
-                    plot_done[tag] = True
-                    
     else:
         logger.info(f"[{orbit_id}] Output file {output_file} already exists and overwrite=False")
         logger.info(f"Loading existing data from {output_file}...")
@@ -1114,7 +1202,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
 
     # ── 6. XCO2 anomaly (vectorised lat-window) ────────────────────────────
     logger.info(f"[{orbit_id}] Computing XCO2 anomalies...")
-    anomaly_args = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
+    anomaly_args = production_anomaly_args()
     xco2_raw_anomaly = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args)
     ref_extra_vars = {
         "o2a_k1":      kappa_fitting[0, :, 0],
@@ -1137,13 +1225,13 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args)
 
     # ── 6b. Second reference set with stricter min_cld_dist=15 km ─────────
-    anomaly_args_15 = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 15.0}
+    anomaly_args_15 = production_anomaly_args(min_cld_dist=15.0)
     xco2_raw_anomaly_15 = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args_15)
     xco2_bc_anomaly_15, ref_means_15, ref_stds_15 = compute_xco2_anomaly(
         od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_15)
 
     # ── 6c. Third reference set with looser min_cld_dist=5 km ─────────────
-    anomaly_args_05 = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 5.0}
+    anomaly_args_05 = production_anomaly_args(min_cld_dist=5.0)
     xco2_raw_anomaly_05 = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args_05)
     xco2_bc_anomaly_05, ref_means_05, ref_stds_05 = compute_xco2_anomaly(
         od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_05)
@@ -1155,10 +1243,12 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         vlat = lite["vertex_latitude"][row_inds[valid_lt]]   # [n_valid, 4]
         # Project to WGS 84 / EASE-Grid 2.0 Global (equal-area, EPSG:6933) for accurate area
         _t = Transformer.from_crs("EPSG:4326", "EPSG:6933", always_xy=True)
-        areas = np.empty(len(vlon))
-        for i in range(len(vlon)):
-            x, y = _t.transform(vlon[i], vlat[i])
-            areas[i] = Polygon(zip(x, y)).area
+        x, y = _t.transform(vlon, vlat)                      # array-in, array-out
+        # Shoelace formula per footprint quad — identical to Polygon(...).area
+        # for these simple (non-self-intersecting) polygons.
+        x2 = np.roll(x, -1, axis=1)
+        y2 = np.roll(y, -1, axis=1)
+        areas = 0.5 * np.abs(np.sum(x * y2 - x2 * y, axis=1))
         fp_area_km2[valid_lt] = areas * 1e-6  # m² → km²
 
     # ── 6d. 20-level column operator per sounding (AK harmonization, M2) ───
@@ -1442,9 +1532,21 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         output_dict = {k: v for k, v in output_dict.items()
                        if not k.endswith('_fitting_nosg')}
 
+    # float64 → float32 on write (except keys needing full precision) plus
+    # shuffle+gzip: shrinks fitting_details.h5 severalfold and speeds the
+    # downstream build_feature_dataset reads.  Integer / string datasets are
+    # stored as-is.
+    keep_float64 = {"time"}   # seconds since epoch: float32 would lose ~minutes
     with h5py.File(output_file, "w") as f_out:
         for key, value in output_dict.items():
-            f_out.create_dataset(key, data=np.asarray(value))
+            arr = np.asarray(value)
+            if arr.dtype == np.float64 and key not in keep_float64:
+                arr = arr.astype(np.float32)
+            if arr.ndim > 0 and arr.size > 0:
+                f_out.create_dataset(key, data=arr, compression="gzip",
+                                     compression_opts=4, shuffle=True)
+            else:
+                f_out.create_dataset(key, data=arr)
             
             
     # ── 8. Visualization  ───────────────────────────────────────────────
@@ -1819,7 +1921,8 @@ def run_simulation(target_date, data_dir, result_dir,
                    viz_dir=None,
                    visualize=True,
                    delete_ocofiles=False,
-                   dual_fit=True):
+                   dual_fit=True,
+                   fit_workers=1):
     """Top-level pipeline: preprocess → fit → analyse."""
     validate_cloud_distance_file(
         cloud_distance_file_path(result_dir, target_date),
@@ -1827,7 +1930,7 @@ def run_simulation(target_date, data_dir, result_dir,
     )
     sat0 = preprocess(target_date, data_dir, result_dir, limit_granules)
 
-    fit_order = (7, 3, 7)  # (o2a_order, wco2_order, sco2_order)
+    fit_order = FIT_ORDER  # (o2a_order, wco2_order, sco2_order); see constants.py
 
     # Load Lite file and cloud distances once, shared across all orbits
     shared_data = load_shared_data(sat0)
@@ -1842,7 +1945,7 @@ def run_simulation(target_date, data_dir, result_dir,
         #     continue
         
         process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order, overwrite=False,
-                      dual_fit=dual_fit)
+                      dual_fit=dual_fit, fit_workers=fit_workers)
 
         if delete_ocofiles:
             for key in ("oco_l1b", "oco_met", "oco_co2prior"):
@@ -1898,6 +2001,10 @@ def main():
     parser.add_argument('--single-fit', action='store_true',
                         help='Skip the parallel no-Savitzky-Golay fit (halves fit time; '
                              'the *_fitting_nosg comparison datasets are then not produced)')
+    parser.add_argument('--fit-workers', type=int, default=0,
+                        help='Processes for the per-sounding fit stage; '
+                             '0 = auto (cores - 1), 1 = serial. Results are '
+                             'identical regardless of worker count.')
     args = parser.parse_args()
 
     try:
@@ -1911,6 +2018,10 @@ def main():
     output_dir  = Path(args.output_dir) if args.output_dir else storage_dir / "results"
     viz_dir     = Path(args.viz_dir) if args.visualize else storage_dir / "visualizations_combined"
 
+    fit_workers = args.fit_workers
+    if fit_workers <= 0:
+        fit_workers = max(1, (os.cpu_count() or 2) - 1)
+
     run_simulation(
         target_date, data_dir, output_dir,
         limit_granules=args.limit_granules,
@@ -1918,6 +2029,7 @@ def main():
         visualize=args.visualize,
         delete_ocofiles=args.delete_ocofiles,
         dual_fit=not args.single_fit,
+        fit_workers=fit_workers,
     )
     return 0
 

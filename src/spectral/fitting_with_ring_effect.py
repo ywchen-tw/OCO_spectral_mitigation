@@ -18,6 +18,8 @@ os.environ.setdefault('HDF5_USE_FILE_LOCKING', 'FALSE')
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+from constants import (ANOMALY_LAT_THRES_DEG, ANOMALY_STD_THRES_PPM,
+                       ANOMALY_MIN_CLD_DIST_KM, anomaly_args as production_anomaly_args)
 from utils import oco2_rad_nadir
 from netCDF4 import Dataset as dataset
 from scipy.optimize import curve_fit, lsq_linear
@@ -709,7 +711,9 @@ def fit_spectral_model_test(tau, ln_T, fit_order):
 
 
 def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
-                         lat_thres=0.5, std_thres=2.0, min_cld_dist=10.0,
+                         lat_thres=ANOMALY_LAT_THRES_DEG,
+                         std_thres=ANOMALY_STD_THRES_PPM,
+                         min_cld_dist=ANOMALY_MIN_CLD_DIST_KM,
                          chunk_size=128, extra_vars=None):
     """XCO2 anomaly relative to nearby clear-sky soundings.
 
@@ -1107,7 +1111,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
 
     # ── 6. XCO2 anomaly (vectorised lat-window) ────────────────────────────
     logger.info(f"[{orbit_id}] Computing XCO2 anomalies...")
-    anomaly_args = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
+    anomaly_args = production_anomaly_args()
     xco2_raw_anomaly = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args)
     ref_extra_vars = {
         "o2a_k1":      kappa_fitting[0, :, 0],
@@ -1130,7 +1134,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args)
 
     # ── 6b. Second reference set with stricter min_cld_dist=25 km ─────────
-    anomaly_args_25 = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 25.0}
+    anomaly_args_25 = production_anomaly_args(min_cld_dist=25.0)
     xco2_raw_anomaly_25 = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args_25)
     xco2_bc_anomaly_25, ref_means_25, ref_stds_25 = compute_xco2_anomaly(
         od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_25)

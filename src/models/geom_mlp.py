@@ -202,7 +202,7 @@ def train_geom_mlp(X_tr, G_tr, y_tr, X_te, G_te, y_te, n_features, g_dim, *,
 
     if not os.path.exists(ckpt):
         raise RuntimeError(f"No checkpoint saved to {ckpt}")
-    best = torch.load(ckpt, map_location=device)
+    best = torch.load(ckpt, map_location=device, weights_only=True)
     model.load_state_dict(best["model_state_dict"])
     tqdm.write(f"  GeomMLP done. best epoch={best['epoch']} val_loss={best['val_loss']:.5f}")
     return model.cpu()

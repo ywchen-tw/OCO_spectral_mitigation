@@ -48,10 +48,13 @@ def _load_model(model_dir: Path):
         raise SystemExit("this model was trained with --cloud_bin_feature; apply-side "
                          "cld_dist one-hot augmentation is not implemented yet.")
     hidden_dims = tuple(meta.get('hidden_dims', (64, 32)))
+    dropout = float(meta.get('dropout', 0.0))
+    norm = meta.get('norm', 'none')
     members = []
     for p in sorted(model_dir.glob('member_*.pt')):
-        m = GaussianMLP(pipeline.n_features, hidden_dims=hidden_dims, aux_cloud=aux_cloud)
-        m.load_state_dict(torch.load(p, map_location='cpu'))
+        m = GaussianMLP(pipeline.n_features, hidden_dims=hidden_dims,
+                        aux_cloud=aux_cloud, dropout=dropout, norm=norm)
+        m.load_state_dict(torch.load(p, map_location='cpu', weights_only=True))
         m.eval()
         members.append(m)
     if not members:

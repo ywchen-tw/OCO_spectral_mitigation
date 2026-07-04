@@ -232,7 +232,8 @@ def plot_evaluation_by_regime(model, df, qt, features, output_dir,
 
     # ── Recompute anomaly from FT-corrected XCO2 (mirrors mlp_lr_models.py L641-643) ──
     from .pipeline import compute_xco2_anomaly_date_id
-    _anomaly_args = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
+    from constants import anomaly_args as _production_anomaly_args
+    _anomaly_args = _production_anomaly_args()
     xco2_bc_corrected_ft = xco2_bc - q50
     _req_cols = {'date', 'orbit_id', 'lat', 'cld_dist_km'}
     if _req_cols.issubset(df.columns):

@@ -168,7 +168,7 @@ class TabMAdapter(ModelAdapter):
             aux_cloud=meta.get('aux_cloud', False),
             n_cloud_classes=meta.get('n_cloud_classes', 1),
         ).to(device)
-        ckpt = torch.load(ckpt_path, map_location=device)
+        ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
         model.load_state_dict(ckpt['model_state_dict'])
         model.eval()
         logger.info("TabMAdapter loaded ← %s (epoch=%s, val_loss=%s)",

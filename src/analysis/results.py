@@ -952,7 +952,8 @@ def mitigation_test(sat, df, output_dir, reference_csv=None):
     # Lazy import avoids circular import (oco_fp_spec_anal ↔ result_ana)
     from spectral.fitting import compute_xco2_anomaly
     # Same parameters as used in oco_fp_spec_anal.py
-    _anomaly_args = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 10.0}
+    from constants import anomaly_args as _production_anomaly_args
+    _anomaly_args = _production_anomaly_args()
     _lat      = np.array(df_orig['lat'])
     _cld_dist = np.array(df_orig['cld_dist_km'])
 

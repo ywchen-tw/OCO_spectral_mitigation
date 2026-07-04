@@ -86,10 +86,13 @@ def _load_fold(model_dir):
     pipe = FeaturePipeline.load(md / 'deep_ensemble_pipeline.pkl')
     aux_cloud = bool(meta.get('aux_cloud', False))
     hidden_dims = tuple(meta.get('hidden_dims', (64, 32)))
+    dropout = float(meta.get('dropout', 0.0))
+    norm = meta.get('norm', 'none')
     members = []
     for p in sorted(md.glob('member_*.pt')):
-        m = GaussianMLP(pipe.n_features, hidden_dims=hidden_dims, aux_cloud=aux_cloud)
-        m.load_state_dict(torch.load(p, map_location='cpu'))
+        m = GaussianMLP(pipe.n_features, hidden_dims=hidden_dims,
+                        aux_cloud=aux_cloud, dropout=dropout, norm=norm)
+        m.load_state_dict(torch.load(p, map_location='cpu', weights_only=True))
         m.eval(); members.append(m)
     if not members:
         raise SystemExit(f"no member_*.pt in {md}")

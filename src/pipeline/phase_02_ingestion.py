@@ -27,10 +27,11 @@ import logging
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Union
 from dataclasses import dataclass
 import time
 import random
+import re
 import xml.etree.ElementTree as ET
 
 from config import Config
@@ -51,6 +52,26 @@ def _is_readable_hdf5(path: Path) -> bool:
             list(h5f.keys())
         return True
     except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _is_readable_hdf4(path: Path) -> bool:
+    """Return True only if an HDF4 file can be opened and its datasets listed."""
+    try:
+        from pyhdf.SD import SD, SDC
+    except ImportError:
+        # Cannot verify without pyhdf; fall back to a non-empty-file check.
+        try:
+            return path.stat().st_size > 0
+        except OSError:
+            return False
+
+    try:
+        hdf = SD(str(path), SDC.READ)
+        hdf.datasets()
+        hdf.end()
+        return True
+    except Exception:
         return False
 
 
@@ -225,7 +246,7 @@ class DataIngestionManager:
         self.gesdisc_session = self._create_earthdata_session()
 
     def _get_with_retry(self, url: str, session: requests.Session,
-                        timeout: int = 30, max_retries: int = 6,
+                        timeout: Union[int, Tuple[int, int]] = 30, max_retries: int = 6,
                         backoff_base: float = 2.0, **kwargs) -> requests.Response:
         """GET with bounded jittered backoff on transient server errors."""
         last_exc: Optional[Exception] = None
@@ -288,35 +309,34 @@ class DataIngestionManager:
         try:
             # Use HEAD request to check existence without downloading
             response = session.head(url, timeout=10, allow_redirects=True)
-            
+
             if response.status_code == 200:
                 file_size = int(response.headers.get('content-length', 0))
                 file_size_mb = file_size / (1024 * 1024)
                 return True, file_size_mb
             elif response.status_code == 404:
                 return False, 0.0
-            else:
-                # Try GET with range to check if file exists
-                response = session.get(url, headers={'Range': 'bytes=0-0'}, timeout=10)
-                if response.status_code in [200, 206]:  # 206 = Partial Content
-                    # Try to get content length from Content-Range header
-                    content_range = response.headers.get('content-range', '')
-                    if content_range:
-                        import re
-                        match = re.search(r'/(\d+)$', content_range)
-                        if match:
-                            file_size = int(match.group(1))
-                            return True, file_size / (1024 * 1024)
-                    return True, 0.0
-            # Allow redirects for OAuth authentication
-            response = session.get(url, stream=True, timeout=30, allow_redirects=True)
-            
+
+            # HEAD unsupported or other status: try GET with range to check if file exists
+            response = session.get(url, headers={'Range': 'bytes=0-0'}, timeout=10,
+                                   allow_redirects=True)
+
             # Check if we got redirected to login page (authentication failed)
             if 'urs.earthdata.nasa.gov' in response.url and 'oauth' in response.url.lower():
                 raise requests.exceptions.HTTPError(
                     "Authentication required. Please set EARTHDATA_USERNAME and EARTHDATA_PASSWORD."
                 )
-            
+
+            if response.status_code in [200, 206]:  # 206 = Partial Content
+                # Try to get content length from Content-Range header
+                content_range = response.headers.get('content-range', '')
+                match = re.search(r'/(\d+)$', content_range)
+                if match:
+                    return True, int(match.group(1)) / (1024 * 1024)
+                return True, 0.0
+
+            return False, 0.0
+
         except Exception as e:
             logger.debug(f"Error checking remote file: {e}")
             return False, 0.0
@@ -325,16 +345,24 @@ class DataIngestionManager:
                       url: str,
                       output_path: Path,
                       session: requests.Session,
-                      chunk_size: int = 8192) -> Tuple[bool, float, float]:
+                      chunk_size: int = 8192,
+                      max_attempts: int = 3) -> Tuple[bool, float, float]:
         """
         Download a single file with progress tracking.
-        
+
+        Streams into `<name>.part` and renames on success so an interrupted
+        run never leaves a truncated file at the final path. Verifies the
+        downloaded byte count against Content-Length; a mid-stream failure
+        or short read is retried with a `Range` request that resumes the
+        partial file instead of restarting from byte 0.
+
         Args:
             url: URL to download from
             output_path: Local path to save file
             session: Requests session to use (for authentication)
             chunk_size: Download chunk size in bytes
-        
+            max_attempts: Full download attempts (each with internal HTTP retries)
+
         Returns:
             Tuple of (success, file_size_mb, download_time_seconds)
         """
@@ -347,58 +375,111 @@ class DataIngestionManager:
             else:
                 logger.warning(f"✗ Remote file not found: {output_path.name}")
                 return False, 0.0, 0.0
-        
+
+        part_path = output_path.with_name(output_path.name + ".part")
         try:
             start_time = time.time()
-            
-            # Make request with stream=True for large files; retry on transient 5xx.
-            # Use a (connect, read) tuple so stalled mid-stream reads also time out.
-            response = self._get_with_retry(url, session, timeout=(30, 120), stream=True)
-
-            # Detect HTML auth redirect: GES DISC returns 200 + HTML login page
-            # when the session cookie has expired instead of a proper 401/403.
-            content_type = response.headers.get('Content-Type', '')
-            if 'text/html' in content_type:
-                if session is self.gesdisc_session:
-                    # Session cookie expired — refresh and retry once
-                    response.close()
-                    self._refresh_gesdisc_session()
-                    session = self.gesdisc_session
-                    response = self._get_with_retry(url, session, timeout=(30, 120), stream=True)
-                    content_type = response.headers.get('Content-Type', '')
-                if 'text/html' in content_type:
-                    raise requests.exceptions.RequestException(
-                        f"Server returned HTML instead of data (authentication may have failed "
-                        f"or URL is incorrect): {url}"
-                    )
-
-            # Get file size if available
-            total_size = int(response.headers.get('content-length', 0))
-            
-            # Download with progress
-            downloaded = 0
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(output_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        
-                        # Log progress for large files
-                        if total_size > 0 and downloaded % (10 * 1024 * 1024) == 0:  # Every 10 MB
-                            progress = (downloaded / total_size) * 100
-                            logger.debug(f"  {progress:.1f}% ({downloaded / 1e6:.1f} MB)")
-            
-            download_time = time.time() - start_time
-            file_size_mb = downloaded / (1024 * 1024)
-            
-            logger.info(f"✓ Downloaded {output_path.name} ({file_size_mb:.2f} MB in {download_time:.1f}s)")
-            
-            return True, file_size_mb, download_time
-            
-        except requests.exceptions.RequestException as e:
+            # Discard partials from previous runs: the remote file may have
+            # changed, so only resume partials created within this call.
+            if part_path.exists():
+                part_path.unlink()
+
+            for attempt in range(max_attempts):
+                resume_from = part_path.stat().st_size if part_path.exists() else 0
+                headers = {'Range': f'bytes={resume_from}-'} if resume_from > 0 else None
+
+                # Make request with stream=True for large files; retry on transient 5xx.
+                # Use a (connect, read) tuple so stalled mid-stream reads also time out.
+                response = self._get_with_retry(url, session, timeout=(30, 120),
+                                                stream=True, headers=headers)
+
+                # Detect HTML auth redirect: GES DISC returns 200 + HTML login page
+                # when the session cookie has expired instead of a proper 401/403.
+                content_type = response.headers.get('Content-Type', '')
+                if 'text/html' in content_type:
+                    if session is self.gesdisc_session:
+                        # Session cookie expired — refresh and retry once
+                        response.close()
+                        self._refresh_gesdisc_session()
+                        session = self.gesdisc_session
+                        response = self._get_with_retry(url, session, timeout=(30, 120),
+                                                        stream=True, headers=headers)
+                        content_type = response.headers.get('Content-Type', '')
+                    if 'text/html' in content_type:
+                        raise requests.exceptions.RequestException(
+                            f"Server returned HTML instead of data (authentication may have failed "
+                            f"or URL is incorrect): {url}"
+                        )
+
+                # Server ignored the Range request — restart from byte 0
+                if resume_from > 0 and response.status_code != 206:
+                    resume_from = 0
+
+                # Expected total file size, if the server reports one
+                if response.status_code == 206:
+                    content_range = response.headers.get('Content-Range', '')
+                    match = re.search(r'/(\d+)$', content_range)
+                    total_size = int(match.group(1)) if match else 0
+                else:
+                    total_size = int(response.headers.get('content-length', 0) or 0)
+
+                # Download with progress
+                downloaded = resume_from
+                try:
+                    with open(part_path, 'ab' if resume_from > 0 else 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=chunk_size):
+                            if chunk:
+                                f.write(chunk)
+                                downloaded += len(chunk)
+
+                                # Log progress for large files
+                                if total_size > 0 and downloaded % (10 * 1024 * 1024) == 0:  # Every 10 MB
+                                    progress = (downloaded / total_size) * 100
+                                    logger.debug(f"  {progress:.1f}% ({downloaded / 1e6:.1f} MB)")
+                except requests.exceptions.RequestException as e:
+                    # Mid-stream failure: keep the partial file and resume on retry
+                    logger.warning(
+                        f"  Download of {output_path.name} interrupted at "
+                        f"{downloaded / 1e6:.1f} MB (attempt {attempt + 1}/{max_attempts}): {e}"
+                    )
+                    continue
+
+                # Completeness check: a short response must not be accepted
+                if total_size > 0 and downloaded != total_size:
+                    logger.warning(
+                        f"  Incomplete download of {output_path.name}: got {downloaded} of "
+                        f"{total_size} bytes (attempt {attempt + 1}/{max_attempts}) — retrying"
+                    )
+                    if downloaded > total_size:
+                        # Oversized/corrupt partial — restart from scratch
+                        part_path.unlink()
+                    continue
+
+                # Atomic publish: the final path only ever holds a complete file
+                os.replace(part_path, output_path)
+
+                download_time = time.time() - start_time
+                file_size_mb = downloaded / (1024 * 1024)
+
+                logger.info(f"✓ Downloaded {output_path.name} ({file_size_mb:.2f} MB in {download_time:.1f}s)")
+
+                return True, file_size_mb, download_time
+
+            logger.error(f"✗ Failed to download {url}: exhausted {max_attempts} attempts")
+            if part_path.exists():
+                part_path.unlink()
+            return False, 0.0, 0.0
+
+        except (requests.exceptions.RequestException, OSError) as e:
+            # OSError covers disk-full / permission errors during f.write;
+            # remove the partial so it is never mistaken for a complete file.
             logger.error(f"✗ Failed to download {url}: {e}")
+            try:
+                if part_path.exists():
+                    part_path.unlink()
+            except OSError:
+                pass
             return False, 0.0, 0.0
     
     def _extract_auth_token_from_url(self, url: str) -> str:
@@ -1229,8 +1310,11 @@ class DataIngestionManager:
         }
         
         try:
-            response = self.laads_session.get(api_url, params=params, timeout=15)
-            response.raise_for_status()
+            # Use the shared retry helper so one transient 5xx does not force
+            # an unnecessary full-granule download (bounded to 3 attempts —
+            # this is only a metadata shortcut with a file-based fallback).
+            response = self._get_with_retry(api_url, self.laads_session,
+                                            timeout=15, max_retries=3, params=params)
             metadata = response.json()
             
             # Search for our specific granule in the results
@@ -1372,9 +1456,18 @@ class DataIngestionManager:
         output_path = output_subdir / granule_filename
         
         # Check if already downloaded (local file exists)
+        if output_path.exists() and not self.dry_run and not _is_readable_hdf4(output_path):
+            # Mirror the OCO-2 HDF5 probe: exists() + size checks miss files
+            # truncated by a prior crash, which would be accepted forever.
+            logger.warning(
+                f"  ⚠️  {granule_filename} exists but is not readable HDF4 "
+                f"(possibly corrupted or incomplete download) — re-downloading"
+            )
+            output_path.unlink()
+
         if output_path.exists():
             file_size_mb = output_path.stat().st_size / (1024 * 1024)
-            
+
             # If filtering night passes and this is MYD35_L2, check if it's a day pass
             if skip_night_passes and product_type == 'MYD35_L2' and not self.dry_run:
                 is_day = self._is_day_pass(output_path)

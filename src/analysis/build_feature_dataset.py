@@ -72,6 +72,29 @@ def _interp_profile_to_sigma(prof, p_native, psurf, sigma_levels=SIGMA_LEVELS):
     return np.interp(np.log(sigma_levels), x[order], prof[good][order])
 
 
+def _batched_interp_to_sigma(log_sig, prof, sigma_levels):
+    """Vectorised sigma-grid interpolation for rows with a fully-finite,
+    strictly-increasing log-sigma grid (the overwhelmingly common GEOS case).
+
+    log_sig / prof : [M, n_lev] float64, rows already validated
+    Returns [M, L] float64, matching np.interp semantics incl. endpoint clamping.
+    """
+    t = np.log(sigma_levels)                                        # [L]
+    # index of the first grid point ABOVE each target (per row)
+    cnt = (log_sig[:, :, None] <= t[None, None, :]).sum(axis=1)     # [M, L]
+    j = np.clip(cnt, 1, log_sig.shape[1] - 1)
+    x0 = np.take_along_axis(log_sig, j - 1, axis=1)
+    x1 = np.take_along_axis(log_sig, j, axis=1)
+    y0 = np.take_along_axis(prof, j - 1, axis=1)
+    y1 = np.take_along_axis(prof, j, axis=1)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        out = y0 + (t[None, :] - x0) / (x1 - x0) * (y1 - y0)
+    # np.interp clamps outside the native support
+    out = np.where(t[None, :] <= log_sig[:, :1], prof[:, :1], out)
+    out = np.where(t[None, :] >= log_sig[:, -1:], prof[:, -1:], out)
+    return out
+
+
 def compute_sigma_profile_columns(combined, sigma_levels=SIGMA_LEVELS):
     """Build flat sigma-grid profile columns from the raw profiles in `combined`.
 
@@ -80,6 +103,10 @@ def compute_sigma_profile_columns(combined, sigma_levels=SIGMA_LEVELS):
     dict of flat per-level columns t_sigma_NN / q_sigma_NN / co2prior_sigma_NN
     (NN = index into ``sigma_levels``) plus tropopause_sigma (= P_trop / Psurf).
     Returns {} when the raw profile keys are absent (older fitting_details.h5).
+
+    Rows whose native grid is fully finite and strictly increasing in sigma
+    (virtually all GEOS profiles) are interpolated in one vectorised batch;
+    the remainder fall back to the per-row np.interp path.
     """
     required = ('t_profile', 'q_profile', 'co2prior_profile', 'p_profile', 'psurf_met')
     if not all(k in combined for k in required):
@@ -88,16 +115,35 @@ def compute_sigma_profile_columns(combined, sigma_levels=SIGMA_LEVELS):
     psurf = np.asarray(combined['psurf_met'], dtype=np.float64)   # [N]
     N, L  = P.shape[0], len(sigma_levels)
 
+    with np.errstate(divide='ignore', invalid='ignore'):
+        sig = P / psurf[:, None]
+        log_sig = np.where(sig > 0, np.log(sig), np.nan)          # [N, n_lev]
+    ok_psurf = np.isfinite(psurf) & (psurf > 0)
+
     cols = {}
     for src, prefix in (('t_profile', 't_sigma'),
                         ('q_profile', 'q_sigma'),
                         ('co2prior_profile', 'co2prior_sigma')):
         prof = np.asarray(combined[src], dtype=np.float64)        # [N, n_lev]
-        sig  = np.full((N, L), np.nan, dtype=np.float32)
-        for k in range(N):
-            sig[k] = _interp_profile_to_sigma(prof[k], P[k], psurf[k], sigma_levels)
+        out  = np.full((N, L), np.nan, dtype=np.float32)
+
+        finite = np.isfinite(log_sig) & np.isfinite(prof)         # [N, n_lev]
+        fast = (ok_psurf & finite.all(axis=1)
+                & (np.diff(log_sig, axis=1) > 0).all(axis=1))
+        if fast.any():
+            # chunked so the [M, n_lev, L] comparison stays small
+            idx = np.where(fast)[0]
+            for start in range(0, len(idx), 65536):
+                rows = idx[start:start + 65536]
+                out[rows] = _batched_interp_to_sigma(
+                    log_sig[rows], prof[rows], sigma_levels)
+
+        slow = np.where(~fast & ok_psurf & (finite.sum(axis=1) >= 2))[0]
+        for k in slow:
+            out[k] = _interp_profile_to_sigma(prof[k], P[k], psurf[k], sigma_levels)
+
         for lev in range(L):
-            cols[f'{prefix}_{lev:02d}'] = sig[:, lev]
+            cols[f'{prefix}_{lev:02d}'] = out[:, lev]
 
     if 'tropopause_pressure' in combined:
         tp = np.asarray(combined['tropopause_pressure'], dtype=np.float64)
@@ -296,8 +342,12 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
         print("No orbit data found — k1k2_analysis cannot proceed.")
         return
 
-    combined = {key: np.concatenate([d[key] for d in all_data])
-                for key in all_data[0]}
+    # Concatenate key-by-key, releasing each per-orbit array as it is consumed
+    # so the day's data is not held twice (orbit dicts + combined) at peak.
+    combined = {}
+    for key in list(all_data[0]):
+        combined[key] = np.concatenate([d.pop(key) for d in all_data])
+    del all_data
 
     # ── Convenience references ─────────────────────────────────────────────────
     xco2_bc          = combined['xco2_bc']
@@ -463,10 +513,14 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['dp_psfc_ratio'] = combined.get('dp') / combined.get('psfc')  # Ratio of dp to surface pressure
     final_dict['psfc_prior'] = combined.get('psfc') - combined.get('dp')  # Prior surface pressure estimate
     final_dict['dp_psfc_prior_ratio'] = combined.get('dp') / (combined.get('psfc') - combined.get('dp'))  # Ratio of dp to prior surface pressure
-    fs_rel_0 = combined.get('fs_rel')
+    # Clamp on an explicit copy — the old in-place version silently mutated
+    # combined['fs_rel'] (and thus the 'fs_rel' column, which has always been
+    # stored clamped).  Keep both columns identical to the historical output.
+    fs_rel_0 = np.array(combined.get('fs_rel'), copy=True)
     fs_rel_0[fs_rel_0 < 0] = 0  # Set any negative relative humidity values to 0
     fs_rel_0[np.isnan(fs_rel_0)] = 0  # Set any NaN relative humidity values to 0
     final_dict['fs_rel_0'] = fs_rel_0  # Relative humidity at surface (assuming fs_rel is at surface)
+    final_dict['fs_rel'] = fs_rel_0
     final_dict['pol_ang_rad'] = np.radians(combined.get('pol_angle'))  # Convert polarization angle to radians
     
     
@@ -627,6 +681,18 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     # Lite 20-level column operator → flat ak_NN/pwf_NN/co2_ap_NN/plev_NN columns.
     final_dict.update(compute_ak_columns(combined))
 
+    # Store float features at single precision (identifiers, ints and 'time'
+    # keep their dtype).  Halves the frame/parquet footprint; feature values
+    # only ever reach the models as float32 anyway.
+    keep_float64 = {'time'}
+    for _k, _v in final_dict.items():
+        if _v is None:
+            continue
+        _arr = np.asarray(_v)
+        if _arr.dtype == np.float64 and _k not in keep_float64:
+            final_dict[_k] = _arr.astype(np.float32, copy=False)
+    del combined
+
     df = pd.DataFrame(final_dict)
     df = df[df.xco2_bc > 0]  # Filter out invalid XCO2 value
 
@@ -637,12 +703,36 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     df.to_parquet(os.path.join(output_dir, f'{stem}.parquet'), index=False, compression='zstd')
 
 
+def _union_parquet_schema(paths):
+    """Union of the input files' schemas (first-seen field order).
+
+    Mirrors pd.concat column-union semantics: a column missing from some files
+    is filled with nulls; on a dtype conflict the field is promoted to float64.
+    Only file metadata is read, not the data.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    types, order = {}, []
+    for path in paths:
+        for field in pq.read_schema(path):
+            if field.name not in types:
+                types[field.name] = field.type
+                order.append(field.name)
+            elif types[field.name] != field.type:
+                types[field.name] = pa.float64()
+    return pa.schema([pa.field(name, types[name]) for name in order])
+
+
 def raw_processing_multipe_dates(fdir, date_list, output_fname, n_workers=8):
     """
-    Collect single dates' data in the date_list and concatenate into one DataFrame for analysis.
+    Collect single dates' data in the date_list and concatenate into one file.
 
-    Prefers Parquet per-date files over CSV (much faster I/O, smaller on disk).
-    Uses parallel reads to overlap I/O across files.
+    Parquet inputs are STREAMED one file at a time into a ParquetWriter, so
+    peak memory is one per-date table instead of all of them at once (the
+    combined 2016-2020 build is >100M rows).  Schemas are unioned up front
+    (missing columns → nulls, dtype conflicts → float64), matching the old
+    pd.concat behaviour.  CSV inputs keep the legacy read-all-then-concat path.
     Output format is determined by the extension of output_fname (.parquet or .csv).
     """
     date_set = set(date_list)
@@ -652,33 +742,51 @@ def raw_processing_multipe_dates(fdir, date_list, output_fname, n_workers=8):
 
     # Prefer parquet over csv for per-date input files
     parquet_files = glob.glob(os.path.join(fdir, 'combined_*_all_orbits.parquet'))
-    if parquet_files:
-        all_files = parquet_files
-        reader = pd.read_parquet
-    else:
-        all_files = glob.glob(os.path.join(fdir, 'combined_*_all_orbits.csv'))
-        reader = pd.read_csv
+    csv_mode = not parquet_files
+    all_files = parquet_files or glob.glob(os.path.join(fdir, 'combined_*_all_orbits.csv'))
 
-    selected_files = [f for f in all_files if _get_date(f) in date_set]
+    selected_files = sorted(f for f in all_files if _get_date(f) in date_set)
     if not selected_files:
         print("No files found for the specified dates.")
         return None
 
-    print(f"Reading {len(selected_files)} files with {n_workers} workers...")
-    with ThreadPoolExecutor(max_workers=n_workers) as pool:
-        dfs = list(pool.map(reader, selected_files))
-
-    combined_df = pd.concat(dfs, ignore_index=True)
-    del dfs
-    gc.collect()
-
     out_path = os.path.join(fdir, output_fname)
-    if out_path.endswith('.parquet'):
-        combined_df.to_parquet(out_path, index=False, compression='zstd')
-    else:
-        combined_df.to_csv(out_path, index=False)
 
-    print(f"Written {len(combined_df):,} rows → {out_path}")
+    if csv_mode or not out_path.endswith('.parquet'):
+        print(f"Reading {len(selected_files)} files with {n_workers} workers...")
+        reader = pd.read_csv if csv_mode else pd.read_parquet
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            dfs = list(pool.map(reader, selected_files))
+        combined_df = pd.concat(dfs, ignore_index=True)
+        del dfs
+        gc.collect()
+        if out_path.endswith('.parquet'):
+            combined_df.to_parquet(out_path, index=False, compression='zstd')
+        else:
+            combined_df.to_csv(out_path, index=False)
+        print(f"Written {len(combined_df):,} rows → {out_path}")
+        return out_path
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    schema = _union_parquet_schema(selected_files)
+    print(f"Streaming {len(selected_files)} parquet files "
+          f"({len(schema.names)} columns) → {out_path}")
+    total = 0
+    with pq.ParquetWriter(out_path, schema, compression='zstd') as writer:
+        for path in selected_files:
+            table = pq.read_table(path)
+            columns = {
+                name: (table[name] if name in table.column_names
+                       else pa.nulls(len(table), type=schema.field(name).type))
+                for name in schema.names
+            }
+            writer.write_table(pa.table(columns).cast(schema))
+            total += len(table)
+            del table, columns
+
+    print(f"Written {total:,} rows → {out_path}")
     return out_path
 
 def main():

@@ -38,6 +38,9 @@ import json
 import pickle
 import json
 
+from constants import (AQUA_FREE_DRIFT_YEAR, MODIS_MATCH_BUFFER_MIN,
+                       modis_match_buffer_minutes)
+
 # Configure logging first
 logger = logging.getLogger(__name__)
 
@@ -1533,17 +1536,19 @@ class SpatialProcessor:
     def match_temporal_windows(self,
                               oco2_footprints: Dict[int, OCO2Footprint],
                               modis_files: List[DownloadedFile],
-                              buffer_minutes: int = 20) -> Dict[int, List[str]]:
+                              buffer_minutes: int = MODIS_MATCH_BUFFER_MIN) -> Dict[int, List[str]]:
         """
         Match OCO-2 soundings to MODIS granules based on temporal proximity.
-        
-        Uses adaptive buffer: ±10 minutes for years < 2023, ±20 minutes for 2023+
-        (Aqua orbital drift increased after 2023).
-        
+
+        Uses adaptive buffer via constants.modis_match_buffer_minutes(): ±10
+        minutes before constants.AQUA_FREE_DRIFT_YEAR, ±20 minutes from then on
+        (Aqua free drift).
+
         Args:
             oco2_footprints: Dictionary of OCO2Footprint objects by sounding_id
             modis_files: List of MODIS file objects
-            buffer_minutes: Temporal buffer for matching (±minutes, default=20)
+            buffer_minutes: Temporal buffer for matching
+                (±minutes, default=constants.MODIS_MATCH_BUFFER_MIN)
         
         Returns:
             Dictionary: sounding_id -> list of matching MODIS granule IDs
@@ -1611,11 +1616,11 @@ class SpatialProcessor:
             except Exception as e:
                 logger.debug(f"  Could not parse time from {granule_id}: {e}")
         
-        # Adjust buffer based on observation year (Aqua drift increased after 2023)
+        # Adjust buffer based on observation year (Aqua free drift)
         effective_buffer = buffer_minutes
-        if observation_year is not None and observation_year < 2023:
-            effective_buffer = 10  # Use ±10 minutes for pre-2023 data
-            logger.info(f"                   Year {observation_year} < 2023: Using reduced buffer of ±{effective_buffer} minutes")
+        if observation_year is not None and observation_year < AQUA_FREE_DRIFT_YEAR:
+            effective_buffer = modis_match_buffer_minutes(observation_year)
+            logger.info(f"                   Year {observation_year} < {AQUA_FREE_DRIFT_YEAR}: Using reduced buffer of ±{effective_buffer} minutes")
         
         logger.info(f"  Found {len(modis_granule_times)} MODIS granules with timing (ascending tracks only)")
         

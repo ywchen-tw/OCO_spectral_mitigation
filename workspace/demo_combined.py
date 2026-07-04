@@ -56,6 +56,8 @@ from pipeline.phase_03_processing import SpatialProcessor
 run_phase_035 = None  # lazy import — only loaded when --gcp-project is supplied
 from pipeline.phase_04_geometry import GeometryProcessor, CollocationResult
 from config import Config
+from constants import (AQUA_FREE_DRIFT_YEAR, modis_match_buffer_minutes,
+                       CLOUD_DIST_BAND_WIDTH_DEG, CLOUD_DIST_BAND_OVERLAP_DEG)
 from utils import setup_logging
 
 # Configure logging
@@ -727,15 +729,14 @@ def run_phase_3(target_date: datetime, data_dir: Path,
                 
                 # Match MODIS files to OCO-2 granules based on temporal proximity.
                 # Buffer is adaptive (mirrors the logic in match_temporal_windows):
-                #   year < 2023 → ±10 min  (Aqua drift was small before 2023)
-                #   year ≥ 2023 → ±20 min
+                # ±10 min before AQUA_FREE_DRIFT_YEAR, ±20 min from then on.
                 # Night passes are excluded here so that off-scene MODIS data
                 # (which can fall inside the time window near orbit boundaries)
                 # does not contaminate the cloud pixels.
                 logger.info("  Matching MODIS files to OCO-2 granules...")
                 modis_to_oco2_mapping = {}
 
-                buffer_minutes = 10 if year < 2022 else 20
+                buffer_minutes = modis_match_buffer_minutes(year)
                 buffer_seconds = buffer_minutes * 60
                 logger.info(f"  Using ±{buffer_minutes} min matching buffer (year={year})")
 
@@ -893,8 +894,8 @@ def run_phase_3(target_date: datetime, data_dir: Path,
                         del matched_myd03
                     else:
                         granule_cloud_masks = {}
-                        if target_date >= datetime(2022, 1, 1):
-                            # Aqua free-drift era (2022+): a MODIS gap over an OCO-2
+                        if target_date >= datetime(AQUA_FREE_DRIFT_YEAR, 1, 1):
+                            # Aqua free-drift era: a MODIS gap over an OCO-2
                             # orbit is expected and legitimate. Rather than silently
                             # dropping these soundings, emit placeholder cloud-distance
                             # results flagged with the -999 sentinel so they still
@@ -974,7 +975,8 @@ def run_phase_3(target_date: datetime, data_dir: Path,
 
 
 def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.0,
-                band_width: float = 10.0, band_overlap: float = 1.0,
+                band_width: float = CLOUD_DIST_BAND_WIDTH_DEG,
+                band_overlap: float = CLOUD_DIST_BAND_OVERLAP_DEG,
                 visualize: bool = False, viz_dir: Optional[Path] = None,
                 force_recompute: bool = False) -> Tuple[List, bool]:
     """
@@ -1317,10 +1319,10 @@ Examples:
     # Optional algorithm parameters
     parser.add_argument('--max-distance', type=float, default=50.0,
                        help='Maximum cloud distance in km (default: 50.0)')
-    parser.add_argument('--band-width', type=float, default=2.5,
-                       help='Latitude band width in degrees (default: 2.5)')
-    parser.add_argument('--band-overlap', type=float, default=0.5,
-                       help='Latitude band overlap in degrees (default: 1.0)')
+    parser.add_argument('--band-width', type=float, default=CLOUD_DIST_BAND_WIDTH_DEG,
+                       help=f'Latitude band width in degrees (default: {CLOUD_DIST_BAND_WIDTH_DEG})')
+    parser.add_argument('--band-overlap', type=float, default=CLOUD_DIST_BAND_OVERLAP_DEG,
+                       help=f'Latitude band overlap in degrees (default: {CLOUD_DIST_BAND_OVERLAP_DEG})')
     
     # Optional data directory
     parser.add_argument('--data-dir', type=str, default='./data',

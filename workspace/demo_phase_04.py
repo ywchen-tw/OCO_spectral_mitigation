@@ -34,6 +34,7 @@ from pipeline.phase_02_ingestion import DataIngestionManager
 from pipeline.phase_03_processing import SpatialProcessor
 from pipeline.phase_04_geometry import GeometryProcessor
 from config import Config
+from constants import CLOUD_DIST_BAND_WIDTH_DEG, CLOUD_DIST_BAND_OVERLAP_DEG
 
 # Configure logging
 logging.basicConfig(
@@ -53,10 +54,10 @@ def main():
                        help='Maximum cloud distance in km (default: 50)')
     parser.add_argument('--data-dir', type=str, default='./data',
                        help='Data directory (default: ./data)')
-    parser.add_argument('--band-width', type=float, default=10.0,
-                       help='Latitude band width in degrees (default: 10.0)')
-    parser.add_argument('--band-overlap', type=float, default=1.0,
-                       help='Latitude band overlap in degrees (default: 1.0)')
+    parser.add_argument('--band-width', type=float, default=CLOUD_DIST_BAND_WIDTH_DEG,
+                       help=f'Latitude band width in degrees (default: {CLOUD_DIST_BAND_WIDTH_DEG})')
+    parser.add_argument('--band-overlap', type=float, default=CLOUD_DIST_BAND_OVERLAP_DEG,
+                       help=f'Latitude band overlap in degrees (default: {CLOUD_DIST_BAND_OVERLAP_DEG})')
     parser.add_argument('--visualize', action='store_true',
                        help='Create visualizations with MODIS Aqua RGB imagery')
     parser.add_argument('--vis-dir', type=str, default='./visualizations_phase4',

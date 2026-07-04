@@ -31,6 +31,8 @@ import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import QuantileTransformer, RobustScaler, StandardScaler
+from constants import (ANOMALY_LAT_THRES_DEG, ANOMALY_STD_THRES_PPM,
+                       ANOMALY_MIN_CLD_DIST_KM)
 from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
@@ -732,7 +734,9 @@ def _compute_anomaly_group(idx_list, fp_lat, cld_dist_km, xco2,
 
 
 def compute_xco2_anomaly_date_id(fp_date, fp_orbit_id, fp_lat, cld_dist_km, xco2,
-                         lat_thres=0.5, std_thres=2.0, min_cld_dist=10.0,
+                         lat_thres=ANOMALY_LAT_THRES_DEG,
+                         std_thres=ANOMALY_STD_THRES_PPM,
+                         min_cld_dist=ANOMALY_MIN_CLD_DIST_KM,
                          chunk_size=512, n_jobs=-1):
     """XCO2 anomaly relative to nearby clear-sky soundings within the same orbit.
 
