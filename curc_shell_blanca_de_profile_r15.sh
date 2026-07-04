@@ -68,13 +68,6 @@ NFOLDS=5
 # --target 15km selects xco2_bc_anomaly_r15.  --profile-pca and _r15 suffix are
 # explicit so intent is obvious in the job log.  A/B partner: the 10 km run
 # de_{surface}_beta_nll_prof_reg_f${F} in curc_shell_blanca_de_profile.sh.
-# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_r15_f${F} \
-#     --profile-pca \
-#     --target 15km \
-#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
 python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_r15_f${F} \
     --profile-pca \
     --target 15km \
@@ -95,15 +88,9 @@ python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_r
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Feature-set ablations (+profile, 15 km reference) ─────────────────────────
-# Same config, each with one feature block dropped, both surfaces.  The profile
-# block is ORTHOGONAL to --feature_set.  Suffix: de_{surface}_{FS}_prof_r15_f${F}.
+# Same config, each with one feature block dropped, land only.  The profile
+# block is ORTHOGONAL to --feature_set.  Suffix: de_land_{FS}_prof_r15_f${F}.
 # for FS in no_xco2 no_spec no_xco2_and_spec; do
-#   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_r15_f${F} \
-#       --profile-pca --feature_set ${FS} --target 15km \
-#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
 #   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_r15_f${F} \
 #       --profile-pca --feature_set ${FS} --target 15km \
 #       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \

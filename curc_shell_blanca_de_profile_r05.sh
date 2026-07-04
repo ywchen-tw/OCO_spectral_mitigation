@@ -91,24 +91,11 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_r05_f${F} \
-#     --profile-pca \
-#     --target 5km \
-#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
 # ── Feature-set ablations (+profile, 5 km reference) ──────────────────────────
-# Same config, each with one feature block dropped, both surfaces.  The profile
-# block is ORTHOGONAL to --feature_set.  Suffix: de_{surface}_{FS}_prof_r05_f${F}.
+# Same config, each with one feature block dropped, ocean only.  The profile
+# block is ORTHOGONAL to --feature_set.  Suffix: de_ocean_{FS}_prof_r05_f${F}.
 # for FS in no_xco2 no_spec no_xco2_and_spec; do
 #   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_r05_f${F} \
-#       --profile-pca --feature_set ${FS} --target 5km \
-#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-
-#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_r05_f${F} \
 #       --profile-pca --feature_set ${FS} --target 5km \
 #       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
 #       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
