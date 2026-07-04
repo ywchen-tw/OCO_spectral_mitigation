@@ -27,7 +27,7 @@
 # Prerequisite: each date's fitting_details_<date>_*.h5 must already exist
 # (produced by curc_shell_blanca_fp_anal_perdate.sh).
 
-MAX_JOBS=24
+MAX_JOBS=36
 
 # ── Date sets (YYYYMMDD), same three sets as build_feature_dataset.py main() ────
 # Set 1 — 2020-only
@@ -86,8 +86,9 @@ DATES_EVENTS=(
 
 # Active set(s) — union + de-duplicate (preserve first-seen order).  Currently
 # 2020 only; add the other arrays here to widen (the range auto-adjusts).
-ALL=( "${DATES_2016_2020[@]}" )
+# ALL=( "${DATES_2016_2020[@]}" )
 # ALL=( "${DATES_EVENTS[@]}" )
+ALL=( "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
 # ALL=( "${DATES_2020[@]}" "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
 DATES=()
 while IFS= read -r d; do DATES+=("$d"); done < <(printf '%s\n' "${ALL[@]}" | awk '!seen[$0]++')
