@@ -110,13 +110,14 @@ def _draw_pair(axA, axB, cmp, title_prefix=''):
         _f = _fits.get(_lbl)
         if _f is not None:
             _txt.append(f"{_lbl}:  slope = {_f['slope']:.3f} ± {_f['slope_se']:.3f}   "
-                        f"R² = {_f['r2']:.3f}   RMSE = {_f['rmse']:.2f}")
+                        f"R² = {_f['r2']:.3f}   RMSE(station) = {_f['rmse']:.2f}")
     if _txt:
         axA.text(0.04, 0.96, '\n'.join(_txt), transform=axA.transAxes,
                  va='top', ha='left', fontsize=10,
                  bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
     axA.set_xlabel('TCCON XCO₂ (ppm)'); axA.set_ylabel('OCO-2 XCO₂ (ppm)')
-    axA.set_title(f'{title_prefix}OCO-2 vs TCCON (mean ± std)'); axA.legend(loc='lower right')
+    axA.set_title(f'{title_prefix}OCO-2 vs TCCON — station-day means')
+    axA.legend(loc='lower right', title='station-day mean (± footprint σ)')
     axA.grid(alpha=0.3)
     axA.set_xlim(lo, hi); axA.set_ylim(lo, hi); axA.set_aspect('equal')
     # (b) bias raw→before→after dumbbell, per case (errorbar = OCO-2 σ)
@@ -150,17 +151,18 @@ def _draw_pair(axA, axB, cmp, title_prefix=''):
         _b = cmp[_col].to_numpy(float); _b = _b[np.isfinite(_b)]
         _r = cmp[_rcol].to_numpy(float); _r = _r[np.isfinite(_r)]
         if _b.size:
-            _rtxt = f"   RMSE {np.mean(_r):.2f}" if _r.size else ""
-            _btxt.append(f"{_lbl}:  bias {np.mean(_b):+.2f} ± {np.std(_b):.2f}{_rtxt}")
+            _rtxt = f"   footprint RMSE {np.mean(_r):.2f}" if _r.size else ""
+            _btxt.append(f"{_lbl}:  station bias {np.mean(_b):+.2f} ± {np.std(_b):.2f}{_rtxt}")
     if _btxt:
         axB.text(0.04, 0.96, '\n'.join(_btxt), transform=axB.transAxes,
                  va='top', ha='left', fontsize=10,
                  bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
     axB.set_yticks(y); axB.set_yticklabels([f"{r.site} {r.date}" for r in cmp.itertuples()], fontsize=6)
     axB.set_xlabel('XCO₂ bias to TCCON (ppm)')
-    axB.set_title(f'{title_prefix}Bias to TCCON: raw → before → after' if has_raw
-                  else f'{title_prefix}Bias before → after correction')
-    axB.legend(loc='lower right'); axB.grid(alpha=0.3, axis='x')
+    axB.set_title((f'{title_prefix}Bias to TCCON: raw → before → after' if has_raw
+                   else f'{title_prefix}Bias before → after correction')
+                  + '   (marker = station-day mean, error bar = footprint σ)')
+    axB.legend(loc='lower right', title='per station-day'); axB.grid(alpha=0.3, axis='x')
 
 
 def main():
