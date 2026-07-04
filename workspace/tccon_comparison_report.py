@@ -32,6 +32,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_corrected_xco2 import load_tccon, get_storage_dir
 from tccon_collocate import collocate, find_plotdata
+from ak_harmonize import find_lite_file, ak_adjusted_ref
 
 CORR = 'deep_ensemble_corrected_xco2'
 
@@ -61,6 +62,86 @@ def _ols_fit(x, y):
     r2 = 1.0 - sse / sst if sst > 0 else np.nan
     return dict(slope=slope, intercept=intercept, slope_se=slope_se,
                 intercept_se=intercept_se, r2=r2, n=n)
+
+
+def _significance(cmp, n_boot=10000, seed=20260703):
+    """Paired significance of the correction across station-days (M3).
+
+    Two complementary tests on the per-case (station-day) metrics:
+      * paired Wilcoxon signed-rank on |bias| and on per-footprint RMSE
+        (treats station-days as exchangeable pairs), and
+      * a SITE-CLUSTERED bootstrap (sites resampled with replacement, each
+        bringing all its station-days) for the after−before deltas of
+        mean |bias|, RMS bias, and mean RMSE — this respects the strong
+        within-site clustering (e.g. Réunion 14 days) that the Wilcoxon
+        ignores.  p_boot = 2·min(P(Δ≥0), P(Δ≤0)), floored at 2/(B+1).
+
+    Returns a flat dict of test statistics (NaN where not computable).
+    """
+    out = {}
+    bb = cmp['bias_before'].to_numpy(float); ba = cmp['bias_after'].to_numpy(float)
+    rb = cmp['rmse_before'].to_numpy(float); ra = cmp['rmse_after'].to_numpy(float)
+    sites = cmp['site'].to_numpy()
+
+    def _wilcoxon(x_after, x_before):
+        m = np.isfinite(x_after) & np.isfinite(x_before)
+        if m.sum() < 6:
+            return np.nan, int(m.sum())
+        try:
+            from scipy.stats import wilcoxon
+            res = wilcoxon(x_after[m], x_before[m])
+            return float(res.pvalue), int(m.sum())
+        except (ImportError, ValueError):
+            return np.nan, int(m.sum())
+
+    out['wilcoxon_absbias_p'], out['wilcoxon_absbias_n'] = _wilcoxon(np.abs(ba), np.abs(bb))
+    out['wilcoxon_rmse_p'], out['wilcoxon_rmse_n'] = _wilcoxon(ra, rb)
+
+    # site-clustered bootstrap on after−before deltas
+    uniq = np.unique(sites)
+    out['n_sites'] = int(uniq.size)
+    if uniq.size >= 3:
+        rng = np.random.default_rng(seed)
+        idx_by_site = {s: np.where(sites == s)[0] for s in uniq}
+        deltas = {'d_mean_absbias': [], 'd_rms_bias': [], 'd_mean_rmse': []}
+        for _ in range(n_boot):
+            pick = rng.choice(uniq, uniq.size, replace=True)
+            idx = np.concatenate([idx_by_site[s] for s in pick])
+            b0, b1, r0, r1 = bb[idx], ba[idx], rb[idx], ra[idx]
+            deltas['d_mean_absbias'].append(np.nanmean(np.abs(b1)) - np.nanmean(np.abs(b0)))
+            deltas['d_rms_bias'].append(np.sqrt(np.nanmean(b1 ** 2)) - np.sqrt(np.nanmean(b0 ** 2)))
+            deltas['d_mean_rmse'].append(np.nanmean(r1) - np.nanmean(r0))
+        p_floor = 2.0 / (n_boot + 1)
+        for key, vals in deltas.items():
+            v = np.asarray(vals); v = v[np.isfinite(v)]
+            out[f'{key}_mean'] = float(v.mean())
+            out[f'{key}_ci_lo'] = float(np.percentile(v, 2.5))
+            out[f'{key}_ci_hi'] = float(np.percentile(v, 97.5))
+            out[f'{key}_p'] = float(max(p_floor, 2 * min((v >= 0).mean(), (v <= 0).mean())))
+    return out
+
+
+def _sig_lines(sig, label):
+    """Markdown lines for one _significance() result."""
+    def fp(p):
+        return '' if not np.isfinite(p) else (f'p = {p:.4f}' if p >= 1e-4 else 'p < 1e-4')
+    lines = ['', f'### Significance ({label})', '',
+             f"- paired Wilcoxon signed-rank, station-day |bias| after vs before "
+             f"(n={sig.get('wilcoxon_absbias_n', 0)}): **{fp(sig.get('wilcoxon_absbias_p', np.nan))}**",
+             f"- paired Wilcoxon signed-rank, per-footprint RMSE after vs before "
+             f"(n={sig.get('wilcoxon_rmse_n', 0)}): **{fp(sig.get('wilcoxon_rmse_p', np.nan))}**"]
+    if 'd_mean_absbias_mean' in sig:
+        lines += [f"- site-clustered bootstrap ({sig['n_sites']} sites, 95% CI of after−before):",
+                  f"  - Δ mean |bias| = {sig['d_mean_absbias_mean']:+.2f} "
+                  f"[{sig['d_mean_absbias_ci_lo']:+.2f}, {sig['d_mean_absbias_ci_hi']:+.2f}] ppm, "
+                  f"**{fp(sig['d_mean_absbias_p'])}**",
+                  f"  - Δ RMS bias = {sig['d_rms_bias_mean']:+.2f} "
+                  f"[{sig['d_rms_bias_ci_lo']:+.2f}, {sig['d_rms_bias_ci_hi']:+.2f}] ppm, "
+                  f"**{fp(sig['d_rms_bias_p'])}**",
+                  f"  - Δ mean footprint RMSE = {sig['d_mean_rmse_mean']:+.2f} "
+                  f"[{sig['d_mean_rmse_ci_lo']:+.2f}, {sig['d_mean_rmse_ci_hi']:+.2f}] ppm, "
+                  f"**{fp(sig['d_mean_rmse_p'])}**"]
+    return lines
 
 
 def _draw_pair(axA, axB, cmp, title_prefix=''):
@@ -181,6 +262,14 @@ def main():
                     help="Comma-separated TCCON site codes (e.g. 'ny'); also emits an "
                          "_excl_<sites> variant of the scatter/dumbbell and by-surface "
                          "figures with those stations dropped.")
+    ap.add_argument('--ak-harmonize', action='store_true',
+                    help='AK/prior-harmonize the TCCON reference (Rodgers & Connor 2003 / '
+                         'Wunch et al. 2017) using the day OCO-2 Lite file; cases whose '
+                         'Lite file is not found fall back to the raw TCCON window mean '
+                         '(ak_delta = NaN in the CSV). Shifts absolute biases only — '
+                         'before/after improvement metrics are invariant.')
+    ap.add_argument('--n-boot', type=int, default=10000,
+                    help='Site-clustered bootstrap replicates for the significance block.')
     args = ap.parse_args()
 
     out_base = Path(args.out_base)
@@ -192,6 +281,7 @@ def main():
     P_MD       = out_dir / f'tccon_comparison{sfx}.md'
     P_PNG      = out_dir / f'tccon_comparison{sfx}.png'
     P_SITE_CSV = out_dir / f'tccon_comparison_by_site{sfx}.csv'
+    P_SIG_CSV  = out_dir / f'tccon_significance{sfx}.csv'
     P_SITE_PNG = out_dir / f'tccon_comparison_by_site{sfx}.png'
     P_BYSURF   = out_dir / f'tccon_comparison_by_surface{sfx}.png'
     storage = get_storage_dir()
@@ -209,12 +299,14 @@ def main():
         cases.append(dict(date=date, tccon=tccon, lonmin=lonmin, lonmax=lonmax,
                           latmin=latmin, latmax=latmax, site=site))
 
+    def tccon_path(name):
+        p = Path('data/TCCON') / name
+        return p if p.exists() else storage / 'data/TCCON' / name
+
     _tccon_cache = {}
     def tccon_df(name):
         if name not in _tccon_cache:
-            p = Path('data/TCCON') / name
-            p = p if p.exists() else storage / 'data/TCCON' / name
-            _tccon_cache[name] = load_tccon(str(p))
+            _tccon_cache[name] = load_tccon(str(tccon_path(name)))
         return _tccon_cache[name]
 
     def source_parquet(date):
@@ -278,6 +370,25 @@ def main():
         near = col['near']; tmu = col['tccon_ref']; tsd = col['tccon_sd']; n_tc = col['n_tccon']
         if not len(near):
             continue
+        # AK/prior harmonization (M2): replace the raw TCCON window mean with the
+        # Rodgers & Connor-adjusted reference where the day's Lite file is found.
+        tmu_raw, ak_delta, ak_n_lite = tmu, np.nan, 0
+        if args.ak_harmonize and n_tc and np.isfinite(tmu):
+            lite = find_lite_file(c['date'], roots=['.', storage])
+            ot = pd.to_datetime(near['time'], unit='s', utc=True, errors='coerce').dropna()
+            if lite is not None and len(ot):
+                try:
+                    adj = ak_adjusted_ref(
+                        lite, str(tccon_path(c['tccon'])), col['st_lon'], col['st_lat'],
+                        args.radius_km, ot.min().tz_localize(None), ot.max().tz_localize(None),
+                        window_min=args.window_min)
+                except Exception as e:                       # noqa: BLE001 — per-case fallback
+                    print(f"[ak-harmonize] {site} {c['date']}: {e}", file=sys.stderr)
+                    adj = None
+                if adj is not None:
+                    tmu = adj['tccon_ref_ak']
+                    ak_delta = adj['ak_delta']
+                    ak_n_lite = adj['n_lite']
         # one row per surface: all (pooled) + ocean (sfc0) + land (sfc1)
         for sname, frame in (('all', near),
                              ('ocean', near[near['sfc_type'] == 0]),
@@ -285,7 +396,9 @@ def main():
             if not len(frame):
                 continue
             rows.append(dict(site=site, date=c['date'], surface=sname, n_tccon=n_tc,
-                             tccon_mu=tmu, tccon_sd=tsd, **_case_metrics(frame, tmu, n_tc)))
+                             tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
+                             ak_delta=ak_delta, ak_n_lite=ak_n_lite,
+                             **_case_metrics(frame, tmu, n_tc)))
 
     if not rows:
         print(f"No cases matched (out-base={out_base}, script={args.script}). "
@@ -325,6 +438,31 @@ def main():
                   f"- improved (per-footprint RMSE down) in **{int((ra<rb).sum())}/{len(cmp)}** cases",
                   f"- **drop-guards** ({n_g_tot} guarded footprints excluded): corrected mean |bias| "
                   f"**{np.nanmean(np.abs(ba_dg)):.2f}** ppm, per-footprint RMSE **{np.nanmean(ra_dg):.2f}** ppm"]
+
+        if args.ak_harmonize:
+            ak = cmp['ak_delta'].to_numpy(float)
+            n_h = int(np.isfinite(ak).sum())
+            if n_h:
+                lines += [f"- **AK/prior harmonization** (Rodgers & Connor 2003 / Wunch et al. 2017): "
+                          f"**{n_h}/{len(cmp)}** cases harmonized; TCCON reference shift "
+                          f"Δ = {np.nanmean(ak):+.2f} ± {np.nanstd(ak):.2f} ppm "
+                          f"(un-harmonized cases keep the raw window mean; the shift moves "
+                          f"absolute biases only — improvement metrics are invariant)"]
+            else:
+                lines += ["- **AK/prior harmonization requested but no case could be harmonized** "
+                          "(no day Lite files found — set $OCO2_LITE_DIR); raw TCCON means used"]
+
+        # ── significance: paired Wilcoxon + site-clustered bootstrap (M3) ─────
+        sig = _significance(cmp, n_boot=args.n_boot)
+        lines += _sig_lines(sig, 'all sites')
+        sig_rows = [dict(subset='all', **sig)]
+        if excl:
+            _sub = cmp[~cmp['site'].isin(excl)]
+            if len(_sub) >= 6:
+                sig_e = _significance(_sub, n_boot=args.n_boot)
+                lines += _sig_lines(sig_e, f'excl {",".join(excl)}')
+                sig_rows.append(dict(subset=f'excl_{"_".join(excl)}', **sig_e))
+        pd.DataFrame(sig_rows).to_csv(P_SIG_CSV, index=False)
 
         # ── per-site aggregate ─────────────────────────────────────────────────
         c2 = cmp.copy()

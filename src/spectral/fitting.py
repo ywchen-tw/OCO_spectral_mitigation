@@ -497,17 +497,21 @@ def fit_bottom_spline(x, y, n_bins=100, q=0.05, s=0.5):
     
     return spline, np.array(bin_centers), np.array(bin_quantiles)
 
-def fit_spectral_model(tau, ln_T, fit_order):
-    """Fit a cumulant expansion to smoothed log-transmittance vs optical depth.
+def fit_spectral_model(tau, ln_T, fit_order, smooth=True):
+    """Fit a cumulant expansion to log-transmittance vs optical depth.
 
-    Applies a Savitzky-Golay smooth to ln_T (sorted by tau) before fitting,
-    which suppresses high-frequency noise without biasing the spectral shape.
+    With smooth=True (production default) a Savitzky-Golay smooth is applied
+    to ln_T (sorted by tau) before fitting, which suppresses high-frequency
+    noise.  With smooth=False the raw ln_T is fitted directly — used to
+    produce the parallel "_nosg" parameter set that quantifies how much the
+    pre-smoothing biases k1/k2 (review item M9a) without a separate rerun.
 
     Parameters
     ----------
     tau      : 1-D array, optical depth per spectral channel
     ln_T     : 1-D array, log(transmittance) corresponding to tau
     fit_order: int  cumulant truncation order; must be a key of LOG_TRANSMITTANCE_MODELS
+    smooth   : bool  apply Savitzky-Golay (51, 3) smoothing before the fit
 
     Returns
     -------
@@ -517,7 +521,10 @@ def fit_spectral_model(tau, ln_T, fit_order):
     sort_idx    = np.argsort(tau)
     tau_sorted  = tau[sort_idx]
     ln_T_sorted = ln_T[sort_idx]
-    ln_T_smooth = savgol_filter(ln_T[sort_idx], window_length=51, polyorder=3) 
+    if smooth:
+        ln_T_smooth = savgol_filter(ln_T[sort_idx], window_length=51, polyorder=3)
+    else:
+        ln_T_smooth = ln_T_sorted
     
     # if fit_order >= 5:
     #     tau_sorted = np.concatenate([tau_sorted, [tau_sorted[-1]*5, tau_sorted[-1]*10]])  # Add extra points to anchor the fit
@@ -890,7 +897,8 @@ def load_profile_data(met_file, cpr_file, sounding_ids):
 
 # ─── Orbit orchestration ───────────────────────────────────────────────────────
 
-def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=True):
+def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=True,
+                  dual_fit=True):
     """Fit the spectral cumulant model for all soundings in one orbit.
 
     Workflow
@@ -909,6 +917,9 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     shared_data : dict from load_shared_data()
     fit_order   : (o2a_order, wco2_order, sco2_order)
     overwrite   : bool
+    dual_fit    : bool  additionally fit WITHOUT Savitzky-Golay smoothing and
+                  store the parallel parameter set as *_fitting_nosg datasets,
+                  so the smoothed-vs-raw comparison (M9a) needs no second run.
     """
     date        = sat['date'].strftime("%Y-%m-%d")
     output_dir  = f"{sat['result_dir']}/{date}/{orbit_id}"
@@ -928,23 +939,37 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
 
     kappa_fitting     = np.full((3, N, MAX_KAPPAS), np.nan)
     intercept_fitting = np.full((3, N), np.nan)
+    # Parallel no-Savitzky-Golay fit (raw ln_T), for the smoothing-bias A/B.
+    kappa_fitting_nosg     = np.full((3, N, MAX_KAPPAS), np.nan)
+    intercept_fitting_nosg = np.full((3, N), np.nan)
 
     # A cached file from before κ was added (or from before the positivity
     # bounds) lacks the gamma-shape datasets; refit rather than reuse it.
+    # Likewise, when dual_fit is requested, a cache without the _nosg
+    # datasets must be refitted.
     cached_has_kappa = False
+    cached_has_nosg = False
     if os.path.isfile(output_file):
         try:
             with h5py.File(output_file, "r") as f:
                 cached_has_kappa = all(
                     key in f for key in ("o2a_kappa", "wco2_kappa", "sco2_kappa")
                 )
+                cached_has_nosg = all(
+                    key in f for key in ("o2a_k1_fitting_nosg",
+                                         "wco2_k1_fitting_nosg",
+                                         "sco2_k1_fitting_nosg")
+                )
         except OSError:
             cached_has_kappa = False
+            cached_has_nosg = False
 
-    if not os.path.isfile(output_file) or overwrite or not cached_has_kappa:
-        if os.path.isfile(output_file) and not cached_has_kappa and not overwrite:
+    cache_ok = cached_has_kappa and (cached_has_nosg or not dual_fit)
+    if not os.path.isfile(output_file) or overwrite or not cache_ok:
+        if os.path.isfile(output_file) and not overwrite and not cache_ok:
+            missing = ("κ" if not cached_has_kappa else "_nosg")
             logger.info(
-                f"[{orbit_id}] Cached {output_file} has no κ datasets; refitting."
+                f"[{orbit_id}] Cached {output_file} has no {missing} datasets; refitting."
             )
         # ── 2. Transmittance for all soundings and bands at once ───────────────
         logger.info(f"[{orbit_id}] Computing transmittances for {N} soundings...")
@@ -981,6 +1006,16 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
                 n_kappas = min(band_order, MAX_KAPPAS)
                 kappa_fitting[i_band, j, :n_kappas]     = popt[:n_kappas]
 
+                if dual_fit:
+                    # Parallel fit on the RAW (unsmoothed) ln_T; failures leave NaN.
+                    try:
+                        popt_ns = fit_spectral_model(
+                            tau_j[mask], ln_T_j[mask], band_order, smooth=False)
+                        intercept_fitting_nosg[i_band, j]        = popt_ns[-1]
+                        kappa_fitting_nosg[i_band, j, :n_kappas] = popt_ns[:n_kappas]
+                    except (RuntimeError, ValueError):
+                        pass
+
                 if not plot_done[tag] or j % 1000 == 0:  # Save an example plot for the first successful fit of each band
                     plot_fitting_example(
                         tag, int(od["fp_number"][j]), int(od["sounding_id"][j]),
@@ -1012,6 +1047,15 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
             kappa_fitting[2, :, 3] = f["sco2_k4_fitting"][...]
             kappa_fitting[2, :, 4] = f["sco2_k5_fitting"][...]
             intercept_fitting[2]   = f["sco2_intercept_fitting"][...]
+            if cached_has_nosg:
+                for _ib, _tag in enumerate(tags):
+                    for _ik in range(MAX_KAPPAS):
+                        _key = f"{_tag}_k{_ik + 1}_fitting_nosg"
+                        if _key in f:
+                            kappa_fitting_nosg[_ib, :, _ik] = f[_key][...]
+                    _ikey = f"{_tag}_intercept_fitting_nosg"
+                    if _ikey in f:
+                        intercept_fitting_nosg[_ib] = f[_ikey][...]
             logger.info(f"Loaded existing fitting results from {output_file}. Skipping fitting step.")
         logger.info(f"[{orbit_id}] Writing example fitting plots from cached fitting input.")
         plot_orbit_fitting_examples(od, fit_orders, output_dir)
@@ -1134,6 +1178,27 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "sco2_k4_fitting":        kappa_fitting[2, :, 3],
         "sco2_k5_fitting":        kappa_fitting[2, :, 4],
         "sco2_intercept_fitting": intercept_fitting[2],
+        # No-Savitzky-Golay parallel fit (raw ln_T), for the smoothing-bias A/B.
+        # Populated only when dual_fit=True (removed below otherwise, so a
+        # cache without them is refitted when dual_fit is later enabled).
+        "o2a_k1_fitting_nosg":         kappa_fitting_nosg[0, :, 0],
+        "o2a_k2_fitting_nosg":         kappa_fitting_nosg[0, :, 1],
+        "o2a_k3_fitting_nosg":         kappa_fitting_nosg[0, :, 2],
+        "o2a_k4_fitting_nosg":         kappa_fitting_nosg[0, :, 3],
+        "o2a_k5_fitting_nosg":         kappa_fitting_nosg[0, :, 4],
+        "o2a_intercept_fitting_nosg":  intercept_fitting_nosg[0],
+        "wco2_k1_fitting_nosg":        kappa_fitting_nosg[1, :, 0],
+        "wco2_k2_fitting_nosg":        kappa_fitting_nosg[1, :, 1],
+        "wco2_k3_fitting_nosg":        kappa_fitting_nosg[1, :, 2],
+        "wco2_k4_fitting_nosg":        kappa_fitting_nosg[1, :, 3],
+        "wco2_k5_fitting_nosg":        kappa_fitting_nosg[1, :, 4],
+        "wco2_intercept_fitting_nosg": intercept_fitting_nosg[1],
+        "sco2_k1_fitting_nosg":        kappa_fitting_nosg[2, :, 0],
+        "sco2_k2_fitting_nosg":        kappa_fitting_nosg[2, :, 1],
+        "sco2_k3_fitting_nosg":        kappa_fitting_nosg[2, :, 2],
+        "sco2_k4_fitting_nosg":        kappa_fitting_nosg[2, :, 3],
+        "sco2_k5_fitting_nosg":        kappa_fitting_nosg[2, :, 4],
+        "sco2_intercept_fitting_nosg": intercept_fitting_nosg[2],
         # Gamma shape parameter κ = k1²/k2 per band (NaN where k2 ≤ 0)
         "o2a_kappa":   gamma_kappa[0],
         "wco2_kappa":  gamma_kappa[1],
@@ -1350,6 +1415,12 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     }
     
     
+    if not dual_fit:
+        # Drop the (all-NaN) _nosg datasets so their absence marks the cache
+        # as needing a refit if dual_fit is enabled later.
+        output_dict = {k: v for k, v in output_dict.items()
+                       if not k.endswith('_fitting_nosg')}
+
     with h5py.File(output_file, "w") as f_out:
         for key, value in output_dict.items():
             f_out.create_dataset(key, data=np.asarray(value))
@@ -1726,7 +1797,8 @@ def run_simulation(target_date, data_dir, result_dir,
                    limit_granules=-1,
                    viz_dir=None,
                    visualize=True,
-                   delete_ocofiles=False):
+                   delete_ocofiles=False,
+                   dual_fit=True):
     """Top-level pipeline: preprocess → fit → analyse."""
     validate_cloud_distance_file(
         cloud_distance_file_path(result_dir, target_date),
@@ -1748,7 +1820,8 @@ def run_simulation(target_date, data_dir, result_dir,
         #     logger.info(f"[{orbit_id}] Output already exists. Skipping orbit.")
         #     continue
         
-        process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order, overwrite=False)
+        process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order, overwrite=False,
+                      dual_fit=dual_fit)
 
         if delete_ocofiles:
             for key in ("oco_l1b", "oco_met", "oco_co2prior"):
@@ -1801,6 +1874,9 @@ def main():
     parser.add_argument('--limit-granules', type=int, default=-1)
     parser.add_argument('--delete-ocofiles', action='store_true',
                         help='Delete L1b/Met/CO2Prior files for each orbit after processing')
+    parser.add_argument('--single-fit', action='store_true',
+                        help='Skip the parallel no-Savitzky-Golay fit (halves fit time; '
+                             'the *_fitting_nosg comparison datasets are then not produced)')
     args = parser.parse_args()
 
     try:
@@ -1820,6 +1896,7 @@ def main():
         viz_dir=viz_dir,
         visualize=args.visualize,
         delete_ocofiles=args.delete_ocofiles,
+        dual_fit=not args.single_fit,
     )
     return 0
 

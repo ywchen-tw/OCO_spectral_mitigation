@@ -363,12 +363,20 @@ run_case  2020-09-16   pr20140923_20251024.public.qc.nc       1.43     2.71    4
 #     the radius so a sweep's summaries coexist (…_r100km.png vs …_r50km.png).
 echo ""
 echo "############ AGGREGATE: tccon_comparison_report ############"
+#     --ak-harmonize: AK/prior-harmonized TCCON reference (Rodgers & Connor 2003 /
+#     Wunch et al. 2017) from the day OCO-2 Lite files (searched under the storage
+#     data root; override with $OCO2_LITE_DIR).  Cases without a Lite file fall
+#     back to the raw window mean (ak_delta NaN in the CSV).  Shifts absolute
+#     biases only — before/after improvement metrics are invariant.  The report
+#     also now emits tccon_significance_*.csv (paired Wilcoxon + site-clustered
+#     bootstrap on the after−before deltas).
 python workspace/tccon_comparison_report.py \
     --script   "$SCRIPT_NAME" \
     --out-base "$OUT_BASE" \
     --output-dir "$OUT_BASE" \
     --fname-suffix "_${RADIUS_TAG}" --exclude-sites ny \
-    --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN"
+    --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN" \
+    --ak-harmonize
 
 # (8) correction-policy stats — READS the step-4 plot_data (no second model run) via
 #     --plotdata-base, and writes CSVs to --output-dir (= OUT_BASE), so the policy
