@@ -111,6 +111,32 @@ def compute_sigma_profile_columns(combined, sigma_levels=SIGMA_LEVELS):
 
 # ─── HDF5 loader ──────────────────────────────────────────────────────────────
 
+# Lite 20-level column-operator datasets → flat parquet column prefixes.
+# Consumed by workspace/ak_harmonize.operator_from_dataframe() for TCCON
+# AK/prior harmonization without reopening the Lite files.
+AK_COLUMN_MAP = (('xco2_averaging_kernel', 'ak'),
+                 ('pressure_weight', 'pwf'),
+                 ('co2_profile_apriori', 'co2_ap'),
+                 ('pressure_levels', 'plev'))
+
+
+def compute_ak_columns(combined):
+    """Flatten the 2-D [N, 20] Lite column-operator arrays to per-level columns
+    (ak_00…ak_19, pwf_00…, co2_ap_00…, plev_00…).  Returns {} when the raw
+    datasets are absent (older fitting_details.h5)."""
+    cols = {}
+    for src, prefix in AK_COLUMN_MAP:
+        arr = combined.get(src)
+        if arr is None or getattr(arr, 'ndim', 1) != 2:
+            continue
+        for j in range(arr.shape[1]):
+            cols[f'{prefix}_{j:02d}'] = arr[:, j]
+    if cols:
+        logger.info("compute_ak_columns: %d column-operator columns (N=%d)",
+                    len(cols), len(next(iter(cols.values()))))
+    return cols
+
+
 def load_output_dict(filepath):
     """Load one orbit's fitting_details.h5 written by process_orbit().
 
@@ -180,6 +206,18 @@ def load_output_dict(filepath):
         # Absent in older files → skipped, and the sigma columns are simply not built.
         "t_profile", "q_profile", "co2prior_profile", "p_profile", "psurf_met",
         "tropopause_pressure", "tropopause_temp",
+        # No-Savitzky-Golay parallel fit (dual_fit) — absent in older files
+        'o2a_k1_fitting_nosg', 'o2a_k2_fitting_nosg', 'o2a_k3_fitting_nosg',
+        'o2a_k4_fitting_nosg', 'o2a_k5_fitting_nosg', 'o2a_intercept_fitting_nosg',
+        'wco2_k1_fitting_nosg', 'wco2_k2_fitting_nosg', 'wco2_k3_fitting_nosg',
+        'wco2_k4_fitting_nosg', 'wco2_k5_fitting_nosg', 'wco2_intercept_fitting_nosg',
+        'sco2_k1_fitting_nosg', 'sco2_k2_fitting_nosg', 'sco2_k3_fitting_nosg',
+        'sco2_k4_fitting_nosg', 'sco2_k5_fitting_nosg', 'sco2_intercept_fitting_nosg',
+        # 20-level Lite column operator (2-D [N, 20]) for TCCON AK/prior
+        # harmonization — flattened to ak_NN/pwf_NN/co2_ap_NN/plev_NN columns
+        # by compute_ak_columns; absent in older files
+        "xco2_averaging_kernel", "pressure_weight", "co2_profile_apriori",
+        "pressure_levels",
         # r15 reference set (min_cld_dist=15 km)
         'xco2_raw_anomaly_r15', 'xco2_bc_anomaly_r15',
         'r15_o2a_k1_mean', 'r15_o2a_k1_std', 'r15_o2a_k2_mean', 'r15_o2a_k2_std',
@@ -577,6 +615,17 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
         final_dict['tropopause_pressure'] = combined['tropopause_pressure']
         final_dict['tropopause_temp']     = combined.get('tropopause_temp')
     final_dict.update(compute_sigma_profile_columns(combined))
+
+    # No-Savitzky-Golay parallel fit parameters (dual_fit-era files only).
+    if 'o2a_k1_fitting_nosg' in combined:
+        for _band in ('o2a', 'wco2', 'sco2'):
+            for _k in ('k1', 'k2', 'k3', 'k4', 'k5', 'intercept'):
+                _src = f'{_band}_{_k}_fitting_nosg'
+                if _src in combined:
+                    final_dict[f'{_band}_{_k}_nosg'] = combined[_src]
+
+    # Lite 20-level column operator → flat ak_NN/pwf_NN/co2_ap_NN/plev_NN columns.
+    final_dict.update(compute_ak_columns(combined))
 
     df = pd.DataFrame(final_dict)
     df = df[df.xco2_bc > 0]  # Filter out invalid XCO2 value

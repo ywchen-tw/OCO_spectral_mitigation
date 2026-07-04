@@ -111,23 +111,50 @@ def mean_oco2_operator(lite_path, st_lon, st_lat, radius_km, min_n=3):
                 ca=float(np.nanmean(ca)), n_lite=int(sel.size))
 
 
-def ak_adjusted_ref(lite_path, tccon_nc_path, st_lon, st_lat, radius_km,
-                    tmin, tmax, window_min=60.0):
-    """AK/prior-harmonized TCCON reference for one case.
+# Parquet column prefixes for the flattened Lite column operator, as written by
+# build_feature_dataset.compute_ak_columns (keep in sync with AK_COLUMN_MAP there).
+_FRAME_PREFIXES = (('a', 'ak'), ('h', 'pwf'), ('xa', 'co2_ap'), ('pl', 'plev'))
 
-    Parameters
-    ----------
-    lite_path      : path to the day's OCO-2 Lite file
-    tccon_nc_path  : path to the GGG2020 .public(.qc).nc station file
-    st_lon, st_lat : station location used by the collocation
-    radius_km      : collocation radius (Lite soundings averaged within it)
-    tmin, tmax     : UTC datetimes spanning the collocated OCO-2 pass
-    window_min     : TCCON window half-width around [tmin, tmax] (minutes)
 
+def operator_from_dataframe(df, min_n=3):
+    """Mean OCO-2 column operator from flattened parquet columns.
+
+    Uses the ak_NN / pwf_NN / co2_ap_NN / plev_NN columns (written by
+    build_feature_dataset from dual-fit-era fitting_details) plus the
+    xco2_apriori column, averaged over the rows of *df* — normally the
+    already-collocated footprints, which is strictly better than the
+    Lite-file fallback (radius-averaged over all QF0 soundings).
+    Returns the same dict shape as mean_oco2_operator(), or None when the
+    columns are absent/empty (caller then falls back to the Lite file).
+    """
+    if len(df) < min_n or 'xco2_apriori' not in df.columns:
+        return None
+    out = {}
+    for key, prefix in _FRAME_PREFIXES:
+        cols = sorted(c for c in df.columns
+                      if c.startswith(prefix + '_') and c[len(prefix) + 1:].isdigit())
+        if not cols:
+            return None
+        arr = df[cols].to_numpy(float)
+        row_ok = np.isfinite(arr).all(axis=1)
+        if row_ok.sum() < min_n:
+            return None
+        out[key] = np.nanmean(arr[row_ok], axis=0)
+    ca = df['xco2_apriori'].to_numpy(float)
+    ca = ca[np.isfinite(ca) & (ca > 0)]
+    if ca.size < min_n:
+        return None
+    return dict(h=out['h'], a=out['a'], xa=out['xa'], pl=out['pl'],
+                ca=float(ca.mean()), n_lite=int(len(df)))
+
+
+def ak_adjusted_ref_from_operator(op, tccon_nc_path, tmin, tmax, window_min=60.0):
+    """AK/prior-harmonized TCCON reference given a prepared OCO-2 operator.
+
+    op : dict from mean_oco2_operator() or operator_from_dataframe().
     Returns dict(tccon_ref_ak, tccon_sd_ak, n_tccon, ak_delta, n_lite) or None.
     ak_delta = harmonized mean − raw window mean (ppm): the smoothing/prior term.
     """
-    op = mean_oco2_operator(lite_path, st_lon, st_lat, radius_km)
     if op is None:
         return None
 
@@ -181,3 +208,17 @@ def ak_adjusted_ref(lite_path, tccon_nc_path, st_lon, st_lat, radius_km,
                 n_tccon=int(ests.size),
                 ak_delta=float(ests.mean() - raw_mean),
                 n_lite=op['n_lite'])
+
+
+def ak_adjusted_ref(lite_path, tccon_nc_path, st_lon, st_lat, radius_km,
+                    tmin, tmax, window_min=60.0):
+    """AK/prior-harmonized TCCON reference for one case, from the Lite file.
+
+    Builds the mean OCO-2 operator over QF=0 Lite soundings within radius_km
+    of (st_lon, st_lat), then applies ak_adjusted_ref_from_operator().  Use
+    operator_from_dataframe() instead when the collocated parquet already
+    carries the flattened ak_NN/pwf_NN/co2_ap_NN/plev_NN columns.
+    """
+    op = mean_oco2_operator(lite_path, st_lon, st_lat, radius_km)
+    return ak_adjusted_ref_from_operator(op, tccon_nc_path, tmin, tmax,
+                                         window_min=window_min)

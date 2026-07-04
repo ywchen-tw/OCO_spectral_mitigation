@@ -32,7 +32,8 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_corrected_xco2 import load_tccon, get_storage_dir
 from tccon_collocate import collocate, find_plotdata
-from ak_harmonize import find_lite_file, ak_adjusted_ref
+from ak_harmonize import (find_lite_file, ak_adjusted_ref,
+                          operator_from_dataframe, ak_adjusted_ref_from_operator)
 
 CORR = 'deep_ensemble_corrected_xco2'
 
@@ -357,10 +358,20 @@ def main():
             continue
         oco = pd.read_parquet(pq)
         # merge raw (pre-bias-correction) XCO2 from the source parquet — plot_data
-        # only carries xco2_bc. Match on (time, lon, lat), which pass through unchanged.
+        # only carries xco2_bc. Match on (time, lon, lat), which pass through
+        # unchanged.  Also pull the flattened Lite column-operator columns
+        # (ak_NN/pwf_NN/co2_ap_NN/plev_NN, dual-fit-era parquets) so AK
+        # harmonization can run without reopening the Lite files.
         sp = source_parquet(c['date'])
         if sp is not None:
-            src = (pd.read_parquet(sp, columns=['time', 'lon', 'lat', 'xco2_raw'])
+            import pyarrow.parquet as _pq
+            avail = set(_pq.ParquetFile(sp).schema_arrow.names)
+            ak_cols = sorted(
+                col for col in avail
+                if any(col.startswith(p) and col[len(p):].isdigit()
+                       for p in ('ak_', 'pwf_', 'co2_ap_', 'plev_')))
+            want = [col for col in ['time', 'lon', 'lat', 'xco2_raw'] if col in avail] + ak_cols
+            src = (pd.read_parquet(sp, columns=want)
                      .drop_duplicates(['time', 'lon', 'lat']))
             oco = oco.merge(src, on=['time', 'lon', 'lat'], how='left')
         # SHARED collocation (box → ≤radius → ±50 ppm sanity; guarded KEPT + flagged)
@@ -371,24 +382,38 @@ def main():
         if not len(near):
             continue
         # AK/prior harmonization (M2): replace the raw TCCON window mean with the
-        # Rodgers & Connor-adjusted reference where the day's Lite file is found.
-        tmu_raw, ak_delta, ak_n_lite = tmu, np.nan, 0
+        # Rodgers & Connor-adjusted reference.  Preferred operator source is the
+        # collocated footprints' own ak_NN/pwf_NN/co2_ap_NN/plev_NN parquet
+        # columns; falls back to the day's Lite file when those are absent.
+        tmu_raw, ak_delta, ak_n_lite, ak_source = tmu, np.nan, 0, ''
         if args.ak_harmonize and n_tc and np.isfinite(tmu):
-            lite = find_lite_file(c['date'], roots=['.', storage])
             ot = pd.to_datetime(near['time'], unit='s', utc=True, errors='coerce').dropna()
-            if lite is not None and len(ot):
+            adj = None
+            if len(ot):
+                tpath = str(tccon_path(c['tccon']))
+                t0 = ot.min().tz_localize(None); t1 = ot.max().tz_localize(None)
                 try:
-                    adj = ak_adjusted_ref(
-                        lite, str(tccon_path(c['tccon'])), col['st_lon'], col['st_lat'],
-                        args.radius_km, ot.min().tz_localize(None), ot.max().tz_localize(None),
-                        window_min=args.window_min)
+                    op = operator_from_dataframe(near)
+                    if op is not None:
+                        adj = ak_adjusted_ref_from_operator(op, tpath, t0, t1,
+                                                            window_min=args.window_min)
+                        if adj is not None:
+                            ak_source = 'parquet'
+                    if adj is None:
+                        lite = find_lite_file(c['date'], roots=['.', storage])
+                        if lite is not None:
+                            adj = ak_adjusted_ref(
+                                lite, tpath, col['st_lon'], col['st_lat'],
+                                args.radius_km, t0, t1, window_min=args.window_min)
+                            if adj is not None:
+                                ak_source = 'lite'
                 except Exception as e:                       # noqa: BLE001 — per-case fallback
                     print(f"[ak-harmonize] {site} {c['date']}: {e}", file=sys.stderr)
                     adj = None
-                if adj is not None:
-                    tmu = adj['tccon_ref_ak']
-                    ak_delta = adj['ak_delta']
-                    ak_n_lite = adj['n_lite']
+            if adj is not None:
+                tmu = adj['tccon_ref_ak']
+                ak_delta = adj['ak_delta']
+                ak_n_lite = adj['n_lite']
         # one row per surface: all (pooled) + ocean (sfc0) + land (sfc1)
         for sname, frame in (('all', near),
                              ('ocean', near[near['sfc_type'] == 0]),
@@ -397,7 +422,7 @@ def main():
                 continue
             rows.append(dict(site=site, date=c['date'], surface=sname, n_tccon=n_tc,
                              tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
-                             ak_delta=ak_delta, ak_n_lite=ak_n_lite,
+                             ak_delta=ak_delta, ak_n_lite=ak_n_lite, ak_source=ak_source,
                              **_case_metrics(frame, tmu, n_tc)))
 
     if not rows:
@@ -443,14 +468,19 @@ def main():
             ak = cmp['ak_delta'].to_numpy(float)
             n_h = int(np.isfinite(ak).sum())
             if n_h:
+                _src = cmp['ak_source'].astype(str)
                 lines += [f"- **AK/prior harmonization** (Rodgers & Connor 2003 / Wunch et al. 2017): "
-                          f"**{n_h}/{len(cmp)}** cases harmonized; TCCON reference shift "
+                          f"**{n_h}/{len(cmp)}** cases harmonized "
+                          f"({int((_src == 'parquet').sum())} from parquet AK columns, "
+                          f"{int((_src == 'lite').sum())} from Lite files); TCCON reference shift "
                           f"Δ = {np.nanmean(ak):+.2f} ± {np.nanstd(ak):.2f} ppm "
                           f"(un-harmonized cases keep the raw window mean; the shift moves "
                           f"absolute biases only — improvement metrics are invariant)"]
             else:
                 lines += ["- **AK/prior harmonization requested but no case could be harmonized** "
-                          "(no day Lite files found — set $OCO2_LITE_DIR); raw TCCON means used"]
+                          "(no parquet AK columns and no day Lite files found — rebuild the "
+                          "per-date parquets with the dual-fit fitting.py or set $OCO2_LITE_DIR); "
+                          "raw TCCON means used"]
 
         # ── significance: paired Wilcoxon + site-clustered bootstrap (M3) ─────
         sig = _significance(cmp, n_boot=args.n_boot)

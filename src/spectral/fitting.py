@@ -257,6 +257,13 @@ def load_shared_data(sat):
             "eof3_1_rel":      _load_grp("Retrieval", "eof3_1_rel"),
             "diverging_steps": _load_grp("Retrieval", "diverging_steps"),
             "xco2_uncertainty": _load("xco2_uncertainty"),   # root-level var
+            # 20-level column operator (root-level, [n, 20]) — carried through to
+            # fitting_details/parquet so TCCON AK/prior harmonization does not
+            # need to reopen the Lite files (workspace/ak_harmonize.py).
+            "xco2_averaging_kernel": _load("xco2_averaging_kernel"),
+            "pressure_weight":       _load("pressure_weight"),
+            "co2_profile_apriori":   _load("co2_profile_apriori"),
+            "pressure_levels":       _load("pressure_levels"),
         }
 
     lite_index = {int(sid): i for i, sid in enumerate(lt_id)}
@@ -1154,7 +1161,19 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
             areas[i] = Polygon(zip(x, y)).area
         fp_area_km2[valid_lt] = areas * 1e-6  # m² → km²
 
-
+    # ── 6d. 20-level column operator per sounding (AK harmonization, M2) ───
+    # Averaging kernel, pressure weights, prior CO2 profile and pressure grid
+    # from the Lite file, so downstream TCCON comparisons never reopen it.
+    _ak_vars = ("xco2_averaging_kernel", "pressure_weight",
+                "co2_profile_apriori", "pressure_levels")
+    ak_arrays = {}
+    for _v in _ak_vars:
+        if _v in lite:
+            _n_lev = lite[_v].shape[1]
+            _arr = np.full((N, _n_lev), np.nan)
+            if valid_lt.any():
+                _arr[valid_lt] = lite[_v][row_inds[valid_lt]]
+            ak_arrays[_v] = _arr
 
     # ── 7. Write output HDF5 ───────────────────────────────────────────────
     logger.info(f"[{orbit_id}] Writing {output_file}...")
@@ -1415,6 +1434,8 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     }
     
     
+    output_dict.update(ak_arrays)   # [N, 20] column-operator datasets
+
     if not dual_fit:
         # Drop the (all-NaN) _nosg datasets so their absence marks the cache
         # as needing a refit if dual_fit is enabled later.
