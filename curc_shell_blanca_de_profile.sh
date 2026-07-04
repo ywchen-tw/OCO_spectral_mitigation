@@ -75,15 +75,25 @@ NFOLDS=5
 # Production loss (beta_nll, beta=1.0) + near-cloud conformal over-coverage, both
 # surfaces, +profile block.  --profile-pca is explicit (opt-in) so intent is
 # obvious in the job log.  A/B partner: de_{surface}_beta_nll_f${F} (no profile).
+#
+# Regularization: --norm layer --dropout 0.1 (arm "lndo01" of the reg ablation,
+# curc_shell_blanca_de_reg_ablation.sh).  Adopted for BOTH surfaces on the nosg
+# 17.8M-row data: provably better than the unregularized base on land global
+# (+0.020 ppm >σ) and the land near-cloud tail (+0.032 ppm >σ), directionally
+# better (within fold noise) on ocean, coverage_90 unchanged — i.e. never worse,
+# better where the correction matters.  Rejected arms: bn (worse on ocean),
+# cap_lndo (extra capacity no help → 64x32 not underfitting at 17.8M rows).
 python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_f${F} \
     --profile-pca \
     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_f${F} \
     --profile-pca \
     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 

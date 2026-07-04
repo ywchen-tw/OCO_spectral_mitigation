@@ -76,6 +76,7 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_r05_
     --profile-pca \
     --target 5km \
     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
