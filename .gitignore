@@ -84,3 +84,10 @@ Thumbs.db
 
 # Agent configuration
 AGENTS.md
+
+# Text logs / run outputs (keep dependency + data txt tracked)
+*.txt
+!requirements.txt
+!requirements_backup.txt
+!src/abs_util/abs/log.txt
+!src/abs_util/abs/sol/solar.txt
