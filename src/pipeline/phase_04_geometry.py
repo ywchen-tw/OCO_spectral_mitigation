@@ -858,32 +858,53 @@ class GeometryProcessor:
         """
         if not results:
             return {}
-        
-        distances = [r.nearest_cloud_dist_km for r in results]
-        
+
+        # Separate the "no collocation" soundings (post-2022 granules with no
+        # daytime MODIS overlap) — they carry the -999 sentinel and must not be
+        # mixed into the real distance statistics or distance-distribution bins.
+        no_collocation_count = sum(
+            1 for r in results
+            if r.cloud_classification == 'NoMODIS' or r.nearest_cloud_dist_km <= -900
+        )
+        distances = [
+            r.nearest_cloud_dist_km for r in results
+            if r.cloud_classification != 'NoMODIS' and r.nearest_cloud_dist_km > -900
+        ]
+
         # Count by cloud classification
         cloudy_count = sum(1 for r in results if r.cloud_classification == 'Cloudy')
         uncertain_count = sum(1 for r in results if r.cloud_classification == 'Uncertain')
-        
-        # Count by distance bins
-        dist_0_2 = sum(1 for d in distances if d <= 2)
-        dist_2_5 = sum(1 for d in distances if 2 < d <= 5)
-        dist_5_10 = sum(1 for d in distances if 5 < d)
-        dist_10_20 = sum(1 for d in distances if 10 < d <= 20)
-        dist_20_above = sum(1 for d in distances if d > 20)
-        
-        stats = {
-            'total_soundings': len(results),
-            'distance_km': {
+
+        # Distance statistics over collocated soundings only (nan if none)
+        if distances:
+            dist_stats = {
                 'min': float(np.min(distances)),
                 'max': float(np.max(distances)),
                 'mean': float(np.mean(distances)),
                 'median': float(np.median(distances)),
                 'std': float(np.std(distances)),
-            },
+            }
+        else:
+            dist_stats = {'min': float('nan'), 'max': float('nan'),
+                          'mean': float('nan'), 'median': float('nan'),
+                          'std': float('nan')}
+
+        # Count by distance bins (collocated soundings only)
+        dist_0_2 = sum(1 for d in distances if d <= 2)
+        dist_2_5 = sum(1 for d in distances if 2 < d <= 5)
+        dist_5_10 = sum(1 for d in distances if 5 < d)
+        dist_10_20 = sum(1 for d in distances if 10 < d <= 20)
+        dist_20_above = sum(1 for d in distances if d > 20)
+
+        stats = {
+            'total_soundings': len(results),
+            'collocated_soundings': len(distances),
+            'no_collocation_soundings': no_collocation_count,
+            'distance_km': dist_stats,
             'cloud_classification': {
                 'cloudy': cloudy_count,
                 'uncertain': uncertain_count,
+                'no_collocation': no_collocation_count,
             },
             'distance_distribution': {
                 '0-2_km': dist_0_2,
@@ -891,9 +912,10 @@ class GeometryProcessor:
                 '5-10_km': dist_5_10,
                 '10-20_km': dist_10_20,
                 '20+_km': dist_20_above,
+                'no_collocation': no_collocation_count,
             }
         }
-        
+
         return stats
       
     def filter_footprints_by_bounds(self, footprints: Dict, bounds: Tuple) -> Dict:

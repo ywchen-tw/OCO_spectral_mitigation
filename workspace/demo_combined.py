@@ -54,7 +54,7 @@ from pipeline.phase_01_metadata import OCO2MetadataRetriever
 from pipeline.phase_02_ingestion import DataIngestionManager, DownloadedFile
 from pipeline.phase_03_processing import SpatialProcessor
 run_phase_035 = None  # lazy import — only loaded when --gcp-project is supplied
-from pipeline.phase_04_geometry import GeometryProcessor
+from pipeline.phase_04_geometry import GeometryProcessor, CollocationResult
 from config import Config
 from utils import setup_logging
 
@@ -488,7 +488,8 @@ def run_phase_2(target_date: datetime, data_dir: Path,
         return {}, False
 
 
-def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
+def run_phase_3(target_date: datetime, data_dir: Path,
+                force_recompute: bool = False) -> Tuple[Dict, bool]:
     """
     Step 3: Spatial and Bitmask Processing
 
@@ -498,6 +499,9 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
     Args:
         target_date: Target date for processing
         data_dir: Data storage directory
+        force_recompute: If True, re-evaluate placeholder-only granules (post-2022
+            granules that got a -999 cloud-distance result because no MODIS was
+            collocated) so newly-available MODIS files are picked up.
 
     Returns:
         Tuple of (processing_info_dict, success_flag)
@@ -556,6 +560,16 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                     else:
                         cached_granules.add(cache_dir.name)
                         logger.info(f"  ✓ {cache_dir.name}: {len(combined_files)} combined cache file(s) (up-to-date)")
+                elif (cache_dir / "phase4_results.pkl").exists():
+                    # Placeholder-only granule: Phase 3 wrote -999 cloud-distance
+                    # results directly because no MODIS was collocated (post-2022).
+                    # Under --force-recompute, treat it as missing so the MODIS
+                    # collocation is re-checked (new MODIS may now be on disk).
+                    if force_recompute:
+                        logger.info(f"  ↻ {cache_dir.name}: -999 placeholder — force-recompute, re-checking MODIS collocation")
+                    else:
+                        cached_granules.add(cache_dir.name)
+                        logger.info(f"  ✓ {cache_dir.name}: -999 placeholder result (no MODIS overlap)")
 
         # Check if all granules are cached
         missing_granules = oco2_granules - cached_granules
@@ -879,6 +893,38 @@ def run_phase_3(target_date: datetime, data_dir: Path) -> Tuple[Dict, bool]:
                         del matched_myd03
                     else:
                         granule_cloud_masks = {}
+                        if target_date >= datetime(2022, 1, 1):
+                            # Aqua free-drift era (2022+): a MODIS gap over an OCO-2
+                            # orbit is expected and legitimate. Rather than silently
+                            # dropping these soundings, emit placeholder cloud-distance
+                            # results flagged with the -999 sentinel so they still
+                            # appear in the Phase 4/5 output.
+                            placeholder_results = [
+                                CollocationResult(
+                                    sounding_id=fp.sounding_id,
+                                    granule_id=fp.granule_id,
+                                    footprint_lat=fp.latitude,
+                                    footprint_lon=fp.longitude,
+                                    viewing_mode=fp.viewing_mode,
+                                    nearest_cloud_dist_km=-999.0,
+                                    nearest_cloud_lat=-999.0,
+                                    nearest_cloud_lon=-999.0,
+                                    cloud_classification='NoMODIS',
+                                    weighted_cloud_dist_km=-999.0,
+                                )
+                                for fp in granule_footprints.values()
+                            ]
+                            spatial_processor._save_cached_result(
+                                cache_dir / "phase4_results.pkl", placeholder_results
+                            )
+                            logger.warning(
+                                f"    ⚠ No matched MODIS files for {granule_id} (post-2022): "
+                                f"wrote {len(placeholder_results)} placeholder -999 result(s)"
+                            )
+                            cached_granules.add(granule_id)
+                            del placeholder_results, granule_footprints
+                            gc.collect()
+                            continue
                         print(f"No matched MODIS files for granule {granule_id}, not using this granule for processing.")
                         continue  # Skip to next granule since we have no cloud data to combine
                     
@@ -985,8 +1031,19 @@ def run_phase_4(target_date: datetime, data_dir: Path, max_distance: float = 50.
             
             # Load combined cache
             combined_cache_files = list(granule_dir.glob("granule_combined_*.pkl"))
-            
+
             if not combined_cache_files:
+                # No collocated-MODIS cloud cache. Post-2022 granules with no MODIS
+                # overlap get a -999 placeholder written straight to phase4_results.pkl
+                # by Phase 3; surface those so the soundings still reach Phase 5.
+                phase4_cache_path = granule_dir / "phase4_results.pkl"
+                if phase4_cache_path.exists():
+                    placeholder_results = spatial_processor._load_cached_result(phase4_cache_path)
+                    if placeholder_results:
+                        results.extend(placeholder_results)
+                        cache_hits += 1
+                        logger.info(f"    📂 Loaded {len(placeholder_results):,} placeholder -999 result(s) (no MODIS overlap)")
+                        continue
                 logger.warning(f"    No combined cache found for {granule_id}")
                 continue
             
@@ -1191,18 +1248,21 @@ def run_phase_5(results: List, target_date: datetime, output_dir: Path,
         # Log statistics
         logger.info(f"\n📊 Summary Statistics:")
         logger.info(f"   Total soundings: {stats['total_soundings']}")
-        logger.info(f"   Distance (km):")
+        logger.info(f"   Collocated:      {stats['collocated_soundings']}")
+        logger.info(f"   No collocation:  {stats['no_collocation_soundings']} (no daytime MODIS overlap, flagged -999)")
+        logger.info(f"   Distance (km) [collocated only]:")
         logger.info(f"     Min:    {stats['distance_km']['min']:.2f}")
         logger.info(f"     Max:    {stats['distance_km']['max']:.2f}")
         logger.info(f"     Mean:   {stats['distance_km']['mean']:.2f}")
         logger.info(f"     Median: {stats['distance_km']['median']:.2f}")
         logger.info(f"     Std:    {stats['distance_km']['std']:.2f}")
-        logger.info(f"   Distance distribution:")
+        logger.info(f"   Distance distribution [collocated only]:")
         logger.info(f"     0-2 km:    {stats['distance_distribution']['0-2_km']}")
         logger.info(f"     2-5 km:    {stats['distance_distribution']['2-5_km']}")
         logger.info(f"     5-10 km:   {stats['distance_distribution']['5-10_km']}")
         logger.info(f"     10-20 km:  {stats['distance_distribution']['10-20_km']}")
         logger.info(f"     20+ km:    {stats['distance_distribution']['20+_km']}")
+        logger.info(f"     No collocation: {stats['distance_distribution']['no_collocation']}")
         
         logger.info(f"\n✓ Step 5 Complete: Results exported to {output_dir}")
         return True
@@ -1500,7 +1560,8 @@ Examples:
     # Phase 3: Spatial Processing
     # ========================================================================
     if 3 not in skip_phases:
-        processing_info, success = run_phase_3(target_date, data_dir)
+        processing_info, success = run_phase_3(target_date, data_dir,
+                                               force_recompute=args.force_recompute)
         if not success:
             logger.error("Pipeline aborted at Step 3")
             return 1
