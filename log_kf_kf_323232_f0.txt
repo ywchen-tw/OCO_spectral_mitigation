@@ -1,0 +1,71 @@
+2026-07-04 16:55:28,734 INFO Detected macOS - using local data directory
+2026-07-04 16:55:31,437 INFO keeping snow footprints (default): 0 of 1385720 rows are snow
+2026-07-04 16:55:33,443 INFO date_kfold split: fold 0/5 — 15 unique dates → 1076239 train / 309481 held (held block: 2020-02-01 … 2020-03-14)
+2026-07-04 16:55:34,631 INFO date-block split: 12 unique dates → 10 train / 2 held (held dates: 2020-12-23 … 2020-12-24)
+2026-07-04 16:55:36,709 INFO Detected macOS - using local data directory
+2026-07-04 16:55:36,709 INFO Detected macOS - using local data directory
+2026-07-04 16:55:36,710 INFO ProfilePCA loaded ← results/profile_pca/profile_pca_ocean.pkl  (3 groups, 14 PC columns)
+2026-07-04 16:55:37,334 INFO FeaturePipeline fitted: sfc_type=0, scaler=robust_standard, pca_augment=False, feature_set=full, 34 qt_features + 14 profile + 8 fp cols = 56 total
+2026-07-04 16:55:37,334 INFO FeaturePipeline log1p pre-transform: ['fp_area_km2', 'aod_dust', 'aod_oc', 'aod_seasalt', 'aod_strataer', 'aod_sulfate', 'aod_water']
+2026-07-04 16:55:37,334 INFO FeaturePipeline profile block (14 cols): ['t_pc01', 't_pc02', 't_pc03', 't_pc04', 'q_pc01', 'q_pc02', 'q_pc03', 'q_pc04', 'co2prior_pc01', 'co2prior_pc02', 'co2prior_pc03', 'co2prior_pc04', 'tropopause_sigma', 'tropopause_temp']
+2026-07-04 16:55:37,389 INFO FeaturePipeline saved → results/model_deep_ensemble/kf_323232_f0/deep_ensemble_pipeline.pkl
+2026-07-04 16:55:42,346 INFO [member seed=42] epoch 1/100 val=0.31210 best=0.31210 (epoch 0)
+2026-07-04 16:55:44,685 INFO [member seed=42] epoch 10/100 val=0.00880 best=-0.00581 (epoch 5)
+2026-07-04 16:55:47,304 INFO [member seed=42] epoch 20/100 val=0.03177 best=-0.00581 (epoch 5)
+2026-07-04 16:55:49,841 INFO [member seed=42] epoch 30/100 val=0.07858 best=-0.00581 (epoch 5)
+2026-07-04 16:55:52,372 INFO [member seed=42] epoch 40/100 val=0.11332 best=-0.00581 (epoch 5)
+2026-07-04 16:55:54,895 INFO [member seed=42] epoch 50/100 val=0.16256 best=-0.00581 (epoch 5)
+2026-07-04 16:55:56,390 INFO [member seed=42] early stop at epoch 55 (best -0.00581 @ 5)
+2026-07-04 16:55:56,678 INFO [member seed=43] epoch 1/100 val=0.08768 best=0.08768 (epoch 0)
+2026-07-04 16:55:58,974 INFO [member seed=43] epoch 10/100 val=0.00651 best=-0.00184 (epoch 5)
+2026-07-04 16:56:01,528 INFO [member seed=43] epoch 20/100 val=0.03301 best=-0.00184 (epoch 5)
+2026-07-04 16:56:04,013 INFO [member seed=43] epoch 30/100 val=0.06920 best=-0.00184 (epoch 5)
+2026-07-04 16:56:06,498 INFO [member seed=43] epoch 40/100 val=0.09425 best=-0.00184 (epoch 5)
+2026-07-04 16:56:08,994 INFO [member seed=43] epoch 50/100 val=0.10379 best=-0.00184 (epoch 5)
+2026-07-04 16:56:10,493 INFO [member seed=43] early stop at epoch 55 (best -0.00184 @ 5)
+2026-07-04 16:56:10,777 INFO [member seed=44] epoch 1/100 val=0.19560 best=0.19560 (epoch 0)
+2026-07-04 16:56:13,041 INFO [member seed=44] epoch 10/100 val=-0.00160 best=-0.00635 (epoch 5)
+2026-07-04 16:56:15,541 INFO [member seed=44] epoch 20/100 val=0.01741 best=-0.00635 (epoch 5)
+2026-07-04 16:56:18,087 INFO [member seed=44] epoch 30/100 val=0.05503 best=-0.00635 (epoch 5)
+2026-07-04 16:56:20,586 INFO [member seed=44] epoch 40/100 val=0.08286 best=-0.00635 (epoch 5)
+2026-07-04 16:56:23,083 INFO [member seed=44] epoch 50/100 val=0.11327 best=-0.00635 (epoch 5)
+2026-07-04 16:56:24,597 INFO [member seed=44] early stop at epoch 55 (best -0.00635 @ 5)
+2026-07-04 16:56:24,870 INFO [member seed=45] epoch 1/100 val=0.49154 best=0.49154 (epoch 0)
+2026-07-04 16:56:27,392 INFO [member seed=45] epoch 10/100 val=0.00827 best=0.00532 (epoch 6)
+2026-07-04 16:56:29,946 INFO [member seed=45] epoch 20/100 val=0.04424 best=0.00532 (epoch 6)
+2026-07-04 16:56:32,388 INFO [member seed=45] epoch 30/100 val=0.08958 best=0.00532 (epoch 6)
+2026-07-04 16:56:34,874 INFO [member seed=45] epoch 40/100 val=0.14835 best=0.00532 (epoch 6)
+2026-07-04 16:56:37,351 INFO [member seed=45] epoch 50/100 val=0.20858 best=0.00532 (epoch 6)
+2026-07-04 16:56:39,113 INFO [member seed=45] early stop at epoch 56 (best 0.00532 @ 6)
+2026-07-04 16:56:39,383 INFO [member seed=46] epoch 1/100 val=0.12216 best=0.12216 (epoch 0)
+2026-07-04 16:56:41,744 INFO [member seed=46] epoch 10/100 val=0.00129 best=-0.00022 (epoch 8)
+2026-07-04 16:56:44,351 INFO [member seed=46] epoch 20/100 val=0.01444 best=-0.00022 (epoch 8)
+2026-07-04 16:56:46,838 INFO [member seed=46] epoch 30/100 val=0.05582 best=-0.00022 (epoch 8)
+2026-07-04 16:56:49,324 INFO [member seed=46] epoch 40/100 val=0.08524 best=-0.00022 (epoch 8)
+2026-07-04 16:56:51,822 INFO [member seed=46] epoch 50/100 val=0.10977 best=-0.00022 (epoch 8)
+2026-07-04 16:56:54,096 INFO [member seed=46] early stop at epoch 58 (best -0.00022 @ 8)
+2026-07-04 16:56:54,561 INFO Saved results/model_deep_ensemble/kf_323232_f0/de_raw_date_kfold_metrics.json
+2026-07-04 16:56:54,564 INFO Saved results/model_deep_ensemble/kf_323232_f0/de_raw_date_kfold_stratified_metrics.csv
+2026-07-04 16:56:54,625 INFO Saved results/model_deep_ensemble/kf_323232_f0/de_split_date_kfold_metrics.json
+2026-07-04 16:56:54,626 INFO Saved results/model_deep_ensemble/kf_323232_f0/de_split_date_kfold_stratified_metrics.csv
+2026-07-04 16:56:54,692 INFO Saved results/model_deep_ensemble/kf_323232_f0/de_mondrian_date_kfold_metrics.json
+2026-07-04 16:56:54,693 INFO Saved results/model_deep_ensemble/kf_323232_f0/de_mondrian_date_kfold_stratified_metrics.csv
+[deep_ensemble] proper-train (405947, 56)  calib (84584, 56)  held (146573, 56)
+  training member 1/5 (seed=42, arch=(32, 32, 32))
+  training member 2/5 (seed=43, arch=(32, 32, 32))
+  training member 3/5 (seed=44, arch=(32, 32, 32))
+  training member 4/5 (seed=45, arch=(32, 32, 32))
+  training member 5/5 (seed=46, arch=(32, 32, 32))
+  near-cloud target 0.98 (<= 10.0km): 5/10 bins elevated
+[de_raw_date_kfold] RMSE=0.4343 R²=0.4630 cov90=0.8987 width=1.2701 cross=0.0
+[de_split_date_kfold] RMSE=0.4343 R²=0.4630 cov90=0.9004 width=1.2787 cross=0.0
+[de_mondrian_date_kfold] RMSE=0.4343 R²=0.4630 cov90=0.9338 width=1.8341 cross=0.0
+Saved correction-vs-cloud-distance → results/model_deep_ensemble/kf_323232_f0/de_correction_clddist_date_kfold.csv
+       bin     n  pre_rms  post_rms  rms_reduction_pct       r2
+   [0,2)km 16371 1.170693  0.680949          41.833643 0.577608
+   [2,5)km 22998 0.726803  0.521346          28.268590 0.449504
+  [5,10)km 33782 0.474977  0.392722          17.317604 0.312012
+ [10,20)km 37624 0.383341  0.345303           9.922885 0.188590
+ [20,50)km 27186 0.348757  0.323343           7.286940 0.140416
+[50,inf)km  8612 0.459199  0.384227          16.326750 0.299876
+Saved run summary → results/model_deep_ensemble/kf_323232_f0/run_summary.json

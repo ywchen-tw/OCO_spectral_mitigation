@@ -74,13 +74,13 @@ NFOLDS=5
 # de_{surface}_beta_nll_prof_reg_f${F} in curc_shell_blanca_de_profile.sh.
 # ACTIVATED (was commented) so the arch32 A/B has an in-file bc-target 64,32
 # baseline at 5 km, matching the bc×raw × arch32 symmetry in the 10 km launcher.
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_r05_f${F} \
-    --profile-pca \
-    --target 5km \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --norm layer --dropout 0.1 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_r05_f${F} \
+#     --profile-pca \
+#     --target 5km \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --norm layer --dropout 0.1 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Architecture A/B: 32,32,32 vs the default 64,32 (5 km BC target) ───────────
 # BC-target companion to the raw_r05 arch32 arm below, completing the bc×raw ×
@@ -99,13 +99,13 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_
 # ── Full + profile, RAW-anomaly target (xco2_raw_anomaly_r05, 5 km ref) ───────
 # Same production structure (lndo01 + profile) regressing the RAW anomaly instead
 # of xco2_bc_anomaly_r05.  A/B partner: de_ocean_beta_nll_prof_reg_r05_f${F} (bc).
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_raw_r05_f${F} \
-    --profile-pca \
-    --target xco2_raw_anomaly_r05 \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --norm layer --dropout 0.1 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_raw_r05_f${F} \
+#     --profile-pca \
+#     --target xco2_raw_anomaly_r05 \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --norm layer --dropout 0.1 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Architecture A/B: 32,32,32 vs the default 64,32 (5 km raw, ocean) ──────────
 # Mirrors the arch32 confirmation arm in curc_shell_blanca_de_profile.sh, carried
@@ -115,14 +115,14 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_
 # near-cloud tail — small (~+0.019 R²), inside fold noise, hence this full-scale
 # check.  ONLY --hidden_dims differs from the raw_r05 arm above; _arch32 tag keeps
 # results distinct.  A/B partner: de_ocean_beta_nll_prof_reg_raw_r05_f${F} (64,32).
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_raw_r05_arch32_f${F} \
-    --profile-pca \
-    --target xco2_raw_anomaly_r05 \
-    --hidden_dims 32,32,32 \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --norm layer --dropout 0.1 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_raw_r05_arch32_f${F} \
+#     --profile-pca \
+#     --target xco2_raw_anomaly_r05 \
+#     --hidden_dims 32,32,32 \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --norm layer --dropout 0.1 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Feature-set ablations (+profile, 5 km reference) ──────────────────────────
 # Same config, each with one feature block dropped, ocean only.  The profile
