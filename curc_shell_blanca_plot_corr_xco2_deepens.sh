@@ -376,19 +376,16 @@ python workspace/tccon_comparison_report.py \
 #     --radius-km 100 --window-min 60
 
 
-# (8) correction-policy stats (uncorrected vs full_mu vs lat-gates; rebuilds its own plotdata cache)
-#     --model-tag namespaces its cache + outputs under tccon_policy/<MODEL_TAG>/ and the
-#     *-model-glob args pin it to the SAME DE model as the per-case plots.  Radius is
-#     NOT in the dir — it is stamped into the output CSV/plot filenames (--fname-suffix),
+# (8) correction-policy stats — READS the step-4 plot_data (no second model run) via
+#     --plotdata-base, and writes CSVs to --output-dir (= OUT_BASE), so the policy
+#     stats use the SAME processed XCO2 as the plots and everything lands under
+#     deep_ensemble/<MODEL_TAG>/.  Radius is stamped into filenames (--fname-suffix),
 #     so a radius sweep's stats + figures coexist in one dir.
-POLICY_DIR="$DATA_ROOT"/results/model_comparison/tccon_policy/${MODEL_TAG}
 echo ""
 echo "############ AGGREGATE: tccon_correction_policy_stats ############"
 python workspace/tccon_correction_policy_stats.py \
     --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN" \
-    --model-tag "$MODEL_TAG" --fname-suffix "_${RADIUS_TAG}" \
-    --ocean-model-glob 'de_ocean_beta_nll_prof_f*' \
-    --land-model-glob  'de_land_beta_nll_prof_f*'
+    --plotdata-base "$OUT_BASE" --output-dir "$OUT_BASE" --fname-suffix "_${RADIUS_TAG}"
 
 # (9) station-day original-vs-corrected comparison (reads station_means from step 8)
 #     Two variants: ALL stations, and EXCLUDING Ny-Ålesund (the sole |lat|>75 site),
@@ -398,15 +395,15 @@ python workspace/tccon_correction_policy_stats.py \
 echo ""
 echo "############ AGGREGATE: plot_tccon_station_comparison ############"
 python workspace/plot_tccon_station_comparison.py --fname-suffix "_${RADIUS_TAG}" \
-    --means "$POLICY_DIR/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"
+    --means "$OUT_BASE/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$OUT_BASE"
 python workspace/plot_tccon_station_comparison.py --exclude-sites ny --fname-suffix "_${RADIUS_TAG}" \
-    --means "$POLICY_DIR/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"
+    --means "$OUT_BASE/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$OUT_BASE"
 
 # (9b) same comparison but with OCEAN and LAND footprints separated (4-panel:
 #      ocean row + land row), reading the per-surface station means from step 8.
 echo ""
 echo "############ AGGREGATE: plot_tccon_station_comparison_by_surface ############"
 python workspace/plot_tccon_station_comparison_by_surface.py --fname-suffix "_${RADIUS_TAG}" \
-    --means "$POLICY_DIR/tccon_policy_station_means_by_surface_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"
+    --means "$OUT_BASE/tccon_policy_station_means_by_surface_${RADIUS_TAG}.csv" --output-dir "$OUT_BASE"
 python workspace/plot_tccon_station_comparison_by_surface.py --exclude-sites ny --fname-suffix "_${RADIUS_TAG}" \
-    --means "$POLICY_DIR/tccon_policy_station_means_by_surface_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"
+    --means "$OUT_BASE/tccon_policy_station_means_by_surface_${RADIUS_TAG}.csv" --output-dir "$OUT_BASE"

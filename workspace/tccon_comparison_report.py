@@ -30,7 +30,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).parent))
-from plot_corrected_xco2 import load_tccon, _haversine_km, get_storage_dir
+from plot_corrected_xco2 import load_tccon, get_storage_dir
+from tccon_collocate import collocate, find_plotdata
 
 CORR = 'deep_ensemble_corrected_xco2'
 
@@ -118,13 +119,21 @@ def main():
                 return p
         return None
 
+    # per-value (mu, sd, bias-to-TCCON, per-footprint RMSE-to-TCCON) helper
+    def _stat(vals, tmu, n_tc):
+        v = np.asarray(vals, float)
+        if not np.isfinite(v).any():
+            return np.nan, np.nan, np.nan, np.nan
+        mu, sd = float(np.nanmean(v)), float(np.nanstd(v))
+        bias = (mu - tmu) if n_tc else np.nan
+        rmse = float(np.sqrt(np.nanmean((v - tmu) ** 2))) if n_tc else np.nan
+        return mu, sd, bias, rmse
+
     rows = []
     for c in cases:
         site = c['site'] or c['tccon'][:2]
-        outdir = out_base / (f"combined_{c['date']}_{c['site']}" if c['site']
-                             else f"combined_{c['date']}_all_orbits")
-        pq = outdir / 'plot_data.parquet'
-        if not pq.exists():
+        pq = find_plotdata(out_base, c['date'], site)   # combined_<date>_<site>/plot_data.parquet
+        if pq is None:
             continue
         oco = pd.read_parquet(pq)
         # merge raw (pre-bias-correction) XCO2 from the source parquet — plot_data
@@ -134,61 +143,35 @@ def main():
             src = (pd.read_parquet(sp, columns=['time', 'lon', 'lat', 'xco2_raw'])
                      .drop_duplicates(['time', 'lon', 'lat']))
             oco = oco.merge(src, on=['time', 'lon', 'lat'], how='left')
-        # drop guarded
-        g = np.zeros(len(oco), bool)
-        for gc in ('clim_guard', 'anomaly_guard'):
-            if gc in oco: g |= oco[gc].to_numpy(bool)
-        oco = oco[~g]
-        # lon/lat box
-        oco = oco[(oco['lon'] >= c['lonmin']) & (oco['lon'] <= c['lonmax']) &
-                  (oco['lat'] >= c['latmin']) & (oco['lat'] <= c['latmax'])]
-        if len(oco) == 0:
+        # SHARED collocation (box → ≤radius → ±50 ppm sanity; guarded KEPT + flagged)
+        col = collocate(oco, tccon_df(c['tccon']),
+                        box=(c['lonmin'], c['lonmax'], c['latmin'], c['latmax']),
+                        radius_km=args.radius_km, window_min=args.window_min)
+        near = col['near']; tmu = col['tccon_ref']; tsd = col['tccon_sd']; n_tc = col['n_tccon']
+        if not len(near):
             continue
-        tc = tccon_df(c['tccon'])
-        st_lon = float(tc['lon'].median()) if len(tc) else np.nan
-        st_lat = float(tc['lat'].median()) if len(tc) else np.nan
-        # ≤ radius of station
-        if np.isfinite(st_lon):
-            d = _haversine_km(oco['lon'].values, oco['lat'].values, st_lon, st_lat)
-            near = oco[d <= args.radius_km]
-        else:
-            near = oco
-        if len(near) == 0:
-            continue
-        orig = near['xco2_bc'].to_numpy(float)
-        corr = near[CORR].to_numpy(float)
-        raw = (near['xco2_raw'].to_numpy(float) if 'xco2_raw' in near.columns
-               else np.full(len(near), np.nan))
-        has_raw = np.isfinite(raw).any()
-
-        # TCCON within ±window of the OCO pass that day
-        tmu = tsd = np.nan; n_tc = 0
-        if len(tc) and 'time' in near.columns:
-            ot = pd.to_datetime(near['time'], unit='s', utc=True, errors='coerce').dropna()
-            if len(ot):
-                w = pd.Timedelta(minutes=args.window_min)
-                sub = tc[(tc['time'] >= ot.min() - w) & (tc['time'] <= ot.max() + w)]
-                if len(sub):
-                    tmu = float(sub['xco2'].mean()); tsd = float(sub['xco2'].std()); n_tc = len(sub)
-        raw_mu = np.nanmean(raw) if has_raw else np.nan
-        raw_sd = np.nanstd(raw) if has_raw else np.nan
-        # Per-FOOTPRINT RMSE to the TCCON window-mean: sqrt(mean((fp - tmu)^2)).
-        # Unlike |mean bias| this penalises within-case scatter too (bias^2 + var),
-        # so a scatter-reducing correction shows up even when the mean is unchanged.
-        rmse_before = float(np.sqrt(np.nanmean((orig - tmu) ** 2))) if n_tc else np.nan
-        rmse_after  = float(np.sqrt(np.nanmean((corr - tmu) ** 2))) if n_tc else np.nan
-        rmse_raw    = (float(np.sqrt(np.nanmean((raw - tmu) ** 2)))
-                       if (n_tc and has_raw) else np.nan)
+        drop = near[~near['is_guarded']]                # drop-guards subset
+        n_g = int(near['is_guarded'].sum())
+        _raw = (lambda f: f['xco2_raw'] if 'xco2_raw' in f.columns
+                else np.full(len(f), np.nan))
+        # KEEP-guards series (headline: the end-to-end result)
+        raw_mu, raw_sd, bias_raw, rmse_raw = _stat(_raw(near), tmu, n_tc)
+        orig_mu, orig_sd, bias_before, rmse_before = _stat(near['xco2_bc'], tmu, n_tc)
+        corr_mu, corr_sd, bias_after, rmse_after = _stat(near[CORR], tmu, n_tc)
+        # DROP-guards series (correction quality where the model acted)
+        _, _, bias_before_dg, rmse_before_dg = _stat(drop['xco2_bc'], tmu, n_tc)
+        _, _, bias_after_dg, rmse_after_dg = _stat(drop[CORR], tmu, n_tc)
         rows.append(dict(
-            site=site, date=c['date'], n_oco=len(near), n_tccon=n_tc,
+            site=site, date=c['date'], n_oco=len(near), n_guarded=n_g, n_tccon=n_tc,
             raw_mu=raw_mu, raw_sd=raw_sd,
-            orig_mu=np.nanmean(orig), orig_sd=np.nanstd(orig),
-            corr_mu=np.nanmean(corr), corr_sd=np.nanstd(corr),
+            orig_mu=orig_mu, orig_sd=orig_sd,
+            corr_mu=corr_mu, corr_sd=corr_sd,
             tccon_mu=tmu, tccon_sd=tsd,
-            bias_raw=(raw_mu - tmu) if (n_tc and has_raw) else np.nan,
-            bias_before=(np.nanmean(orig) - tmu) if n_tc else np.nan,
-            bias_after=(np.nanmean(corr) - tmu) if n_tc else np.nan,
+            bias_raw=bias_raw, bias_before=bias_before, bias_after=bias_after,
             rmse_raw=rmse_raw, rmse_before=rmse_before, rmse_after=rmse_after,
+            n_oco_dg=len(drop),
+            bias_before_dg=bias_before_dg, bias_after_dg=bias_after_dg,
+            rmse_before_dg=rmse_before_dg, rmse_after_dg=rmse_after_dg,
         ))
 
     if not rows:
@@ -215,13 +198,19 @@ def main():
     if len(cmp):
         bb, ba = cmp['bias_before'].to_numpy(), cmp['bias_after'].to_numpy()
         rb, ra = cmp['rmse_before'].to_numpy(), cmp['rmse_after'].to_numpy()
+        ba_dg, ra_dg = cmp['bias_after_dg'].to_numpy(), cmp['rmse_after_dg'].to_numpy()
+        n_g_tot = int(cmp['n_guarded'].sum())
         lines += ['', '## Aggregate (cases with TCCON)', '',
+                  '_Headline KEEPS guarded footprints (correction skipped there → corrected = raw '
+                  'xco2_bc): the end-to-end result. The drop-guards line below excludes them._', '',
                   f"- mean |bias|:  before **{np.nanmean(np.abs(bb)):.2f}** → after **{np.nanmean(np.abs(ba)):.2f}** ppm",
                   f"- RMS bias:    before **{np.sqrt(np.nanmean(bb**2)):.2f}** → after **{np.sqrt(np.nanmean(ba**2)):.2f}** ppm",
                   f"- mean OCO std: before **{cmp['orig_sd'].mean():.2f}** → after **{cmp['corr_sd'].mean():.2f}** ppm",
                   f"- mean per-footprint RMSE-to-TCCON: before **{np.nanmean(rb):.2f}** → after **{np.nanmean(ra):.2f}** ppm",
                   f"- improved (|bias| down) in **{int((np.abs(ba)<np.abs(bb)).sum())}/{len(cmp)}** cases",
-                  f"- improved (per-footprint RMSE down) in **{int((ra<rb).sum())}/{len(cmp)}** cases"]
+                  f"- improved (per-footprint RMSE down) in **{int((ra<rb).sum())}/{len(cmp)}** cases",
+                  f"- **drop-guards** ({n_g_tot} guarded footprints excluded): corrected mean |bias| "
+                  f"**{np.nanmean(np.abs(ba_dg)):.2f}** ppm, per-footprint RMSE **{np.nanmean(ra_dg):.2f}** ppm"]
 
         # ── per-site aggregate ─────────────────────────────────────────────────
         c2 = cmp.copy()

@@ -25,13 +25,14 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import netCDF4 as nc4
+
+# Shared collocation + TCCON reader so this report and tccon_comparison_report.py
+# select the IDENTICAL footprints from the SAME build_deepens_plot_data output.
+from tccon_collocate import collocate, find_plotdata, load_tccon, _haversine_km
 
 ROOT = Path(__file__).resolve().parent.parent
 # On CURC the results/ tree and data/ (TCCON) live under scratch, not the repo
@@ -42,20 +43,9 @@ DATA_ROOT = Path(os.environ.get('CURC_DATA_ROOT')
 SH = ROOT / 'curc_shell_blanca_plot_corr_xco2_deepens.sh'   # script lives in the repo
 CSV_DIR = DATA_ROOT / 'results/csv_collection'
 TCCON_DIR = DATA_ROOT / 'data/TCCON'
-CACHE = DATA_ROOT / 'results/model_comparison/tccon_policy/plotdata'
-OUTDIR = DATA_ROOT / 'results/model_comparison/tccon_policy'
-
-# Model globs — MUST match OCEAN_MODEL_DIRS/LAND_MODEL_DIRS in
-# curc_shell_blanca_plot_corr_xco2_deepens.sh so the policy stats use the SAME DE
-# model as the per-case plots.  Overridable via --ocean-model-glob/--land-model-glob.
-# Default: the M=5 full+profile-pca DE (de_profile.sh); snow kept by default,
-# snow_flag not a feature, so high-lat land is corrected in-domain.
-_DEF_OCEAN_GLOB = 'de_ocean_beta_nll_prof_f*'
-_DEF_LAND_GLOB  = 'de_land_beta_nll_prof_f*'
-DE_OCEAN = sorted((DATA_ROOT / 'results/model_deep_ensemble').glob(_DEF_OCEAN_GLOB))
-DE_LAND  = sorted((DATA_ROOT / 'results/model_deep_ensemble').glob(_DEF_LAND_GLOB))
-XGB_OCEAN = sorted((DATA_ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_ocean_f*'))
-XGB_LAND = sorted((DATA_ROOT / 'results/model_xgb_cloud').glob('xgbcloud_final_land_f*'))
+# Default output dir (overridden by --output-dir, which the plot script points at
+# OUT_BASE so everything lands under deep_ensemble/<MODEL_TAG>/).
+OUTDIR = DATA_ROOT / 'results/model_comparison/deep_ensemble'
 
 # scenario label -> column in plot_data.  (The |lat|>L lat-gate scenarios were
 # dropped — the radius sweep showed the full correction beats the gate everywhere.)
@@ -85,26 +75,6 @@ def parse_cases():
     return cases
 
 
-def _haversine_km(lon, lat, lon0, lat0):
-    R = 6371.0088
-    lon = np.radians(np.asarray(lon, float)); lat = np.radians(np.asarray(lat, float))
-    lon0 = np.radians(lon0); lat0 = np.radians(lat0)
-    dlon = lon - lon0; dlat = lat - lat0
-    a = np.sin(dlat / 2) ** 2 + np.cos(lat0) * np.cos(lat) * np.sin(dlon / 2) ** 2
-    return 2 * R * np.arcsin(np.sqrt(a))
-
-
-def load_tccon(path):
-    with nc4.Dataset(path, 'r') as ds:
-        t = np.ma.filled(ds.variables['time'][:], np.nan).astype(float)
-        lat = np.ma.filled(ds.variables['lat'][:], np.nan).astype(float)
-        lon = np.ma.filled(ds.variables['long'][:], np.nan).astype(float)
-        x = np.ma.filled(ds.variables['xco2'][:], np.nan).astype(float)
-    times = pd.Timestamp('1970-01-01', tz='UTC') + pd.to_timedelta(t, unit='s', errors='coerce')
-    df = pd.DataFrame({'time': times, 'lat': lat, 'lon': lon, 'xco2': x})
-    return df[(df['xco2'] > 300) & (df['xco2'] < 550) & df['xco2'].notna()].reset_index(drop=True)
-
-
 def precheck(case, radius_km=100.0, window_min=60.0):
     """Cheap coincidence test on the RAW parquet (no model build): is there TCCON
     on the day within ±window of the scene pass, and any footprint within radius?"""
@@ -128,65 +98,23 @@ def precheck(case, radius_km=100.0, window_min=60.0):
     return bool(np.any(d <= radius_km))
 
 
-def build_plotdata(case, force=False):
-    date, surf = case['date'], case['surf']
-    out = CACHE / f"plotdata_{date}_{Path(case['tccon']).name[:2]}.parquet"
-    if out.exists() and not force:
-        return out
-    out.parent.mkdir(parents=True, exist_ok=True)
-    inp = CSV_DIR / f"combined_{date}_all_orbits.parquet"
-    cmd = [sys.executable, str(ROOT / 'workspace/build_deepens_plot_data.py'),
-           '--input', str(inp), '--output', str(out)]
-    if surf in ('both', 'ocean'):
-        cmd += ['--ocean-model-dir', *map(str, DE_OCEAN),
-                '--ocean-cloud-model-dir', *map(str, XGB_OCEAN)]
-    if surf in ('both', 'land'):
-        cmd += ['--land-model-dir', *map(str, DE_LAND),
-                '--land-cloud-model-dir', *map(str, XGB_LAND)]
-    env = {'PYTHONPATH': 'src'}
-    import os
-    r = subprocess.run(cmd, cwd=str(ROOT), env={**os.environ, **env},
-                       capture_output=True, text=True)
-    if r.returncode != 0 or not out.exists():
-        print(f"  build FAILED for {date}: {r.stderr.strip().splitlines()[-1:]}")
-        return None
-    return out
-
-
 def match_case(case, plotdata, radius_km=100.0, window_min=60.0):
-    """Return per-footprint frame near the TCCON station with a 'tccon_ref' column,
-    or None if no coincident TCCON."""
+    """Return per-footprint frame near the TCCON station (guarded footprints KEPT
+    and flagged ``is_guarded``) with tccon_ref/site/date/near-cloud columns, or None
+    if no coincident TCCON.  Uses the SHARED collocator, so the footprint set matches
+    tccon_comparison_report.py exactly."""
     oco = pd.read_parquet(plotdata)
-    (lo0, lo1), (la0, la1) = case['lon'], case['lat']
-    oco = oco[(oco['lon'] >= lo0) & (oco['lon'] <= lo1)
-              & (oco['lat'] >= la0) & (oco['lat'] <= la1)].copy()
-    if oco.empty:
-        return None
-    oco_t = pd.to_datetime(oco['time'], unit='s', utc=True)
-
     tcc = load_tccon(TCCON_DIR / case['tccon'])
-    day = pd.Timestamp(case['date'], tz='UTC').normalize()
-    tcc = tcc[(tcc['time'] >= day) & (tcc['time'] < day + pd.Timedelta(days=1))]
-    if tcc.empty:
+    col = collocate(oco, tcc,
+                    box=(case['lon'][0], case['lon'][1], case['lat'][0], case['lat'][1]),
+                    radius_km=radius_km, window_min=window_min)
+    near = col['near']
+    if not len(near) or not np.isfinite(col['tccon_ref']):
         return None
-    buf = pd.Timedelta(minutes=window_min)
-    tcc_w = tcc[(tcc['time'] >= oco_t.min() - buf) & (tcc['time'] <= oco_t.max() + buf)]
-    if tcc_w.empty:
-        return None
-    st_lon, st_lat = float(tcc_w['lon'].median()), float(tcc_w['lat'].median())
-    tref = float(tcc_w['xco2'].mean())
-
-    d = _haversine_km(oco['lon'].values, oco['lat'].values, st_lon, st_lat)
-    near = oco[d <= radius_km].copy()
-    # Quality filter: a sane band around the station only (does NOT use the parquet
-    # truth anomaly).  50 ppm is wide enough to retain genuine large near-cloud
-    # anomalies while still dropping gross fill values / failed retrievals.
-    near = near[np.abs(near['xco2_bc'].to_numpy(float) - tref) < 50.0]
-    if near.empty:
-        return None
-    near['tccon_ref'] = tref
-    near['tccon_sd'] = float(tcc_w['xco2'].std())
-    near['tccon_n'] = len(tcc_w)
+    near = near.copy()
+    near['tccon_ref'] = col['tccon_ref']
+    near['tccon_sd'] = col['tccon_sd']
+    near['tccon_n'] = col['n_tccon']
     near['date'] = case['date']
     near['site'] = Path(case['tccon']).name[:2]
     near['gate_km'] = near['sfc_type'].map(GATE)
@@ -215,33 +143,24 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--radius-km', type=float, default=100.0)
     ap.add_argument('--window-min', type=float, default=60.0)
-    ap.add_argument('--force', action='store_true', help="rebuild plot_data cache")
     ap.add_argument('--limit', type=int, default=None, help="first N runnable cases")
-    ap.add_argument('--model-tag', default='',
-                    help="namespace outputs + cache under tccon_policy/<tag>/ so DE "
-                         "model versions don't overwrite each other (match the plot "
-                         "script's MODEL_TAG).")
-    ap.add_argument('--ocean-model-glob', default=_DEF_OCEAN_GLOB,
-                    help="glob (under results/model_deep_ensemble) for the ocean DE folds.")
-    ap.add_argument('--land-model-glob', default=_DEF_LAND_GLOB,
-                    help="glob (under results/model_deep_ensemble) for the land DE folds.")
+    ap.add_argument('--plotdata-base', required=True,
+                    help="Read each case's processed XCO2 from "
+                         "<base>/combined_<date>_<site>/plot_data.parquet "
+                         "(the plot script's OUT_BASE). No model is re-run here.")
+    ap.add_argument('--output-dir', default=None,
+                    help="Where to write the policy CSVs (default: --plotdata-base, so "
+                         "everything lands under deep_ensemble/<MODEL_TAG>/).")
     ap.add_argument('--fname-suffix', default='',
                     help="Appended before the extension of every output CSV filename "
                          "(e.g. '_r100km') so a radius sweep's stats coexist.")
     args = ap.parse_args()
     sfx = args.fname_suffix
 
-    # Resolve model folds + namespace paths by --model-tag (reassign module globals
-    # used by build_plotdata()/main()).
-    global DE_OCEAN, DE_LAND, CACHE, OUTDIR
-    mdir = DATA_ROOT / 'results/model_deep_ensemble'
-    DE_OCEAN = sorted(mdir.glob(args.ocean_model_glob))
-    DE_LAND  = sorted(mdir.glob(args.land_model_glob))
-    if args.model_tag:
-        OUTDIR = DATA_ROOT / 'results/model_comparison/tccon_policy' / args.model_tag
-        CACHE  = OUTDIR / 'plotdata'
-    print(f"DE ocean folds: {len(DE_OCEAN)} ({args.ocean_model_glob}); "
-          f"land folds: {len(DE_LAND)} ({args.land_model_glob}); out → {OUTDIR}")
+    global OUTDIR
+    plotdata_base = Path(args.plotdata_base)
+    OUTDIR = Path(args.output_dir) if args.output_dir else plotdata_base
+    print(f"reading plot_data from {plotdata_base}; out → {OUTDIR}")
     OUTDIR.mkdir(parents=True, exist_ok=True)
 
     cases = parse_cases()
@@ -256,10 +175,11 @@ def main():
     for i, c in enumerate(runnable, 1):
         print(f"\n[{i}/{len(runnable)}] {c['date']} {c['tccon'][:2]} ({c['surf']})")
         if not precheck(c, args.radius_km, args.window_min):
-            print("  no coincident TCCON in window/radius — skip (no build)")
+            print("  no coincident TCCON in window/radius — skip")
             continue
-        pd_path = build_plotdata(c, force=args.force)
+        pd_path = find_plotdata(plotdata_base, c['date'], Path(c['tccon']).name[:2])
         if pd_path is None:
+            print("  no plot_data.parquet under --plotdata-base — skip")
             continue
         near = match_case(c, pd_path, args.radius_km, args.window_min)
         if near is None:
@@ -297,7 +217,10 @@ def main():
     allfp = pd.concat(pooled, ignore_index=True)
     pd.DataFrame(per_case).to_csv(OUTDIR / f'tccon_policy_per_case{sfx}.csv', index=False)
 
-    # ── pooled footprint-level summary: overall + near/far cloud ───────────────
+    # ── pooled footprint-level summary: overall + near/far cloud + drop-guards ──
+    # 'all' KEEPS guarded footprints (correction skipped there → corrected = raw
+    # xco2_bc): the end-to-end number.  'drop_guards' excludes them (correction
+    # quality where the model acted) — the two together are the "report both" view.
     def summarize(frame, label):
         out = []
         for name, s in _stats(frame).items():
@@ -308,6 +231,8 @@ def main():
     if 'is_near_cloud' in allfp:
         summary += summarize(allfp[allfp['is_near_cloud']], 'near_cloud')
         summary += summarize(allfp[~allfp['is_near_cloud'].astype(bool)], 'far_cloud')
+    if 'is_guarded' in allfp:
+        summary += summarize(allfp[~allfp['is_guarded'].astype(bool)], 'drop_guards')
     sdf = pd.DataFrame(summary)
     sdf.to_csv(OUTDIR / f'tccon_policy_pooled_summary{sfx}.csv', index=False)
 
