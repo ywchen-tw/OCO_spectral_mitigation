@@ -205,4 +205,6 @@ Separate from the reviewer-facing concerns above: code-level suggestions in four
 
 **Suggested order:** 7.1 stability fixes (an afternoon, prevents corrupt-data reruns) → constants module (7.4) → fitting parallelization + float32 (7.2, biggest wall-clock/RAM win for the reprocessing runs) → shared trainer + run configs (7.3) → file splits (7.4, last, purely cosmetic).
 
+**Status (2026-07-04): the entire suggested order above is executed and verified** (commits `7809fe9`, `223b2cb`). Remaining engineering items, in priority order: (1) wire the `training_dates.json` check into the TCCON `run_case` driver (§3-Minor leakage guarantee — one sentence in the paper); (2) launch the §7.3 Phase 3 regularization ablation (`sbatch curc_shell_blanca_de_reg_ablation.sh`; its `base` arm is the Phase 5 new-trainer verification); (3) Phase-3 per-sounding failure accounting (§3-Minor); (4) §7.1 efficiency (parallel downloads + listing memoization) — nice-to-have, stability was the load-bearing part.
+
 **Status (2026-07-04):** 7.1 stability ✅, constants module (7.4) ✅, 7.2 ✅, 7.3 code phases (0/1/2/4) ✅ — remaining: 7.1 efficiency (parallel downloads, listing cache), 7.3 Phase 3 ablation + Phase 5 verification runs on CURC, 7.4 dead-code/file-split hygiene.
