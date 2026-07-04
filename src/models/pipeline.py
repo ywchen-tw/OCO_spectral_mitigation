@@ -289,14 +289,22 @@ class PCAScoreAppender:
 # Order matters only for readability — FeaturePipeline stores its own fitted
 # feature list, and each pickle carries the list it was fitted with.
 
+# Spectroscopy k-coefficient source: the Savitzky-Golay-smoothed fit (default,
+# suffix '') vs the parallel no-SG fit (suffix '_nosg', built by
+# build_feature_dataset.py:674-679).  Flip _USE_NOSG_K to run the A/B; the exp-
+# intercept spectroscopy features (exp_*_intercept, *_exp_intercept-alb) have no
+# _nosg twin in the parquet and stay on the SG fit either way.
+_USE_NOSG_K = True
+_S = '_nosg' if _USE_NOSG_K else ''
+
 _FEATURES_SFC0 = [
     'xco2_raw_minus_apriori',
     'fp_area_km2',
     'exp_o2a_intercept',
     'o2a_exp_intercept-alb',
-    'o2a_k1', 'o2a_k2',
-    'wco2_k1', 'wco2_k2', 'wco2_k3',
-    'sco2_k1', 'sco2_k2',
+    f'o2a_k1{_S}', f'o2a_k2{_S}',
+    f'wco2_k1{_S}', f'wco2_k2{_S}', f'wco2_k3{_S}',
+    f'sco2_k1{_S}', f'sco2_k2{_S}',
     'cos_glint_angle',
     'log_P',
     'dp_psfc_prior_ratio',
@@ -322,9 +330,9 @@ _FEATURES_SFC1 = [
     'exp_o2a_intercept',
     'o2a_exp_intercept-alb',
     'wco2_exp_intercept-alb',
-    'o2a_k1', 'o2a_k2',
-    'wco2_k1', 'wco2_k2', 'wco2_k3',
-    'sco2_k1', 'sco2_k2',
+    f'o2a_k1{_S}', f'o2a_k2{_S}',
+    f'wco2_k1{_S}', f'wco2_k2{_S}', f'wco2_k3{_S}',
+    f'sco2_k1{_S}', f'sco2_k2{_S}',
     '1_over_cos_sza', '1_over_cos_vza',
     'sin_raa',
     'log_P',
@@ -367,9 +375,9 @@ SPEC_FEATURES = frozenset([
     'exp_o2a_intercept',
     'o2a_exp_intercept-alb',
     'wco2_exp_intercept-alb',     # sfc_type=1 only
-    'o2a_k1', 'o2a_k2',
-    'wco2_k1', 'wco2_k2', 'wco2_k3',
-    'sco2_k1', 'sco2_k2',
+    f'o2a_k1{_S}', f'o2a_k2{_S}',
+    f'wco2_k1{_S}', f'wco2_k2{_S}', f'wco2_k3{_S}',
+    f'sco2_k1{_S}', f'sco2_k2{_S}',
 ])
 
 # Cloud/aerosol contamination features are part of the base _FEATURES_SFC0/1 above
@@ -839,6 +847,26 @@ class FeaturePipeline:
 
         df = _ensure_derived_features(df)
         df = _ensure_fp_columns(df)
+
+        # Fail early (and legibly) on absent feature columns instead of the raw
+        # KeyError from df[qt_features].  The common case is _USE_NOSG_K=True
+        # against a parquet built with --single-fit (no _nosg columns).
+        missing = [f for f in qt_features if f not in df.columns]
+        if missing:
+            nosg_missing = [f for f in missing if f.endswith('_nosg')]
+            if nosg_missing:
+                raise KeyError(
+                    f"FeaturePipeline.fit: {len(nosg_missing)} no-Savitzky-Golay "
+                    f"feature column(s) absent: {nosg_missing}. _USE_NOSG_K is True "
+                    "but this parquet has no _nosg columns — it was built without "
+                    "the dual fit. Re-run the spectral fit WITHOUT --single-fit "
+                    "(dual_fit=True) and rebuild the feature parquet, or set "
+                    "_USE_NOSG_K=False in pipeline.py to use the smoothed k's."
+                )
+            raise KeyError(
+                f"FeaturePipeline.fit: feature column(s) absent from the dataframe: "
+                f"{missing}. Regenerate the feature parquet via build_feature_dataset.py."
+            )
 
         log1p_cols = [f for f in qt_features if f in _LOG1P_FEATURES]
         log1p_idx  = [qt_features.index(f) for f in log1p_cols]
