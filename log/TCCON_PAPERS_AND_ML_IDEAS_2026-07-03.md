@@ -108,7 +108,9 @@ Payne et al. "B11" (ATBD only); Osterman et al. Lite-file docs (product document
 
 Before trying new architectures, estimate the **label-noise ceiling**. The target inherits sampling error from the clear-sky reference mean (reference std ≤ 1.0 ppm over a finite neighbor count n → ref-mean error ~ std/√n, plus real sub-0.25° CO2 variability). Compute the implied irreducible variance per row (you have `ref_std`, `ref_count` in the parquet) and translate to a max attainable R². Evidence the ceiling is near: HPO landscape flat, TabM ≈ MLP under date CV, M=10 and heterogeneous ensembles no better than M=5 homogeneous. **Architecture is probably not the bottleneck; label noise and distribution shift are.** New models should target the *tail* and *new information*, not global R².
 
-### 2.1 Highest upside: along-track spatial context (sequence model)
+### 2.1 Along-track spatial context (sequence model) — **DEMOTED: violates deployment constraint**
+
+**Project constraint (2026-07-04):** the correction must run footprint-by-footprint at inference — no cloud info AND no neighboring-footprint info as inputs. That per-footprint independence is itself a key selling point (deployable everywhere, no MODIS, no swath context). Sequence/context models are therefore NOT production candidates; keep them only as a diagnostic upper bound ("how much does spatial context add?") to quantify what the per-footprint model leaves on the table.
 
 OCO-2 soundings form an 8 (footprint) × N (along-track) grid per orbit; the anomaly and its causes (cloud fields) are spatially coherent. Feed a window of consecutive soundings (e.g., 8×64 grid of the per-sounding feature vectors, or just the spectral/cumulant channels) into a small 2D CNN / 1D transformer with the center sounding as the regression target.
 
