@@ -92,9 +92,9 @@ DATES_EVENTS=(
 
 # Active set(s) — union + de-duplicate (preserve first-seen order).  Currently
 # 2020 only; add the other arrays here to widen (then update --array above).
-ALL=( "${DATES_2016_2020[@]}" )
+# ALL=( "${DATES_2016_2020[@]}" )
 # ALL=( "${DATES_EVENTS[@]}" )
-# ALL=( "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
+ALL=( "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
 # ALL=( "${DATES_2020[@]}" "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
 DATES=()
 while IFS= read -r d; do DATES+=("$d"); done < <(printf '%s\n' "${ALL[@]}" | awk '!seen[$0]++')
