@@ -252,7 +252,7 @@ def main():
     if args.limit:
         runnable = runnable[:args.limit]
 
-    per_case, pooled, case_means = [], [], []
+    per_case, pooled, case_means, surf_means = [], [], [], []
     for i, c in enumerate(runnable, 1):
         print(f"\n[{i}/{len(runnable)}] {c['date']} {c['tccon'][:2]} ({c['surf']})")
         if not precheck(c, args.radius_km, args.window_min):
@@ -273,16 +273,23 @@ def main():
         for name, s in st.items():
             per_case.append(dict(date=c['date'], site=near['site'].iloc[0],
                                  surf=c['surf'], scenario=name, **s))
-        # one (mean OCO vs TCCON) point per station-day for the calibration regression
-        row = dict(date=c['date'], site=near['site'].iloc[0], surf=c['surf'],
-                   n=len(near), tccon_ref=float(near['tccon_ref'].iloc[0]),
-                   tccon_sd=float(near['tccon_sd'].iloc[0]),
-                   abs_lat_max=float(near['lat'].abs().max()))
-        for name, col in SCEN.items():
-            if col in near:
-                row[name] = float(near[col].mean())
-                row[f'{name}_sd'] = float(near[col].std())
-        case_means.append(row)
+        # station-day means (mean OCO vs TCCON) for the calibration regression and
+        # the comparison figures: one overall row + one per surface (ocean/land).
+        def _means_row(frame, **extra):
+            r = dict(date=c['date'], site=near['site'].iloc[0],
+                     n=len(frame), tccon_ref=float(frame['tccon_ref'].iloc[0]),
+                     tccon_sd=float(frame['tccon_sd'].iloc[0]),
+                     abs_lat_max=float(frame['lat'].abs().max()), **extra)
+            for name, col in SCEN.items():
+                if col in frame:
+                    r[name] = float(frame[col].mean())
+                    r[f'{name}_sd'] = float(frame[col].std())
+            return r
+        case_means.append(_means_row(near, surf=c['surf']))
+        for _sfc, _sname in ((0, 'ocean'), (1, 'land')):
+            sub = near[near['sfc_type'] == _sfc]
+            if len(sub):
+                surf_means.append(_means_row(sub, surface=_sname))
         pooled.append(near)
 
     if not pooled:
@@ -315,6 +322,9 @@ def main():
     # ── station-day calibration: regress mean corrected OCO on TCCON ───────────
     cm = pd.DataFrame(case_means)
     cm.to_csv(OUTDIR / f'tccon_policy_station_means{sfx}.csv', index=False)
+    # per-surface station-day means (ocean/land) for the surface-separated figure
+    pd.DataFrame(surf_means).to_csv(
+        OUTDIR / f'tccon_policy_station_means_by_surface{sfx}.csv', index=False)
     reg = []
     for name in SCEN:
         if name not in cm.columns:

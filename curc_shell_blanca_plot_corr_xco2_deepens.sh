@@ -401,3 +401,12 @@ python workspace/plot_tccon_station_comparison.py --fname-suffix "_${RADIUS_TAG}
     --means "$POLICY_DIR/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"
 python workspace/plot_tccon_station_comparison.py --exclude-sites ny --fname-suffix "_${RADIUS_TAG}" \
     --means "$POLICY_DIR/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"
+
+# (9b) same comparison but with OCEAN and LAND footprints separated (4-panel:
+#      ocean row + land row), reading the per-surface station means from step 8.
+echo ""
+echo "############ AGGREGATE: plot_tccon_station_comparison_by_surface ############"
+python workspace/plot_tccon_station_comparison_by_surface.py --fname-suffix "_${RADIUS_TAG}" \
+    --means "$POLICY_DIR/tccon_policy_station_means_by_surface_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"
+python workspace/plot_tccon_station_comparison_by_surface.py --exclude-sites ny --fname-suffix "_${RADIUS_TAG}" \
+    --means "$POLICY_DIR/tccon_policy_station_means_by_surface_${RADIUS_TAG}.csv" --output-dir "$POLICY_DIR"
