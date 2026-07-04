@@ -11,18 +11,17 @@ train/test split, differing only by the appended profile block:
 Fairness controls
 -----------------
 * Same rows for both: restricted to rows finite in target ∧ full-features ∧
-  profile-features.  ~51 % of 2016-2020 rows lack the reanalysis-profile columns
-  (older fitting.py), and their NaN pattern tracks processing batch/date — leaving
-  them in (with XGBoost's native NaN handling) would let model B exploit a spurious
-  date proxy.  Restricting to profile-present rows isolates the *physical*
-  information the EOFs carry.
+  profile-features.  (Historical note: this restriction was introduced when ~51 %
+  of 2016-2020 rows lacked profile columns and their NaN pattern tracked
+  processing date — a spurious date proxy for model B.  The mid-2026 reprocessing
+  backfilled ALL profiles, so the combined parquet is 100 % profile-complete and
+  the restriction is now a near-no-op; it is kept as a cheap guard.)
 * Same split (same indices, same seed), same XGBoost hyperparameters + custom
   Huber+L1 objective (imported from xgb.py), same eval/early-stopping set.
 
 Caveats (printed with the results)
 * Early stopping and reporting both use the test split (repo convention) — the
   delta between A and B is fair, the absolute R² is mildly optimistic.
-* Metrics live on the profile-present subset, which skews toward newer dates.
 
 Run (from src/):
     python -m models.compare_profile_features            # both surfaces
