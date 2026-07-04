@@ -147,7 +147,7 @@ def _predict_pooled(df, fold_dirs, sfc_type, *, ood_thresh=8.0, max_ood_frac=0.0
 
 
 def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
-                   max_abs_anomaly=15.0, cloud_fold_dirs=None):
+                   max_abs_anomaly=25.0, cloud_fold_dirs=None):
     """Predict one surface (pooling all folds); return a plot_data frame or None.
 
     Two guards skip the correction (set mu=0 → corrected XCO2 == raw xco2_bc) and
@@ -243,9 +243,9 @@ def main():
     ap.add_argument('--climatology-max-ppm', type=float, default=50.0,
                     help="Skip correction where xco2_bc > xco2_apriori + this many ppm "
                          "(non-physical retrievals); default 50.")
-    ap.add_argument('--max-abs-anomaly', type=float, default=15.0,
+    ap.add_argument('--max-abs-anomaly', type=float, default=25.0,
                     help="Skip correction where |predicted anomaly| exceeds this many ppm "
-                         "(model blow-ups); default 15. Set <=0 to disable.")
+                         "(model blow-ups); default 25. Set <=0 to disable.")
     args = ap.parse_args()
     dk = dict(ood_thresh=args.ood_thresh, max_ood_frac=args.max_ood_frac, strict=args.strict)
 
