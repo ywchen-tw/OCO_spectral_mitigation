@@ -97,6 +97,27 @@ python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_f
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
+# ── Full + profile, RAW-anomaly target (xco2_raw_anomaly, 10 km ref) ──────────
+# Same production structure (lndo01 + profile) but regressing the RAW (non-bias-
+# corrected) anomaly instead of xco2_bc_anomaly — tests the ML correction applied
+# directly to raw retrievals.  Distinct _raw tag so it never collides with the bc
+# runs above.  A/B partner: de_{surface}_beta_nll_prof_reg_f${F} (bc target).
+python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_raw_f${F} \
+    --profile-pca \
+    --target xco2_raw_anomaly \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_f${F} \
+    --profile-pca \
+    --target xco2_raw_anomaly \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
 # ── Feature-set ablations (+profile) ──────────────────────────────────────────
 # Same production config, each with one feature block dropped, both surfaces.
 # The profile block is ORTHOGONAL to --feature_set (the no_xco2/no_spec drops never
