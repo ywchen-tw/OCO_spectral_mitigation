@@ -79,12 +79,12 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_r05_
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_r05_f${F} \
-    --profile-pca \
-    --target 5km \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_r05_f${F} \
+#     --profile-pca \
+#     --target 5km \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Feature-set ablations (+profile, 5 km reference) ──────────────────────────
 # Same config, each with one feature block dropped, both surfaces.  The profile
