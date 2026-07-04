@@ -86,8 +86,8 @@ DATES_EVENTS=(
 
 # Active set(s) — union + de-duplicate (preserve first-seen order).  Currently
 # 2020 only; add the other arrays here to widen (the range auto-adjusts).
-ALL=( "${DATES_2016_2020[@]}" )
-# ALL=( "${DATES_EVENTS[@]}" )
+# ALL=( "${DATES_2016_2020[@]}" )
+ALL=( "${DATES_EVENTS[@]}" )
 # ALL=( "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
 # ALL=( "${DATES_2020[@]}" "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
 DATES=()
