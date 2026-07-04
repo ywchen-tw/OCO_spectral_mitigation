@@ -23,8 +23,8 @@
 #       instead of the default xco2_bc_anomaly (10 km), and
 #   (2) the suffix carries a _r05 tag so results do NOT overwrite the 10 km
 #       _prof runs — e.g. the comparison is
-#         de_ocean_beta_nll_prof_f${F}       (10 km reference)
-#         de_ocean_beta_nll_prof_r05_f${F}   (this script, 5 km reference).
+#         de_ocean_beta_nll_prof_reg_f${F}       (10 km reference)
+#         de_ocean_beta_nll_prof_reg_r05_f${F}   (this script, 5 km reference).
 #
 # NOTE: 5 km is a LOOSER reference than the 10 km default — soundings as close
 # as 5 km to a cloud count as clear-sky refs, so the reference pool is larger
@@ -42,7 +42,7 @@
 #
 # After ALL array tasks finish, aggregate (no GPU needed), e.g.:
 #   PYTHONPATH=src python -m models.aggregate_folds \
-#     --dirs 'results/model_deep_ensemble/de_ocean_beta_nll_prof_r05_f*' --label DeepEns+prof+r05 \
+#     --dirs 'results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_r05_f*' --label DeepEns+prof+r05 \
 #     --out results/model_comparison/deep_ensemble_ocean_profile_r05_kfold_agg.md
 
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8 cuda/12.1.1
@@ -71,8 +71,8 @@ NFOLDS=5
 # ── Full feature set (production config + profile, 5 km reference) ─────────────
 # --target 5km selects xco2_bc_anomaly_r05.  --profile-pca and _r05 suffix are
 # explicit so intent is obvious in the job log.  A/B partner: the 10 km run
-# de_{surface}_beta_nll_prof_f${F} in curc_shell_blanca_de_profile.sh.
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_r05_f${F} \
+# de_{surface}_beta_nll_prof_reg_f${F} in curc_shell_blanca_de_profile.sh.
+python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_r05_f${F} \
     --profile-pca \
     --target 5km \
     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
@@ -80,7 +80,7 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_r05_
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_r05_f${F} \
+# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_r05_f${F} \
 #     --profile-pca \
 #     --target 5km \
 #     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \

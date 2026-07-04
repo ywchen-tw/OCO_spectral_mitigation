@@ -71,9 +71,9 @@ export OCO2_DATAROOT="$DATA_ROOT"
 # profile-PCA transform in build_deepens_plot_data.py raises KeyError.
 # MODEL_TAG names the model version; it namespaces OUT_BASE so different DE
 # versions never overwrite each other's plot outputs.
-MODEL_TAG=de_beta_nll_prof_m5
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_f*)
+MODEL_TAG=de_beta_nll_prof_reg_m5
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_f*)
 
 # ─── cloud classifier (xgb_cloud fold dirs; per-surface) ──────────────────────
 # When set, build_deepens_plot_data.py also emits P(near) and the two extra
@@ -85,7 +85,7 @@ LAND_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_land_f*)
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
 # OUT_BASE is namespaced by MODEL_TAG so each DE model version writes to its own
-# tree (e.g. .../deep_ensemble/de_beta_nll_prof_m5/combined_<date>_<site>/).
+# tree (e.g. .../deep_ensemble/de_beta_nll_prof_reg_m5/combined_<date>_<site>/).
 OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${MODEL_TAG}
 
 # ─── TCCON collocation knobs (shared by per-case plot + aggregate reports) ─────

@@ -26,7 +26,7 @@
 #   (2) the suffix carries a _prof tag so results do NOT overwrite the existing
 #       profile-less baselines — e.g. the comparison is
 #         de_ocean_beta_nll_f${F}        (baseline, no profile)
-#         de_ocean_beta_nll_prof_f${F}   (this script, +profile),
+#         de_ocean_beta_nll_prof_reg_f${F}   (this script, +profile),
 #       and likewise de_{surface}_{no_xco2,no_spec,no_xco2_and_spec}_[prof_]f${F}.
 # Per fold: 2 (full) + 3 ablations × 2 surfaces = 8 runs (~baseline's 10-run/fold
 # cost, comfortably under the 16h wall).
@@ -45,7 +45,7 @@
 #
 # After ALL array tasks finish, aggregate (no GPU needed), e.g.:
 #   PYTHONPATH=src python -m models.aggregate_folds \
-#     --dirs 'results/model_deep_ensemble/de_ocean_beta_nll_prof_f*' --label DeepEns+prof \
+#     --dirs 'results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_f*' --label DeepEns+prof \
 #     --out results/model_comparison/deep_ensemble_ocean_profile_kfold_agg.md
 
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8 cuda/12.1.1
@@ -83,14 +83,14 @@ NFOLDS=5
 # better (within fold noise) on ocean, coverage_90 unchanged — i.e. never worse,
 # better where the correction matters.  Rejected arms: bn (worse on ocean),
 # cap_lndo (extra capacity no help → 64x32 not underfitting at 17.8M rows).
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_f${F} \
+python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_f${F} \
     --profile-pca \
     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
     --norm layer --dropout 0.1 \
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_f${F} \
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_f${F} \
     --profile-pca \
     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
     --norm layer --dropout 0.1 \
