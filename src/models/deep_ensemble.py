@@ -54,6 +54,32 @@ logger = logging.getLogger(__name__)
 Z90 = 1.6448536269514722  # Gaussian 90% two-sided
 
 
+def _cuda_device_supported():
+    """True only if the current CUDA GPU's compute capability is in this PyTorch
+    build's kernel arch list.  On CURC preemptable QOS a job can land on an older
+    card (e.g. Tesla P100, sm_60) whose kernels this PyTorch wasn't compiled for;
+    selecting it would crash mid-train with `no kernel image is available`.  When
+    unsupported we log and fall back to CPU instead of dying."""
+    try:
+        major, minor = torch.cuda.get_device_capability()
+        cap = major * 10 + minor
+        # get_arch_list() → e.g. ['sm_70', 'sm_75', ..., 'sm_120']
+        supported = [int(a.split('_')[1]) for a in torch.cuda.get_arch_list()
+                     if a.startswith('sm_')]
+        if supported and cap < min(supported):
+            logger.warning(
+                "CUDA GPU %s has compute capability sm_%d, below this PyTorch "
+                "build's minimum (%s) — falling back to CPU.",
+                torch.cuda.get_device_name(0), cap,
+                ", ".join(f"sm_{s}" for s in sorted(supported)))
+            return False
+        return True
+    except Exception as e:  # any probing failure → don't risk a hard crash
+        logger.warning("Could not verify CUDA device compatibility (%s) — "
+                       "falling back to CPU.", e)
+        return False
+
+
 class GaussianMLP(nn.Module):
     """n_features → 64 → ReLU → 32 → ReLU → (mu, raw2)[, cloud_logit].
 
@@ -538,7 +564,7 @@ def main():
               f"(near<={args.near_cloud_km}km): {int(n_pos)}/{len(c_tr)} train rows "
               f"positive ({100 * n_pos / len(c_tr):.1f}%), pos_weight={cloud_pos_weight:.3f}")
 
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and _cuda_device_supported():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
