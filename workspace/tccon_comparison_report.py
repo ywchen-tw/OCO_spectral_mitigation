@@ -420,10 +420,22 @@ def main():
                              ('land',  near[near['sfc_type'] == 1])):
             if not len(frame):
                 continue
-            rows.append(dict(site=site, date=c['date'], surface=sname, n_tccon=n_tc,
-                             tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
-                             ak_delta=ak_delta, ak_n_lite=ak_n_lite, ak_source=ak_source,
-                             **_case_metrics(frame, tmu, n_tc)))
+            row = dict(site=site, date=c['date'], surface=sname, n_tccon=n_tc,
+                       tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
+                       ak_delta=ak_delta, ak_n_lite=ak_n_lite, ak_source=ak_source,
+                       **_case_metrics(frame, tmu, n_tc))
+            # When AK harmonization is active the PRIMARY metrics above use the AK
+            # reference; also compute the direct (raw window-mean) reference metrics
+            # so ONE run emits both comparisons (…_direct columns + overlay figure).
+            # RMSE-to-TCCON is non-linear in the reference, so it must be recomputed
+            # (the bias terms alone would shift by ak_delta, but RMSE would not).
+            if args.ak_harmonize and np.isfinite(tmu_raw) and tmu_raw != tmu:
+                md = _case_metrics(frame, tmu_raw, n_tc)
+                row.update({f'{k}_direct': md[k] for k in (
+                    'bias_raw', 'bias_before', 'bias_after',
+                    'rmse_raw', 'rmse_before', 'rmse_after',
+                    'raw_sd', 'orig_sd', 'corr_sd')})
+            rows.append(row)
 
     if not rows:
         print(f"No cases matched (out-base={out_base}, script={args.script}). "
@@ -451,14 +463,24 @@ def main():
         bb, ba = cmp['bias_before'].to_numpy(), cmp['bias_after'].to_numpy()
         rb, ra = cmp['rmse_before'].to_numpy(), cmp['rmse_after'].to_numpy()
         ba_dg, ra_dg = cmp['bias_after_dg'].to_numpy(), cmp['rmse_after_dg'].to_numpy()
+        # raw (pre-bias-correction xco2_raw) series — shown when available so the
+        # headline reads raw → before(xco2_bc) → after(ML), not just before → after.
+        braw = cmp['bias_raw'].to_numpy(float); rraw = cmp['rmse_raw'].to_numpy(float)
+        has_raw = np.isfinite(braw).any()
+        _r_absbias = f"raw **{np.nanmean(np.abs(braw)):.2f}** → " if has_raw else ''
+        _r_rmsbias = f"raw **{np.sqrt(np.nanmean(braw**2)):.2f}** → " if has_raw else ''
+        _r_ocostd  = f"raw **{cmp['raw_sd'].mean():.2f}** → " if has_raw else ''
+        _r_fprmse  = f"raw **{np.nanmean(rraw):.2f}** → " if has_raw else ''
         n_g_tot = int(cmp['n_guarded'].sum())
         lines += ['', '## Aggregate (cases with TCCON)', '',
                   '_Headline KEEPS guarded footprints (correction skipped there → corrected = raw '
-                  'xco2_bc): the end-to-end result. The drop-guards line below excludes them._', '',
-                  f"- mean |bias|:  before **{np.nanmean(np.abs(bb)):.2f}** → after **{np.nanmean(np.abs(ba)):.2f}** ppm",
-                  f"- RMS bias:    before **{np.sqrt(np.nanmean(bb**2)):.2f}** → after **{np.sqrt(np.nanmean(ba**2)):.2f}** ppm",
-                  f"- mean OCO std: before **{cmp['orig_sd'].mean():.2f}** → after **{cmp['corr_sd'].mean():.2f}** ppm",
-                  f"- mean per-footprint RMSE-to-TCCON: before **{np.nanmean(rb):.2f}** → after **{np.nanmean(ra):.2f}** ppm",
+                  'xco2_bc): the end-to-end result. The drop-guards line below excludes them._'
+                  + ('' if not has_raw else '  raw = pre-bias-correction xco2_raw; '
+                     'before = xco2_bc (operational bias correction); after = ML-corrected.'), '',
+                  f"- mean |bias|:  {_r_absbias}before **{np.nanmean(np.abs(bb)):.2f}** → after **{np.nanmean(np.abs(ba)):.2f}** ppm",
+                  f"- RMS bias:    {_r_rmsbias}before **{np.sqrt(np.nanmean(bb**2)):.2f}** → after **{np.sqrt(np.nanmean(ba**2)):.2f}** ppm",
+                  f"- mean OCO std: {_r_ocostd}before **{cmp['orig_sd'].mean():.2f}** → after **{cmp['corr_sd'].mean():.2f}** ppm",
+                  f"- mean per-footprint RMSE-to-TCCON: {_r_fprmse}before **{np.nanmean(rb):.2f}** → after **{np.nanmean(ra):.2f}** ppm",
                   f"- improved (|bias| down) in **{int((np.abs(ba)<np.abs(bb)).sum())}/{len(cmp)}** cases",
                   f"- improved (per-footprint RMSE down) in **{int((ra<rb).sum())}/{len(cmp)}** cases",
                   f"- **drop-guards** ({n_g_tot} guarded footprints excluded): corrected mean |bias| "
@@ -474,8 +496,31 @@ def main():
                           f"({int((_src == 'parquet').sum())} from parquet AK columns, "
                           f"{int((_src == 'lite').sum())} from Lite files); TCCON reference shift "
                           f"Δ = {np.nanmean(ak):+.2f} ± {np.nanstd(ak):.2f} ppm "
-                          f"(un-harmonized cases keep the raw window mean; the shift moves "
-                          f"absolute biases only — improvement metrics are invariant)"]
+                          f"(un-harmonized cases keep the raw window mean; the shift moves the "
+                          f"reference, so the SIGNED per-case after−before delta is invariant, but "
+                          f"the |bias|/RMSE headline below is not — see the direct-vs-AK table)"]
+                # Direct (raw window-mean) vs AK-harmonized headline, from the SAME
+                # footprints — the two references computed in one run.
+                if 'bias_before_direct' in cmp.columns:
+                    def _refagg(brw, bb, ba, rrw, rb, ra):
+                        """mean |bias| and mean fp-RMSE strings, raw→before→after."""
+                        brw, bb, ba = (x.to_numpy(float) for x in (brw, bb, ba))
+                        rrw, rb, ra = (x.to_numpy(float) for x in (rrw, rb, ra))
+                        _rb = f"{np.nanmean(np.abs(brw)):.2f} → " if has_raw else ''
+                        _rr = f"{np.nanmean(rrw):.2f} → " if has_raw else ''
+                        return (f"{_rb}{np.nanmean(np.abs(bb)):.2f} → **{np.nanmean(np.abs(ba)):.2f}**",
+                                f"{_rr}{np.nanmean(rb):.2f} → **{np.nanmean(ra):.2f}**")
+                    _d = _refagg(cmp['bias_raw_direct'], cmp['bias_before_direct'], cmp['bias_after_direct'],
+                                 cmp['rmse_raw_direct'], cmp['rmse_before_direct'], cmp['rmse_after_direct'])
+                    _a = _refagg(cmp['bias_raw'], cmp['bias_before'], cmp['bias_after'],
+                                 cmp['rmse_raw'], cmp['rmse_before'], cmp['rmse_after'])
+                    _seq = 'raw→before→after' if has_raw else 'before→after'
+                    lines += ['', '### Reference comparison: direct window-mean vs AK-harmonized',
+                              '_Same footprints, two TCCON references (both computed this run)._', '',
+                              f'| reference | mean \\|bias\\| {_seq} | mean fp-RMSE {_seq} |',
+                              '|---|--:|--:|',
+                              f"| direct | {_d[0]} | {_d[1]} |",
+                              f"| AK-harmonized | {_a[0]} | {_a[1]} |"]
             else:
                 lines += ["- **AK/prior harmonization requested but no case could be harmonized** "
                           "(no parquet AK columns and no day Lite files found — rebuild the "
@@ -541,11 +586,44 @@ def main():
         fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
         return png
 
+    def _fig_ak_vs_direct(sub, png):
+        """Direct vs AK-harmonized overlay (only when --ak-harmonize produced the
+        …_direct columns): (left) per-case corrected-bias direct↔AK dumbbell,
+        (right) the AK/prior reference shift Δ = harmonized − raw TCCON per case."""
+        s = sub[sub['bias_after_direct'].notna() & sub['ak_delta'].notna()].copy()
+        if not len(s):
+            return None
+        s['lab'] = s['site'] + ' ' + s['date']
+        s1 = s.sort_values('bias_after_direct').reset_index(drop=True)
+        y = np.arange(len(s1))
+        fig, (axL, axR) = plt.subplots(1, 2, figsize=(15, max(7, 0.30 * len(s1))))
+        for i in y:
+            axL.plot([s1['bias_after_direct'][i], s1['bias_after'][i]], [i, i],
+                     '-', color='lightgray', lw=1.2, zorder=0)
+        axL.plot(s1['bias_after_direct'], y, 'o', color='green', ms=6, label='direct')
+        axL.plot(s1['bias_after'], y, 's', color='purple', ms=6, label='AK-harmonized')
+        axL.axvline(0, color='k', lw=1)
+        axL.set_yticks(y); axL.set_yticklabels(s1['lab'], fontsize=6)
+        axL.set_xlabel('corrected XCO₂ bias to TCCON (ppm)')
+        axL.set_title('Per-case corrected bias: direct vs AK-harmonized reference')
+        axL.legend(loc='lower right'); axL.grid(alpha=0.3, axis='x')
+        s2 = s.sort_values('ak_delta').reset_index(drop=True); y2 = np.arange(len(s2))
+        axR.barh(y2, s2['ak_delta'], color='teal', alpha=0.85)
+        axR.axvline(0, color='k', lw=1)
+        axR.set_yticks(y2); axR.set_yticklabels(s2['site'] + ' ' + s2['date'], fontsize=6)
+        axR.set_xlabel('AK reference shift Δ = harmonized − raw TCCON (ppm)')
+        axR.set_title('AK/prior reference shift per case'); axR.grid(alpha=0.3, axis='x')
+        fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
+        return png
+
     extra_saved = []
     if len(cmp):
         _fig_pair(cmp, P_PNG)                                        # all cases
         p = _fig_by_surface([], P_BYSURF)
         if p: extra_saved.append(p)
+        if args.ak_harmonize and 'bias_after_direct' in cmp.columns:  # direct-vs-AK overlay
+            p = _fig_ak_vs_direct(cmp, out_dir / f'tccon_comparison_ak_vs_direct{sfx}.png')
+            if p: extra_saved.append(p)
         if excl:                                                     # excl-sites variants
             _sub = cmp[~cmp['site'].isin(excl)]
             if len(_sub):
