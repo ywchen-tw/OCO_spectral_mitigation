@@ -7,10 +7,13 @@ Contents
 --------
 - _REF_PAIRS               Registry of (obs, ref_mean, ref_std, diff_col, band, term, color) × 15 (k1+k2+k3 × 3 bands + alb × 3 + exp_int × 3)
 - _R15_PAIRS               Same structure for r15_* reference (min_cld_dist=15 km)
+- _R05_PAIRS               Same structure for r05_* reference (min_cld_dist=5 km)
 - add_ref_anomalies        Compute obs-ref diff and z-score columns
 - add_r15_anomalies        Compute obs-r15 diff and z-score columns
+- add_r05_anomalies        Compute obs-r05 diff and z-score columns
 - _has_ref_data            Presence check for ref_* columns
 - _has_r15_data            Presence check for r15_* columns
+- _has_r05_data            Presence check for r05_* columns
 - _binned_ref_profile      Shared binned-profile subplot helper
 - plot_ref_diff_vs_cld_dist    R0: Hexbin scatter of obs−ref vs cld_dist
 - plot_ref_coverage_bias       R1: Selection bias — has-ref vs no-ref
@@ -166,6 +169,48 @@ def add_r15_anomalies(df: pd.DataFrame) -> pd.DataFrame:
 def _has_r15_data(df: pd.DataFrame) -> bool:
     """Return True if at least one r15 column is present in df."""
     return any(c.startswith('r15_') for c in df.columns)
+
+
+# r05 reference set (min_cld_dist=5 km) — mirrors _REF_PAIRS with r05_ prefix columns
+_R05_PAIRS: list[tuple] = [
+    ('o2a_k1',             'r05_o2a_k1_mean',       'r05_o2a_k1_std',       'dr05k1_o2a',   'O₂A',  'k₁',   'C0'),
+    ('o2a_k2',             'r05_o2a_k2_mean',       'r05_o2a_k2_std',       'dr05k2_o2a',   'O₂A',  'k₂',   'C0'),
+    ('o2a_k3',             'r05_o2a_k3_mean',       'r05_o2a_k3_std',       'dr05k3_o2a',   'O₂A',  'k₃',   'C0'),
+    ('wco2_k1',            'r05_wco2_k1_mean',      'r05_wco2_k1_std',      'dr05k1_wco2',  'WCO₂', 'k₁',   'C1'),
+    ('wco2_k2',            'r05_wco2_k2_mean',      'r05_wco2_k2_std',      'dr05k2_wco2',  'WCO₂', 'k₂',   'C1'),
+    ('wco2_k3',            'r05_wco2_k3_mean',      'r05_wco2_k3_std',      'dr05k3_wco2',  'WCO₂', 'k₃',   'C1'),
+    ('sco2_k1',            'r05_sco2_k1_mean',      'r05_sco2_k1_std',      'dr05k1_sco2',  'SCO₂', 'k₁',   'C2'),
+    ('sco2_k2',            'r05_sco2_k2_mean',      'r05_sco2_k2_std',      'dr05k2_sco2',  'SCO₂', 'k₂',   'C2'),
+    ('sco2_k3',            'r05_sco2_k3_mean',      'r05_sco2_k3_std',      'dr05k3_sco2',  'SCO₂', 'k₃',   'C2'),
+    ('alb_o2a',            'r05_alb_o2a_mean',      'r05_alb_o2a_std',      'dr05alb_o2a',  'O₂A',  'albedo',    'C0'),
+    ('alb_wco2',           'r05_alb_wco2_mean',     'r05_alb_wco2_std',     'dr05alb_wco2', 'WCO₂', 'albedo',    'C1'),
+    ('alb_sco2',           'r05_alb_sco2_mean',     'r05_alb_sco2_std',     'dr05alb_sco2', 'SCO₂', 'albedo',    'C2'),
+    ('exp_o2a_intercept',  'r05_exp_int_o2a_mean',  'r05_exp_int_o2a_std',  'dr05exp_o2a',  'O₂A',  'exp_int',   'C0'),
+    ('exp_wco2_intercept', 'r05_exp_int_wco2_mean', 'r05_exp_int_wco2_std', 'dr05exp_wco2', 'WCO₂', 'exp_int',   'C1'),
+    ('exp_sco2_intercept', 'r05_exp_int_sco2_mean', 'r05_exp_int_sco2_std', 'dr05exp_sco2', 'SCO₂', 'exp_int',   'C2'),
+]
+
+
+def add_r05_anomalies(df: pd.DataFrame) -> pd.DataFrame:
+    """Add obs-r05 difference and z-score columns for every entry in _R05_PAIRS.
+
+    New columns:
+      d{term}_{band}  = obs - r05_mean          e.g. dr05k1_o2a
+      z{term}_{band}  = (obs - r05_mean)/r05_std e.g. zr05k1_o2a
+    """
+    new_cols = {}
+    for obs, ref_m, ref_s, dcol, _, _, _ in _R05_PAIRS:
+        if obs in df.columns and ref_m in df.columns:
+            new_cols[dcol] = df[obs] - df[ref_m]
+            zcol = 'z' + dcol[1:]   # 'dr05k1_o2a' → 'zr05k1_o2a'
+            if ref_s in df.columns:
+                new_cols[zcol] = new_cols[dcol] / df[ref_s].replace(0, np.nan)
+    return df.assign(**new_cols)
+
+
+def _has_r05_data(df: pd.DataFrame) -> bool:
+    """Return True if at least one r05 column is present in df."""
+    return any(c.startswith('r05_') for c in df.columns)
 
 
 def _binned_ref_profile(ax, sdf: pd.DataFrame, diff_col: str,

@@ -193,6 +193,19 @@ def load_output_dict(filepath):
         'r15_exp_int_o2a_mean', 'r15_exp_int_o2a_std',
         'r15_exp_int_wco2_mean', 'r15_exp_int_wco2_std',
         'r15_exp_int_sco2_mean', 'r15_exp_int_sco2_std',
+        # r05 reference set (min_cld_dist=5 km)
+        'xco2_raw_anomaly_r05', 'xco2_bc_anomaly_r05',
+        'r05_o2a_k1_mean', 'r05_o2a_k1_std', 'r05_o2a_k2_mean', 'r05_o2a_k2_std',
+        'r05_o2a_k3_mean', 'r05_o2a_k3_std',
+        'r05_wco2_k1_mean', 'r05_wco2_k1_std', 'r05_wco2_k2_mean', 'r05_wco2_k2_std',
+        'r05_wco2_k3_mean', 'r05_wco2_k3_std',
+        'r05_sco2_k1_mean', 'r05_sco2_k1_std', 'r05_sco2_k2_mean', 'r05_sco2_k2_std',
+        'r05_sco2_k3_mean', 'r05_sco2_k3_std',
+        'r05_alb_o2a_mean', 'r05_alb_o2a_std', 'r05_alb_wco2_mean', 'r05_alb_wco2_std',
+        'r05_alb_sco2_mean', 'r05_alb_sco2_std',
+        'r05_exp_int_o2a_mean', 'r05_exp_int_o2a_std',
+        'r05_exp_int_wco2_mean', 'r05_exp_int_wco2_std',
+        'r05_exp_int_sco2_mean', 'r05_exp_int_sco2_std',
     ]
     with h5py.File(filepath, 'r') as f:
         out = {key: f[key][()] for key in keys if key in f}
@@ -520,6 +533,40 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['r15_exp_int_wco2_std']      = combined.get('r15_exp_int_wco2_std')
     final_dict['r15_exp_int_sco2_mean']     = combined.get('r15_exp_int_sco2_mean')
     final_dict['r15_exp_int_sco2_std']      = combined.get('r15_exp_int_sco2_std')
+
+    # r05 reference set (min_cld_dist=5 km)
+    final_dict['xco2_raw_anomaly_r05']      = combined.get('xco2_raw_anomaly_r05')
+    final_dict['xco2_bc_anomaly_r05']       = combined.get('xco2_bc_anomaly_r05')
+    final_dict['r05_o2a_k1_mean']           = combined.get('r05_o2a_k1_mean')
+    final_dict['r05_o2a_k1_std']            = combined.get('r05_o2a_k1_std')
+    final_dict['r05_o2a_k2_mean']           = combined.get('r05_o2a_k2_mean')
+    final_dict['r05_o2a_k2_std']            = combined.get('r05_o2a_k2_std')
+    final_dict['r05_o2a_k3_mean']           = combined.get('r05_o2a_k3_mean')
+    final_dict['r05_o2a_k3_std']            = combined.get('r05_o2a_k3_std')
+    final_dict['r05_wco2_k1_mean']          = combined.get('r05_wco2_k1_mean')
+    final_dict['r05_wco2_k1_std']           = combined.get('r05_wco2_k1_std')
+    final_dict['r05_wco2_k2_mean']          = combined.get('r05_wco2_k2_mean')
+    final_dict['r05_wco2_k2_std']           = combined.get('r05_wco2_k2_std')
+    final_dict['r05_wco2_k3_mean']          = combined.get('r05_wco2_k3_mean')
+    final_dict['r05_wco2_k3_std']           = combined.get('r05_wco2_k3_std')
+    final_dict['r05_sco2_k1_mean']          = combined.get('r05_sco2_k1_mean')
+    final_dict['r05_sco2_k1_std']           = combined.get('r05_sco2_k1_std')
+    final_dict['r05_sco2_k2_mean']          = combined.get('r05_sco2_k2_mean')
+    final_dict['r05_sco2_k2_std']           = combined.get('r05_sco2_k2_std')
+    final_dict['r05_sco2_k3_mean']          = combined.get('r05_sco2_k3_mean')
+    final_dict['r05_sco2_k3_std']           = combined.get('r05_sco2_k3_std')
+    final_dict['r05_alb_o2a_mean']          = combined.get('r05_alb_o2a_mean')
+    final_dict['r05_alb_o2a_std']           = combined.get('r05_alb_o2a_std')
+    final_dict['r05_alb_wco2_mean']         = combined.get('r05_alb_wco2_mean')
+    final_dict['r05_alb_wco2_std']          = combined.get('r05_alb_wco2_std')
+    final_dict['r05_alb_sco2_mean']         = combined.get('r05_alb_sco2_mean')
+    final_dict['r05_alb_sco2_std']          = combined.get('r05_alb_sco2_std')
+    final_dict['r05_exp_int_o2a_mean']      = combined.get('r05_exp_int_o2a_mean')
+    final_dict['r05_exp_int_o2a_std']       = combined.get('r05_exp_int_o2a_std')
+    final_dict['r05_exp_int_wco2_mean']     = combined.get('r05_exp_int_wco2_mean')
+    final_dict['r05_exp_int_wco2_std']      = combined.get('r05_exp_int_wco2_std')
+    final_dict['r05_exp_int_sco2_mean']     = combined.get('r05_exp_int_sco2_mean')
+    final_dict['r05_exp_int_sco2_std']      = combined.get('r05_exp_int_sco2_std')
 
 
 

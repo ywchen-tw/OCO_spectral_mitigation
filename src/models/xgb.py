@@ -42,7 +42,7 @@ def _default_run_config() -> dict:
         'data': {
             'sfc_type': 0,
             'snow_flag_value': None,   # None = KEEP snow (default); 0 = exclude snow footprints
-            'target': '10km',          # clear-sky reference: '10km' or '15km'
+            'target': '10km',          # clear-sky reference: '5km', '10km' or '15km'
             'linux_data_name': 'combined_2016_2020_dates.parquet',
             'darwin_data_name': 'combined_2020-02-01_all_orbits.parquet',
         },
@@ -359,7 +359,7 @@ def main():
                              'and saved to <output_dir>/pipeline.pkl.')
     parser.add_argument('--target', type=str, default=None,
                         help="Clear-sky reference for the regression target: '10km' "
-                             "(default, xco2_bc_anomaly) or '15km' (xco2_bc_anomaly_r15).")
+                             "(default, xco2_bc_anomaly), '15km' (xco2_bc_anomaly_r15), or '5km' (xco2_bc_anomaly_r05).")
     parser.add_argument('--pca-augment', dest='pca_augment', action='store_true',
                         help='Append selected PC scores after scaled features '
                              '(land: PC1/PC4/PC8; ocean: PC3/PC6).  '

@@ -638,18 +638,20 @@ PROFILE_PCA_DIR = 'results/profile_pca'
 # ── Regression target selection ───────────────────────────────────────────────
 # The model target is the clear-sky XCO2 anomaly.  Two clear-sky reference sets
 # exist in the combined parquet (produced by spectral/fitting.py): the default
-# 10 km set and the stricter 15 km set (xco2_bc_anomaly_r15).  Trainers resolve
-# the column through resolve_target_col() so the choice lives here, not hardcoded
-# per model.  Pass a short name ('10km'/'15km') or an explicit column name.
+# 10 km set, the looser 5 km set (xco2_bc_anomaly_r05), and the stricter 15 km
+# set (xco2_bc_anomaly_r15).  Trainers resolve the column through
+# resolve_target_col() so the choice lives here, not hardcoded per model.  Pass a
+# short name ('5km'/'10km'/'15km') or an explicit column name.
 DEFAULT_TARGET_COL = 'xco2_bc_anomaly'          # 10 km clear-sky reference
 TARGET_COLS = {
+    '5km':  'xco2_bc_anomaly_r05',
     '10km': 'xco2_bc_anomaly',
     '15km': 'xco2_bc_anomaly_r15',
 }
 
 
 def resolve_target_col(target: Optional[str] = None) -> str:
-    """Map a short name ('10km'/'15km') or explicit column to the target column.
+    """Map a short name ('5km'/'10km'/'15km') or explicit column to the target column.
 
     ``None``/empty → DEFAULT_TARGET_COL.  An unrecognised string is returned
     verbatim so callers may pass any column present in the parquet.

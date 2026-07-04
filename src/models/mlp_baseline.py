@@ -182,7 +182,7 @@ def main():
                         choices=['full', 'no_xco2', 'no_spec', 'full_fitqual', 'full_contam'])
     parser.add_argument('--target', type=str, default=None,
                         help="Clear-sky reference for the regression target: '10km' "
-                             "(default, xco2_bc_anomaly) or '15km' (xco2_bc_anomaly_r15).")
+                             "(default, xco2_bc_anomaly), '15km' (xco2_bc_anomaly_r15), or '5km' (xco2_bc_anomaly_r05).")
     parser.add_argument('--test_size', type=float, default=0.2)
     parser.add_argument('--suffix', type=str, default='')
     parser.add_argument('--pipeline', type=str, default=None)

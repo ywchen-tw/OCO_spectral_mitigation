@@ -219,7 +219,7 @@ def main():
                    choices=['full', 'no_xco2', 'no_spec', 'full_fitqual', 'full_contam'])
     p.add_argument('--target', type=str, default=None,
                    help="Clear-sky reference for the regression target: '10km' "
-                        "(default, xco2_bc_anomaly) or '15km' (xco2_bc_anomaly_r15).")
+                        "(default, xco2_bc_anomaly), '15km' (xco2_bc_anomaly_r15), or '5km' (xco2_bc_anomaly_r05).")
     p.add_argument('--geom_mode', type=str, default='concat', choices=['none', 'concat', 'film'])
     p.add_argument('--n_harmonics', type=int, default=4)
     p.add_argument('--test_size', type=float, default=0.2)

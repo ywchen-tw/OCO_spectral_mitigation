@@ -231,7 +231,7 @@ def main():
                         help='Override the input data file (default: platform data_name in '
                              'results/csv_collection/). Use for local multi-date testing.')
     parser.add_argument('--target', type=str, default=None,
-                        help="Clear-sky reference for the regression target: '10km' (default, xco2_bc_anomaly) or '15km' (xco2_bc_anomaly_r15).")
+                        help="Clear-sky reference for the regression target: '10km' (default, xco2_bc_anomaly), '15km' (xco2_bc_anomaly_r15), or '5km' (xco2_bc_anomaly_r05).")
     args = parser.parse_args()
 
     algo = _resolve_algo(args.model)

@@ -1091,6 +1091,12 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
     xco2_bc_anomaly_15, ref_means_15, ref_stds_15 = compute_xco2_anomaly(
         od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_15)
 
+    # ── 6c. Third reference set with looser min_cld_dist=5 km ─────────────
+    anomaly_args_05 = {'lat_thres': 0.25, 'std_thres': 1.0, 'min_cld_dist': 5.0}
+    xco2_raw_anomaly_05 = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args_05)
+    xco2_bc_anomaly_05, ref_means_05, ref_stds_05 = compute_xco2_anomaly(
+        od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_05)
+
     # -- 6c. Calculate fp areas from lite vertex longitudes and latitudes --
     fp_area_km2 = np.full(N, np.nan)
     if valid_lt.any():
@@ -1308,6 +1314,39 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=(7, 2, 7), overwrite=Tru
         "r15_exp_int_wco2_std":      ref_stds_15["exp_int_wco2"],
         "r15_exp_int_sco2_mean":     ref_means_15["exp_int_sco2"],
         "r15_exp_int_sco2_std":      ref_stds_15["exp_int_sco2"],
+        # ── Reference set with looser min_cld_dist=5 km (r05 prefix) ──
+        "xco2_raw_anomaly_r05":      xco2_raw_anomaly_05,
+        "xco2_bc_anomaly_r05":       xco2_bc_anomaly_05,
+        "r05_o2a_k1_mean":           ref_means_05["o2a_k1"],
+        "r05_o2a_k1_std":            ref_stds_05["o2a_k1"],
+        "r05_o2a_k2_mean":           ref_means_05["o2a_k2"],
+        "r05_o2a_k2_std":            ref_stds_05["o2a_k2"],
+        "r05_o2a_k3_mean":           ref_means_05["o2a_k3"],
+        "r05_o2a_k3_std":            ref_stds_05["o2a_k3"],
+        "r05_wco2_k1_mean":          ref_means_05["wco2_k1"],
+        "r05_wco2_k1_std":           ref_stds_05["wco2_k1"],
+        "r05_wco2_k2_mean":          ref_means_05["wco2_k2"],
+        "r05_wco2_k2_std":           ref_stds_05["wco2_k2"],
+        "r05_wco2_k3_mean":          ref_means_05["wco2_k3"],
+        "r05_wco2_k3_std":           ref_stds_05["wco2_k3"],
+        "r05_sco2_k1_mean":          ref_means_05["sco2_k1"],
+        "r05_sco2_k1_std":           ref_stds_05["sco2_k1"],
+        "r05_sco2_k2_mean":          ref_means_05["sco2_k2"],
+        "r05_sco2_k2_std":           ref_stds_05["sco2_k2"],
+        "r05_sco2_k3_mean":          ref_means_05["sco2_k3"],
+        "r05_sco2_k3_std":           ref_stds_05["sco2_k3"],
+        "r05_alb_o2a_mean":          ref_means_05["alb_o2a"],
+        "r05_alb_o2a_std":           ref_stds_05["alb_o2a"],
+        "r05_alb_wco2_mean":         ref_means_05["alb_wco2"],
+        "r05_alb_wco2_std":          ref_stds_05["alb_wco2"],
+        "r05_alb_sco2_mean":         ref_means_05["alb_sco2"],
+        "r05_alb_sco2_std":          ref_stds_05["alb_sco2"],
+        "r05_exp_int_o2a_mean":      ref_means_05["exp_int_o2a"],
+        "r05_exp_int_o2a_std":       ref_stds_05["exp_int_o2a"],
+        "r05_exp_int_wco2_mean":     ref_means_05["exp_int_wco2"],
+        "r05_exp_int_wco2_std":      ref_stds_05["exp_int_wco2"],
+        "r05_exp_int_sco2_mean":     ref_means_05["exp_int_sco2"],
+        "r05_exp_int_sco2_std":      ref_stds_05["exp_int_sco2"],
     }
     
     

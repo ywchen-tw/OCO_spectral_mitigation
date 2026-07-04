@@ -313,7 +313,7 @@ def main():
                    help="Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow "
                         "(land-only; only affects sfc_type=1).")
     p.add_argument('--target', type=str, default=None,
-                   help="Clear-sky reference for the regression target: '10km' (default, xco2_bc_anomaly) or '15km' (xco2_bc_anomaly_r15).")
+                   help="Clear-sky reference for the regression target: '10km' (default, xco2_bc_anomaly), '15km' (xco2_bc_anomaly_r15), or '5km' (xco2_bc_anomaly_r05).")
     p.add_argument('--n_members', type=int, default=5)
     p.add_argument('--hidden_dims', type=str, default='64,32',
                    help="Comma-separated GaussianMLP hidden layer widths. Default "

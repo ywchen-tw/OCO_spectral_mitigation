@@ -202,9 +202,9 @@ from analysis.xco2 import (
     _XCO2_TARGET_CONFIG, run_xco2_target_analysis,
 )
 from analysis.ref_corrected import (
-    _REF_PAIRS, _R15_PAIRS,
-    _has_ref_data, _has_r15_data,
-    add_ref_anomalies, add_r15_anomalies,
+    _REF_PAIRS, _R15_PAIRS, _R05_PAIRS,
+    _has_ref_data, _has_r15_data, _has_r05_data,
+    add_ref_anomalies, add_r15_anomalies, add_r05_anomalies,
     plot_ref_diff_vs_cld_dist, plot_ref_coverage_bias,
     plot_ref_std_profiles, plot_ref_corrected_profiles,
     plot_ref_zscore_profiles, plot_ref_signal_hierarchy,
@@ -749,6 +749,57 @@ def main():
         gc.collect()
     else:
         logger.warning("No r15_* columns found — skipping r15 Sections R1–R7")
+
+    # ── Sections R1–R7 (r05 reference, min_cld_dist=5 km) ────────────────────
+    if 0:#_has_r05_data(df):
+        r05_outdir = str(result_dir / 'figures' / analysis_dir / 'r05_corrected')
+        logger.info("Adding r05-corrected anomaly columns …")
+        df_r05 = add_r05_anomalies(df)
+
+        logger.info("R0 [r05]: fp − r05 scatter vs cloud distance …")
+        plot_ref_diff_vs_cld_dist(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R1 [r05]: r05 coverage bias analysis …")
+        plot_ref_coverage_bias(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R2 [r05]: r05 std profiles (scene heterogeneity) …")
+        plot_ref_std_profiles(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R3 [r05]: r05-corrected anomaly profiles …")
+        plot_ref_corrected_profiles(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R4 [r05]: r05 z-score profiles …")
+        plot_ref_zscore_profiles(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R5 [r05]: r05-corrected signal hierarchy …")
+        plot_ref_signal_hierarchy(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R6 [r05]: r05 albedo-decoupled exp_intercept residuals …")
+        plot_ref_alb_decoupled_exp(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R7 [r05]: Obs vs r05 scatter …")
+        plot_obs_vs_ref_scatter(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R8 [r05]: Multi-variable delta comparison …")
+        plot_ref_delta_multivar(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R9 [r05]: Cross-band delta coherence …")
+        plot_ref_cross_band_delta(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R10 [r05]: Delta decay length scale …")
+        plot_ref_delta_decay(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R11 [r05]: Delta vs XCO2 BC anomaly …")
+        plot_ref_delta_vs_xco2(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info("R12 [r05]: Partial correlation of delta vs XCO2 anomaly …")
+        plot_ref_delta_partial_xco2(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
+
+        logger.info(f"All r05-corrected figures written to {r05_outdir}")
+        del df_r05
+        gc.collect()
+    else:
+        logger.warning("No r05_* columns found — skipping r05 Sections R1–R7")
 
     # ── surface-type loop: process ocean then land sequentially ───────────────
     if 'sfc_type' in df.columns:
