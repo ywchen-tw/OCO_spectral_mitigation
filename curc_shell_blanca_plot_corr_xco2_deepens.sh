@@ -356,54 +356,27 @@ run_case  2020-09-16   pr20140923_20251024.public.qc.nc       1.43     2.71    4
 # ═══════════════════════ aggregate reports (run once, after all cases) ════════════
 # Both parse the active run_case lines above and summarize across cases.
 
-# (7) before/after-vs-TCCON comparison across all cases (reads each case's plot_data.parquet)
-#     --fname-suffix stamps the radius into the report/plot filenames so a radius
-#     sweep's summaries coexist (tccon_comparison_r100km.png vs _r50km.png).
+# (7) before/after-vs-TCCON comparison (reads each case's plot_data.parquet via the
+#     shared collocator).  This ONE script now emits every comparison figure in a
+#     single style: all-cases + excl-ny scatter/dumbbell, the ocean/land by-surface
+#     version (--exclude-sites), and the per-site bar chart.  --fname-suffix stamps
+#     the radius so a sweep's summaries coexist (…_r100km.png vs …_r50km.png).
 echo ""
 echo "############ AGGREGATE: tccon_comparison_report ############"
 python workspace/tccon_comparison_report.py \
     --script   "$SCRIPT_NAME" \
     --out-base "$OUT_BASE" \
     --output-dir "$OUT_BASE" \
-    --fname-suffix "_${RADIUS_TAG}" \
+    --fname-suffix "_${RADIUS_TAG}" --exclude-sites ny \
     --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN"
-
-# command for local run
-# python workspace/tccon_comparison_report.py \
-#     --script   curc_shell_blanca_plot_corr_xco2_deepens.sh \
-#     --out-base results/model_comparison/deep_ensemble \
-#     --output-dir results/model_comparison/deep_ensemble \
-#     --radius-km 100 --window-min 60
-
 
 # (8) correction-policy stats — READS the step-4 plot_data (no second model run) via
 #     --plotdata-base, and writes CSVs to --output-dir (= OUT_BASE), so the policy
 #     stats use the SAME processed XCO2 as the plots and everything lands under
-#     deep_ensemble/<MODEL_TAG>/.  Radius is stamped into filenames (--fname-suffix),
-#     so a radius sweep's stats + figures coexist in one dir.
+#     deep_ensemble/<MODEL_TAG>/.  Footprint-level pooled / near-far-cloud /
+#     drop-guards stats (complementary to the per-case figures from step 7).
 echo ""
 echo "############ AGGREGATE: tccon_correction_policy_stats ############"
 python workspace/tccon_correction_policy_stats.py \
     --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN" \
     --plotdata-base "$OUT_BASE" --output-dir "$OUT_BASE" --fname-suffix "_${RADIUS_TAG}"
-
-# (9) station-day original-vs-corrected comparison (reads station_means from step 8)
-#     Two variants: ALL stations, and EXCLUDING Ny-Ålesund (the sole |lat|>75 site),
-#     so the corrected-vs-uncorrected verdict is shown with and without that outlier.
-#     (The |lat|>L gate was dropped — the full correction beat it at every radius.)
-#     --fname-suffix stamps the radius so a sweep's figures coexist.
-echo ""
-echo "############ AGGREGATE: plot_tccon_station_comparison ############"
-python workspace/plot_tccon_station_comparison.py --fname-suffix "_${RADIUS_TAG}" \
-    --means "$OUT_BASE/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$OUT_BASE"
-python workspace/plot_tccon_station_comparison.py --exclude-sites ny --fname-suffix "_${RADIUS_TAG}" \
-    --means "$OUT_BASE/tccon_policy_station_means_${RADIUS_TAG}.csv" --output-dir "$OUT_BASE"
-
-# (9b) same comparison but with OCEAN and LAND footprints separated (4-panel:
-#      ocean row + land row), reading the per-surface station means from step 8.
-echo ""
-echo "############ AGGREGATE: plot_tccon_station_comparison_by_surface ############"
-python workspace/plot_tccon_station_comparison_by_surface.py --fname-suffix "_${RADIUS_TAG}" \
-    --means "$OUT_BASE/tccon_policy_station_means_by_surface_${RADIUS_TAG}.csv" --output-dir "$OUT_BASE"
-python workspace/plot_tccon_station_comparison_by_surface.py --exclude-sites ny --fname-suffix "_${RADIUS_TAG}" \
-    --means "$OUT_BASE/tccon_policy_station_means_by_surface_${RADIUS_TAG}.csv" --output-dir "$OUT_BASE"

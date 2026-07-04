@@ -63,6 +63,106 @@ def _ols_fit(x, y):
                 intercept_se=intercept_se, r2=r2, n=n)
 
 
+def _draw_pair(axA, axB, cmp, title_prefix=''):
+    """Draw the shared 2-panel view for a per-case subset ``cmp``: (axA) OCO-2 mean
+    vs TCCON mean (1:1 + OLS fits with slope/R²/RMSE), (axB) per-case bias-to-TCCON
+    dumbbell raw→before→after with mean±std + RMSE.  Used by the all-cases, excl-sites
+    and by-surface figures so they share one legend/text style."""
+    cmp = cmp.sort_values('bias_before').reset_index(drop=True)
+    # (a) scatter vs TCCON (1:1)
+    if cmp['raw_mu'].notna().any():
+        axA.errorbar(cmp['tccon_mu'], cmp['raw_mu'], xerr=cmp['tccon_sd'], yerr=cmp['raw_sd'],
+                     fmt='o', ms=7, color='darkorange', alpha=0.7, elinewidth=0.8,
+                     markeredgecolor='black', markeredgewidth=0.6, label='raw XCO₂')
+    axA.errorbar(cmp['tccon_mu'], cmp['orig_mu'], xerr=cmp['tccon_sd'], yerr=cmp['orig_sd'],
+                 fmt='o', ms=7, color='steelblue', alpha=0.7, elinewidth=0.8,
+                 markeredgecolor='black', markeredgewidth=0.6, label='original XCO₂_bc')
+    axA.errorbar(cmp['tccon_mu'], cmp['corr_mu'], xerr=cmp['tccon_sd'], yerr=cmp['corr_sd'],
+                 fmt='o', ms=7, color='green', alpha=0.8, elinewidth=0.8,
+                 markeredgecolor='black', markeredgewidth=0.6, label='corrected')
+    lo = float(np.nanmin([cmp['tccon_mu'].min(), cmp['corr_mu'].min(),
+                          cmp['orig_mu'].min(), cmp['raw_mu'].min()])) - 1
+    hi = float(np.nanmax([cmp['tccon_mu'].max(), cmp['corr_mu'].max(),
+                          cmp['orig_mu'].max(), cmp['raw_mu'].max()])) + 1
+    axA.plot([lo, hi], [lo, hi], 'k--', lw=1, label='1:1')
+    # OLS fits: OCO-2 (y) vs TCCON (x), raw / before / after correction
+    _xline = np.array([lo, hi])
+    _series = [('orig_mu', 'steelblue', 'before'), ('corr_mu', 'green', 'after')]
+    if cmp['raw_mu'].notna().any():
+        _series = [('raw_mu', 'darkorange', 'raw')] + _series
+
+    def _rmse_to_tccon(col):
+        _d = (cmp[col] - cmp['tccon_mu']).to_numpy(float)
+        _d = _d[np.isfinite(_d)]
+        return float(np.sqrt(np.mean(_d ** 2))) if _d.size else np.nan
+
+    _fits = {}
+    for _col, _color, _lbl in _series:
+        _f = _ols_fit(cmp['tccon_mu'], cmp[_col])
+        if _f is not None:
+            _f['rmse'] = _rmse_to_tccon(_col)
+        _fits[_lbl] = _f
+        if _f is not None:
+            axA.plot(_xline, _f['intercept'] + _f['slope'] * _xline,
+                     '-', color=_color, lw=1.6, alpha=0.9, zorder=4)
+    _txt = []
+    for _col, _color, _lbl in _series:
+        _f = _fits.get(_lbl)
+        if _f is not None:
+            _txt.append(f"{_lbl}:  slope = {_f['slope']:.3f} ± {_f['slope_se']:.3f}   "
+                        f"R² = {_f['r2']:.3f}   RMSE = {_f['rmse']:.2f}")
+    if _txt:
+        axA.text(0.04, 0.96, '\n'.join(_txt), transform=axA.transAxes,
+                 va='top', ha='left', fontsize=10,
+                 bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
+    axA.set_xlabel('TCCON XCO₂ (ppm)'); axA.set_ylabel('OCO-2 XCO₂ (ppm)')
+    axA.set_title(f'{title_prefix}OCO-2 vs TCCON (mean ± std)'); axA.legend(loc='lower right')
+    axA.grid(alpha=0.3)
+    axA.set_xlim(lo, hi); axA.set_ylim(lo, hi); axA.set_aspect('equal')
+    # (b) bias raw→before→after dumbbell, per case (errorbar = OCO-2 σ)
+    y = np.arange(len(cmp))
+    has_raw = cmp['bias_raw'].notna().any()
+    for yi in range(len(cmp)):
+        pts = [cmp['bias_before'].iloc[yi], cmp['bias_after'].iloc[yi]]
+        if has_raw and np.isfinite(cmp['bias_raw'].iloc[yi]):
+            pts.append(cmp['bias_raw'].iloc[yi])
+        axB.plot([min(pts), max(pts)], [yi, yi], '-', color='lightgray', lw=1.5, zorder=1)
+    if has_raw:
+        axB.errorbar(cmp['bias_raw'], y, xerr=cmp['raw_sd'], fmt='o', ms=7,
+                     color='darkorange', ecolor='darkorange', elinewidth=0.8,
+                     capsize=3, capthick=0.8, markeredgecolor='black',
+                     markeredgewidth=0.6, label='raw', zorder=2)
+    axB.errorbar(cmp['bias_before'], y, xerr=cmp['orig_sd'], fmt='o', ms=7,
+                 color='steelblue', ecolor='steelblue', elinewidth=0.8,
+                 capsize=3, capthick=0.8, markeredgecolor='black',
+                 markeredgewidth=0.6, label='before', zorder=3)
+    axB.errorbar(cmp['bias_after'], y, xerr=cmp['corr_sd'], fmt='o', ms=7,
+                 color='green', ecolor='green', elinewidth=0.8,
+                 capsize=3, capthick=0.8, markeredgecolor='black',
+                 markeredgewidth=0.6, label='after', zorder=4)
+    axB.axvline(0, color='k', lw=1)
+    _btxt = []
+    for _lbl, _col, _rcol in (('raw', 'bias_raw', 'rmse_raw'),
+                              ('before', 'bias_before', 'rmse_before'),
+                              ('after', 'bias_after', 'rmse_after')):
+        if _col == 'bias_raw' and not has_raw:
+            continue
+        _b = cmp[_col].to_numpy(float); _b = _b[np.isfinite(_b)]
+        _r = cmp[_rcol].to_numpy(float); _r = _r[np.isfinite(_r)]
+        if _b.size:
+            _rtxt = f"   RMSE {np.mean(_r):.2f}" if _r.size else ""
+            _btxt.append(f"{_lbl}:  bias {np.mean(_b):+.2f} ± {np.std(_b):.2f}{_rtxt}")
+    if _btxt:
+        axB.text(0.04, 0.96, '\n'.join(_btxt), transform=axB.transAxes,
+                 va='top', ha='left', fontsize=10,
+                 bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
+    axB.set_yticks(y); axB.set_yticklabels([f"{r.site} {r.date}" for r in cmp.itertuples()], fontsize=6)
+    axB.set_xlabel('XCO₂ bias to TCCON (ppm)')
+    axB.set_title(f'{title_prefix}Bias to TCCON: raw → before → after' if has_raw
+                  else f'{title_prefix}Bias before → after correction')
+    axB.legend(loc='lower right'); axB.grid(alpha=0.3, axis='x')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -75,17 +175,23 @@ def main():
     ap.add_argument('--fname-suffix', default='',
                     help="Appended before the extension of every output filename "
                          "(e.g. '_r100km') so a parameter sweep's reports coexist.")
+    ap.add_argument('--exclude-sites', default='',
+                    help="Comma-separated TCCON site codes (e.g. 'ny'); also emits an "
+                         "_excl_<sites> variant of the scatter/dumbbell and by-surface "
+                         "figures with those stations dropped.")
     args = ap.parse_args()
 
     out_base = Path(args.out_base)
     out_dir = Path(args.output_dir); out_dir.mkdir(parents=True, exist_ok=True)
     sfx = args.fname_suffix
+    excl = [s.strip() for s in args.exclude_sites.split(',') if s.strip()]
     # Output paths (suffix inserted before the extension).
     P_CSV      = out_dir / f'tccon_comparison{sfx}.csv'
     P_MD       = out_dir / f'tccon_comparison{sfx}.md'
     P_PNG      = out_dir / f'tccon_comparison{sfx}.png'
     P_SITE_CSV = out_dir / f'tccon_comparison_by_site{sfx}.csv'
     P_SITE_PNG = out_dir / f'tccon_comparison_by_site{sfx}.png'
+    P_BYSURF   = out_dir / f'tccon_comparison_by_surface{sfx}.png'
     storage = get_storage_dir()
 
     # ── parse active run_case lines ────────────────────────────────────────────
@@ -129,6 +235,26 @@ def main():
         rmse = float(np.sqrt(np.nanmean((v - tmu) ** 2))) if n_tc else np.nan
         return mu, sd, bias, rmse
 
+    # KEEP-guards series (headline) + DROP-guards series (correction quality) for one
+    # per-case footprint frame (a whole case, or one surface within it).
+    def _case_metrics(frame, tmu, n_tc):
+        raw = frame['xco2_raw'] if 'xco2_raw' in frame.columns else np.full(len(frame), np.nan)
+        drop = frame[~frame['is_guarded']] if 'is_guarded' in frame.columns else frame
+        raw_mu, raw_sd, bias_raw, rmse_raw = _stat(raw, tmu, n_tc)
+        orig_mu, orig_sd, bias_before, rmse_before = _stat(frame['xco2_bc'], tmu, n_tc)
+        corr_mu, corr_sd, bias_after, rmse_after = _stat(frame[CORR], tmu, n_tc)
+        _, _, bias_before_dg, rmse_before_dg = _stat(drop['xco2_bc'], tmu, n_tc)
+        _, _, bias_after_dg, rmse_after_dg = _stat(drop[CORR], tmu, n_tc)
+        return dict(
+            n_oco=len(frame),
+            n_guarded=int(frame['is_guarded'].sum()) if 'is_guarded' in frame.columns else 0,
+            raw_mu=raw_mu, raw_sd=raw_sd, orig_mu=orig_mu, orig_sd=orig_sd,
+            corr_mu=corr_mu, corr_sd=corr_sd,
+            bias_raw=bias_raw, bias_before=bias_before, bias_after=bias_after,
+            rmse_raw=rmse_raw, rmse_before=rmse_before, rmse_after=rmse_after,
+            n_oco_dg=len(drop), bias_before_dg=bias_before_dg, bias_after_dg=bias_after_dg,
+            rmse_before_dg=rmse_before_dg, rmse_after_dg=rmse_after_dg)
+
     rows = []
     for c in cases:
         site = c['site'] or c['tccon'][:2]
@@ -150,47 +276,33 @@ def main():
         near = col['near']; tmu = col['tccon_ref']; tsd = col['tccon_sd']; n_tc = col['n_tccon']
         if not len(near):
             continue
-        drop = near[~near['is_guarded']]                # drop-guards subset
-        n_g = int(near['is_guarded'].sum())
-        _raw = (lambda f: f['xco2_raw'] if 'xco2_raw' in f.columns
-                else np.full(len(f), np.nan))
-        # KEEP-guards series (headline: the end-to-end result)
-        raw_mu, raw_sd, bias_raw, rmse_raw = _stat(_raw(near), tmu, n_tc)
-        orig_mu, orig_sd, bias_before, rmse_before = _stat(near['xco2_bc'], tmu, n_tc)
-        corr_mu, corr_sd, bias_after, rmse_after = _stat(near[CORR], tmu, n_tc)
-        # DROP-guards series (correction quality where the model acted)
-        _, _, bias_before_dg, rmse_before_dg = _stat(drop['xco2_bc'], tmu, n_tc)
-        _, _, bias_after_dg, rmse_after_dg = _stat(drop[CORR], tmu, n_tc)
-        rows.append(dict(
-            site=site, date=c['date'], n_oco=len(near), n_guarded=n_g, n_tccon=n_tc,
-            raw_mu=raw_mu, raw_sd=raw_sd,
-            orig_mu=orig_mu, orig_sd=orig_sd,
-            corr_mu=corr_mu, corr_sd=corr_sd,
-            tccon_mu=tmu, tccon_sd=tsd,
-            bias_raw=bias_raw, bias_before=bias_before, bias_after=bias_after,
-            rmse_raw=rmse_raw, rmse_before=rmse_before, rmse_after=rmse_after,
-            n_oco_dg=len(drop),
-            bias_before_dg=bias_before_dg, bias_after_dg=bias_after_dg,
-            rmse_before_dg=rmse_before_dg, rmse_after_dg=rmse_after_dg,
-        ))
+        # one row per surface: all (pooled) + ocean (sfc0) + land (sfc1)
+        for sname, frame in (('all', near),
+                             ('ocean', near[near['sfc_type'] == 0]),
+                             ('land',  near[near['sfc_type'] == 1])):
+            if not len(frame):
+                continue
+            rows.append(dict(site=site, date=c['date'], surface=sname, n_tccon=n_tc,
+                             tccon_mu=tmu, tccon_sd=tsd, **_case_metrics(frame, tmu, n_tc)))
 
     if not rows:
         print(f"No cases matched (out-base={out_base}, script={args.script}). "
               "Nothing to report — check that each case's plot_data.parquet exists.",
               file=sys.stderr)
         return
-    rep = pd.DataFrame(rows).sort_values(['site', 'date']).reset_index(drop=True)
+    rep = pd.DataFrame(rows).sort_values(['surface', 'site', 'date']).reset_index(drop=True)
     rep.to_csv(P_CSV, index=False)
 
-    cmp = rep[rep['n_tccon'] > 0].copy()
+    rep_all = rep[rep['surface'] == 'all']            # pooled-surface per-case rows
+    cmp = rep_all[rep_all['n_tccon'] > 0].copy()
     # ── markdown ───────────────────────────────────────────────────────────────
     def f(x, n=2): return '' if pd.isna(x) else f'{x:.{n}f}'
     lines = ['# OCO-2 corrected vs TCCON — combined comparison', '',
-             f'{len(rep)} cases ({len(cmp)} with TCCON in ±{args.window_min:g} min, '
+             f'{len(rep_all)} cases ({len(cmp)} with TCCON in ±{args.window_min:g} min, '
              f'≤{args.radius_km:g} km).  XCO2 in ppm (mean ± std).', '',
              '| site | date | n_oco | n_tccon | original | corrected | TCCON | bias before | bias after |',
              '|---|---|--:|--:|---|---|---|--:|--:|']
-    for _, r in rep.iterrows():
+    for _, r in rep_all.iterrows():
         lines.append(f"| {r['site']} | {r['date']} | {r['n_oco']} | {r['n_tccon']} | "
                      f"{f(r['orig_mu'])}±{f(r['orig_sd'])} | {f(r['corr_mu'])}±{f(r['corr_sd'])} | "
                      f"{f(r['tccon_mu'])}±{f(r['tccon_sd'])} | {f(r['bias_before'],2)} | {f(r['bias_after'],2)} |")
@@ -241,108 +353,38 @@ def main():
     P_MD.write_text('\n'.join(lines) + '\n')
     print('\n'.join(lines))
 
-    # ── figure ─────────────────────────────────────────────────────────────────
-    if len(cmp):
-        cmp = cmp.sort_values('bias_before').reset_index(drop=True)
+    # ── figures (scatter + per-case dumbbell) — ONE shared style for every view ──
+    def _fig_pair(sub, png, title_prefix=''):
         fig, (axA, axB) = plt.subplots(1, 2, figsize=(16, 7))
-        # (a) scatter vs TCCON (1:1)
-        if cmp['raw_mu'].notna().any():
-            axA.errorbar(cmp['tccon_mu'], cmp['raw_mu'], xerr=cmp['tccon_sd'], yerr=cmp['raw_sd'],
-                         fmt='o', ms=7, color='darkorange', alpha=0.7, elinewidth=0.8,
-                         markeredgecolor='black', markeredgewidth=0.6, label='raw XCO₂')
-        axA.errorbar(cmp['tccon_mu'], cmp['orig_mu'], xerr=cmp['tccon_sd'], yerr=cmp['orig_sd'],
-                     fmt='o', ms=7, color='steelblue', alpha=0.7, elinewidth=0.8,
-                     markeredgecolor='black', markeredgewidth=0.6, label='original XCO₂_bc')
-        axA.errorbar(cmp['tccon_mu'], cmp['corr_mu'], xerr=cmp['tccon_sd'], yerr=cmp['corr_sd'],
-                     fmt='o', ms=7, color='green', alpha=0.8, elinewidth=0.8,
-                     markeredgecolor='black', markeredgewidth=0.6, label='corrected')
-        lo = float(np.nanmin([cmp['tccon_mu'].min(), cmp['corr_mu'].min(),
-                              cmp['orig_mu'].min(), cmp['raw_mu'].min()])) - 1
-        hi = float(np.nanmax([cmp['tccon_mu'].max(), cmp['corr_mu'].max(),
-                              cmp['orig_mu'].max(), cmp['raw_mu'].max()])) + 1
-        axA.plot([lo, hi], [lo, hi], 'k--', lw=1, label='1:1')
-        # ── OLS fits: OCO-2 (y) vs TCCON (x), raw / before / after correction ────
-        _xline = np.array([lo, hi])
-        _series = [('orig_mu', 'steelblue', 'before'), ('corr_mu', 'green', 'after')]
-        if cmp['raw_mu'].notna().any():
-            _series = [('raw_mu', 'darkorange', 'raw')] + _series
+        _draw_pair(axA, axB, sub, title_prefix=title_prefix)
+        fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
 
-        def _rmse_to_tccon(col):
-            _d = (cmp[col] - cmp['tccon_mu']).to_numpy(float)
-            _d = _d[np.isfinite(_d)]
-            return float(np.sqrt(np.mean(_d ** 2))) if _d.size else np.nan
+    def _fig_by_surface(sites_excl, png, ttl_excl=''):
+        rows_ok = lambda s: rep[(rep['surface'] == s) & (rep['n_tccon'] > 0)
+                                & (~rep['site'].isin(sites_excl))]
+        present = [s for s in ('ocean', 'land') if len(rows_ok(s))]
+        if not present:
+            return None
+        fig, axes = plt.subplots(len(present), 2, figsize=(16, 7 * len(present)), squeeze=False)
+        for i, s in enumerate(present):
+            _draw_pair(axes[i, 0], axes[i, 1], rows_ok(s), title_prefix=f'{s.upper()}{ttl_excl}: ')
+        fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
+        return png
 
-        _fits = {}
-        for _col, _color, _lbl in _series:
-            _f = _ols_fit(cmp['tccon_mu'], cmp[_col])
-            if _f is not None:
-                _f['rmse'] = _rmse_to_tccon(_col)
-            _fits[_lbl] = _f
-            if _f is not None:
-                axA.plot(_xline, _f['intercept'] + _f['slope'] * _xline,
-                         '-', color=_color, lw=1.6, alpha=0.9, zorder=4)
-        # annotation box with slope ± SE, R² and RMSE-to-TCCON for each series
-        _txt = []
-        for _col, _color, _lbl in _series:
-            _f = _fits.get(_lbl)
-            if _f is not None:
-                _txt.append(f"{_lbl}:  slope = {_f['slope']:.3f} ± {_f['slope_se']:.3f}   "
-                            f"R² = {_f['r2']:.3f}   RMSE = {_f['rmse']:.2f}")
-        if _txt:
-            axA.text(0.04, 0.96, '\n'.join(_txt), transform=axA.transAxes,
-                     va='top', ha='left', fontsize=10,
-                     bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
-        axA.set_xlabel('TCCON XCO₂ (ppm)'); axA.set_ylabel('OCO-2 XCO₂ (ppm)')
-        axA.set_title('OCO-2 vs TCCON (mean ± std)'); axA.legend(loc='lower right')
-        axA.grid(alpha=0.3)
-        axA.set_xlim(lo, hi); axA.set_ylim(lo, hi); axA.set_aspect('equal')
-        # (b) bias raw→before→after dumbbell, per case (errorbar = OCO-2 σ)
-        y = np.arange(len(cmp))
-        has_raw = cmp['bias_raw'].notna().any()
-        for yi in range(len(cmp)):
-            pts = [cmp['bias_before'].iloc[yi], cmp['bias_after'].iloc[yi]]
-            if has_raw and np.isfinite(cmp['bias_raw'].iloc[yi]):
-                pts.append(cmp['bias_raw'].iloc[yi])
-            axB.plot([min(pts), max(pts)], [yi, yi], '-', color='lightgray', lw=1.5, zorder=1)
-        if has_raw:
-            axB.errorbar(cmp['bias_raw'], y, xerr=cmp['raw_sd'], fmt='o', ms=7,
-                         color='darkorange', ecolor='darkorange', elinewidth=0.8,
-                         capsize=3, capthick=0.8, markeredgecolor='black',
-                         markeredgewidth=0.6, label='raw', zorder=2)
-        axB.errorbar(cmp['bias_before'], y, xerr=cmp['orig_sd'], fmt='o', ms=7,
-                     color='steelblue', ecolor='steelblue', elinewidth=0.8,
-                     capsize=3, capthick=0.8, markeredgecolor='black',
-                     markeredgewidth=0.6, label='before', zorder=3)
-        axB.errorbar(cmp['bias_after'], y, xerr=cmp['corr_sd'], fmt='o', ms=7,
-                     color='green', ecolor='green', elinewidth=0.8,
-                     capsize=3, capthick=0.8, markeredgecolor='black',
-                     markeredgewidth=0.6, label='after', zorder=4)
-        axB.axvline(0, color='k', lw=1)
-        # annotation box: per-case bias (mean ± std) AND mean per-footprint
-        # RMSE-to-TCCON for each series — RMSE captures scatter the |bias| misses.
-        _btxt = []
-        for _lbl, _col, _rcol in (('raw', 'bias_raw', 'rmse_raw'),
-                                  ('before', 'bias_before', 'rmse_before'),
-                                  ('after', 'bias_after', 'rmse_after')):
-            if _col == 'bias_raw' and not has_raw:
-                continue
-            _b = cmp[_col].to_numpy(float); _b = _b[np.isfinite(_b)]
-            _r = cmp[_rcol].to_numpy(float); _r = _r[np.isfinite(_r)]
-            if _b.size:
-                _rtxt = f"   RMSE {np.mean(_r):.2f}" if _r.size else ""
-                _btxt.append(f"{_lbl}:  bias {np.mean(_b):+.2f} ± {np.std(_b):.2f}{_rtxt}")
-        if _btxt:
-            axB.text(0.04, 0.96, '\n'.join(_btxt), transform=axB.transAxes,
-                     va='top', ha='left', fontsize=10,
-                     bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
-        axB.set_yticks(y); axB.set_yticklabels([f"{r.site} {r.date}" for r in cmp.itertuples()], fontsize=6)
-        axB.set_xlabel('XCO₂ bias to TCCON (ppm)')
-        axB.set_title('Bias to TCCON: raw → before → after' if has_raw
-                      else 'Bias before → after correction')
-        axB.legend(loc='lower right'); axB.grid(alpha=0.3, axis='x')
-        fig.tight_layout()
-        fig.savefig(P_PNG, dpi=200, bbox_inches='tight')
-        plt.close(fig)
+    extra_saved = []
+    if len(cmp):
+        _fig_pair(cmp, P_PNG)                                        # all cases
+        p = _fig_by_surface([], P_BYSURF)
+        if p: extra_saved.append(p)
+        if excl:                                                     # excl-sites variants
+            _sub = cmp[~cmp['site'].isin(excl)]
+            if len(_sub):
+                _pe = out_dir / f'tccon_comparison_excl_{"_".join(excl)}{sfx}.png'
+                _fig_pair(_sub, _pe, title_prefix=f'(excl {",".join(excl)}) ')
+                extra_saved.append(_pe)
+            _pe = out_dir / f'tccon_comparison_by_surface_excl_{"_".join(excl)}{sfx}.png'
+            p = _fig_by_surface(excl, _pe, ttl_excl=f' (excl {",".join(excl)})')
+            if p: extra_saved.append(p)
 
         # ── per-site bar chart: mean |bias| and σ, before vs after ─────────────
         if len(site_agg):
@@ -366,6 +408,8 @@ def main():
         print(f"\n[saved] {P_CSV}\n[saved] {P_MD}"
               f"\n[saved] {P_PNG}\n[saved] {P_SITE_CSV}"
               f"\n[saved] {P_SITE_PNG}")
+        for _p in extra_saved:
+            print(f"[saved] {_p}")
 
 
 if __name__ == '__main__':
