@@ -97,6 +97,33 @@ python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_f
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
+# ── Architecture A/B: 32,32,32 vs the default 64,32 (production) ───────────────
+# Full-scale confirmation of a local 2020 hidden-dims sweep (ocean, multi-date
+# date_kfold, folds 0-2): every 3-LAYER net beat the 2-layer 64,32 default, and
+# the NARROWEST deep net won — 32,32,32 topped both global and near-cloud-tail R²
+# (mean R² 0.512 vs 0.493, [0,2)km tail 0.665 vs 0.649) despite the FEWEST params
+# of any 3-layer arm.  Read: the gain is DEPTH, not width (widening to 128,64,32
+# was the weakest deep arm).  Margins were small (~+0.019 R²) and inside fold
+# noise on one year, so this arm is the full 2016-2020, land+ocean, 5-fold check
+# before moving the production default off 64,32.  ONLY --hidden_dims differs from
+# the de_{surface}_beta_nll_prof_reg_f${F} block above; distinct _arch32 tag so
+# results never collide.  A/B partner: de_{surface}_beta_nll_prof_reg_f${F} (64,32).
+python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_arch32_f${F} \
+    --profile-pca \
+    --hidden_dims 32,32,32 \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_arch32_f${F} \
+    --profile-pca \
+    --hidden_dims 32,32,32 \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
 # ── Full + profile, RAW-anomaly target (xco2_raw_anomaly, 10 km ref) ──────────
 # Same production structure (lndo01 + profile) but regressing the RAW (non-bias-
 # corrected) anomaly instead of xco2_bc_anomaly — tests the ML correction applied
@@ -113,6 +140,30 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_
 python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_f${F} \
     --profile-pca \
     --target xco2_raw_anomaly \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+# ── Architecture A/B: 32,32,32 vs the default 64,32 (10 km RAW target) ─────────
+# Raw-target companion to the arch32 (bc-target) arms above, so the depth-not-width
+# check covers BOTH the bias-corrected and the raw anomaly at 10 km — matching the
+# raw-only arch32 arms in the r05/r15 launchers.  ONLY --hidden_dims differs from
+# the de_{surface}_beta_nll_prof_reg_raw_f${F} block above; _raw + _arch32 tags keep
+# results distinct.  A/B partner: de_{surface}_beta_nll_prof_reg_raw_f${F} (64,32).
+python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_raw_arch32_f${F} \
+    --profile-pca \
+    --target xco2_raw_anomaly \
+    --hidden_dims 32,32,32 \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_arch32_f${F} \
+    --profile-pca \
+    --target xco2_raw_anomaly \
+    --hidden_dims 32,32,32 \
     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
     --norm layer --dropout 0.1 \
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \

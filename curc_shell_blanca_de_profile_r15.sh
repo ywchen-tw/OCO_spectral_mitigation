@@ -64,17 +64,33 @@ GPU_MONITOR_PID=$!
 F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
 
-# ── Full feature set (production config + profile, 15 km reference) ────────────
+# ── Full feature set (production config + profile, 15 km BC reference) ─────────
 # --target 15km selects xco2_bc_anomaly_r15.  --profile-pca and _r15 suffix are
 # explicit so intent is obvious in the job log.  A/B partner: the 10 km run
 # de_{surface}_beta_nll_prof_reg_f${F} in curc_shell_blanca_de_profile.sh.
-# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_r15_f${F} \
-#     --profile-pca \
-#     --target 15km \
-#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#     --norm layer --dropout 0.1 \
-#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# ACTIVATED (was commented) so the arch32 A/B has an in-file bc-target 64,32
+# baseline at 15 km, matching the bc×raw × arch32 symmetry in the 10 km launcher.
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_r15_f${F} \
+    --profile-pca \
+    --target 15km \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+# ── Architecture A/B: 32,32,32 vs the default 64,32 (15 km BC target) ──────────
+# BC-target companion to the raw_r15 arch32 arm below, completing the bc×raw ×
+# arch32 matrix at 15 km (mirrors the 10 km launcher).  ONLY --hidden_dims differs
+# from the bc-target 64,32 baseline above; _arch32 tag keeps results distinct.
+# A/B partner: de_land_beta_nll_prof_reg_r15_f${F} (64,32).
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_r15_arch32_f${F} \
+    --profile-pca \
+    --target 15km \
+    --hidden_dims 32,32,32 \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Full + profile, RAW-anomaly target (xco2_raw_anomaly_r15, 15 km ref) ──────
 # Same production structure (lndo01 + profile) regressing the RAW anomaly instead
@@ -82,6 +98,24 @@ NFOLDS=5
 python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_r15_f${F} \
     --profile-pca \
     --target xco2_raw_anomaly_r15 \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+
+# ── Architecture A/B: 32,32,32 vs the default 64,32 (15 km raw, land) ──────────
+# Mirrors the arch32 confirmation arm in curc_shell_blanca_de_profile.sh, carried
+# onto the 15 km RAW-anomaly reference.  NOTE: the local 2020 hidden-dims sweep was
+# OCEAN-only; this is the LAND check at the 15 km reference, the surface where the
+# correction is actually driven — so the arm is genuinely informative even if the
+# ocean edge (~+0.019 R², inside fold noise) doesn't transfer.  Finding: depth not
+# width — every 3-layer net beat 64,32, narrowest deep net (32,32,32) won.  ONLY
+# --hidden_dims differs from the raw_r15 arm above; _arch32 tag keeps results
+# distinct.  A/B partner: de_land_beta_nll_prof_reg_raw_r15_f${F} (64,32).
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_r15_arch32_f${F} \
+    --profile-pca \
+    --target xco2_raw_anomaly_r15 \
+    --hidden_dims 32,32,32 \
     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
     --norm layer --dropout 0.1 \
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
