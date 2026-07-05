@@ -137,13 +137,13 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_f${F} \
-#     --profile-pca \
-#     --target xco2_raw_anomaly \
-#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#     --norm layer --dropout 0.1 \
-#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_f${F} \
+    --profile-pca \
+    --target xco2_raw_anomaly \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Architecture A/B: 32,32,32 vs the default 64,32 (10 km RAW target) ─────────
 # Raw-target companion to the arch32 (bc-target) arms above, so the depth-not-width
