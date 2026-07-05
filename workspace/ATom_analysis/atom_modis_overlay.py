@@ -32,12 +32,14 @@ PLOT_BASE = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", T
 MERGED_DIR = os.path.join(PLOT_BASE, "atom_merged")     # merged profiles (input)
 TILES_DIR = os.path.join(PLOT_BASE, "_modis_tiles")     # cached GIBS tiles
 EPOCH = dt.datetime(1970, 1, 1)
-DATES = ["2017-01-26", "2017-02-10", "2017-10-20", "2017-10-27", "2018-05-12"]
+DATES = ["2017-01-26", "2017-02-06", "2017-02-10", "2017-10-20", "2017-10-27", "2018-05-12"]
 CORR = "deep_ensemble_corrected_xco2"
+# Dateline flights: OCO coincidence day (key) differs from the ATom flight (merged) date.
+OCO_TO_FLIGHT = {"2017-02-06": "2017-02-05"}
 
 
 def load_atom(date):
-    ymd = date.replace("-", "")
+    ymd = OCO_TO_FLIGHT.get(date, date).replace("-", "")
     df = pd.read_parquet(os.path.join(MERGED_DIR, f"atom_merged_{ymd}.parquet"),
                          columns=["time_utc_s", "lat", "lon", "alt_m", "profile_id"])
     base = (dt.datetime(int(ymd[:4]), int(ymd[4:6]), int(ymd[6:])) - EPOCH).total_seconds()

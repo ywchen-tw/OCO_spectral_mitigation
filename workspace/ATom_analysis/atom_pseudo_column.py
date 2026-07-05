@@ -41,12 +41,16 @@ PLOT_BASE = OUT_BASE                              # per-case combined_<date>_ato
 MERGED_DIR = os.path.join(OUT_BASE, "atom_merged")  # merged profiles (input)
 EPOCH = dt.datetime(1970, 1, 1)
 
-DATES = ["2017-01-26", "2017-02-10", "2017-10-20", "2017-10-27", "2018-05-12"]
+DATES = ["2017-01-26", "2017-02-06", "2017-02-10", "2017-10-20", "2017-10-27", "2018-05-12"]
 CORR_COL = "deep_ensemble_corrected_xco2"
+
+# Dateline-crossing flights: the OCO coincidence day (key everywhere) is the flight's
+# 2nd UTC day, so the merged ATom profile lives under the flight (1st) date.
+OCO_TO_FLIGHT = {"2017-02-06": "2017-02-05"}
 
 
 def load_atom(date: str) -> pd.DataFrame:
-    ymd = date.replace("-", "")
+    ymd = OCO_TO_FLIGHT.get(date, date).replace("-", "")
     p = os.path.join(MERGED_DIR, f"atom_merged_{ymd}.parquet")
     df = pd.read_parquet(p, columns=["time_utc_s", "lat", "lon", "p_hpa", "co2_ppm",
                                       "profile_id", "leg_dir"])
