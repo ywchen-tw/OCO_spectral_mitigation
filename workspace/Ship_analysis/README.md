@@ -72,8 +72,20 @@ against the actual cloud field.
 sbatch workspace/Ship_analysis/curc_shell_blanca_ship_deepens.sh     # submit from repo root
 ```
 
-Output → `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/ship/combined_<date>_<ship>/`
-(`plot_data.parquet` + `ship_comparison_<ship>_<date>.png`).
+Per-case figure panels: DeepEns-corrected map, **before-correction `xco2_bc` map** (same
+colour scale, side-by-side), OCO-vs-corrected-vs-ship histogram with **μ and σ** (bias
+title carries ±σ(OCO)⊕σ(ship)), and the ship time series. `plot_ship_summary.py` then
+draws a cross-case summary (`ship_comparison_summary.png`) mirroring
+`atom_pseudo_column_summary.png`: per-case bias dumbbell `xco2_bc → DE-corrected` and
+bias-vs-cloud-distance, both with ±1σ error bars.
+
+Output → `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/ship/`:
+per case `combined_<date>_<ship>/` (`plot_data.parquet` + `ship_comparison_<ship>_<date>.png`),
+plus `ship_comparison_summary.png` + `.csv` at the top.
+
+**Result across the 4 cases:** the correction collapses footprint scatter (mean σ
+0.63→0.27 ppm) but leaves the absolute ocean offset (~+1 ppm) — it targets OCO-2's
+*relative* near-cloud anomaly, so it tightens spread without removing an absolute bias.
 
 **Local sanity run (2019-06-22, ocean r05):** 644 footprints ≤100 km; ship median
 411.22 ppm vs OCO-2 corrected 412.03 → Δ +0.81 ppm (original +0.77). On this clear-sky

@@ -113,6 +113,11 @@ def main():
     s_ref = ship_w.xco2.to_numpy()
     d_orig = np.nanmedian(o_orig) - np.nanmedian(s_ref)
     d_corr = np.nanmedian(o_corr) - np.nanmedian(s_ref)
+    # spread of each population (footprint scatter / ship variability) — the std that
+    # goes with each bias.  Bias-difference std is added in quadrature: σ(OCO)⊕σ(ship).
+    sd_orig, sd_corr, sd_ref = np.nanstd(o_orig), np.nanstd(o_corr), np.nanstd(s_ref)
+    e_orig = np.hypot(sd_orig, sd_ref)
+    e_corr = np.hypot(sd_corr, sd_ref)
     site = TABS[args.ship_tag][1]
 
     # ── optional MODIS Aqua true-colour background (NASA GIBS, same fetcher as
@@ -156,25 +161,30 @@ def main():
     bins = np.linspace(min(np.nanmin(o_orig), np.nanmin(s_ref)),
                        max(np.nanmax(o_orig), np.nanmax(s_ref)), 60)
     a.hist(o_orig, bins, density=True, alpha=0.45, color="tab:blue",
-           label=f"OCO-2 original  μ={np.nanmean(o_orig):.2f}")
+           label=f"OCO-2 original  μ={np.nanmean(o_orig):.2f} σ={sd_orig:.2f}")
     a.hist(o_corr, bins, density=True, alpha=0.45, color="tab:green",
-           label=f"OCO-2 DeepEns   μ={np.nanmean(o_corr):.2f}")
+           label=f"OCO-2 DeepEns   μ={np.nanmean(o_corr):.2f} σ={sd_corr:.2f}")
     a.hist(s_ref, bins, density=True, alpha=0.45, color="tab:red",
-           label=f"ship EM27/SUN   μ={np.nanmean(s_ref):.2f}")
+           label=f"ship EM27/SUN   μ={np.nanmean(s_ref):.2f} σ={sd_ref:.2f}")
     a.axvline(np.nanmedian(s_ref), color="tab:red", lw=2)
     a.set(xlabel="XCO₂ (ppm)", ylabel="Density",
-          title=f"Δmedian(OCO−ship):  original {d_orig:+.2f}  →  corrected {d_corr:+.2f} ppm")
+          title=f"Δmedian(OCO−ship):  original {d_orig:+.2f}±{e_orig:.2f}  →  "
+                f"corrected {d_corr:+.2f}±{e_corr:.2f} ppm")
     a.legend(fontsize=9)
 
-    # (3) nearest-cloud distance of collocated footprints (over the MODIS clouds)
+    # (3) original (before-correction) XCO₂_bc map — same colour scale as the
+    #     corrected map so the correction's effect is read side-by-side
     a = ax[1, 0]
     _bg(a)
-    sc = a.scatter(near.lon, near.lat, c=near.cld_dist_km, s=14, cmap="viridis_r",
-                   vmin=0, vmax=50, zorder=3)
-    a.scatter(ship.lon, ship.lat, c="red", s=25, marker="D", zorder=6)
+    sc = a.scatter(near.lon, near.lat, c=near.xco2_bc, s=14, cmap="turbo",
+                   vmin=args.vmin, vmax=args.vmax, zorder=3)
+    a.plot(ship.lon, ship.lat, "-", color="0.5", lw=0.8, alpha=0.7, zorder=4)
+    a.scatter(ship.lon, ship.lat, c=ship.xco2, s=40, cmap="turbo", vmin=args.vmin, vmax=args.vmax,
+              edgecolor="k", linewidth=0.6, marker="D", zorder=6)
     a.set(xlim=args.lon_range, ylim=args.lat_range, xlabel="Lon (°E)", ylabel="Lat (°N)",
-          title=f"Nearest-cloud distance  (≤10 km: {(near.cld_dist_km<=10).sum()}/{len(near)})")
-    fig.colorbar(sc, ax=a, label="km")
+          title="Original XCO₂_bc (before correction)"
+                + (" (MODIS Aqua)" if bg_img is not None else ""))
+    fig.colorbar(sc, ax=a, label="XCO₂ (ppm)")
 
     # (4) ship time series
     a = ax[1, 1]
@@ -190,9 +200,11 @@ def main():
     out = os.path.join(args.output_dir, f"ship_comparison_{args.ship_tag}_{args.date}.png")
     fig.savefig(out, dpi=150); plt.close(fig)
     print(f"  n_fp={len(near)}  ship_pts_in_window={len(ship_w)}")
-    print(f"  OCO original median {np.nanmedian(o_orig):.2f}  corrected {np.nanmedian(o_corr):.2f}  "
-          f"ship {np.nanmedian(s_ref):.2f} ppm")
-    print(f"  Δmedian(OCO−ship): original {d_orig:+.2f} → corrected {d_corr:+.2f} ppm")
+    print(f"  OCO original {np.nanmedian(o_orig):.2f} (σ={sd_orig:.2f})  "
+          f"corrected {np.nanmedian(o_corr):.2f} (σ={sd_corr:.2f})  "
+          f"ship {np.nanmedian(s_ref):.2f} (σ={sd_ref:.2f}) ppm")
+    print(f"  Δmedian(OCO−ship): original {d_orig:+.2f}±{e_orig:.2f} → "
+          f"corrected {d_corr:+.2f}±{e_corr:.2f} ppm")
     print(f"  saved → {out}")
 
 

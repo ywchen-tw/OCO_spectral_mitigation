@@ -116,5 +116,12 @@ ship_case  2021-03-15   mr2101    140.06   140.18    26.24    26.60   416.0  417
 
 # 2021-03-18 OMITTED: nearest OCO ocean-glint pass ~212 km, 0 footprints ≤150 km.
 
+# ── cross-case summary (per-case bias dumbbell + bias-vs-cloud-distance, ±1σ) ──
+echo ""
+echo "############ SHIP SUMMARY ############"
+python workspace/Ship_analysis/plot_ship_summary.py --out-base "$OUT_BASE" \
+    --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN" || echo "  summary failed"
+
 echo ""
 echo "ship deep-ensemble comparison done → $OUT_BASE/combined_<date>_<ship>/"
+echo "ship summary → $OUT_BASE/ship_comparison_summary.png"
