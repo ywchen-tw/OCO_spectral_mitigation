@@ -116,34 +116,34 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_
     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_arch32_f${F} \
-    --profile-pca \
-    --hidden_dims 32,32,32 \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --norm layer --dropout 0.1 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_arch32_f${F} \
+#     --profile-pca \
+#     --hidden_dims 32,32,32 \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --norm layer --dropout 0.1 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Full + profile, RAW-anomaly target (xco2_raw_anomaly, 10 km ref) ──────────
 # Same production structure (lndo01 + profile) but regressing the RAW (non-bias-
 # corrected) anomaly instead of xco2_bc_anomaly — tests the ML correction applied
 # directly to raw retrievals.  Distinct _raw tag so it never collides with the bc
 # runs above.  A/B partner: de_{surface}_beta_nll_prof_reg_f${F} (bc target).
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_raw_f${F} \
-    --profile-pca \
-    --target xco2_raw_anomaly \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --norm layer --dropout 0.1 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_raw_f${F} \
+#     --profile-pca \
+#     --target xco2_raw_anomaly \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --norm layer --dropout 0.1 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_f${F} \
-    --profile-pca \
-    --target xco2_raw_anomaly \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --norm layer --dropout 0.1 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_f${F} \
+#     --profile-pca \
+#     --target xco2_raw_anomaly \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --norm layer --dropout 0.1 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Architecture A/B: 32,32,32 vs the default 64,32 (10 km RAW target) ─────────
 # Raw-target companion to the arch32 (bc-target) arms above, so the depth-not-width
@@ -151,23 +151,23 @@ python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_r
 # raw-only arch32 arms in the r05/r15 launchers.  ONLY --hidden_dims differs from
 # the de_{surface}_beta_nll_prof_reg_raw_f${F} block above; _raw + _arch32 tags keep
 # results distinct.  A/B partner: de_{surface}_beta_nll_prof_reg_raw_f${F} (64,32).
-python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_raw_arch32_f${F} \
-    --profile-pca \
-    --target xco2_raw_anomaly \
-    --hidden_dims 32,32,32 \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --norm layer --dropout 0.1 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_raw_arch32_f${F} \
+#     --profile-pca \
+#     --target xco2_raw_anomaly \
+#     --hidden_dims 32,32,32 \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --norm layer --dropout 0.1 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
-python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_arch32_f${F} \
-    --profile-pca \
-    --target xco2_raw_anomaly \
-    --hidden_dims 32,32,32 \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --norm layer --dropout 0.1 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_arch32_f${F} \
+#     --profile-pca \
+#     --target xco2_raw_anomaly \
+#     --hidden_dims 32,32,32 \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --norm layer --dropout 0.1 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Feature-set ablations (+profile) ──────────────────────────────────────────
 # Same production config, each with one feature block dropped, both surfaces.
