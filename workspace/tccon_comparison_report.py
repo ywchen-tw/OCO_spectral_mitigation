@@ -370,7 +370,11 @@ def main():
                 col for col in avail
                 if any(col.startswith(p) and col[len(p):].isdigit()
                        for p in ('ak_', 'pwf_', 'co2_ap_', 'plev_')))
-            want = [col for col in ['time', 'lon', 'lat', 'xco2_raw'] if col in avail] + ak_cols
+            # Only pull columns the plot_data doesn't already carry (newer
+            # build_deepens_plot_data.py keeps xco2_raw itself); merging a column
+            # already present would collide into xco2_raw_x/_y and blank the raw series.
+            extra = [c for c in ['xco2_raw'] if c in avail and c not in oco.columns]
+            want = ['time', 'lon', 'lat'] + extra + ak_cols
             src = (pd.read_parquet(sp, columns=want)
                      .drop_duplicates(['time', 'lon', 'lat']))
             oco = oco.merge(src, on=['time', 'lon', 'lat'], how='left')

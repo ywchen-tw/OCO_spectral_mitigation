@@ -48,7 +48,8 @@ CORR_COL = 'deep_ensemble_corrected_xco2'              # (1) full mu          xc
 CORR_COL_PNEAR = 'deepens_pnear_corrected_xco2'        # (2) P(near)*mu       xco2_bc - P*mu
 CORR_COL_GATE = 'deepens_gate_corrected_xco2'          # (3) mu*1[P>0.5]      xco2_bc - mu*(P>0.5)
 KEEP_COLS = ('time', 'lon', 'lat', 'cld_dist_km', 'sfc_type',
-             'xco2_bc', 'xco2_bc_anomaly', 'xco2_apriori')
+             'xco2_bc', 'xco2_bc_anomaly', 'xco2_apriori',
+             'xco2_raw', 'xco2_raw_anomaly')
 
 
 def _load_cloud_fold(model_dir):
@@ -150,12 +151,19 @@ def _predict_pooled(df, fold_dirs, sfc_type, *, ood_thresh=8.0, max_ood_frac=0.0
 
 
 def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
-                   max_abs_anomaly=25.0, cloud_fold_dirs=None):
+                   max_abs_anomaly=25.0, cloud_fold_dirs=None,
+                   base_col='xco2_bc', truth_col='xco2_bc_anomaly'):
     """Predict one surface (pooling all folds); return a plot_data frame or None.
 
-    Two guards skip the correction (set mu=0 → corrected XCO2 == raw xco2_bc) and
+    ``base_col`` is the XCO2 column the predicted anomaly is subtracted from
+    (xco2_bc for models trained on xco2_bc_anomaly*, xco2_raw for models trained
+    on xco2_raw_anomaly*); ``truth_col`` is the matching anomaly column used only
+    for the printed RMS diagnostic.  The corrected column is always named
+    deep_ensemble_corrected_xco2 (= base_col − predicted anomaly).
+
+    Two guards skip the correction (set mu=0 → corrected XCO2 == raw base_col) and
     flag the row, so non-physical points don't pollute the histogram:
-      • clim_guard    — INPUT guard: xco2_bc > xco2_apriori + `clim_max_ppm`
+      • clim_guard    — INPUT guard: base_col > xco2_apriori + `clim_max_ppm`
                         (fill values / failed retrievals).
       • anomaly_guard — OUTPUT guard: |predicted anomaly| > `max_abs_anomaly`
                         (model blow-ups; a bias correction should be a few ppm,
@@ -172,7 +180,7 @@ def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
     # INPUT guard (climatology)
     clim_guard = np.zeros(len(out), dtype=bool)
     if 'xco2_apriori' in out.columns:
-        diff = out['xco2_bc'].to_numpy(float) - out['xco2_apriori'].to_numpy(float)
+        diff = out[base_col].to_numpy(float) - out['xco2_apriori'].to_numpy(float)
         clim_guard = np.isfinite(diff) & (diff > clim_max_ppm)
     else:
         print(f"  sfc={sfc_type}: no xco2_apriori column — climatology guard disabled")
@@ -193,7 +201,7 @@ def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
     out['anomaly_guard'] = anomaly_guard
     out['pred_anomaly'] = mu
     out['sigma'] = sigma
-    xb = out['xco2_bc'].to_numpy(dtype=float)
+    xb = out[base_col].to_numpy(dtype=float)
     out[CORR_COL] = xb - mu                                   # (1) full mu
 
     # ── cloud-distance correction policies (need the xgb cloud classifier) ─────
@@ -204,12 +212,12 @@ def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
         out[CORR_COL_PNEAR] = xb - p_near * mu                # (2) P(near)*mu
         out[CORR_COL_GATE] = xb - np.where(p_near > 0.5, mu, 0.0)  # (3) mu*1[P>0.5]
 
-    if 'xco2_bc_anomaly' in out.columns:
-        y = out['xco2_bc_anomaly'].to_numpy(float)
+    if truth_col in out.columns:
+        y = out[truth_col].to_numpy(float)
         keep = ~guard                      # report only where correction was applied
         pre = np.sqrt(np.nanmean(y[keep] ** 2))
         post = np.sqrt(np.nanmean((y[keep] - mu[keep]) ** 2))
-        print(f"  sfc={sfc_type}: {int(keep.sum()):,}/{len(out):,} corrected  anomaly RMS "
+        print(f"  sfc={sfc_type}: {int(keep.sum()):,}/{len(out):,} corrected  {truth_col} RMS "
               f"{pre:.3f} → {post:.3f} ppm ({100*(1-post/pre):+.1f}%)")
     else:
         print(f"  sfc={sfc_type}: {len(out):,} soundings (no truth column)")
@@ -249,8 +257,15 @@ def main():
     ap.add_argument('--max-abs-anomaly', type=float, default=25.0,
                     help="Skip correction where |predicted anomaly| exceeds this many ppm "
                          "(model blow-ups); default 25. Set <=0 to disable.")
+    ap.add_argument('--correction-base', choices=('bc', 'raw'), default='bc',
+                    help="XCO2 column the predicted anomaly is subtracted from: 'bc' "
+                         "(xco2_bc, for models trained on xco2_bc_anomaly*) or 'raw' "
+                         "(xco2_raw, for models trained on xco2_raw_anomaly*). The guard "
+                         "and RMS diagnostic follow the base. Default bc.")
     args = ap.parse_args()
     dk = dict(ood_thresh=args.ood_thresh, max_ood_frac=args.max_ood_frac, strict=args.strict)
+    base_col = 'xco2_raw' if args.correction_base == 'raw' else 'xco2_bc'
+    truth_col = 'xco2_raw_anomaly' if args.correction_base == 'raw' else 'xco2_bc_anomaly'
 
     surfaces = []  # (model_dir, sfc_type, cloud_model_dir)
     if args.ocean_model_dir:
@@ -273,7 +288,8 @@ def main():
     parts = [p for p in (_build_surface(df, md, sfc, dk=dk,
                                         clim_max_ppm=args.climatology_max_ppm,
                                         max_abs_anomaly=max_abs_anom,
-                                        cloud_fold_dirs=cmd)
+                                        cloud_fold_dirs=cmd,
+                                        base_col=base_col, truth_col=truth_col)
                          for md, sfc, cmd in surfaces)
              if p is not None]
     if not parts:
