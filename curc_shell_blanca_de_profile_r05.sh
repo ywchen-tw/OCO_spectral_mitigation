@@ -135,4 +135,18 @@ for FS in no_xco2 no_spec no_xco2_and_spec; do
       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
 
+# ── Feature-set ablations, 32,32,32 architecture (+profile, 5 km reference) ────
+# Architecture A/B partners of the 64,32 ablation loop above: identical config,
+# ONLY --hidden_dims 32,32,32 differs; _arch32 tag keeps results distinct.  Lets
+# the full-vs-{no_xco2,no_spec,no_xco2_and_spec} ablation be repeated at the
+# 32,32,32 depth.  A/B partner per FS: de_ocean_${FS}_prof_r05_f${F} (64,32).
+for FS in no_xco2 no_spec no_xco2_and_spec; do
+  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_r05_arch32_f${F} \
+      --profile-pca --feature_set ${FS} --target 5km \
+      --hidden_dims 32,32,32 \
+      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
+
 kill $GPU_MONITOR_PID 2>/dev/null || true
