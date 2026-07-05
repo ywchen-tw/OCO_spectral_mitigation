@@ -95,13 +95,13 @@ ocean-glint good-QF (`sfc_type==0 & xco2_qf==0`), 100 km / ±2 h. Loads every UT
 the flight spans (dateline crossers span two days). Reports per date: footprint count,
 bounding box, VMIN/VMAX, and **cloud-distance coverage** (the near-cloud second filter).
 
-**Outcome — 6 usable dates** (good near-cloud coverage): 2017-01-26 (489 fp, all
-near-cloud), 2017-02-10 (471/275), 2017-10-20 (433/331), 2017-10-27 (891/158),
-2018-05-12 (16/16), and **2017-02-06** (409/409 — recovered 2026-07; this is the OCO day-2
-of the dateline-crossing **2017-02-05** flight, so `OCO_TO_FLIGHT` maps it to the
-2017-02-05 merged profile). See `$OUT/process_dates.txt` for boxes. **1 stubbed**
-(2017-10-08→needs `combined_2017-10-09`, 2nd UTC day). **Unavailable**: 2017-02-03
-(its coincidence is on 2017-02-04, unprocessed — 02-03 alone gives 0); 2018-05-01 (training).
+**Outcome — 7 usable dates**: 2017-01-26 (489 fp, all near-cloud), 2017-02-10 (471/275),
+2017-10-20 (433/331), 2017-10-27 (891/158), 2018-05-12 (16/16), **2017-02-06** (409/409),
+**2017-10-09** (313/82). The last two are recovered 2026-07 — each is the OCO day-2 of a
+flight that crosses midnight (2017-02-05 and 2017-10-08), so `OCO_TO_FLIGHT` maps the OCO
+date to the flight's merged profile. See `$OUT/process_dates.txt` for boxes. **Unavailable**:
+2017-02-03 (its coincidence is on 2017-02-04, unprocessed — 02-03 alone gives 0); 2018-05-01
+(training).
 
 `curc_shell_blanca_atom_deepens.sh` — **standalone** runner (NOT wired into the TCCON
 launcher, since ATom has no station). Applies the ocean **r05** DE model
@@ -109,7 +109,7 @@ launcher, since ATom has no station). Applies the ocean **r05** DE model
 (which pairs ocean r05 + land r15) — via `build_deepens_plot_data.py` to each date →
 `…/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atom/combined_<date>_atom/plot_data.parquet`.
 Models are local, so it runs on a laptop OR CURC (module/conda load guarded to Linux).
-**Verified locally** on 2017-10-20: anomaly RMS 0.632→0.280 ppm (+55.6%). 6 active + 1 stubbed.
+**Verified locally** on 2017-10-20: anomaly RMS 0.632→0.280 ppm (+55.6%). 7 active, 0 stubbed.
 
 ## Stage 2/3 — pseudo-column + AK + comparison  ✅ done → `atom_pseudo_column.py`
 
@@ -127,12 +127,14 @@ Output `$OUT/atom_pseudo_column_results.csv` + `atom_pseudo_column_summary.png`
 per-leg bc→corrected and bias-vs-cloud-distance — same σ-errorbar style as
 `tccon_comparison_report`; the corrected σ is visibly tighter than bc on high-bias legs).
 
-**Result (6 dates, 13 collocated legs):** the DE correction reduces |residual| vs the
-ATom pseudo-column — **near-cloud legs (n=12): 0.592 → 0.506 ppm** (~15%). Biases are
-signed and partly cancel across dates (2017-10-20/27 positive, 2017-02-06/10 + 2018-05-12
-negative), so mean bias stays near +0.23; |residual| is the honest headline. Clearest
-near-cloud date 2017-10-20 (legs 8–11) pulls OCO-2 down toward the aircraft column (leg 11,
-cloud 1.1 km: +1.86 → +1.53 ppm); 2017-02-06 pulls a *negative* bias up (−0.31 → −0.15).
+**Result (7 dates, 15 collocated legs):** the DE correction reduces |residual| vs the
+ATom pseudo-column — **near-cloud legs (n=12): 0.592 → 0.506 ppm** (~15%); all 15 legs
+0.535 → 0.477. Biases are signed and partly cancel across dates (2017-10-20/27 positive,
+2017-02-06/10 + 2018-05-12 negative), so mean bias stays near +0.24; |residual| is the honest
+headline. Clearest near-cloud date 2017-10-20 (legs 8–11) pulls OCO-2 down toward the aircraft
+column (leg 11, cloud 1.1 km: +1.86 → +1.53 ppm); 2017-02-06 pulls a *negative* bias up
+(−0.31 → −0.15). **2017-10-09 is a built-in negative control** — far from cloud (cld_med
+20 km) the correction barely moves the bias (+0.29 → +0.32) but sharply tightens σ (0.41→0.21).
 Independent in-situ confirmation of the near-cloud ocean bias reduction. Spot-check (small n).
 
 Reuses `workspace/ak_harmonize.py` (the M2 operator). To recover 2 more dates,
@@ -154,8 +156,9 @@ The aircraft reference is the AK pseudo-column (per leg), not a continuous XCO2 
 so panel 2 uses reference *lines* (not a ship-like reference histogram) and panel 4 shows
 the profile instead of the ship time series. Reuses the collocation/AK machinery from
 `atom_pseudo_column.py`. `Δmedian` per date: 2017-10-20 +0.70→+0.50, 2017-10-27 +0.38→+0.45,
-2017-02-06 −0.31→−0.15 (negative bias pulled up), others already near zero. Dateline
-dates (2017-02-06) map cleanly since the collocation sits east of 180° in the day-2 parquet.
+2017-02-06 −0.31→−0.15 (negative bias pulled up), 2017-10-09 +0.29→+0.32 (far-cloud, σ 0.41→0.21),
+others already near zero. Day-2 dates map via `OCO_TO_FLIGHT`; 2017-02-06's collocation sits
+east of 180° so the maps render clean.
 
 ```
 python plot_atom_comparison.py            # all 5 dates

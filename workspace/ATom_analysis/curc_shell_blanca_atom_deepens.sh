@@ -106,12 +106,9 @@ atom_case  2017-10-20    -28.83   -26.28   32.12   39.01   "433 fp, 331 near<=10
 atom_case  2017-10-27   -129.88  -129.01   37.92   39.98   "891 fp, 158 near<=10km — NE Pacific"
 atom_case  2018-05-12    -40.54   -40.11  -37.57  -36.03   "16 fp, 16 near<=10km — S Atlantic"
 
-# ── recovered: dateline flight whose coincidence is on the 2nd UTC day (processed 2026-07).
-#    lon box wraps the antimeridian (whole day is corrected anyway; box is documentation).
-atom_case  2017-02-06   -145.19   169.56  -54.32  -41.32   "ATom 2017-02-05 flight (day 2); 409 fp, 409 near<=10km — S Pacific/dateline"
-
-# ── stubbed: coincidence on the flight's 2nd UTC day, parquet not yet processed.
-# atom_case  2017-10-09   LON_MIN  LON_MAX  LAT_MIN  LAT_MAX   "ATom 2017-10-08 flight; needs combined_2017-10-09"
+# ── recovered: coincidence on the flight's 2nd UTC day (day-2 parquets processed 2026-07).
+atom_case  2017-02-06   -145.19   169.56  -54.32  -41.32   "ATom 2017-02-05 flight (day 2); 409 fp, 409 near<=10km — S Pacific/dateline (lon box wraps 180)"
+atom_case  2017-10-09   -175.01  -174.61  -44.44  -43.40   "ATom 2017-10-08 flight (day 2); 313 fp, 82 near<=10km — S Pacific"
 #
 # ── not available: 2017-02-03 flight's coincidence is on 2017-02-04 (processing 02-03 alone
 #    gives 0 collocated — closest 1137 km; needs combined_2017-02-04); 2018-05-01 (training).
