@@ -132,18 +132,26 @@ for FS in no_xco2 no_spec no_xco2_and_spec; do
       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
 
+for FS in no_contam no_contam_and_xco2; do
+  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_r15_f${F} \
+      --profile-pca --feature_set ${FS} --target 15km \
+      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
+
 # ── Feature-set ablations, 32,32,32 architecture (+profile, 15 km reference) ───
 # Architecture A/B partners of the 64,32 ablation loop above: identical config,
 # ONLY --hidden_dims 32,32,32 differs; _arch32 tag keeps results distinct.  Lets
 # the full-vs-{no_xco2,no_spec,no_xco2_and_spec} ablation be repeated at the
 # 32,32,32 depth.  A/B partner per FS: de_land_${FS}_prof_r15_f${F} (64,32).
-for FS in no_xco2 no_spec no_xco2_and_spec; do
-  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_r15_arch32_f${F} \
-      --profile-pca --feature_set ${FS} --target 15km \
-      --hidden_dims 32,32,32 \
-      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
+# for FS in no_xco2 no_spec no_xco2_and_spec; do
+#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_r15_arch32_f${F} \
+#       --profile-pca --feature_set ${FS} --target 15km \
+#       --hidden_dims 32,32,32 \
+#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
