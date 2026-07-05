@@ -247,6 +247,34 @@ def _draw_pair(axA, axB, cmp, title_prefix=''):
     axB.legend(loc='lower right', title='per station-day'); axB.grid(alpha=0.3, axis='x')
 
 
+# Under --ak-harmonize the primary comparison columns hold AK/prior-harmonized values
+# and a parallel set of …_direct columns holds the raw-TCCON-window-mean reference (both
+# computed in one run).  _direct_view swaps the direct columns back into the primary
+# names so the SAME scatter/dumbbell + by-surface figures can be re-rendered against the
+# un-harmonized reference.  tccon_mu is always replaced by tccon_mu_raw; the per-case
+# bias/RMSE/σ columns fall back to their AK value where the …_direct twin is absent
+# (rows where AK never applied, so AK == direct anyway).
+_DIRECT_MAP = {
+    'tccon_mu': 'tccon_mu_raw',
+    'bias_raw': 'bias_raw_direct', 'bias_before': 'bias_before_direct',
+    'bias_after': 'bias_after_direct',
+    'rmse_raw': 'rmse_raw_direct', 'rmse_before': 'rmse_before_direct',
+    'rmse_after': 'rmse_after_direct',
+    'raw_sd': 'raw_sd_direct', 'orig_sd': 'orig_sd_direct', 'corr_sd': 'corr_sd_direct',
+}
+
+
+def _direct_view(frame):
+    """Copy of ``frame`` with the primary comparison columns replaced by their direct
+    (raw-window-mean) counterparts.  Only meaningful once --ak-harmonize has produced the
+    …_direct columns; callers guard on that."""
+    d = frame.copy()
+    for dst, src in _DIRECT_MAP.items():
+        if src in d.columns:
+            d[dst] = d[dst].where(d[src].isna(), d[src])
+    return d
+
+
 def main():
     global CORR
     ap = argparse.ArgumentParser(description=__doc__,
@@ -585,9 +613,10 @@ def main():
         _draw_pair(axA, axB, sub, title_prefix=title_prefix)
         fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
 
-    def _fig_by_surface(sites_excl, png, ttl_excl=''):
-        rows_ok = lambda s: rep[(rep['surface'] == s) & (rep['n_tccon'] > 0)
-                                & (~rep['site'].isin(sites_excl))]
+    def _fig_by_surface(sites_excl, png, ttl_excl='', frame=None):
+        _rep = rep if frame is None else frame
+        rows_ok = lambda s: _rep[(_rep['surface'] == s) & (_rep['n_tccon'] > 0)
+                                & (~_rep['site'].isin(sites_excl))]
         present = [s for s in ('ocean', 'land') if len(rows_ok(s))]
         if not present:
             return None
@@ -634,6 +663,16 @@ def main():
         if p: extra_saved.append(p)
         if args.ak_harmonize and 'bias_after_direct' in cmp.columns:  # direct-vs-AK overlay
             p = _fig_ak_vs_direct(cmp, out_dir / f'tccon_comparison_ak_vs_direct{sfx}.png')
+            if p: extra_saved.append(p)
+            # Direct-reference twins of the two headline figures (the AK versions are the
+            # primary tccon_comparison{,_by_surface} PNGs above): same scatter/dumbbell and
+            # by-surface layout, but corrected/original/raw XCO2 compared to the RAW TCCON
+            # window mean instead of the AK/prior-harmonized reference.
+            _pd = out_dir / f'tccon_comparison_direct{sfx}.png'
+            _fig_pair(_direct_view(cmp), _pd, title_prefix='(direct ref) ')
+            extra_saved.append(_pd)
+            _pds = out_dir / f'tccon_comparison_by_surface_direct{sfx}.png'
+            p = _fig_by_surface([], _pds, ttl_excl=' (direct ref)', frame=_direct_view(rep))
             if p: extra_saved.append(p)
         if excl:                                                     # excl-sites variants
             _sub = cmp[~cmp['site'].isin(excl)]
