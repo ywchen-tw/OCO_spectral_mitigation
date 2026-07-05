@@ -112,24 +112,24 @@ NFOLDS=5
 # width — every 3-layer net beat 64,32, narrowest deep net (32,32,32) won.  ONLY
 # --hidden_dims differs from the raw_r15 arm above; _arch32 tag keeps results
 # distinct.  A/B partner: de_land_beta_nll_prof_reg_raw_r15_f${F} (64,32).
-python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_r15_arch32_f${F} \
-    --profile-pca \
-    --target xco2_raw_anomaly_r15 \
-    --hidden_dims 32,32,32 \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --norm layer --dropout 0.1 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_r15_arch32_f${F} \
+#     --profile-pca \
+#     --target xco2_raw_anomaly_r15 \
+#     --hidden_dims 32,32,32 \
+#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#     --norm layer --dropout 0.1 \
+#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 # ── Feature-set ablations (+profile, 15 km reference) ─────────────────────────
 # Same config, each with one feature block dropped, land only.  The profile
 # block is ORTHOGONAL to --feature_set.  Suffix: de_land_{FS}_prof_r15_f${F}.
-# for FS in no_xco2 no_spec no_xco2_and_spec; do
-#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_r15_f${F} \
-#       --profile-pca --feature_set ${FS} --target 15km \
-#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
+for FS in no_xco2 no_spec no_xco2_and_spec; do
+  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_r15_f${F} \
+      --profile-pca --feature_set ${FS} --target 15km \
+      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
