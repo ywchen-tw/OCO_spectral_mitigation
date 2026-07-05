@@ -71,9 +71,12 @@ export OCO2_DATAROOT="$DATA_ROOT"
 # profile-PCA transform in build_deepens_plot_data.py raises KeyError.
 # MODEL_TAG names the model version; it namespaces OUT_BASE so different DE
 # versions never overwrite each other's plot outputs.
-MODEL_TAG=de_beta_nll_prof_reg_m5
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_f*)
+# Mixed near-cloud anomaly-feature radius per surface: OCEAN uses the r05 (0.5°)
+# variant, LAND uses r15 (1.5°) — each surface's best-performing profile+reg model
+# (from curc_shell_blanca_de_profile_r05.sh / _r15.sh).  Tag reflects the mix.
+MODEL_TAG=de_beta_nll_prof_reg_o05l15_m5
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_r05_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_r15_f*)
 
 # ─── cloud classifier (xgb_cloud fold dirs; per-surface) ──────────────────────
 # When set, build_deepens_plot_data.py also emits P(near) and the two extra
@@ -349,6 +352,11 @@ run_case  2021-06-21   hf20151102_20251230.public.qc.nc     116.82   118.27    3
 run_case  2015-07-15   pr20140923_20251024.public.qc.nc       1.98     3.17    47.64    49.41   395.0  400.0  land  poster  pr  yes
 run_case  2018-08-17   pr20140923_20251024.public.qc.nc       0.89     2.81    47.90    49.30   395.5  404.5  land  poster  pr  yes
 run_case  2020-09-16   pr20140923_20251024.public.qc.nc       1.43     2.71    47.72    49.20   411.5  416.5  land  poster  pr  yes
+
+# NB: Shipborne EM27/SUN ocean validation (MORE-2 / MR21-01) is NOT a TCCON case —
+# a ship is a moving platform with no station.  It lives in its own standalone module
+# (mirroring ATom): workspace/Ship_analysis/ (curc_shell_blanca_ship_deepens.sh).
+# Kept out of here so the TCCON aggregate reports aren't polluted by station-less cases.
 
 # ─────────────────────── add your other cases below ──────────────────────────
 # run_case  2020-04-15   ra20150301_20200718.public.qc.nc   54.98    55.72    -22.71   -20.32   406     412    both
