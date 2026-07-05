@@ -35,7 +35,7 @@ from tccon_collocate import collocate, find_plotdata
 from ak_harmonize import (find_lite_file, ak_adjusted_ref,
                           operator_from_dataframe, ak_adjusted_ref_from_operator)
 
-CORR = 'deep_ensemble_corrected_xco2'
+CORR = 'deep_ensemble_corrected_xco2'   # overridable with --corr-col (e.g. tabm_corrected_xco2)
 
 
 def _ols_fit(x, y):
@@ -248,12 +248,17 @@ def _draw_pair(axA, axB, cmp, title_prefix=''):
 
 
 def main():
+    global CORR
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--script', default='curc_shell_blanca_plot_corr_xco2_deepens.sh')
     ap.add_argument('--out-base', default='results/model_comparison/deep_ensemble',
                     help='Base dir holding combined_DATE[_SITE] case dirs.')
     ap.add_argument('--output-dir', default='results/model_comparison/deep_ensemble')
+    ap.add_argument('--corr-col', default='deep_ensemble_corrected_xco2',
+                    help="Corrected-XCO2 column read from each plot_data.parquet "
+                         "(default 'deep_ensemble_corrected_xco2'; use "
+                         "'tabm_corrected_xco2' for TabM).")
     ap.add_argument('--radius-km', type=float, default=100.0)
     ap.add_argument('--window-min', type=float, default=60.0)
     ap.add_argument('--fname-suffix', default='',
@@ -272,6 +277,8 @@ def main():
     ap.add_argument('--n-boot', type=int, default=10000,
                     help='Site-clustered bootstrap replicates for the significance block.')
     args = ap.parse_args()
+    global CORR
+    CORR = args.corr_col
 
     out_base = Path(args.out_base)
     out_dir = Path(args.output_dir); out_dir.mkdir(parents=True, exist_ok=True)

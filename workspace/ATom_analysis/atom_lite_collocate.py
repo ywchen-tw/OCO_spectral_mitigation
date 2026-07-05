@@ -5,7 +5,7 @@ Pre-flight gate for the ATom pseudo-column comparison: before processing any dat
 through the full pipeline (expensive), find which ATom flights actually have OCO-2
 *ocean-glint, good-quality* soundings near the flight track and close in time.
 
-For each ATom merged flight (output/atom_merged_<date>.parquet from
+For each ATom merged flight ($OUT/atom_merged/atom_merged_<date>.parquet from
 merge_atom_profiles.py) this:
   1. converts ATom time (sec since midnight UTC) to epoch and groups points by the
      true UTC day (handles flights that cross midnight);
@@ -13,7 +13,7 @@ merge_atom_profiles.py) this:
   3. keeps ocean-glint good-quality soundings
         operation_mode==1 (Glint) AND land_water_indicator==1 (ocean) AND xco2_quality_flag==0;
   4. counts soundings within {50,100,250} km and {2,6,24} h of any track point;
-  5. prints a ranked table and writes output/atom_oco2_collocation.csv.
+  5. prints a ranked table and writes $OUT/atom_oco2_collocation.csv.
 
 Reuses the download/CMR/haversine approach of workspace/ship_lite_collocate.py.
 
@@ -37,9 +37,12 @@ import requests
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT_DIR = os.path.join(HERE, "output")
+REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+TAG = "de_beta_nll_prof_reg_o05l15_m5"
+OUT_BASE = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
+MERGED_DIR = os.path.join(OUT_BASE, "atom_merged")   # merged profiles (input)
 # Share the Lite cache with ship_lite_collocate.py.
-LITE = os.path.join(HERE, "..", "..", "data", "Other", "lite_cache")
+LITE = os.path.join(REPO, "data", "Other", "lite_cache")
 os.makedirs(LITE, exist_ok=True)
 
 EPOCH = dt.datetime(1970, 1, 1)
@@ -115,7 +118,7 @@ def read_ocean_glint(path: str):
 # ---- load ATom track points (epoch, lon, lat) grouped by true UTC day -------
 def load_atom_points(date_filter: str | None) -> pd.DataFrame:
     rows = []
-    for p in sorted(glob.glob(os.path.join(OUT_DIR, "atom_merged_*.parquet"))):
+    for p in sorted(glob.glob(os.path.join(MERGED_DIR, "atom_merged_*.parquet"))):
         fdate = re.search(r"atom_merged_(\d{8})\.parquet", os.path.basename(p)).group(1)
         if date_filter and fdate != date_filter:
             continue
@@ -226,7 +229,8 @@ def main() -> None:
         rows_csv.append(row)
 
     df = pd.DataFrame(rows_csv)
-    csv_path = os.path.join(OUT_DIR, "atom_oco2_collocation.csv")
+    os.makedirs(OUT_BASE, exist_ok=True)
+    csv_path = os.path.join(OUT_BASE, "atom_oco2_collocation.csv")
     df.to_csv(csv_path, index=False)
 
     # ---- ranked recommendation ----

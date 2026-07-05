@@ -15,6 +15,24 @@ soundings.
 > glint coincidences** — treat any result as illustrative, not statistical. Pursue
 > only if a reviewer explicitly wants an independent in-situ ocean anchor.
 
+## Outputs location
+
+All outputs live under `results/model_comparison/deep_ensemble/<MODEL_TAG>/atom/`
+(`MODEL_TAG = de_beta_nll_prof_reg_o05l15_m5`), mirroring the TCCON comparison layout —
+this dir is `$OUT` below. The scripts are in `workspace/ATom_analysis/`.
+
+```
+$OUT/
+  combined_<date>_atom/           # per-case (like TCCON combined_<date>_<site>/)
+    plot_data.parquet             #   DE-corrected XCO2 (curc_shell_blanca_atom_deepens.sh)
+    atom_modis_<date>.png         #   MODIS Aqua overlay
+  atom_merged/                    # Stage-1 merged ATom profiles + profile plots (input)
+  _modis_tiles/                   # cached GIBS Aqua tiles
+  atom_oco2_collocation.csv       # aggregate: Lite screen
+  process_dates.txt               # aggregate: usability status per date
+  atom_pseudo_column_results.csv  # aggregate: Stage 2/3 results (+ _summary.png)
+```
+
 ## Data (raw)
 
 - `data/Other/ATom_Picarro_Instrument_Data_1732/` — NOAA-Picarro CO2/CH4/CO, ICARTT
@@ -69,25 +87,93 @@ NB: this guarantees only an ocean-glint *column* coincidence; the near-cloud req
 is a second filter applied after the cloud-distance pipeline runs on these dates — some
 may thin out there.
 
-## Stage 2 — pseudo-column + AK  ⬜ not started (the hard half)
+## Stage 1.5b — footprint collocation + correction runner  ✅ done
 
-1. **Profile → pressure grid** per leg (use measured `p_hpa` directly).
-2. **Extend below floor** (~0.2 km → surface): over ocean, hold lowest valid value down.
-   Small mass, small error.
-3. **Extend above ceiling** (~12 km → TOA): the dominant uncertainty. Stitch to a model/
-   prior stratosphere — cleanest is the **OCO-2 retrieval a-priori profile** above the
-   aircraft top (alt: CAMS / CarbonTracker). Bounds the error to the ~15% column mass
-   not measured.
-4. **Pressure-weight** → `XCO2_pseudo = Σ hᵢ·CO2ᵢ`.
-5. **Apply OCO-2 averaging kernel + prior** → `XCO2_AK = XCO2_prior + Σ hᵢ·aᵢ·(profileᵢ − priorᵢ)`.
-   **Required, not optional** — comparing a true column to an AK-weighted retrieval
-   otherwise leaves a tenths-of-ppm mismatch. This is the same **M2** operator the TCCON
-   chain still needs; build once, use for both.
+`atom_footprint_collocate.py` — collocates the ATom track against the **processed**
+OCO-2 parquets (`results/csv_collection/combined_<date>_all_orbits.parquet`),
+ocean-glint good-QF (`sfc_type==0 & xco2_qf==0`), 100 km / ±2 h. Loads every UTC day
+the flight spans (dateline crossers span two days). Reports per date: footprint count,
+bounding box, VMIN/VMAX, and **cloud-distance coverage** (the near-cloud second filter).
 
-## Stage 3 — collocation with OCO-2 ocean-glint  ⬜ not started
+**Outcome — 5 usable dates now** (day-1 parquet exists, good near-cloud coverage):
+2017-01-26 (489 fp, all near-cloud), 2017-02-10 (471/275), 2017-10-20 (433/331),
+2017-10-27 (891/158), 2018-05-12 (16/16). See `output/process_dates.txt` for boxes.
+**2 stubbed** (2017-02-05→needs `combined_2017-02-06`, 2017-10-08→needs
+`combined_2017-10-09`; their coincidence is on the flight's 2nd UTC day, not yet
+processed). **2 unavailable** (2017-02-03 never processed; 2018-05-01 training).
 
-Match each pseudo-column (mean lat/lon/time of its leg) to OCO-2 `sfc_type==0` glint
-soundings in a space/time window. Expect **few** tight coincidences → report as spot-check.
+`curc_shell_blanca_atom_deepens.sh` — **standalone** runner (NOT wired into the TCCON
+launcher, since ATom has no station). Applies the ocean **r05** DE model
+(`de_ocean_beta_nll_prof_reg_r05_f*`, M=5) — same OCEAN model as the ship/TCCON launcher
+(which pairs ocean r05 + land r15) — via `build_deepens_plot_data.py` to each date →
+`…/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atom/combined_<date>_atom/plot_data.parquet`.
+Models are local, so it runs on a laptop OR CURC (module/conda load guarded to Linux).
+**Verified locally** on 2017-10-20: anomaly RMS 0.632→0.280 ppm (+55.6%). 5 active + 2 stubbed.
+
+## Stage 2/3 — pseudo-column + AK + comparison  ✅ done → `atom_pseudo_column.py`
+
+Per usable date, per profile leg with collocated OCO-2 footprints (100 km / ±2 h):
+1. **Pseudo-column profile** from the leg (measured `p_hpa`, `co2_ppm`), binned to a
+   monotonic pressure profile; **below floor** hold lowest value; **above ceiling** use
+   the OCO-2 prior (`co2_ap_NN`) so unmeasured stratosphere contributes only the prior.
+2. **OCO-2 column operator** from the collocated footprints via
+   `ak_harmonize.operator_from_dataframe` (parquet `ak/pwf/co2_ap/plev_NN` + `xco2_apriori`).
+3. **AK-smoothed pseudo-column** `c_ak = c_a + Σ h·a·(x − x_a)` (Rodgers & Connor 2003 /
+   Wunch 2017), compared to collocated OCO-2 `xco2_bc` and `deep_ensemble_corrected_xco2`.
+
+Output `$OUT/atom_pseudo_column_results.csv` + `atom_pseudo_column_summary.png`
+(2-panel bias plot with **±1σ error bars** = spread of the collocated OCO-2 soundings,
+per-leg bc→corrected and bias-vs-cloud-distance — same σ-errorbar style as
+`tccon_comparison_report`; the corrected σ is visibly tighter than bc on high-bias legs).
+
+**Result (5 dates, 10 collocated legs):** the DE correction reduces |residual| vs the
+ATom pseudo-column — **near-cloud legs (n=9): 0.598 → 0.475 ppm** (~21%), high-bias
++0.329 → +0.281 ppm. Clearest near-cloud date 2017-10-20 (legs 8–11) shows the
+correction consistently pulling OCO-2 down toward the aircraft column (leg 11, cloud
+1.1 km: +1.86 → +1.53 ppm). Independent in-situ confirmation of the near-cloud ocean
+high-bias reduction. Spot-check (small n), as expected.
+
+Reuses `workspace/ak_harmonize.py` (the M2 operator). To recover 2 more dates,
+process `combined_2017-02-06` / `combined_2017-10-09` and rerun the runner + this.
+
+## Ship-style 4-panel comparison  ✅ → `plot_atom_comparison.py`
+
+The ATom analog of `Ship_analysis/plot_ship_comparison.py` (same layout), per date →
+`combined_<date>_atom/atom_comparison_<date>.png`:
+1. DeepEns-corrected XCO2 footprints + ATom track (MODIS Aqua bg); each collocated leg
+   marked by a diamond coloured by its AK pseudo-column (same scale);
+2. histogram OCO-2 original vs DeepEns-corrected (pooled collocated footprints) with each
+   leg's AK pseudo-column as a red reference line; `Δmedian(OCO−ATom)` orig→corr in title;
+3. original XCO2_bc map (same colour scale, before/after side-by-side);
+4. the aircraft CO2 profile(s) that built the pseudo-column (CO2 vs pressure) + OCO-2
+   prior profile + column-value reference lines (pseudo-column / OCO orig & corr medians).
+
+The aircraft reference is the AK pseudo-column (per leg), not a continuous XCO2 field —
+so panel 2 uses reference *lines* (not a ship-like reference histogram) and panel 4 shows
+the profile instead of the ship time series. Reuses the collocation/AK machinery from
+`atom_pseudo_column.py`. `Δmedian` per date: 2017-10-20 +0.70→+0.50, 2017-10-27 +0.38→+0.45,
+others already near zero.
+
+```
+python plot_atom_comparison.py            # all 5 dates
+python plot_atom_comparison.py --no-modis # skip GIBS
+```
+
+## MODIS Aqua overlay maps  ✅ → `atom_modis_overlay.py`
+
+Per-date map mirroring `plot_corrected_xco2.py --modis-auto`: MODIS Aqua true-colour
+composite (NASA GIBS, reusing `plot_corrected_xco2.download_modis_rgb`) as background,
+OCO-2 ocean soundings coloured by DE-corrected XCO2 (collocated set full-opacity, rest
+faint context), ATom flight track in magenta. Puts aircraft + soundings + actual cloud
+field in one frame — the near-cloud collocation is visually explicit (e.g. 2017-02-10:
+the OCO swath crosses the track at a cloud band, near-cloud end reads higher XCO2).
+
+```
+python atom_modis_overlay.py            # all 5 dates → output/atom_modis_<date>.png
+python atom_modis_overlay.py --no-modis # skip GIBS (points-only)
+```
+Needs `owslib`+`cartopy` (present locally) and network for the GIBS tile (cached in
+`output/aqua_rgb_*.png` and reused).
 
 ## References (method precedent)
 

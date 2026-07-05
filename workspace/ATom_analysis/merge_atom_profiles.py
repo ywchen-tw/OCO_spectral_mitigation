@@ -10,7 +10,7 @@ This script resolves the two blockers found while inspecting the raw download:
   2. ATom "porpoises" continuously between ~0.2 and ~12 km. We segment each flight
      into individual ascending/descending legs -> one leg == one pseudo-column site.
 
-Output per flight (parquet, in ``output/``):
+Output per flight (parquet, in ``$OUT/atom_merged/``):
     time_utc_s, date, lat, lon, alt_m, p_hpa, t_k, co2_ppm, profile_id, leg_dir
 
 It deliberately stops *before* the hard half (stratospheric extension above the
@@ -35,11 +35,16 @@ import pandas as pd
 from scipy.signal import find_peaks
 
 # --- paths -------------------------------------------------------------------
+# Outputs live under results/model_comparison (like the TCCON comparison), namespaced
+# by the DE MODEL_TAG. Merged ATom profiles (this script's product) go in atom_merged/.
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "data", "Other"))
+REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+DATA_ROOT = os.path.join(REPO, "data", "Other")
 PICARRO_DIR = os.path.join(DATA_ROOT, "ATom_Picarro_Instrument_Data_1732", "data")
 NAV_DIR = os.path.join(DATA_ROOT, "ATom_nav_1613", "data")
-OUT_DIR = os.path.join(HERE, "output")
+TAG = "de_beta_nll_prof_reg_o05l15_m5"
+OUT_BASE = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
+OUT_DIR = os.path.join(OUT_BASE, "atom_merged")   # merged profiles + profile plots
 
 FILL = -99999.0  # ICARTT / nav missing-data sentinel
 

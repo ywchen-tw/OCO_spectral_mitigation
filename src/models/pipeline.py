@@ -380,12 +380,20 @@ SPEC_FEATURES = frozenset([
     f'sco2_k1{_S}', f'sco2_k2{_S}',
 ])
 
-# Cloud/aerosol contamination features are part of the base _FEATURES_SFC0/1 above
-# (always active) — forward-selected from the disabled-feature pool and validated with
-# date-blocked (date_kfold) CV: ~+0.06 (ocean) / +0.07 (land) held-out R² over the
-# pre-contam base (declocking/water aerosol on ocean; dpfrac/humidity/dust+ice on land).
-# They are permanent base features, so there is no separate CONTAM_FEATURES group and no
-# contam ablation.
+# Set 4 — drop cloud/aerosol contamination features.
+# These are part of the base _FEATURES_SFC0/1 above (always active) — forward-selected
+# from the disabled-feature pool and validated with date-blocked (date_kfold) CV:
+# ~+0.06 (ocean) / +0.07 (land) held-out R² over the pre-contam base (declocking/water
+# aerosol on ocean; dpfrac/humidity/dust+ice on land).  The set below is the UNION of the
+# ocean and land contamination groups; _resolve_feature_set silently ignores names not in
+# the active sfc_type's list, so one set drops the right features for either surface.
+CONTAM_FEATURES = frozenset([
+    # ocean (from _FEATURES_SFC0)
+    'max_declock_wco2', 'aod_water', 'dp_abp', 'h_cont_wco2', 't700',
+    'water_height', 'alb_sco2_over_wco2',
+    # land (from _FEATURES_SFC1)
+    'dpfrac', 'fs_rel_0', 'dust_height', 'aod_ice', 'ice_height', 'alt_std',
+])
 
 # snow_flag is NOT a model feature.  The land A/B (test_snow_features.py) showed it is
 # neutral — ~0 ΔR²/ΔRMSE even with snow footprints present — so it is not added to any
@@ -399,7 +407,8 @@ SPEC_FEATURES = frozenset([
 #
 # Contamination features are part of the base _FEATURES_SFC0/1, so the base IS the
 # active feature set: 'full' == base (``None`` sentinel = unchanged).  The
-# no_xco2 / no_spec / no_xco2_and_spec ablations drop the named group from full.
+# no_xco2 / no_spec / no_xco2_and_spec / no_contam / no_contam_and_xco2 ablations
+# drop the named group(s) from full.
 #
 # PROFILE BLOCK (profile EOFs + tropopause) is ORTHOGONAL to these sets — it is
 # not a raw column so it lives outside _FEATURE_SETS, supplied via
@@ -408,10 +417,12 @@ SPEC_FEATURES = frozenset([
 # features + profile EOFs + tropopause) and no_xco2/no_spec/no_xco2_and_spec
 # remove only the xco2 / spectroscopy raw features from that new full.
 _FEATURE_SETS: dict = {
-    'full':             None,
-    'no_xco2':          {'drop': XCO2_FEATURES},
-    'no_spec':          {'drop': SPEC_FEATURES},
-    'no_xco2_and_spec': {'drop': XCO2_FEATURES | SPEC_FEATURES},
+    'full':               None,
+    'no_xco2':            {'drop': XCO2_FEATURES},
+    'no_spec':            {'drop': SPEC_FEATURES},
+    'no_xco2_and_spec':   {'drop': XCO2_FEATURES | SPEC_FEATURES},
+    'no_contam':          {'drop': CONTAM_FEATURES},
+    'no_contam_and_xco2': {'drop': CONTAM_FEATURES | XCO2_FEATURES},
 }
 
 
@@ -809,9 +820,10 @@ class FeaturePipeline:
         feature_set : named ablation set selecting which continuous features
             survive.  'full' (default) is the base, which now includes the
             per-surface contamination features (snow_flag is NOT a feature).
-            'no_xco2' / 'no_spec' / 'no_xco2_and_spec' start from full and drop
-            xco2_raw_minus_apriori / the k1-k3 + exp_intercept spectroscopy
-            group / both.  See _FEATURE_SETS.  The
+            'no_xco2' / 'no_spec' / 'no_xco2_and_spec' / 'no_contam' /
+            'no_contam_and_xco2' start from full and drop xco2_raw_minus_apriori /
+            the k1-k3 + exp_intercept spectroscopy group / both / the cloud-aerosol
+            contamination group / contamination + xco2.  See _FEATURE_SETS.  The
             resulting ``n_features`` / ``features`` remain the single
             authoritative source — callers must never hard-code feature counts.
         profile_pca : profile-EOF/tropopause block, ORTHOGONAL to feature_set.
@@ -1064,8 +1076,10 @@ def main():
                         choices=sorted(_FEATURE_SETS),
                         help="Feature ablation set. 'full' (default) = base "
                              "(includes per-surface contamination; snow_flag is not a "
-                             "feature). 'no_xco2'/'no_spec'/'no_xco2_and_spec' drop "
-                             "xco2_raw_minus_apriori / k1-k3+exp_intercept / both "
+                             "feature). 'no_xco2'/'no_spec'/'no_xco2_and_spec'/"
+                             "'no_contam'/'no_contam_and_xco2' drop "
+                             "xco2_raw_minus_apriori / k1-k3+exp_intercept / both / "
+                             "cloud-aerosol contamination / contamination+xco2 "
                              "from full.")
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                         help='Append the profile-EOF + tropopause block (ProfilePCA). Bare flag / '
