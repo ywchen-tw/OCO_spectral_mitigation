@@ -99,6 +99,9 @@ def make_fig(date, radius_km, twin_s, do_modis):
     lat0, lat1 = pooled.lat.min() - pad, pooled.lat.max() + pad
     at_in = atom[(atom.lon.between(lon0, lon1)) & (atom.lat.between(lat0, lat1))]
     inx = oco[(oco.lon.between(lon0, lon1)) & (oco.lat.between(lat0, lat1))]
+    # keep only footprints with BOTH bc and corrected finite so the corrected (panel 1)
+    # and original-bc (panel 3) maps show the identical set of soundings
+    inx = inx[np.isfinite(inx[CORR_COL]) & np.isfinite(inx.xco2_bc)]
     vmin = float(np.floor(np.nanpercentile(o_corr, 2) * 2) / 2)
     vmax = float(np.ceil(np.nanpercentile(o_corr, 98) * 2) / 2)
 
@@ -156,8 +159,10 @@ def make_fig(date, radius_km, twin_s, do_modis):
                 f"corrected {d_corr:+.2f}±{e_corr:.2f} ppm")
     a.legend(fontsize=9)
 
-    # (3) original XCO2_bc map, same scale
+    # (3) original XCO2_bc map, same scale + same footprint set as panel (1)
     a = ax[1, 0]; _bg(a)
+    a.scatter(inx.lon, inx.lat, c=inx.xco2_bc, s=10, cmap="turbo", vmin=vmin, vmax=vmax,
+              alpha=0.5, zorder=2, edgecolors="none")
     sc = a.scatter(pooled.lon, pooled.lat, c=pooled.xco2_bc, s=16, cmap="turbo",
                    vmin=vmin, vmax=vmax, zorder=3, edgecolors="none")
     a.plot(at_in.lon, at_in.lat, "-", color="magenta", lw=1.2, alpha=0.9, zorder=4)
