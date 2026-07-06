@@ -33,6 +33,9 @@ TABS = {
     "so268":  (os.path.join(REPO, "data/Other/SO268-3_track_XCO2_XCH4_XCO.tab"), "MORE-2 (RV Sonne)"),
     "mr2101": (os.path.join(REPO, "data/Other/Hanft_2021_XCO2_XCH4_XCO.tab"),   "MR21-01 (RV Mirai)"),
 }
+# mr2101 timestamps are the START of a 1-hour averaging interval (per PANGAEA metadata),
+# so shift by +½ interval to mark the interval centre; so268 is instantaneous (no shift).
+HALF_INTERVAL_S = {"mr2101": 1800.0}
 
 
 def haversine_km(lon1, lat1, lon2, lat2):
@@ -58,11 +61,15 @@ def load_ship(tag, date):
             lon, lat, x = float(p[1]), float(p[2]), float(p[3])
         except ValueError:
             continue
+        try:                                    # "XCO2 err [±]" — reported measurement uncertainty
+            xerr = float(p[4])
+        except (IndexError, ValueError):
+            xerr = np.nan
         fmt = "%Y-%m-%dT%H:%M:%S" if p[0].count(":") == 2 else "%Y-%m-%dT%H:%M"
-        e = (dt.datetime.strptime(p[0], fmt) - EPOCH).total_seconds()
+        e = (dt.datetime.strptime(p[0], fmt) - EPOCH).total_seconds() + HALF_INTERVAL_S.get(tag, 0.0)
         if t0 <= e < t0 + 86400:
-            rows.append((e, lon, lat, x))
-    return pd.DataFrame(rows, columns=["epoch", "lon", "lat", "xco2"])
+            rows.append((e, lon, lat, x, xerr))
+    return pd.DataFrame(rows, columns=["epoch", "lon", "lat", "xco2", "xco2_err"])
 
 
 def main():

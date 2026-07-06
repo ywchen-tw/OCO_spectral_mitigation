@@ -58,12 +58,16 @@ def case_stats(date, ship, lonr, latr, out_base, radius_km, twin_s):
         return None
     ow = (st >= ot.min() - twin_s) & (st <= ot.max() + twin_s)
     ship_ref = float(np.nanmedian(sh.xco2.to_numpy()[ow]))
+    # ship reference uncertainty = reported measurement error ⊕ temporal variability in window
+    ship_meas = float(np.nanmedian(sh.xco2_err.to_numpy()[ow]))  # instrument-reported σ
+    ship_var = float(np.nanstd(sh.xco2.to_numpy()[ow]))          # ship XCO2 spread in window
+    ship_err = float(np.hypot(ship_meas, ship_var))              # combined
     o_bc, o_cc = near.xco2_bc.to_numpy(), near[CORR].to_numpy()
     return dict(
         date=date, ship=ship, n=len(near),
         cld_med=float(np.nanmedian(near.cld_dist_km)),
         n_near=int((near.cld_dist_km <= 10).sum()),
-        ship_xco2=ship_ref,
+        ship_xco2=ship_ref, ship_meas=ship_meas, ship_var=ship_var, ship_err=ship_err,
         oco_bc=float(np.nanmedian(o_bc)),   oco_bc_sd=float(np.nanstd(o_bc)),
         oco_corr=float(np.nanmedian(o_cc)), oco_corr_sd=float(np.nanstd(o_cc)),
         resid_bc=float(np.nanmedian(o_bc) - ship_ref),
@@ -75,10 +79,14 @@ def make_summary_plot(df, out_png):
     d = df.sort_values("cld_med").reset_index(drop=True)
     y = np.arange(len(d))
     lbl = [f"{r.date[5:]} {r.ship}" for r in d.itertuples()]
-    RED, BLUE = "#d62728", "#1f77b4"
+    RED, BLUE, GREY = "#d62728", "#1f77b4", "0.82"
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5))
 
-    # (A) per-case signed bias bc→corr, xerr = 1σ of the collocated OCO-2 soundings
+    # (A) per-case signed bias bc→corr, xerr = 1σ of the collocated OCO-2 soundings.
+    # Grey band = ship measured XCO2 uncertainty about the (zero) reference, per case.
+    for k, (yi, err) in enumerate(zip(y, d.ship_err)):
+        ax1.fill_betweenx([yi - 0.35, yi + 0.35], -err, err, color=GREY, zorder=0,
+                          label="ship σ (meas⊕var)" if k == 0 else None)
     for yi, rb, rc in zip(y, d.resid_bc, d.resid_corr):
         ax1.plot([rb, rc], [yi, yi], "-", color="0.75", zorder=1)
     ax1.errorbar(d.resid_bc, y, xerr=d.oco_bc_sd, fmt="o", ms=7, color=RED, ecolor=RED,
@@ -90,8 +98,13 @@ def make_summary_plot(df, out_png):
     ax1.set_xlabel("OCO-2 − ship EM27/SUN (ppm)   [±1σ of collocated soundings]")
     ax1.set_title("Per-case bias: xco2_bc → DE-corrected"); ax1.legend(fontsize=8)
 
-    # (B) bias vs cloud distance, yerr = 1σ of the collocated OCO-2 soundings
+    # (B) bias vs cloud distance, yerr = 1σ of the collocated OCO-2 soundings.
+    # Grey band = ship measured XCO2 uncertainty about the (zero) reference, per case.
     ax2.axhline(0, color="k", lw=0.7)
+    xw = max((d.cld_med.max() - d.cld_med.min()) * 0.02, 1.0)
+    for k, r in enumerate(d.itertuples()):
+        ax2.fill_between([r.cld_med - xw, r.cld_med + xw], -r.ship_err, r.ship_err,
+                         color=GREY, zorder=0, label="ship σ (meas⊕var)" if k == 0 else None)
     ax2.errorbar(d.cld_med, d.resid_bc, yerr=d.oco_bc_sd, fmt="o", color=RED, mfc="none",
                  ms=8, elinewidth=0.8, capsize=3, label="xco2_bc")
     ax2.errorbar(d.cld_med, d.resid_corr, yerr=d.oco_corr_sd, fmt="o", color=BLUE,
@@ -110,7 +123,8 @@ def make_summary_plot(df, out_png):
         f"OCO-2 ocean-glint vs shipborne EM27/SUN — {len(d)} cases\n"
         f"{sub}all: mean bias {d.resid_bc.mean():+.2f}±{d.resid_bc.std():.2f} → "
         f"{d.resid_corr.mean():+.2f}±{d.resid_corr.std():.2f} ppm   "
-        f"(mean σ {d.oco_bc_sd.mean():.2f}→{d.oco_corr_sd.mean():.2f})",
+        f"(mean OCO σ {d.oco_bc_sd.mean():.2f}→{d.oco_corr_sd.mean():.2f}; "
+        f"mean ship σ {d.ship_err.mean():.2f})",
         fontweight="bold", fontsize=11)
     fig.tight_layout(); fig.savefig(out_png, dpi=130); plt.close(fig)
     print(f"wrote {out_png}")
@@ -132,7 +146,8 @@ def main():
         rows.append(r)
         print(f"{date} {ship}: n={r['n']:4d} cld_med={r['cld_med']:5.1f}  "
               f"bias_bc {r['resid_bc']:+.2f}±{r['oco_bc_sd']:.2f} → "
-              f"corr {r['resid_corr']:+.2f}±{r['oco_corr_sd']:.2f}")
+              f"corr {r['resid_corr']:+.2f}±{r['oco_corr_sd']:.2f}  "
+              f"ship σ {r['ship_err']:.2f} (meas {r['ship_meas']:.2f}⊕var {r['ship_var']:.2f})")
     if not rows:
         print("no cases with plot_data — run curc_shell_blanca_ship_deepens.sh first"); return
     df = pd.DataFrame(rows)
