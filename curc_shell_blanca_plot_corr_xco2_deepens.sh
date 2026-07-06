@@ -218,6 +218,7 @@ run_case  2017-04-23   ny20050316_20250524.public.qc.nc      10.46    16.97    7
 # run_case  2017-05-16   ny20050316_20250524.public.qc.nc      11.47    14.98    78.47    79.76   406.0  410.0  both  poster  ny
 run_case  2017-05-25   ny20050316_20250524.public.qc.nc      11.47    15.34    78.47    79.62   399.5  416.0  both  poster  ny  yes
 run_case  2017-06-17   ny20050316_20250524.public.qc.nc      11.12    16.35    77.86    79.78   377.0  409.0  both  poster  ny  yes
+run_case  2019-06-09   ny20050316_20250524.public.qc.nc       8.54    14.94    78.02    79.31   392.0  413.0  both  poster  ny  yes
 # 2020-03-31: nearest OCO sounding 58 km, only 1 footprint ≤100km — marginal clip
 # run_case  2020-03-31   ny20050316_20250524.public.qc.nc      11.47    14.62    78.47    79.37   406.0  410.0  both  poster  ny
 run_case  2016-09-10   ny20050316_20250524.public.qc.nc      10.31    14.44    77.93    79.27   383.5  401.5  both  poster  ny  yes
@@ -238,6 +239,7 @@ run_case  2021-03-29   wg20130104_20260224.public.qc.nc     150.26   151.47   -3
 run_case  2021-07-03   wg20130104_20260224.public.qc.nc     150.45   151.25   -34.89   -34.03   407.0  415.0  both  poster  wg  yes
 
 # ── East Trout Lake, Canada (et; lat 54.35, lon -104.99) ──
+run_case  2017-02-06   et20161003_20260326.public.qc.nc    -105.09  -104.56    53.48    54.45   401.5  410.0  land  poster  et  yes
 run_case  2018-06-03   et20161003_20260326.public.qc.nc    -105.44  -104.22    53.38    54.80   394.5  412.0  land  poster  et  yes
 run_case  2021-05-26   et20161003_20260326.public.qc.nc    -105.84  -104.07    53.16    55.55   416.0  419.5  land  poster  et  yes
 # 2021-06-09: nearest OCO sounding 920 km from station (overpass orbit not in parquet) — no nearby pass
@@ -294,6 +296,7 @@ run_case  2020-07-11   ra20150301_20200718.public.qc.nc      55.10    55.99   -2
 # ── Edwards/AFRC, USA (df; lat 34.96, lon -117.881) ──
 run_case  2015-07-06   df20130720_20260121.public.qc.nc    -118.66  -117.43    33.71    36.14   400.0  404.0  land  poster  df  yes
 run_case  2015-07-15   df20130720_20260121.public.qc.nc    -118.79  -117.53    33.71    36.08   396.5  401.0  land  poster  df  yes
+run_case  2017-02-03   df20130720_20260121.public.qc.nc    -118.18  -117.60    34.31    35.53   397.5  410.5  land  poster  df  yes
 run_case  2019-03-13   df20130720_20260121.public.qc.nc    -118.23  -116.85    33.90    36.20   410.5  413.5  land  poster  df  no
 run_case  2019-07-10   df20130720_20260121.public.qc.nc    -118.34  -117.39    34.46    35.46   408.5  412.0  land  poster  df  yes
 run_case  2021-02-10   df20130720_20260121.public.qc.nc    -118.35  -117.40    34.48    35.43   415.0  418.0  land  poster  df  yes
@@ -307,6 +310,9 @@ run_case  2018-06-03   ci20120920_20251222.public.qc.nc    -118.58  -117.68    3
 run_case  2021-04-24   ci20120920_20251222.public.qc.nc    -118.49  -117.64    33.68    34.60   404.5  420.5  land  poster  ci  no
 
 # ── Saga, Japan (js; lat 33.241, lon 130.288) ──
+run_case  2017-02-03   js20110728_20231213.public.qc.nc     129.84   130.39    32.24    33.34   404.0  409.5  both  poster  js  yes
+# 2017-10-08: only 11 footprints ≤100km, nearest 85.6 km — marginal clip
+# run_case  2017-10-08   js20110728_20231213.public.qc.nc     130.19   131.31    33.14    33.72   397.5  405.0  both  poster  js  yes
 run_case  2018-09-02   js20110728_20231213.public.qc.nc     129.91   131.08    32.20    34.36   403.0  408.0  both  poster  js  yes
 run_case  2019-03-13   js20110728_20231213.public.qc.nc     129.68   130.94    32.10    34.41   410.5  414.0  both  poster  js  yes
 run_case  2020-10-05   js20110728_20231213.public.qc.nc     129.82   130.79    32.77    33.72   408.5  412.0  both  poster  js  yes
@@ -339,6 +345,7 @@ run_case  2021-06-21   db20130101_20250731.public.qc.nc     130.50   131.38   -1
 run_case  2020-03-30   rj20140624_20250501.public.qc.nc     143.21   144.21    42.95    43.91   412.5  416.0  land  poster  rj  yes
 
 # ── Xianghe, China (xh; lat 39.798, lon 116.958) ──
+run_case  2019-06-09   xh20180614_20241231.public.qc.nc     116.14   117.06    38.82    40.60   402.5  412.0  land  poster  xh  yes
 run_case  2020-02-11   xh20180614_20241231.public.qc.nc     116.43   117.71    38.60    41.04   414.5  420.5  land  poster  xh  yes
 run_case  2020-03-14   xh20180614_20241231.public.qc.nc     116.51   117.46    38.75    40.87   413.0  418.5  land  poster  xh  no
 
