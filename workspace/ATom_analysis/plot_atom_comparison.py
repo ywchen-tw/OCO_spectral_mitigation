@@ -59,7 +59,7 @@ def collocate_date(date, radius_km, twin_s, min_n=3):
         prof = pseudo_profile_on_grid(leg, op)
         if prof is None:
             continue
-        x_on_oco, p_ceiling, p_floor = prof
+        x_on_oco, _sig_meas, p_ceiling, p_floor = prof
         c_ak = float(op["ca"] + np.nansum(op["h"] * op["a"] * (x_on_oco - op["xa"])))
         legs.append(dict(pid=int(pid), sub=sub, op=op, leg=leg, c_ak=c_ak,
                          lat=float(leg.lat.mean()), lon=float(leg.lon.mean())))
