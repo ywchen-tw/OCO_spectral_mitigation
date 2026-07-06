@@ -167,47 +167,50 @@ def process(date, oco, atom, radius_km, twin_s, min_n, strat_prior_sd=1.0):
 
 
 def make_summary_plot(df, out_png):
-    """Two-panel bias summary. Residual error bars are the OCO-2 sounding spread ⊕
-    the ATom pseudo-column-average uncertainty (added in quadrature, like the ship
-    figure). The grey band at 0 shows the median pseudo-column ±1σ explicitly."""
+    """Two-panel bias summary. Residual error bars = the collocated OCO-2 sounding
+    spread (per leg). Each leg's OWN ATom pseudo-column-average ±1σ is drawn as a
+    grey bar around the reference (0) — individual per leg, not a pooled mean."""
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
     d = df.sort_values("cld_med").reset_index(drop=True)
     y = np.arange(len(d))
     lbl = [f"{r.date[5:]} L{r.profile_id}" for r in d.itertuples()]
-    RED, BLUE, GREY = "#d62728", "#1f77b4", "0.6"
-    # total residual uncertainty = OCO spread ⊕ ATom pseudo-column uncertainty
-    e_bc = np.hypot(d.oco_bc_sd, d.atom_ak_sd)
-    e_corr = np.hypot(d.oco_corr_sd, d.atom_ak_sd)
-    sd_atom = float(d.atom_ak_sd.median())
+    RED, BLUE, GREY = "#d62728", "#1f77b4", "0.45"
+    sd = d.atom_ak_sd.to_numpy()                 # per-leg pseudo-column σ
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5))
 
-    # (A) per-leg signed bias bc→corr, xerr = OCO spread ⊕ pseudo-column σ
-    ax1.axvspan(-sd_atom, sd_atom, color=GREY, alpha=0.18, zorder=0,
-                label=f"ATom pseudo-column ±1σ (med {sd_atom:.2f})")
+    # (A) per-leg signed bias bc→corr; xerr = OCO spread; grey box per row = that
+    #     leg's own ATom pseudo-column ±1σ around the reference (0)
+    for yi, s in zip(y, sd):
+        ax1.fill_betweenx([yi - 0.4, yi + 0.4], -s, s, color=GREY, alpha=0.25, zorder=0)
     for yi, rb, rc in zip(y, d.resid_bc, d.resid_corr):
         ax1.plot([rb, rc], [yi, yi], "-", color="0.75", zorder=1)
-    ax1.errorbar(d.resid_bc, y, xerr=e_bc, fmt="o", ms=6, color=RED, ecolor=RED,
+    ax1.errorbar(d.resid_bc, y, xerr=d.oco_bc_sd, fmt="o", ms=6, color=RED, ecolor=RED,
                  elinewidth=1, capsize=2, zorder=2, label="xco2_bc − ATom")
-    ax1.errorbar(d.resid_corr, y, xerr=e_corr, fmt="o", ms=6, color=BLUE, ecolor=BLUE,
+    ax1.errorbar(d.resid_corr, y, xerr=d.oco_corr_sd, fmt="o", ms=6, color=BLUE, ecolor=BLUE,
                  elinewidth=1, capsize=2, zorder=3, label="DE-corrected − ATom")
     ax1.axvline(0, color="k", lw=0.7)
     ax1.set_yticks(y); ax1.set_yticklabels(lbl, fontsize=8); ax1.invert_yaxis()
-    ax1.set_xlabel("OCO-2 − ATom pseudo-column (ppm)   [±1σ: OCO spread ⊕ pseudo-column]")
-    ax1.set_title("Per-leg bias: xco2_bc → DE-corrected"); ax1.legend(fontsize=7)
+    ax1.set_xlabel("OCO-2 − ATom pseudo-column (ppm)   [error bars = OCO sounding spread]")
+    ax1.set_title("Per-leg bias: xco2_bc → DE-corrected")
+    ax1.legend(handles=[Patch(facecolor=GREY, alpha=0.25, label="ATom pseudo-column ±1σ (per leg)"),
+                        *ax1.get_legend_handles_labels()[0]], fontsize=7)
 
-    # (B) bias vs cloud distance, same combined error bars + pseudo-column band
-    ax2.axhspan(-sd_atom, sd_atom, color=GREY, alpha=0.18, zorder=0)
+    # (B) bias vs cloud distance; per-leg grey bar at each x = that leg's pseudo-column ±1σ
+    ax2.errorbar(d.cld_med, np.zeros(len(d)), yerr=sd, fmt="none", ecolor=GREY,
+                 elinewidth=6, alpha=0.3, capsize=0, zorder=0)
     ax2.axhline(0, color="k", lw=0.7)
-    ax2.errorbar(d.cld_med, d.resid_bc, yerr=e_bc, fmt="o", color=RED, mfc="none",
+    ax2.errorbar(d.cld_med, d.resid_bc, yerr=d.oco_bc_sd, fmt="o", color=RED, mfc="none",
                  ms=7, elinewidth=0.8, capsize=2, label="xco2_bc")
-    ax2.errorbar(d.cld_med, d.resid_corr, yerr=e_corr, fmt="o", color=BLUE,
+    ax2.errorbar(d.cld_med, d.resid_corr, yerr=d.oco_corr_sd, fmt="o", color=BLUE,
                  ms=7, elinewidth=0.8, capsize=2, label="DE-corrected")
     for r in d.itertuples():
         ax2.plot([r.cld_med, r.cld_med], [r.resid_bc, r.resid_corr], color="0.8", zorder=0)
     ax2.set_xlabel("median cloud distance of collocated OCO-2 (km)")
     ax2.set_ylabel("OCO-2 − ATom (ppm)"); ax2.set_title("Bias vs cloud distance")
-    ax2.legend(fontsize=8)
+    ax2.legend(handles=[Patch(facecolor=GREY, alpha=0.3, label="ATom pseudo-column ±1σ (per leg)"),
+                        *ax2.get_legend_handles_labels()[0]], fontsize=8)
 
     nc = d[d.cld_med <= 10]
     fig.suptitle(
@@ -215,7 +218,7 @@ def make_summary_plot(df, out_png):
         f"{len(d)} legs, {len(nc)} near-cloud\n"
         f"near-cloud mean bias {nc.resid_bc.mean():+.2f}±{nc.resid_bc.std():.2f} → "
         f"{nc.resid_corr.mean():+.2f}±{nc.resid_corr.std():.2f} ppm  "
-        f"(±1σ across legs;  pseudo-column σ med {sd_atom:.2f})",
+        f"(±1σ across legs;  pseudo-column σ {sd.min():.2f}–{sd.max():.2f} per leg)",
         fontweight="bold", fontsize=11)
     fig.tight_layout(); fig.savefig(out_png, dpi=130); plt.close(fig)
     print(f"wrote {out_png}")
