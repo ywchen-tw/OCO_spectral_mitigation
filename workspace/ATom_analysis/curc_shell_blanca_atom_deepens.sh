@@ -107,11 +107,11 @@ atom_case  2017-10-27   -129.88  -129.01   37.92   39.98   "891 fp, 158 near<=10
 atom_case  2018-05-12    -40.54   -40.11  -37.57  -36.03   "16 fp, 16 near<=10km — S Atlantic"
 
 # ── recovered: coincidence on the flight's 2nd UTC day (day-2 parquets processed 2026-07).
+atom_case  2017-02-04    177.73   178.62   -5.79   -1.75   "ATom 2017-02-03 flight (day 2); 48 fp, 48 near<=10km — equatorial W Pacific"
 atom_case  2017-02-06   -145.19   169.56  -54.32  -41.32   "ATom 2017-02-05 flight (day 2); 409 fp, 409 near<=10km — S Pacific/dateline (lon box wraps 180)"
 atom_case  2017-10-09   -175.01  -174.61  -44.44  -43.40   "ATom 2017-10-08 flight (day 2); 313 fp, 82 near<=10km — S Pacific"
 #
-# ── not available: 2017-02-03 flight's coincidence is on 2017-02-04 (processing 02-03 alone
-#    gives 0 collocated — closest 1137 km; needs combined_2017-02-04); 2018-05-01 (training).
+# ── excluded: 2018-05-01 (training data — do not process).
 
 echo ""
 echo "ATom deep-ensemble correction done → $OUT_BASE/combined_<date>_atom/plot_data.parquet"
