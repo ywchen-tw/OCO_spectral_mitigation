@@ -147,25 +147,29 @@ def _sig_lines(sig, label):
     return lines
 
 
-def _tccon_band(ax, frame, *, horizontal=False):
-    """Shade the ±(mean reported TCCON xco2_error) zone around 0 on a bias axis.
-
-    A station-day bias whose magnitude is within TCCON's own retrieval error is
-    statistically indistinguishable from TCCON.  Reference-independent: AK/prior
-    harmonization shifts the reference VALUE, not the measurement error, so the
-    band is identical on the AK-harmonized and direct (window-mean) figures.
+def _tccon_band(ax, frame):
+    """Draw each case's OWN ±(reported TCCON xco2_error) zone as a short grey
+    segment centered at bias=0, at that row's y-position.  Rows are assumed
+    plotted at y = 0..n-1 in ``frame`` order (as the dumbbell / direct-vs-AK
+    series do).  Per-case TCCON measurement uncertainty — it varies station-day
+    to station-day (sparse or high-error windows are wider).  Reference-
+    independent: AK/prior harmonization shifts the reference VALUE, not the
+    retrieval error, so the zones are identical on the AK and direct figures.
     Returns the mean σ (ppm) or None when no TCCON error is available."""
     if 'tccon_err_mean' not in getattr(frame, 'columns', ()):
         return None
-    v = frame['tccon_err_mean'].to_numpy(float)
-    v = v[np.isfinite(v)]
-    if not v.size:
+    e = frame['tccon_err_mean'].to_numpy(float)
+    if not np.isfinite(e).any():
         return None
-    s = float(np.mean(v))
-    span = ax.axhspan if horizontal else ax.axvspan
-    span(-s, s, color='gray', alpha=0.15, lw=0, zorder=0,
-         label=f'±TCCON σ ({s:.2f} ppm)')
-    return s
+    labelled = False
+    for i, err in enumerate(e):
+        if not np.isfinite(err):
+            continue
+        ax.fill_betweenx([i - 0.4, i + 0.4], -err, err, color='gray', alpha=0.20,
+                         lw=0, zorder=0,
+                         label=(None if labelled else '±TCCON σ (per case)'))
+        labelled = True
+    return float(np.nanmean(e))
 
 
 def _draw_pair(axA, axB, cmp, title_prefix=''):
@@ -267,7 +271,7 @@ def _draw_pair(axA, axB, cmp, title_prefix=''):
     axB.set_xlabel('XCO₂ bias to TCCON (ppm)')
     axB.set_title((f'{title_prefix}Bias to TCCON: raw → before → after' if has_raw
                    else f'{title_prefix}Bias before → after correction')
-                  + '   (marker = station-day mean, error bar = footprint σ, shaded = ±TCCON σ)')
+                  + '   (marker = station-day mean, error bar = footprint σ, shaded = per-case ±TCCON σ)')
     axB.legend(loc='lower right', title='per station-day'); axB.grid(alpha=0.3, axis='x')
 
 
