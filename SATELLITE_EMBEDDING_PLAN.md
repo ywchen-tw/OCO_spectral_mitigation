@@ -244,15 +244,16 @@ main dataframe by `sounding_id`.  Missing rows (open ocean far from coast where
 embedding adds nothing) remain NaN — the existing `RobustScaler` + imputation
 handles this.
 
-#### C2. New feature group in `_FEATURE_GROUPS` (transformer.py)
+#### C2. ~~New feature group in `_FEATURE_GROUPS` (transformer.py)~~ — RETARGET (2026-07-06)
 
-```python
-'Surface\nEmbedding': [f'A{i:02d}_mean' for i in range(64)] +
-                      [f'A{i:02d}_std'  for i in range(64)],
-```
-
-The FT-Transformer's segment embedding mechanism will assign all 128 columns to
-this group, encouraging the model to treat them as a coherent physical block.
+> `src/models/transformer.py` was **deleted** in the 2026-07-03 model
+> consolidation (see PIPELINE_CHANGELOG.md); the production model is the
+> per-surface deep ensemble. If this integration is revived, the embedding
+> block should instead be added as a feature block in
+> `src/models/pipeline.py::_FEATURE_SETS` (like the contamination block) or —
+> better matching its 128-wide correlated structure — compressed per surface
+> via the ProfilePCA pattern (`src/models/profile_pca.py`) into a few EOF
+> scores before entering the `full` set.
 
 #### C3. Dimensionality reduction (optional)
 
@@ -288,7 +289,7 @@ After integration, run the following to confirm marginal value:
 | `src/pipeline/phase_035_embedding.py` | **New file** — GEE extraction script; `filterDate` fix; `geodesic=False`; `maxPixels=50000` | ✅ Done |
 | `workspace/demo_combined.py` | Wire Phase 3.5 (lazy import); `--gcp-project` flag with env-var fallback only when flag is present | ✅ Done |
 | `src/models/pipeline.py` | Load and merge embedding stats parquet | ⬜ Pending |
-| `src/models/transformer.py` | Add `'Surface\nEmbedding'` to `_FEATURE_GROUPS` | ⬜ Pending |
+| ~~`src/models/transformer.py`~~ | ~~Add `'Surface\nEmbedding'` to `_FEATURE_GROUPS`~~ file deleted 2026-07-03; retarget to `_FEATURE_SETS` / ProfilePCA-style EOF block (see C2) | ⬜ Pending |
 
 ---
 

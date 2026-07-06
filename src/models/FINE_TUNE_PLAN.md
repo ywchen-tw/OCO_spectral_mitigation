@@ -1,19 +1,33 @@
-# Deep-Ensemble Fine-Tuning Plan (for later implementation)
+# Deep-Ensemble Fine-Tuning Plan (largely executed)
 
-Status: **planning** — written 2026-06-25. Model is production-usable as-is; this
-plan is for squeezing remaining headroom, not a blocker.
+Status: written 2026-06-25 as **planning**; **most of it has since been executed
+and adopted** (2026-07). §0 below is updated to the current production config;
+the Tier-A/B tables keep their original "current/try" values as a historical
+record — adopted knobs are marked.
 
-## 0. Current locked-in configuration (do NOT re-litigate)
-The production model is the deep ensemble in [deep_ensemble.py](deep_ensemble.py):
+## 0. Current locked-in configuration (updated 2026-07-06; do NOT re-litigate)
+The production model is the deep ensemble in [deep_ensemble.py](deep_ensemble.py),
+tag **`de_{ocean,land}_beta_nll_prof_reg_{r05,r15}`**:
 - **Loss**: `beta_nll`, `beta=1.0` — won a clean sweep {0,0.3,0.5,0.7,1.0,1.5,2.0};
   1.0 is the optimum (β>1 overfits, β<1 underfits the mean). See
   [loss_ablation_verdict.md](../../results/model_comparison/loss_ablation_verdict.md).
-- **Architecture**: `GaussianMLP` 35→64→32→(mu, log_var), M=3 members, AdamW
-  lr=1e-3, wd=1e-4, OneCycleLR, 500 epochs (Linux), batch 8192.
+- **Architecture**: `GaussianMLP` n→64→32→(mu, log_var), **M=5 members** (Tier-A
+  adopted), **`--norm layer --dropout 0.1`** (lndo01, adopted from the 2026-07
+  reg ablation — never worse, land tail +0.032 ppm > fold-σ; BatchNorm rejected;
+  the wider-capacity arm did NOT help, 64→32 stands), AdamW lr=1e-3, wd=1e-4,
+  OneCycleLR, 500 epochs (Linux), batch 8192, shared trainer `train_common.py`.
+- **Features**: `full` + **ProfilePCA block** (`--profile-pca`; adopted 2026-07 —
+  land near-cloud tail R² 0.28→0.68); spectroscopy k's are the no-SG fit.
+- **Target**: per-surface anomaly radius — **ocean r05 / land r15**.
 - **Calibration**: split + cloud-Mondrian conformal, sigma-normalized,
   `near_cloud_target=0.98` (over-covers near-cloud bins to lift the outcome-defined
   tail to ~0.90). See [tail_coverage_verdict.md](../../results/model_comparison/tail_coverage_verdict.md).
-- **Validation**: `date_kfold`, 5 folds, ocean + land.
+- **Validation**: `date_kfold`, 5 folds, ocean + land; independent TCCON/ship/ATom
+  chains under `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/`.
+
+Note: code *defaults* in `deep_ensemble.py` differ from production on purpose
+(dropout 0.0 / norm none keep old checkpoints loadable); production flags live in
+`curc_shell_blanca_de_profile*.sh`.
 
 Full-scale results: ocean R²≈0.54 / near-cloud R²≈0.63; land R²≈0.46 / near 0.60.
 beta_nll beats gaussian most on **land** (+0.09 near R²) and on the **tail** point
@@ -29,11 +43,11 @@ accuracy; see [deep_ensemble_fullscale_verdict.md](../../results/model_compariso
 
 ## 2. Tuning targets — prioritized
 
-### Tier A — highest expected value (do these first, manual, fold-0 ocean+land)
-| knob | current | try | hypothesis | links to |
-|---|---|---|---|---|
-| `n_members` | 3 | 5, 10 | more members → better ensemble σ → better **tail coverage** (the open problem) | tail coverage |
-| hidden width | 64→32 | 128→64, 256→128 | more capacity for the near-cloud nonlinearity → near-cloud R² | accuracy |
+### Tier A — highest expected value (RESOLVED 2026-07)
+| knob | current | try | outcome |
+|---|---|---|---|
+| `n_members` | 3 | 5, 10 | **M=5 adopted** (production); M=10 tested in the DE++ hetero ablation — within noise of M=5-per-surface at scale |
+| hidden width | 64→32 | 128→64, 256→128 | **rejected** — reg-ablation capacity arm and the 32,32,32 arch A/B showed no win; 64→32 stands |
 
 Method: replicate the beta-sweep pattern — single fold, beta=1.0, 250 epochs, run
 with vs without, compare `near_cloud(<=10km)` R² and `near&bottom_5pct` coverage
@@ -41,14 +55,14 @@ with vs without, compare `near_cloud(<=10km)` R² and `near&bottom_5pct` coverag
 outside the ±0.10 fold spread.
 
 ### Tier B — second-order (only if Tier A shows headroom)
-| knob | current | range |
-|---|---|---|
-| lr | 1e-3 | 3e-4 … 3e-3 (log) |
-| weight_decay | 1e-4 | 1e-5 … 1e-3 (log) |
-| epochs / patience | 500 / 50 | 300–800 / 30–80 |
-| calib_frac | 0.15 | 0.10 … 0.25 |
-| mondrian_bins | 10 | 6 … 20 |
-| dropout (add) | none | 0 … 0.2 |
+| knob | current | range | status |
+|---|---|---|---|
+| lr | 1e-3 | 3e-4 … 3e-3 (log) | untried (TabM-HPO flat-landscape lesson: don't chase) |
+| weight_decay | 1e-4 | 1e-5 … 1e-3 (log) | untried |
+| epochs / patience | 500 / 50 | 300–800 / 30–80 | untried |
+| calib_frac | 0.15 | 0.10 … 0.25 | untried |
+| mondrian_bins | 10 | 6 … 20 | untried |
+| dropout (add) | none | 0 … 0.2 | **dropout 0.1 + LayerNorm ADOPTED** (2026-07 reg ablation) |
 
 ### Tier C — calibration refinements (post-hoc, cheap, no retrain)
 - Sweep `near_cloud_target` ∈ {0.975, 0.98, 0.985, 0.99} on full-data parquets via
@@ -70,9 +84,11 @@ outside the ±0.10 fold spread.
 5. **Cost budget**: full-data run ≈ 40 min GPU/fold. Prototype on the 12-date
    subset (`combined_2020_dates.parquet`), confirm survivors on full 2016–2020.
 
-## 4. Autoresearch integration (only after Tier A justifies it)
+## 4. Autoresearch integration (dormant — Tier A closed without needing it)
 The harness in `src/search/` (search.py / loop.py / promotion.py / confirm.py)
-already runs `mlp_lr`, `ft_transformer`, `hybrid`, `xgb`. To add the deep ensemble:
+now supports only `xgb` (the `mlp_lr`/`ft_transformer`/`hybrid` families were
+removed in the 2026-07-03 model consolidation — see PIPELINE_CHANGELOG.md).
+If ever revived for the deep ensemble:
 
 1. **Add a `--config` JSON interface to deep_ensemble.py** — the loop only executes
    families exposing one (CLI-arg parsing exists; add a JSON loader that maps to the

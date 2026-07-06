@@ -161,22 +161,24 @@ Consequences:
 
 ## 8. Code map
 
-All in [`fitting.py`](fitting.py).
+*(Updated 2026-07-06 for the module split: the fit core now lives in
+[`cumulant_fit.py`](cumulant_fit.py); [`fitting.py`](fitting.py) is the
+orchestration facade re-exporting the public names. The iterative `curve_fit`
+was replaced 2026-07-04 by an exact linear solve — same optimum, ×14 faster.)*
 
 | Derivation step | Code |
 |-----------------|------|
-| `T = γ T̄ = πI/(f₀cosθ)` measured transmittance (Section 4) | `compute_transmittance` — `T = radiances / toa_sol * π`, masks `T > 1` ([fitting.py:408-423](fitting.py#L408-L423)) |
-| `ln T` cumulant polynomial, order `N` (Section 6) | `log_transmittance_model_1 … _9` ([fitting.py:46-93](fitting.py#L46-L93)) |
-| Order → model dispatch | `LOG_TRANSMITTANCE_MODELS` dict ([fitting.py:125-133](fitting.py#L125-L133)); selected in `fit_spectral_model` ([fitting.py:516](fitting.py#L516)) |
-| Closed-form gamma `T(S̄ŌD̄)` (Section 5) | `transmittance_model(tau, l_mean, kappa, intercept)` ([fitting.py:95-102](fitting.py#L95-L102)) — `l_mean = ⟨l'⟩`, `kappa = κ` (unused in active fit) |
-| Design matrix `1, −τ, +½τ², …` (Section 6) | `get_design_matrix` ([fitting.py:426-442](fitting.py#L426-L442)) |
-| Fit `ln T` vs. `τ` (Section 6) | `fit_spectral_model` — savgol smooth + `curve_fit` ([fitting.py:500-531](fitting.py#L500-L531)) |
-| **k1, k2 ≥ 0 bounds** (Section 6 positivity) | `n_pos = min(2, fit_order)`; `lb = [0]*n_pos + [-inf]*…`; passed via `bounds=(lb, ub)` ([fitting.py:526-531](fitting.py#L526-L531)) |
-| `S̄ŌD̄ ≡ τ` per channel (Section 3) | `od["tau"]` from `oco_fp_atm_abs`; edge channels dropped `[1:-1]` ([fitting.py:872](fitting.py#L872)) |
-| Store k1…k5 + intercept | `kappa_fitting`, `intercept_fitting` → `output_dict` ([fitting.py:886](fitting.py#L886), [fitting.py:1011-1036](fitting.py#L1011-L1036)) |
-| **κ = k1²/k2** (Section 6 identity) | `gamma_kappa = kappa_fitting[:,:,0]² / kappa_fitting[:,:,1]`, NaN where `k2 ≤ 0`; written as `{band}_kappa` ([fitting.py:929-932](fitting.py#L929-L932), [fitting.py:1030-1032](fitting.py#L1030-L1032)) |
-| Per-band orders `(o2a, wco2, sco2)` | `fit_order = (7, 3, 7)` in `run_simulation` ([fitting.py:1584](fitting.py#L1584)) |
+| `T = γ T̄ = πI/(f₀cosθ)` measured transmittance (Section 4) | `compute_transmittance` — `T = radiances / toa_sol * π`, masks `T > 1` (`cumulant_fit.py`) |
+| `ln T` cumulant polynomial, order `N` (Section 6) | `log_transmittance_model_1 … _9` + `LOG_TRANSMITTANCE_MODELS` dispatch (`cumulant_fit.py`) |
+| Closed-form gamma `T(S̄ŌD̄)` (Section 5) | `transmittance_model(tau, l_mean, kappa, intercept)` (`cumulant_fit.py`) — unused in active fit |
+| Design matrix `1, −τ, +½τ², …` (Section 6) | `get_design_matrix` (`cumulant_fit.py`) — now the core of the exact solver |
+| Fit `ln T` vs. `τ` (Section 6) | `fit_spectral_model` (`cumulant_fit.py`) — exact `lstsq` on the design matrix; **dual fit**: Savitzky-Golay-smoothed AND raw (no-SG) inputs. The no-SG k's are the **production default** (`models/pipeline._USE_NOSG_K`, `_nosg` suffix); SG twins kept for the robustness comparison (`compare_savgol_fits.py`) |
+| **k1, k2 ≥ 0 bounds** (Section 6 positivity) | BVLS fallback when the unconstrained lstsq solution violates k1,k2 ≥ 0 (`cumulant_fit.py`) |
+| `S̄ŌD̄ ≡ τ` per channel (Section 3) | `od["tau"]` from `oco_fp_atm_abs`; edge channels dropped `[1:-1]` (`orbit_data.py` / `fitting.py`) |
+| Store k1…k5 + intercept | `kappa_fitting`, `intercept_fitting` → `output_dict` (`fitting.py`) |
+| **κ = k1²/k2** (Section 6 identity) | `gamma_kappa`, NaN where `k2 ≤ 0`; written as `{band}_kappa` (`fitting.py`) |
+| Per-band orders `(o2a, wco2, sco2)` | `constants.FIT_ORDER = (7, 3, 7)` — rationale in [`FIT_ORDER_EXPERIMENT.md`](FIT_ORDER_EXPERIMENT.md) |
 
 > Note: `transmittance_model` (closed-form gamma) is **not** used in the active
-> fit — it appears only in commented-out plotting. The stored `k1…k5` and the
-> derived `κ` all come from the polynomial `log_transmittance_model_*` fits.
+> fit. The stored `k1…k5` and the derived `κ` all come from the polynomial
+> `log_transmittance_model_*` fits.

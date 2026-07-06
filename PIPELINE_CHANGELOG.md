@@ -1,6 +1,21 @@
 # Pipeline & Model Infrastructure Changelog
 
-**Last updated**: 2026-07-03
+**Last updated**: 2026-07-06
+
+---
+
+## 2026-07-04/06 — DE production config, engineering hardening, validation chains (summary)
+
+Full detail in `log/PROJECT_REVIEW_2026-07-03.md` (§7 status blocks + the 2026-07-06 header update); highlights:
+
+- **Engineering hardening** (commits `7809fe9`, `223b2cb`): atomic/verified/resumable downloads (§7.1); exact lstsq/BVLS cumulant fit (×14, float32+gzip outputs, `--fit-workers`) (§7.2); shared trainer `train_common.py` + `TrainConfig`, `training_dates.json` manifest per run (§7.3); `src/constants.py` single source of pipeline numbers; `fitting.py` → `cumulant_fit/orbit_data/anomaly/fit_plots` + facade, `demo_combined.py` → `demo_utils/pipeline_phases` (§7.4). All verified bit-for-bit.
+- **No-SG default** (`d9c62cb`): spectroscopy k-features default to the no-Savitzky-Golay dual fit (`pipeline._USE_NOSG_K`); SG twins kept for robustness.
+- **DE production adoption** (`8cd20af`, `ea289d7`): reg ablation on nosg 17.8M rows → **lndo01** (`--norm layer --dropout 0.1`) both surfaces; tag renamed `de_*_beta_nll_prof` → `de_*_beta_nll_prof_reg`; targets ocean r05 / land r15 (`910041b`); `--correction-base {bc,raw}` A/B (`6ec8518`).
+- **Feature sets**: `no_contam` / `no_contam_and_xco2` added (`df6b91a`); 6-set TCCON ablation (`featureset_ablation_64x32/`) — xco2 is the only block whose importance survives on TCCON.
+- **TCCON chain**: AK/prior harmonization (`ak_harmonize.py`) + direct-vs-AK dual reference (`8e00944`), Wilcoxon + site-clustered bootstrap significance, by-surface figures (`b8a3c10`); post-Aqua-drift validation cases (`cd98b5b`, `39ad75a`).
+- **Independent ocean anchors**: shipborne EM27/SUN module (`29b21d0`, `workspace/Ship_analysis/`) and ATom pseudo-column chain completed (8 dates / 17 legs, incl. 2017-10-09 far-cloud negative control; `workspace/ATom_analysis/`).
+- **Uncertainty-aware comparison** (`9546aeb`): Phases 0–4 of `src/analysis/UNCERTAINTY_AWARE_TCCON_COMPARISON.md` — Side-A budget = calibrated `de_total` with k(cld_dist) inflation (retrieval σ redundant), Side-B budget with `u_colloc` dominant, TOST/hierarchical stats engine; full table gated on the `curc_shell_blanca_deepens_uncertainty.sh` regen.
+- **TabM vs DE head-to-head** (2026-07-05, `tabm/tabm_prof_m16/`): TabM ≈ DE; DE stays production.
 
 ---
 

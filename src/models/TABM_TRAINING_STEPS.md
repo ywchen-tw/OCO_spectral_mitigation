@@ -1,5 +1,13 @@
 # TabM model suite — training steps (local test → CURC)
 
+> **STATUS (2026-07-06): TabM is NOT the production model.** The 2026-07-05
+> head-to-head (validation + 70-case TCCON, `results/model_comparison/tabm_vs_de_*`,
+> `tabm/tabm_prof_m16/`) put TabM ≈ DE overall, with DE clearly better in the
+> near-cloud land tail — the per-surface deep ensemble (`de_*_beta_nll_prof_reg`)
+> stays production. TabM is kept as a maintained comparison model. Note also:
+> `src/models/transformer.py` (referenced below) was deleted 2026-07-03 — its
+> eval utilities now live in `src/models/tabm_eval.py`.
+
 Step-by-step plan to validate the TabM / GBDT / MLP-baseline code locally, then
 run the real experiments on CURC (Blanca). Plan reference: `src/models/TABM_PLAN.md`.
 
