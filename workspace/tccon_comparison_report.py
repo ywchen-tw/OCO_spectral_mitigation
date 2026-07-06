@@ -34,6 +34,8 @@ from plot_corrected_xco2 import load_tccon, get_storage_dir
 from tccon_collocate import collocate, find_plotdata
 from ak_harmonize import (find_lite_file, ak_adjusted_ref,
                           operator_from_dataframe, ak_adjusted_ref_from_operator)
+from tccon_uncertainty_stats import (load_inflation, side_a_case, side_b_case,
+                                     compare_case, markdown_block, DELTA_PPM)
 
 CORR = 'deep_ensemble_corrected_xco2'   # overridable with --corr-col (e.g. tabm_corrected_xco2)
 
@@ -145,6 +147,27 @@ def _sig_lines(sig, label):
     return lines
 
 
+def _tccon_band(ax, frame, *, horizontal=False):
+    """Shade the ±(mean reported TCCON xco2_error) zone around 0 on a bias axis.
+
+    A station-day bias whose magnitude is within TCCON's own retrieval error is
+    statistically indistinguishable from TCCON.  Reference-independent: AK/prior
+    harmonization shifts the reference VALUE, not the measurement error, so the
+    band is identical on the AK-harmonized and direct (window-mean) figures.
+    Returns the mean σ (ppm) or None when no TCCON error is available."""
+    if 'tccon_err_mean' not in getattr(frame, 'columns', ()):
+        return None
+    v = frame['tccon_err_mean'].to_numpy(float)
+    v = v[np.isfinite(v)]
+    if not v.size:
+        return None
+    s = float(np.mean(v))
+    span = ax.axhspan if horizontal else ax.axvspan
+    span(-s, s, color='gray', alpha=0.15, lw=0, zorder=0,
+         label=f'±TCCON σ ({s:.2f} ppm)')
+    return s
+
+
 def _draw_pair(axA, axB, cmp, title_prefix=''):
     """Draw the shared 2-panel view for a per-case subset ``cmp``: (axA) OCO-2 mean
     vs TCCON mean (1:1 + OLS fits with slope/R²/RMSE), (axB) per-case bias-to-TCCON
@@ -224,6 +247,7 @@ def _draw_pair(axA, axB, cmp, title_prefix=''):
                  capsize=3, capthick=0.8, markeredgecolor='black',
                  markeredgewidth=0.6, label='after', zorder=4)
     axB.axvline(0, color='k', lw=1)
+    _tccon_band(axB, cmp)
     _btxt = []
     for _lbl, _col, _rcol in (('raw', 'bias_raw', 'rmse_raw'),
                               ('before', 'bias_before', 'rmse_before'),
@@ -243,7 +267,7 @@ def _draw_pair(axA, axB, cmp, title_prefix=''):
     axB.set_xlabel('XCO₂ bias to TCCON (ppm)')
     axB.set_title((f'{title_prefix}Bias to TCCON: raw → before → after' if has_raw
                    else f'{title_prefix}Bias before → after correction')
-                  + '   (marker = station-day mean, error bar = footprint σ)')
+                  + '   (marker = station-day mean, error bar = footprint σ, shaded = ±TCCON σ)')
     axB.legend(loc='lower right', title='per station-day'); axB.grid(alpha=0.3, axis='x')
 
 
@@ -304,7 +328,23 @@ def main():
                          'before/after improvement metrics are invariant.')
     ap.add_argument('--n-boot', type=int, default=10000,
                     help='Site-clustered bootstrap replicates for the significance block.')
+    ap.add_argument('--uncertainty', action='store_true',
+                    help='Phase-4 uncertainty-aware comparison: attach u_oco (Side A, DE '
+                         'predictive σ × k(cld_dist)) and u_TC (Side B: meas ⊕ temporal ⊕ '
+                         'AK-leakage ⊕ colloc) to each case, then test D = corrected − AK '
+                         'TCCON with M1 (z/CI), M3 (TOST equivalence) and M4 (random-effects). '
+                         'Implies --ak-harmonize (the absolute comparison lives on the AK '
+                         'reference). Needs plot_data.parquet regenerated with de_sigma '
+                         '(build_deepens_plot_data.py Phase-0 columns); cases lacking it are '
+                         'silently skipped in the uncertainty block.')
+    ap.add_argument('--rope-delta', type=float, default=DELTA_PPM,
+                    help=f'TOST/ROPE equivalence margin in ppm (default {DELTA_PPM:g}).')
+    ap.add_argument('--decorr-km', type=float, default=15.0,
+                    help='Spatial decorrelation length (km) for the Side-A N_eff block '
+                         'count (default 15).')
     args = ap.parse_args()
+    if args.uncertainty:
+        args.ak_harmonize = True   # the uncertainty comparison is on the AK reference (§6)
     global CORR
     CORR = args.corr_col
 
@@ -320,7 +360,13 @@ def main():
     P_SIG_CSV  = out_dir / f'tccon_significance{sfx}.csv'
     P_SITE_PNG = out_dir / f'tccon_comparison_by_site{sfx}.png'
     P_BYSURF   = out_dir / f'tccon_comparison_by_surface{sfx}.png'
+    P_UNC_CSV  = out_dir / f'tccon_uncertainty{sfx}.csv'
+    P_UNC_MD   = out_dir / f'tccon_uncertainty{sfx}.md'
     storage = get_storage_dir()
+
+    # Phase-4 per-surface inflation models k(cld_dist) (fit in Phase 2b); missing
+    # → k=1 (raw de_sigma).  Loaded once and reused for every case.
+    infl_by_sfc = load_inflation(out_base) if args.uncertainty else None
 
     # ── parse active run_case lines ────────────────────────────────────────────
     cases = []
@@ -425,6 +471,7 @@ def main():
         # collocated footprints' own ak_NN/pwf_NN/co2_ap_NN/plev_NN parquet
         # columns; falls back to the day's Lite file when those are absent.
         tmu_raw, ak_delta, ak_n_lite, ak_source = tmu, np.nan, 0, ''
+        op_case = adj_case = None       # captured for the Phase-4 Side-B budget
         if args.ak_harmonize and n_tc and np.isfinite(tmu):
             ot = pd.to_datetime(near['time'], unit='s', utc=True, errors='coerce').dropna()
             adj = None
@@ -433,6 +480,7 @@ def main():
                 t0 = ot.min().tz_localize(None); t1 = ot.max().tz_localize(None)
                 try:
                     op = operator_from_dataframe(near)
+                    op_case = op
                     if op is not None:
                         adj = ak_adjusted_ref_from_operator(op, tpath, t0, t1,
                                                             window_min=args.window_min)
@@ -453,6 +501,23 @@ def main():
                 tmu = adj['tccon_ref_ak']
                 ak_delta = adj['ak_delta']
                 ak_n_lite = adj['n_lite']
+                adj_case = adj
+
+        # ── Phase-4 Side-B budget (once per case, on the AK reference) ───────────
+        # u_TC = meas ⊕ temporal ⊕ AK-leakage ⊕ colloc; colloc uses the corrected
+        # field (CORR) so contamination scatter doesn't inflate the gradient.
+        u_tc_case, u_tc_parts = np.nan, {}
+        if args.uncertainty and op_case is not None and adj_case is not None:
+            try:
+                sb = side_b_case(op_case, adj_case, near,
+                                 (col['st_lon'], col['st_lat']),
+                                 tccon_err_mean=col.get('tccon_err_mean', np.nan),
+                                 n_tccon=n_tc, corr_col=CORR)
+                if sb is not None:
+                    u_tc_case = sb['u_TC']
+                    u_tc_parts = {f'uTC_{k}': v for k, v in sb.items() if k != 'u_TC'}
+            except Exception as e:                           # noqa: BLE001
+                print(f"[uncertainty side-B] {site} {c['date']}: {e}", file=sys.stderr)
         # one row per surface: all (pooled) + ocean (sfc0) + land (sfc1)
         for sname, frame in (('all', near),
                              ('ocean', near[near['sfc_type'] == 0]),
@@ -461,6 +526,7 @@ def main():
                 continue
             row = dict(site=site, date=c['date'], surface=sname, n_tccon=n_tc,
                        tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
+                       tccon_err_mean=col.get('tccon_err_mean', np.nan),
                        ak_delta=ak_delta, ak_n_lite=ak_n_lite, ak_source=ak_source,
                        **_case_metrics(frame, tmu, n_tc))
             # When AK harmonization is active the PRIMARY metrics above use the AK
@@ -474,6 +540,19 @@ def main():
                     'bias_raw', 'bias_before', 'bias_after',
                     'rmse_raw', 'rmse_before', 'rmse_after',
                     'raw_sd', 'orig_sd', 'corr_sd')})
+            # ── Phase-4 Side-A budget + comparison stats (per surface) ──────────
+            # D = corrected mean − AK TCCON = bias_after; u_D = √(u_oco²+u_TC²);
+            # M1 (z/CI) + M3 (TOST equiv at --rope-delta).  Skipped (NaN) when the
+            # plot_data lacks de_sigma or Side B could not be built.
+            if args.uncertainty:
+                sa = side_a_case(frame, infl_by_sfc, decorr_km=args.decorr_km)
+                u_oco = sa['u_oco'] if sa else np.nan
+                cmpv = compare_case(row['bias_after'], u_oco, u_tc_case,
+                                    delta=args.rope_delta)
+                row.update(dict(u_oco=u_oco, u_TC=u_tc_case, **cmpv, **u_tc_parts))
+                if sa:
+                    row.update(dict(uA_epi=sa['epi_sigma'], uA_avg=sa['avg_sigma'],
+                                    uA_Neff=sa['N_eff'], uA_src=sa['epi_src']))
             rows.append(row)
 
     if not rows:
@@ -604,8 +683,28 @@ def main():
                          f"**{s['mean_rmse_after']:.2f}** | {s['mean_sd_before']:.2f} | "
                          f"{s['mean_sd_after']:.2f} | {int(s['n_improved'])}/{int(s['n'])} | "
                          f"{int(s['n_improved_rmse'])}/{int(s['n'])} |")
+
+    # ── Phase-4 uncertainty-aware comparison (M1/M3/M4 + ⟨z²⟩) ────────────────
+    if args.uncertainty and len(cmp) and 'u_D' in cmp.columns:
+        unc_block = markdown_block(cmp, radius_km=args.radius_km,
+                                   window_min=args.window_min, delta=args.rope_delta)
+        lines += unc_block
+        # standalone artifacts: the block as its own md + the full per-case CSV
+        # (all budget components: u_oco/u_TC parts, z, CIs, flags).
+        P_UNC_MD.write_text('\n'.join(unc_block).lstrip('\n') + '\n')
+        unc_cols = ['site', 'date', 'surface', 'n_oco', 'n_tccon', 'bias_after',
+                    'D', 'u_oco', 'u_TC', 'u_D', 'z', 'ci_lo', 'ci_hi',
+                    'significant', 'equivalent', 'tost_p',
+                    'uA_epi', 'uA_avg', 'uA_Neff', 'uA_src',
+                    'uTC_u_meas', 'uTC_u_temporal', 'uTC_u_harm', 'uTC_u_colloc']
+        rep_unc = rep[rep['surface'].isin(('all', 'ocean', 'land'))]
+        rep_unc = rep_unc[[c for c in unc_cols if c in rep_unc.columns]]
+        rep_unc.to_csv(P_UNC_CSV, index=False)
+
     P_MD.write_text('\n'.join(lines) + '\n')
     print('\n'.join(lines))
+    if args.uncertainty and len(cmp) and 'u_D' in cmp.columns:
+        print(f"\n[saved] {P_UNC_MD}\n[saved] {P_UNC_CSV}")
 
     # ── figures (scatter + per-case dumbbell) — ONE shared style for every view ──
     def _fig_pair(sub, png, title_prefix=''):
@@ -643,6 +742,7 @@ def main():
         axL.plot(s1['bias_after_direct'], y, 'o', color='green', ms=6, label='direct')
         axL.plot(s1['bias_after'], y, 's', color='purple', ms=6, label='AK-harmonized')
         axL.axvline(0, color='k', lw=1)
+        _tccon_band(axL, s1)
         axL.set_yticks(y); axL.set_yticklabels(s1['lab'], fontsize=6)
         axL.set_xlabel('corrected XCO₂ bias to TCCON (ppm)')
         axL.set_title('Per-case corrected bias: direct vs AK-harmonized reference')
@@ -691,6 +791,14 @@ def main():
             fig2, (bx1, bx2) = plt.subplots(1, 2, figsize=(max(10, 1.0 * len(sa)), 6))
             bx1.bar(x - w/2, sa['mean_abs_bias_before'], w, color='steelblue', label='before')
             bx1.bar(x + w/2, sa['mean_abs_bias_after'], w, color='green', label='after')
+            # ±TCCON σ guide: mean |bias| below this line is within TCCON's own
+            # measurement error (reference-independent — see _tccon_band).
+            if 'tccon_err_mean' in cmp.columns:
+                _tem = cmp['tccon_err_mean'].to_numpy(float)
+                _tem = _tem[np.isfinite(_tem)]
+                if _tem.size:
+                    bx1.axhline(float(np.mean(_tem)), color='gray', ls='--', lw=1,
+                                zorder=0, label=f'TCCON σ ({np.mean(_tem):.2f} ppm)')
             bx1.set_xticks(x); bx1.set_xticklabels(
                 [f"{r.site}\n({int(r.n)}, {int(r.n_improved)}↓)" for r in sa.itertuples()], fontsize=8)
             bx1.set_ylabel('mean |bias to TCCON| (ppm)')

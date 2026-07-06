@@ -17,7 +17,7 @@ scaling retrieval), interpolated onto the OCO-2 pressure grid in log-p.
 
 Case-level design: the reports compare footprints against a single per-case
 TCCON window mean, so per-footprint identity is unnecessary — h, a, x_a, c_a
-are averaged over QF=0 Lite soundings within the collocation radius of the
+are averaged over Lite soundings (QF 0 and 1) within the collocation radius of the
 station, and the adjustment is applied per TCCON observation before averaging.
 
 The adjustment shifts ABSOLUTE biases only: before/after-correction improvement
@@ -89,15 +89,20 @@ def mean_oco2_operator(lite_path, st_lon, st_lat, radius_km, min_n=3):
     """Mean OCO-2 column operator near the station.
 
     Averages pressure_weight h, averaging kernel a, prior profile x_a (ppm),
-    prior XCO2 c_a and pressure levels (hPa) over QF=0 Lite soundings within
-    radius_km of (st_lon, st_lat).  Returns dict or None if < min_n soundings.
+    prior XCO2 c_a and pressure levels (hPa) over Lite soundings (QF 0 and 1)
+    within radius_km of (st_lon, st_lat).  Returns dict or None if < min_n
+    soundings.
     """
     with nc4.Dataset(lite_path, 'r') as ds:
         lat = ds.variables['latitude'][:]
         lon = ds.variables['longitude'][:]
         qf = ds.variables['xco2_quality_flag'][:]
         d = _haversine_km(lon, lat, st_lon, st_lat)
-        sel = np.where((qf == 0) & (d <= radius_km))[0]
+        # Include BOTH quality flags (0=good, 1=bad): the ML correction operates
+        # on near-cloud footprints that are largely QF==1, so the AK operator must
+        # represent that same population (matches the QF-agnostic parquet path in
+        # operator_from_dataframe).  np.isin guards against fill values.
+        sel = np.where(np.isin(qf, (0, 1)) & (d <= radius_km))[0]
         if sel.size < min_n:
             return None
         h = np.ma.filled(ds.variables['pressure_weight'][sel], np.nan)
@@ -214,7 +219,7 @@ def ak_adjusted_ref(lite_path, tccon_nc_path, st_lon, st_lat, radius_km,
                     tmin, tmax, window_min=60.0):
     """AK/prior-harmonized TCCON reference for one case, from the Lite file.
 
-    Builds the mean OCO-2 operator over QF=0 Lite soundings within radius_km
+    Builds the mean OCO-2 operator over Lite soundings (QF 0 and 1) within radius_km
     of (st_lon, st_lat), then applies ak_adjusted_ref_from_operator().  Use
     operator_from_dataframe() instead when the collocated parquet already
     carries the flattened ak_NN/pwf_NN/co2_ap_NN/plev_NN columns.

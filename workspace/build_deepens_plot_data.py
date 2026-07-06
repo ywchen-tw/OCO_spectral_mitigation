@@ -18,8 +18,19 @@ plot_corrected_xco2.py expects:
 The deep ensemble is per-surface: ocean footprints (sfc_type==0) are corrected by
 the ocean model and land footprints (sfc_type==1) by the land model.  Pass whichever
 surfaces you want; only correct footprints from a passed surface appear in the output.
-Only the point correction (ensemble mean mu) is needed for the poster figure, so no
-conformal calibration is required here.
+
+Uncertainty columns (Phase 0 of the uncertainty-aware TCCON comparison; see
+src/analysis/UNCERTAINTY_AWARE_TCCON_COMPARISON.md) are emitted per footprint:
+
+    de_sigma            total predictive std (mixture: aleatoric + epistemic)
+    de_epistemic_sigma  ensemble disagreement  = std_m(mu_m)      (does NOT avg down)
+    de_aleatoric_sigma  mean predicted noise   = sqrt(mean_m(var_m))
+    xco2_uncertainty    OCO-2 L2 retrieval posterior (passthrough from the parquet)
+
+By construction de_sigma^2 == de_epistemic_sigma^2 + de_aleatoric_sigma^2
+(checked at write time).  These are the three candidate Side-A components the
+calibration study (§4.2) picks between; the point correction (ensemble mean mu)
+alone still suffices for the poster figure.
 
 Example (both surfaces):
     PYTHONPATH=src python workspace/build_deepens_plot_data.py \
@@ -49,7 +60,10 @@ CORR_COL_PNEAR = 'deepens_pnear_corrected_xco2'        # (2) P(near)*mu       xc
 CORR_COL_GATE = 'deepens_gate_corrected_xco2'          # (3) mu*1[P>0.5]      xco2_bc - mu*(P>0.5)
 KEEP_COLS = ('time', 'lon', 'lat', 'cld_dist_km', 'sfc_type',
              'xco2_bc', 'xco2_bc_anomaly', 'xco2_apriori',
-             'xco2_raw', 'xco2_raw_anomaly')
+             'xco2_raw', 'xco2_raw_anomaly', 'xco2_uncertainty',
+             # scene diagnostics for uncertainty-relationship stratification (§4.1);
+             # all optional (kept only if present in the input parquet).
+             'aod_total', 'sza', 'snr_o2a', 'snr_wco2', 'snr_sco2')
 
 
 def _load_cloud_fold(model_dir):
@@ -105,9 +119,16 @@ def _predict_pooled(df, fold_dirs, sfc_type, *, ood_thresh=8.0, max_ood_frac=0.0
     """Cross-fold ensemble: pool every member of every fold.
 
     Each fold has its OWN fitted scaler, so X is transformed per fold before
-    prediction.  Returns (mu, sigma, kept_df, meta0) where mu = mean over all
-    members and sigma = total predictive std (aleatoric + epistemic) per the
-    mixture formula, computed over the full pooled member set.
+    prediction.  Returns (mu, sigma, epi_sigma, alea_sigma, mu_members, kept_df, meta0):
+      mu          mean over all pooled members,
+      sigma       total predictive std (mixture: aleatoric + epistemic),
+      epi_sigma   epistemic std = std_m(mu_m)   (ensemble disagreement),
+      alea_sigma  aleatoric std = sqrt(mean_m(var_m))   (mean predicted noise),
+      mu_members  per-member mean stack [M, N] (M pooled members) — the raw
+                  material for the EXACT case-level epistemic Var_m(x̄_m); only
+                  attached to the output when --emit-members is set,
+    all computed over the full pooled member set.  By the mixture identity
+    sigma^2 == epi_sigma^2 + alea_sigma^2 (up to the 1e-12 var floor).
     """
     folds = [_load_fold(d) for d in fold_dirs]
     pipe0, _, meta0 = folds[0]
@@ -123,7 +144,7 @@ def _predict_pooled(df, fold_dirs, sfc_type, *, ood_thresh=8.0, max_ood_frac=0.0
     valid = np.all(np.isfinite(X0), axis=1)
     df = df.loc[valid].reset_index(drop=True)
     if len(df) == 0:
-        return None, None, df, meta0
+        return None, None, None, None, None, df, meta0
 
     overall, worst = _domain_report(X0[valid], pipe0, thresh=ood_thresh)
     if overall > max_ood_frac:
@@ -145,14 +166,21 @@ def _predict_pooled(df, fold_dirs, sfc_type, *, ood_thresh=8.0, max_ood_frac=0.0
             mu_stack.append(mu_i); var_stack.append(var_i)
     mu_stack = np.stack(mu_stack); var_stack = np.stack(var_stack)
     mu = mu_stack.mean(0)
-    var = (var_stack + mu_stack ** 2).mean(0) - mu ** 2     # mixture total variance
+    epi_var = mu_stack.var(0)                               # Var_m(mu_m): epistemic
+    alea_var = var_stack.mean(0)                            # mean_m(var_m): aleatoric
+    var = epi_var + alea_var                                # mixture total variance
     sigma = np.sqrt(np.maximum(var, 1e-12))
-    return mu.astype(np.float32), sigma.astype(np.float32), df, meta0
+    epi_sigma = np.sqrt(np.maximum(epi_var, 1e-12))
+    alea_sigma = np.sqrt(np.maximum(alea_var, 1e-12))
+    return (mu.astype(np.float32), sigma.astype(np.float32),
+            epi_sigma.astype(np.float32), alea_sigma.astype(np.float32),
+            mu_stack.astype(np.float32), df, meta0)
 
 
 def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
                    max_abs_anomaly=25.0, cloud_fold_dirs=None,
-                   base_col='xco2_bc', truth_col='xco2_bc_anomaly'):
+                   base_col='xco2_bc', truth_col='xco2_bc_anomaly',
+                   emit_members=False):
     """Predict one surface (pooling all folds); return a plot_data frame or None.
 
     ``base_col`` is the XCO2 column the predicted anomaly is subtracted from
@@ -169,8 +197,8 @@ def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
                         (model blow-ups; a bias correction should be a few ppm,
                         not hundreds).  No effect when `max_abs_anomaly` is None.
     """
-    mu, sigma, kept, meta = _predict_pooled(df, fold_dirs, sfc_type,
-                                            tag=f'sfc{sfc_type}', **dk)
+    mu, sigma, epi_sigma, alea_sigma, mu_members, kept, meta = _predict_pooled(
+        df, fold_dirs, sfc_type, tag=f'sfc{sfc_type}', **dk)
     if mu is None or len(kept) == 0:
         print(f"  sfc={sfc_type}: no rows after filter — skipped")
         return None
@@ -200,7 +228,28 @@ def _build_surface(df, fold_dirs, sfc_type, *, dk, clim_max_ppm=50.0,
     out['clim_guard'] = clim_guard
     out['anomaly_guard'] = anomaly_guard
     out['pred_anomaly'] = mu
+    # Side-A uncertainty components (emitted per footprint, NOT zeroed by the
+    # guards — downstream filters on clim_guard/anomaly_guard). `sigma` kept for
+    # backward compatibility; de_sigma is its explicit alias.
     out['sigma'] = sigma
+    out['de_sigma'] = sigma
+    out['de_epistemic_sigma'] = epi_sigma
+    out['de_aleatoric_sigma'] = alea_sigma
+    # Per-member mean columns mu_00… — only when --emit-members (M extra columns
+    # per footprint).  They give the EXACT case-level epistemic Var_m(x̄_m) in the
+    # uncertainty comparison; without them the fully-correlated fallback (a mild
+    # over-estimate) is used.  NOT zeroed by the guards (raw member diagnostics).
+    if emit_members and mu_members is not None:
+        M = mu_members.shape[0]
+        w = max(2, len(str(M - 1)))
+        for j in range(M):
+            out[f'mu_{j:0{w}d}'] = np.asarray(mu_members[j], dtype=np.float32)
+    ident = float(np.nanmax(np.abs(
+        np.asarray(sigma, float) ** 2
+        - np.asarray(epi_sigma, float) ** 2 - np.asarray(alea_sigma, float) ** 2)))
+    print(f"  sfc={sfc_type}: uncertainty σ (ppm) — total {np.nanmean(sigma):.3f}, "
+          f"epistemic {np.nanmean(epi_sigma):.3f}, aleatoric {np.nanmean(alea_sigma):.3f}"
+          f"  [mixture identity max|Δvar|={ident:.2e}]")
     xb = out[base_col].to_numpy(dtype=float)
     out[CORR_COL] = xb - mu                                   # (1) full mu
 
@@ -257,6 +306,11 @@ def main():
     ap.add_argument('--max-abs-anomaly', type=float, default=25.0,
                     help="Skip correction where |predicted anomaly| exceeds this many ppm "
                          "(model blow-ups); default 25. Set <=0 to disable.")
+    ap.add_argument('--emit-members', action='store_true',
+                    help="Also write per-member mean columns mu_00… (M extra columns "
+                         "per footprint) for the EXACT case-level epistemic term in the "
+                         "uncertainty-aware TCCON comparison. Off by default (keeps file "
+                         "size unchanged); enable for the uncertainty runs.")
     ap.add_argument('--correction-base', choices=('bc', 'raw'), default='bc',
                     help="XCO2 column the predicted anomaly is subtracted from: 'bc' "
                          "(xco2_bc, for models trained on xco2_bc_anomaly*) or 'raw' "
@@ -289,7 +343,8 @@ def main():
                                         clim_max_ppm=args.climatology_max_ppm,
                                         max_abs_anomaly=max_abs_anom,
                                         cloud_fold_dirs=cmd,
-                                        base_col=base_col, truth_col=truth_col)
+                                        base_col=base_col, truth_col=truth_col,
+                                        emit_members=args.emit_members)
                          for md, sfc, cmd in surfaces)
              if p is not None]
     if not parts:

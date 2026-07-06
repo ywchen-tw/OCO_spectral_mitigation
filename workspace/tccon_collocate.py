@@ -61,7 +61,7 @@ def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0):
     st_lon = float(tccon['lon'].median()) if len(tccon) else np.nan
     st_lat = float(tccon['lat'].median()) if len(tccon) else np.nan
     out = dict(near=oco.iloc[0:0].copy(), tccon_ref=np.nan, tccon_sd=np.nan,
-               n_tccon=0, st_lon=st_lon, st_lat=st_lat)
+               n_tccon=0, tccon_err_mean=np.nan, st_lon=st_lon, st_lat=st_lat)
     if not len(oco) or not np.isfinite(st_lon):
         return out
     d = _haversine_km(oco['lon'].values, oco['lat'].values, st_lon, st_lat)
@@ -70,7 +70,7 @@ def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0):
         return out
 
     # TCCON window-mean around the footprint time span.
-    tref = tsd = np.nan
+    tref = tsd = terr = np.nan
     n_tc = 0
     if len(tccon) and 'time' in near.columns:
         ot = pd.to_datetime(near['time'], unit='s', utc=True, errors='coerce').dropna()
@@ -79,12 +79,15 @@ def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0):
             sub = tccon[(tccon['time'] >= ot.min() - w) & (tccon['time'] <= ot.max() + w)]
             if len(sub):
                 tref = float(sub['xco2'].mean()); tsd = float(sub['xco2'].std()); n_tc = len(sub)
+                if 'xco2_error' in sub.columns:
+                    terr = float(np.nanmean(sub['xco2_error'].to_numpy(float)))
 
     # Gross-outlier sanity band vs TCCON (retrieval failures the guards missed).
     if sanity_ppm and np.isfinite(tref):
         near = near[np.abs(near['xco2_bc'].to_numpy(float) - tref) < sanity_ppm]
         if not len(near):
-            return dict(out, tccon_ref=tref, tccon_sd=tsd, n_tccon=n_tc)
+            return dict(out, tccon_ref=tref, tccon_sd=tsd, n_tccon=n_tc,
+                        tccon_err_mean=terr)
 
     g = np.zeros(len(near), bool)
     for gc in GUARD_COLS:
@@ -92,7 +95,7 @@ def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0):
             g |= near[gc].to_numpy(bool)
     near['is_guarded'] = g
     return dict(near=near, tccon_ref=tref, tccon_sd=tsd, n_tccon=n_tc,
-                st_lon=st_lon, st_lat=st_lat)
+                tccon_err_mean=terr, st_lon=st_lon, st_lat=st_lat)
 
 
 def series_stats(oco_vals, tccon_ref):
