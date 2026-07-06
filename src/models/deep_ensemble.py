@@ -299,7 +299,8 @@ def main():
     p.add_argument('--n_folds', type=int, default=None)
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--feature_set', type=str, default='full',
-                   choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec'])
+                   choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec',
+                            'no_contam', 'no_contam_and_xco2'])
     p.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                    help="Append the vertical-profile EOF block (opt-in; default off). Bare "
                         "--profile-pca or =auto loads results/profile_pca/profile_pca_<sfc>.pkl; "
