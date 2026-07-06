@@ -91,9 +91,12 @@ def main():
     ap.add_argument('--window-min', type=float, default=60.0)
     ap.add_argument('--emit-flags', action='store_true',
                     help="Print just 'DATE SITE AVAIL' tokens for the 12th script column.")
+    ap.add_argument('--script', default=str(SH),
+                    help="Shell script whose run_case lines to check (default: the "
+                         "non-drift deepens script).")
     args = ap.parse_args()
 
-    cases = parse_cases(SH.read_text())
+    cases = parse_cases(Path(args.script).read_text())
     rows = []
     print(f"{'date':12s} {'site':4s} {'surf':5s} {'n_tccon':>7s} {'AVAIL':>7s}  note")
     print('-' * 70)

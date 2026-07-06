@@ -59,9 +59,9 @@ _RUN = re.compile(r'^\s*run_case\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)
                   r'\s+(\S+)\s+(\S+)\s+(\S+)?')
 
 
-def parse_cases():
+def parse_cases(script=SH):
     cases = []
-    for line in SH.read_text().splitlines():
+    for line in Path(script).read_text().splitlines():
         if line.lstrip().startswith('#'):
             continue
         m = _RUN.match(line)
@@ -154,6 +154,9 @@ def main():
     ap.add_argument('--fname-suffix', default='',
                     help="Appended before the extension of every output CSV filename "
                          "(e.g. '_r100km') so a radius sweep's stats coexist.")
+    ap.add_argument('--script', default=str(SH),
+                    help="Shell script whose run_case lines to read (default: the "
+                         "non-drift deepens script).")
     args = ap.parse_args()
     sfx = args.fname_suffix
 
@@ -163,7 +166,7 @@ def main():
     print(f"reading plot_data from {plotdata_base}; out → {OUTDIR}")
     OUTDIR.mkdir(parents=True, exist_ok=True)
 
-    cases = parse_cases()
+    cases = parse_cases(args.script)
     runnable = [c for c in cases
                 if (CSV_DIR / f"combined_{c['date']}_all_orbits.parquet").exists()
                 and (TCCON_DIR / c['tccon']).exists()]
