@@ -190,23 +190,40 @@ run_case() {
 # Hand-tune LON/LAT/VMIN/VMAX per taste; REQUIRE_TCCON=1 skips AVAIL!=yes lines.
 #         DATE         TCCON_FILE                          LON_MIN  LON_MAX  LAT_MIN  LAT_MAX   VMIN   VMAX  SURF  POSTER SITE AVAIL
 
+# All 40 requested dates now have a local parquet; all 40 resolve to a station,
+# 21 have coincident TCCON (AVAIL=yes).  Grouped by station.
+
 # -- burgos01 (bu) --
 run_case  2023-01-23   bu20170303_20250221.public.qc.nc     120.59   120.80    18.36    18.54   416.5  421.5  land  poster bu  yes   # n=3844 dmin=0km
 run_case  2023-02-10   bu20170303_20250221.public.qc.nc     120.97   121.19    17.77    18.58   417.5  422.0  land  poster bu  yes   # n=262 dmin=35km
 run_case  2023-03-21   bu20170303_20250221.public.qc.nc     120.59   120.78    18.36    18.55   417.0  422.0  land  poster bu  no    # n=4049 dmin=0km
 run_case  2023-03-23   bu20170303_20250221.public.qc.nc     120.46   120.91    17.66    19.42   415.0  423.0  both  poster bu  yes   # n=400 dmin=7km
 run_case  2023-05-26   bu20170303_20250221.public.qc.nc     120.75   121.22    17.82    19.42   420.0  424.5  ocean poster bu  no    # n=361 dmin=33km
+run_case  2023-07-20   bu20170303_20250221.public.qc.nc     120.98   121.17    18.06    18.59   417.0  422.5  land  poster bu  no    # n=34 dmin=35km
+run_case  2024-02-06   bu20170303_20250221.public.qc.nc     120.20   120.68    17.63    19.34   420.0  424.5  both  poster bu  no    # n=525 dmin=22km
+run_case  2024-04-15   bu20170303_20250221.public.qc.nc     120.59   120.80    18.35    18.54   418.5  427.0  land  poster bu  no    # n=3679 dmin=0km
 
 # -- edwards01 (df) --
 run_case  2023-06-26   df20130720_20260121.public.qc.nc    -117.99  -117.76    34.80    35.10   418.0  420.0  land  poster df  yes   # n=6246 dmin=1km
+
+# -- east trout lake (et; overpass 84 km from station — marginal clip) --
+run_case  2024-06-26   et20161003_20260326.public.qc.nc    -106.24  -105.97    53.67    54.09   415.0  423.5  both  poster et  yes   # n=35 dmin=84km
 
 # -- izana01 (iz; TCCON record ends 2023-08-30) --
 run_case  2023-03-13   iz20140102_20230830.public.qc.nc     -16.60   -16.41    28.14    28.42   413.5  426.5  land  poster iz  no    # n=5337 dmin=0km
 run_case  2023-08-04   iz20140102_20230830.public.qc.nc     -16.63   -16.42    28.13    28.42   406.5  424.0  land  poster iz  no    # n=5463 dmin=0km
 
-# -- karlsruhe01 (ka; TCCON qc filename ends 2023-06-26 — verify late-2024 coverage) --
+# -- karlsruhe01 (ka; qc filename ends 2023-06-26 but has coincident 2023 obs) --
+run_case  2023-04-04   ka20140115_20230626.public.qc.nc       8.29     8.59    48.95    49.25   420.0  423.0  land  poster ka  yes   # n=5640 dmin=0km
 run_case  2023-08-10   ka20140115_20230626.public.qc.nc       8.29     8.60    48.94    49.24   414.5  419.5  land  poster ka  yes   # n=5785 dmin=0km
+run_case  2023-09-11   ka20140115_20230626.public.qc.nc       8.17     8.92    48.25    49.99   415.5  421.0  land  poster ka  yes   # n=455 dmin=7km
 run_case  2024-10-29   ka20140115_20230626.public.qc.nc       8.28     8.61    48.96    49.23   421.5  426.5  land  poster ka  no    # n=5357 dmin=1km
+
+# -- ny-alesund01 (ny; overpass 25 km — no coincident TCCON) --
+run_case  2023-07-04   ny20050316_20250524.public.qc.nc      11.21    14.88    79.11    79.64   408.5  425.0  land  poster ny  no    # n=69 dmin=25km
+
+# -- orleans01 (or; overpass 59 km — marginal, no coincident TCCON) --
+run_case  2024-08-26   or20090906_20250411.public.qc.nc       2.53     3.23    47.43    48.81   414.0  419.0  land  poster or  no    # n=535 dmin=59km
 
 # -- parkfalls01 (pa) --
 run_case  2023-03-19   pa20040602_20260123.public.qc.nc     -90.42   -90.12    45.80    46.06   419.5  423.0  land  poster pa  yes   # n=5631 dmin=0km
@@ -214,39 +231,29 @@ run_case  2024-03-10   pa20040602_20260123.public.qc.nc     -90.39   -90.14    4
 
 # -- reunion01 (ra; TCCON record ends 2020-07-18 → no coincident data, will SKIP) --
 run_case  2023-06-11   ra20150301_20200718.public.qc.nc      55.15    55.63   -21.80   -20.03   415.0  419.0  ocean poster ra  no    # n=424 dmin=19km
+run_case  2024-05-10   ra20150301_20200718.public.qc.nc      55.43    55.61   -21.08   -20.88   404.0  425.5  land  poster ra  no    # n=2010 dmin=0km
 run_case  2024-07-31   ra20150301_20200718.public.qc.nc      55.20    55.68   -21.79   -20.02   420.5  424.0  ocean poster ra  no    # n=583 dmin=4km
 
 # -- wollongong01 (wg) --
 run_case  2023-01-28   wg20130104_20260224.public.qc.nc     150.74   150.92   -34.61   -34.31   404.0  419.0  land  poster wg  yes   # n=4063 dmin=0km
+run_case  2023-04-25   wg20130104_20260224.public.qc.nc     150.76   150.92   -34.59   -34.33   397.5  418.5  land  poster wg  yes   # n=2059 dmin=0km
 run_case  2023-05-06   wg20130104_20260224.public.qc.nc     150.55   151.05   -35.31   -33.54   411.5  416.5  both  poster wg  yes   # n=523 dmin=3km
 run_case  2023-05-20   wg20130104_20260224.public.qc.nc     150.72   150.92   -34.52   -34.30   401.5  418.5  land  poster wg  yes   # n=2170 dmin=0km
 run_case  2023-09-02   wg20130104_20260224.public.qc.nc     150.76   150.93   -34.60   -34.31   403.5  420.5  land  poster wg  no    # n=3510 dmin=0km
 run_case  2023-10-11   wg20130104_20260224.public.qc.nc     150.73   150.94   -34.62   -34.31   409.0  420.0  land  poster wg  no    # n=4179 dmin=0km
 run_case  2023-10-13   wg20130104_20260224.public.qc.nc     150.25   150.75   -35.30   -33.63   412.5  420.5  land  poster wg  no    # n=277 dmin=32km
+run_case  2024-02-18   wg20130104_20260224.public.qc.nc     151.08   151.34   -35.25   -34.30   416.5  420.5  ocean poster wg  no    # n=236 dmin=23km
 run_case  2024-04-22   wg20130104_20260224.public.qc.nc     150.73   150.94   -34.59   -34.30   410.5  422.0  land  poster wg  yes   # n=4184 dmin=0km
 run_case  2024-07-27   wg20130104_20260224.public.qc.nc     150.77   151.11   -34.61   -33.51   410.5  421.5  both  poster wg  yes   # n=89 dmin=13km
+run_case  2024-08-03   wg20130104_20260224.public.qc.nc     150.74   150.93   -34.60   -34.29   405.5  424.5  land  poster wg  yes   # n=3427 dmin=0km
 run_case  2024-09-20   wg20130104_20260224.public.qc.nc     150.75   150.93   -34.62   -34.31   414.5  425.5  land  poster wg  yes   # n=3929 dmin=0km
 run_case  2024-11-23   wg20130104_20260224.public.qc.nc     150.77   150.93   -34.62   -34.31   417.0  427.0  land  poster wg  yes   # n=3837 dmin=0km
+run_case  2024-12-02   wg20130104_20260224.public.qc.nc     150.17   150.64   -35.29   -33.68   421.5  428.0  land  poster wg  yes   # n=248 dmin=41km
 run_case  2024-12-16   wg20130104_20260224.public.qc.nc     150.73   150.93   -34.60   -34.31   417.0  425.5  land  poster wg  no    # n=4216 dmin=0km
 
 # -- xianghe01 (xh) --
 run_case  2023-08-14   xh20180614_20241231.public.qc.nc     116.81   117.38    38.95    40.70   410.0  416.5  land  poster xh  yes   # n=565 dmin=11km
 run_case  2024-10-03   xh20180614_20241231.public.qc.nc     116.54   117.10    38.91    40.65   420.0  424.0  land  poster xh  no    # n=666 dmin=9km
-
-# -- dates whose parquet is NOT yet built locally (build, then re-run the generator) --
-# run_case  2023-04-04   ...   # combined_2023-04-04_all_orbits.parquet missing
-# run_case  2023-04-25   ...   # combined_2023-04-25_all_orbits.parquet missing
-# run_case  2023-07-04   ...   # combined_2023-07-04_all_orbits.parquet missing
-# run_case  2023-07-20   ...   # combined_2023-07-20_all_orbits.parquet missing
-# run_case  2023-09-11   ...   # combined_2023-09-11_all_orbits.parquet missing
-# run_case  2024-02-06   ...   # combined_2024-02-06_all_orbits.parquet missing
-# run_case  2024-02-18   ...   # combined_2024-02-18_all_orbits.parquet missing
-# run_case  2024-04-15   ...   # combined_2024-04-15_all_orbits.parquet missing
-# run_case  2024-05-10   ...   # combined_2024-05-10_all_orbits.parquet missing
-# run_case  2024-06-26   ...   # combined_2024-06-26_all_orbits.parquet missing
-# run_case  2024-08-03   ...   # combined_2024-08-03_all_orbits.parquet missing
-# run_case  2024-08-26   ...   # combined_2024-08-26_all_orbits.parquet missing
-# run_case  2024-12-02   ...   # combined_2024-12-02_all_orbits.parquet missing
 
 # ═══════════════════════ aggregate reports (run once, after all cases) ════════════
 # Both parse the active run_case lines above and summarize across the DRIFT cases.
