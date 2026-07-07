@@ -390,6 +390,9 @@ echo "############ AGGREGATE: tccon_comparison_report ############"
 #     biases only — before/after improvement metrics are invariant.  The report
 #     also now emits tccon_significance_*.csv (paired Wilcoxon + site-clustered
 #     bootstrap on the after−before deltas).
+#     --cld-edges: also emit cloud-distance-grouped comparison figures/tables
+#     (tccon_comparison_by_cld* + _by_surface_by_cld*), restricted to pre-drift
+#     cases where the Aqua-MODIS cloud collocation (cld_dist_km) is reliable.
 python workspace/tccon_comparison_report.py \
     --script   "$SCRIPT_NAME" \
     --out-base "$OUT_BASE" \
@@ -397,6 +400,7 @@ python workspace/tccon_comparison_report.py \
     --corr-col tabm_corrected_xco2 \
     --fname-suffix "_${RADIUS_TAG}" --exclude-sites ny \
     --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN" \
+    --cld-edges "0,10,inf" \
     --ak-harmonize
 
 # (8) correction-policy stats — READS the step-4 plot_data (no second model run) via

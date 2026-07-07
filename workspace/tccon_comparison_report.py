@@ -36,8 +36,77 @@ from ak_harmonize import (find_lite_file, ak_adjusted_ref,
                           operator_from_dataframe, ak_adjusted_ref_from_operator)
 from tccon_uncertainty_stats import (load_inflation, side_a_case, side_b_case,
                                      compare_case, markdown_block, DELTA_PPM)
+try:
+    from constants import AQUA_FREE_DRIFT_YEAR
+except Exception:                       # noqa: BLE001 — run without PYTHONPATH=src
+    AQUA_FREE_DRIFT_YEAR = 2022
 
 CORR = 'deep_ensemble_corrected_xco2'   # overridable with --corr-col (e.g. tabm_corrected_xco2)
+
+
+def _parse_cld_edges(spec):
+    """'0,10,inf' → [(label, lo, hi), …] right-open nearest-cloud-distance bins (km)."""
+    vals = []
+    for tok in spec.split(','):
+        tok = tok.strip()
+        if tok:
+            vals.append(np.inf if tok.lower() in ('inf', 'np.inf') else float(tok))
+    bins = []
+    for lo, hi in zip(vals[:-1], vals[1:]):
+        lab = f"≥{lo:g} km" if np.isinf(hi) else f"{lo:g}–{hi:g} km"
+        bins.append((lab, lo, hi))
+    return bins
+
+
+def _safe_nanmean(a):
+    """np.nanmean without the all-NaN RuntimeWarning (returns NaN then)."""
+    a = np.asarray(a, float); a = a[np.isfinite(a)]
+    return float(a.mean()) if a.size else np.nan
+
+
+def _mse_aggregate(g, series=('raw', 'before', 'after')):
+    """Error aggregates over a set of per-case rows ``g`` (needs n_oco and, per
+    series tag, bias_<tag>/rmse_<tag>/mae_<tag>).  For each tag in ``series``:
+      * pooled_mse    — footprint-weighted mean of (XCO₂−TCCON)², Σ n·RMSE² / Σ n
+                        (the 'absolute' overall squared error; big cases dominate),
+      * mean_case_mse — mean over station-days of the per-case MSE (= RMSE²),
+      * station_mse   — mean over station-days of the squared station-day bias,
+      * mean_absbias / mean_mae / mean_rmse — station-day means of |bias|, per-case
+        MAE and per-case RMSE.
+    A tag whose columns are absent or all-NaN (e.g. raw with no xco2_raw) yields
+    NaN and is skipped by the markdown formatter."""
+    out = {'n': int(len(g))}
+    n = g['n_oco'].to_numpy(float)
+    for tag in series:
+        if f'rmse_{tag}' not in g.columns:
+            continue
+        r = g[f'rmse_{tag}'].to_numpy(float)
+        b = g[f'bias_{tag}'].to_numpy(float)
+        ae = (g[f'mae_{tag}'].to_numpy(float) if f'mae_{tag}' in g.columns
+              else np.full(len(g), np.nan))
+        sse = r ** 2                                   # per-case MSE = RMSE²
+        m = np.isfinite(sse) & np.isfinite(n)
+        wsum = float(np.sum(n[m])) if m.any() else 0.0
+        out[f'pooled_mse_{tag}'] = (float(np.sum((n * sse)[m]) / wsum)
+                                    if wsum > 0 else np.nan)
+        out[f'mean_case_mse_{tag}'] = _safe_nanmean(sse)
+        out[f'station_mse_{tag}'] = _safe_nanmean(b ** 2)
+        out[f'mean_absbias_{tag}'] = _safe_nanmean(np.abs(b))
+        out[f'mean_mae_{tag}'] = _safe_nanmean(ae)
+        out[f'mean_rmse_{tag}'] = _safe_nanmean(r)
+    return out
+
+
+def _prog(a, keyfmt, series=('raw', 'before', 'after')):
+    """'raw → before → after' string for aggregate dict ``a`` (key = keyfmt % tag);
+    drops tags whose value is missing/NaN and bolds the 'after' term."""
+    parts = []
+    for tag in series:
+        v = a.get(keyfmt % tag)
+        if v is None or not np.isfinite(v):
+            continue
+        parts.append(f"**{v:.2f}**" if tag == 'after' else f"{v:.2f}")
+    return ' → '.join(parts)
 
 
 def _ols_fit(x, y):
@@ -324,6 +393,16 @@ def main():
                     help="Comma-separated TCCON site codes (e.g. 'ny'); also emits an "
                          "_excl_<sites> variant of the scatter/dumbbell and by-surface "
                          "figures with those stations dropped.")
+    ap.add_argument('--cld-edges', default='0,10,inf',
+                    help="Nearest-cloud-distance bin edges (km, comma-separated, "
+                         "right-open; use 'inf' for the open tail) for the cloud-distance-"
+                         "grouped TCCON comparison. Default '0,10,inf' → near (≤10 km) vs "
+                         "far. Emits tccon_comparison_by_cld{,_by_surface}.")
+    ap.add_argument('--cld-all-years', action='store_true',
+                    help=f"Include free-drift-era cases (year ≥ {AQUA_FREE_DRIFT_YEAR}) in "
+                         "the cloud-distance-grouped comparison. By default only pre-drift "
+                         "cases are used, since the Aqua-MODIS cloud collocation (hence "
+                         "cld_dist_km) is reliable only before Aqua entered free drift.")
     ap.add_argument('--ak-harmonize', action='store_true',
                     help='AK/prior-harmonize the TCCON reference (Rodgers & Connor 2003 / '
                          'Wunch et al. 2017) using the day OCO-2 Lite file; cases whose '
@@ -366,6 +445,11 @@ def main():
     P_BYSURF   = out_dir / f'tccon_comparison_by_surface{sfx}.png'
     P_UNC_CSV  = out_dir / f'tccon_uncertainty{sfx}.csv'
     P_UNC_MD   = out_dir / f'tccon_uncertainty{sfx}.md'
+    P_CLD_CSV  = out_dir / f'tccon_comparison_by_cld{sfx}.csv'
+    P_CLD_AGG  = out_dir / f'tccon_comparison_by_cld_agg{sfx}.csv'
+    P_CLD_PNG  = out_dir / f'tccon_comparison_by_cld{sfx}.png'
+    P_CLD_SURF = out_dir / f'tccon_comparison_by_surface_by_cld{sfx}.png'
+    cld_bins = _parse_cld_edges(args.cld_edges)
     storage = get_storage_dir()
 
     # Phase-4 per-surface inflation models k(cld_dist) (fit in Phase 2b); missing
@@ -405,26 +489,28 @@ def main():
                 return p
         return None
 
-    # per-value (mu, sd, bias-to-TCCON, per-footprint RMSE-to-TCCON) helper
+    # per-value helper: mu, sd, signed bias-to-TCCON, per-footprint RMSE-to-TCCON,
+    # and per-footprint MAE-to-TCCON (mean |XCO2 − TCCON|).
     def _stat(vals, tmu, n_tc):
         v = np.asarray(vals, float)
         if not np.isfinite(v).any():
-            return np.nan, np.nan, np.nan, np.nan
+            return np.nan, np.nan, np.nan, np.nan, np.nan
         mu, sd = float(np.nanmean(v)), float(np.nanstd(v))
         bias = (mu - tmu) if n_tc else np.nan
         rmse = float(np.sqrt(np.nanmean((v - tmu) ** 2))) if n_tc else np.nan
-        return mu, sd, bias, rmse
+        mae = float(np.nanmean(np.abs(v - tmu))) if n_tc else np.nan
+        return mu, sd, bias, rmse, mae
 
     # KEEP-guards series (headline) + DROP-guards series (correction quality) for one
     # per-case footprint frame (a whole case, or one surface within it).
     def _case_metrics(frame, tmu, n_tc):
         raw = frame['xco2_raw'] if 'xco2_raw' in frame.columns else np.full(len(frame), np.nan)
         drop = frame[~frame['is_guarded']] if 'is_guarded' in frame.columns else frame
-        raw_mu, raw_sd, bias_raw, rmse_raw = _stat(raw, tmu, n_tc)
-        orig_mu, orig_sd, bias_before, rmse_before = _stat(frame['xco2_bc'], tmu, n_tc)
-        corr_mu, corr_sd, bias_after, rmse_after = _stat(frame[CORR], tmu, n_tc)
-        _, _, bias_before_dg, rmse_before_dg = _stat(drop['xco2_bc'], tmu, n_tc)
-        _, _, bias_after_dg, rmse_after_dg = _stat(drop[CORR], tmu, n_tc)
+        raw_mu, raw_sd, bias_raw, rmse_raw, mae_raw = _stat(raw, tmu, n_tc)
+        orig_mu, orig_sd, bias_before, rmse_before, mae_before = _stat(frame['xco2_bc'], tmu, n_tc)
+        corr_mu, corr_sd, bias_after, rmse_after, mae_after = _stat(frame[CORR], tmu, n_tc)
+        _, _, bias_before_dg, rmse_before_dg, _ = _stat(drop['xco2_bc'], tmu, n_tc)
+        _, _, bias_after_dg, rmse_after_dg, _ = _stat(drop[CORR], tmu, n_tc)
         return dict(
             n_oco=len(frame),
             n_guarded=int(frame['is_guarded'].sum()) if 'is_guarded' in frame.columns else 0,
@@ -432,10 +518,12 @@ def main():
             corr_mu=corr_mu, corr_sd=corr_sd,
             bias_raw=bias_raw, bias_before=bias_before, bias_after=bias_after,
             rmse_raw=rmse_raw, rmse_before=rmse_before, rmse_after=rmse_after,
+            mae_raw=mae_raw, mae_before=mae_before, mae_after=mae_after,
             n_oco_dg=len(drop), bias_before_dg=bias_before_dg, bias_after_dg=bias_after_dg,
             rmse_before_dg=rmse_before_dg, rmse_after_dg=rmse_after_dg)
 
     rows = []
+    rows_cld = []          # cloud-distance-grouped per-case rows (pre-drift cases)
     for c in cases:
         site = c['site'] or c['tccon'][:2]
         pq = find_plotdata(out_base, c['date'], site)   # combined_<date>_<site>/plot_data.parquet
@@ -522,6 +610,9 @@ def main():
                     u_tc_parts = {f'uTC_{k}': v for k, v in sb.items() if k != 'u_TC'}
             except Exception as e:                           # noqa: BLE001
                 print(f"[uncertainty side-B] {site} {c['date']}: {e}", file=sys.stderr)
+        # Pre-drift cases only: the Aqua-MODIS cloud collocation (hence cld_dist_km)
+        # is reliable before Aqua entered free drift (--cld-all-years to override).
+        case_predrift = args.cld_all_years or int(c['date'][:4]) < AQUA_FREE_DRIFT_YEAR
         # one row per surface: all (pooled) + ocean (sfc0) + land (sfc1)
         for sname, frame in (('all', near),
                              ('ocean', near[near['sfc_type'] == 0]),
@@ -558,6 +649,21 @@ def main():
                     row.update(dict(uA_epi=sa['epi_sigma'], uA_avg=sa['avg_sigma'],
                                     uA_Neff=sa['N_eff'], uA_src=sa['epi_src']))
             rows.append(row)
+            # ── cloud-distance-grouped rows (same schema + cld_group) ───────────
+            # Split this surface's footprints by nearest-cloud distance and emit a
+            # per-(case, surface, cld-bin) row that _draw_pair renders unchanged.
+            if case_predrift and 'cld_dist_km' in frame.columns:
+                cd = frame['cld_dist_km'].to_numpy(float)
+                for glab, glo, ghi in cld_bins:
+                    gframe = frame[np.isfinite(cd) & (cd >= glo) & (cd < ghi)]
+                    if not len(gframe):
+                        continue
+                    rows_cld.append(dict(
+                        site=site, date=c['date'], surface=sname, cld_group=glab,
+                        cld_lo=glo, cld_hi=ghi, n_tccon=n_tc,
+                        tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
+                        tccon_err_mean=col.get('tccon_err_mean', np.nan),
+                        **_case_metrics(gframe, tmu, n_tc)))
 
     if not rows:
         print(f"No cases matched (out-base={out_base}, script={args.script}). "
@@ -566,6 +672,12 @@ def main():
         return
     rep = pd.DataFrame(rows).sort_values(['surface', 'site', 'date']).reset_index(drop=True)
     rep.to_csv(P_CSV, index=False)
+
+    rep_cld = pd.DataFrame(rows_cld)
+    if len(rep_cld):
+        rep_cld = (rep_cld.sort_values(['surface', 'cld_group', 'site', 'date'])
+                          .reset_index(drop=True))
+        rep_cld.to_csv(P_CLD_CSV, index=False)
 
     rep_all = rep[rep['surface'] == 'all']            # pooled-surface per-case rows
     cmp = rep_all[rep_all['n_tccon'] > 0].copy()
@@ -688,6 +800,57 @@ def main():
                          f"{s['mean_sd_after']:.2f} | {int(s['n_improved'])}/{int(s['n'])} | "
                          f"{int(s['n_improved_rmse'])}/{int(s['n'])} |")
 
+    # ── cloud-distance-grouped aggregate (pre-drift cases) ────────────────────
+    rc_all = pd.DataFrame()
+    if len(rep_cld):
+        rc_all = rep_cld[(rep_cld['surface'] == 'all') & (rep_cld['n_tccon'] > 0)]
+    if len(rc_all):
+        era = 'all years' if args.cld_all_years else f'pre-drift, year < {AQUA_FREE_DRIFT_YEAR}'
+        n_days = rc_all[['site', 'date']].drop_duplicates().shape[0]
+        # Aggregate every (surface, cld group) → CSV; markdown shows the pooled 'all' rows.
+        agg_rows = []
+        for sname in ('all', 'ocean', 'land'):
+            for glab, _, _ in cld_bins:
+                g = rep_cld[(rep_cld['surface'] == sname) & (rep_cld['n_tccon'] > 0)
+                            & (rep_cld['cld_group'] == glab)]
+                if len(g):
+                    agg_rows.append(dict(surface=sname, cld_group=glab, **_mse_aggregate(g)))
+        pd.DataFrame(agg_rows).to_csv(P_CLD_AGG, index=False)
+        agg_all = {r['cld_group']: r for r in agg_rows if r['surface'] == 'all'}
+        has_raw = any(np.isfinite(a.get('mean_rmse_raw', np.nan)) for a in agg_all.values())
+        _seq = 'raw → before → after' if has_raw else 'before → after'
+        # (1) error metrics: |bias|, MAE, RMSE — each raw → before(xco2_bc) → after(ML).
+        lines += ['', f'## Cloud-distance-grouped aggregate ({era})', '',
+                  f'_Each collocation\'s footprints split by nearest-cloud distance '
+                  f'(edges {args.cld_edges} km); station-day mean per bin, over '
+                  f'{n_days} station-days.  Each cell is {_seq} (ppm).'
+                  + ('  raw = pre-bias-correction xco2_raw, before = xco2_bc, '
+                     'after = ML-corrected._' if has_raw else '_'), '',
+                  f'| cld group | n | mean \\|bias\\| ({_seq}) | MAE ({_seq}) | fp-RMSE ({_seq}) | \\|bias\\|↓ |',
+                  '|---|--:|--:|--:|--:|--:|']
+        for glab, _, _ in cld_bins:
+            g = rc_all[rc_all['cld_group'] == glab]
+            a = agg_all.get(glab)
+            if not len(g) or a is None:
+                continue
+            ab, aa = g['bias_before'].abs(), g['bias_after'].abs()
+            lines.append(f"| {glab} | {len(g)} | {_prog(a, 'mean_absbias_%s')} | "
+                         f"{_prog(a, 'mean_mae_%s')} | {_prog(a, 'mean_rmse_%s')} | "
+                         f"{int((aa < ab).sum())}/{len(g)} |")
+        # (2) absolute MSE (ppm²): pooled footprint-weighted, mean per-case, station-mean.
+        lines += ['', f'### Cloud-distance-grouped absolute MSE (ppm², {_seq})', '',
+                  '_pooled = footprint-weighted mean of (XCO₂−TCCON)² (Σ n·RMSE²/Σ n); '
+                  'per-case = mean of per-station-day MSE (=RMSE²); station = mean of '
+                  'squared station-day bias.  Full surface×bin breakdown in the _agg CSV._', '',
+                  f'| cld group | n | pooled fp-MSE ({_seq}) | mean per-case MSE ({_seq}) | station-mean MSE ({_seq}) |',
+                  '|---|--:|--:|--:|--:|']
+        for glab, _, _ in cld_bins:
+            a = agg_all.get(glab)
+            if a is None:
+                continue
+            lines.append(f"| {glab} | {a['n']} | {_prog(a, 'pooled_mse_%s')} | "
+                         f"{_prog(a, 'mean_case_mse_%s')} | {_prog(a, 'station_mse_%s')} |")
+
     # ── Phase-4 uncertainty-aware comparison (M1/M3/M4 + ⟨z²⟩) ────────────────
     if args.uncertainty and len(cmp) and 'u_D' in cmp.columns:
         unc_block = markdown_block(cmp, radius_km=args.radius_km,
@@ -726,6 +889,18 @@ def main():
         fig, axes = plt.subplots(len(present), 2, figsize=(16, 7 * len(present)), squeeze=False)
         for i, s in enumerate(present):
             _draw_pair(axes[i, 0], axes[i, 1], rows_ok(s), title_prefix=f'{s.upper()}{ttl_excl}: ')
+        fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
+        return png
+
+    def _fig_groups(specs, png):
+        """One shared _draw_pair row per (subframe, title_prefix) spec that has
+        data.  Used for the cloud-distance-grouped views (by-bin and surface×bin)."""
+        specs = [(s, t) for s, t in specs if len(s)]
+        if not specs:
+            return None
+        fig, axes = plt.subplots(len(specs), 2, figsize=(16, 7 * len(specs)), squeeze=False)
+        for i, (s, t) in enumerate(specs):
+            _draw_pair(axes[i, 0], axes[i, 1], s, title_prefix=t)
         fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
         return png
 
@@ -819,6 +994,24 @@ def main():
               f"\n[saved] {P_PNG}\n[saved] {P_SITE_CSV}"
               f"\n[saved] {P_SITE_PNG}")
         for _p in extra_saved:
+            print(f"[saved] {_p}")
+
+    # ── cloud-distance-grouped figures (pre-drift cases) ─────────────────────
+    # Same scatter+dumbbell (by-bin) and surface×bin layouts as the headline
+    # figures, but footprints grouped by nearest-cloud distance.
+    if len(rep_cld):
+        labels = [b[0] for b in cld_bins]
+        rc = rep_cld[rep_cld['n_tccon'] > 0]
+        rc_all = rc[rc['surface'] == 'all']
+        cld_saved = [P_CLD_CSV] + ([P_CLD_AGG] if P_CLD_AGG.exists() else [])
+        if len(rc_all):
+            p = _fig_groups([(rc_all[rc_all['cld_group'] == g], f'{g}: ') for g in labels],
+                            P_CLD_PNG)
+            if p: cld_saved.append(p)
+        p = _fig_groups([(rc[(rc['surface'] == s) & (rc['cld_group'] == g)], f'{s.upper()} {g}: ')
+                         for s in ('ocean', 'land') for g in labels], P_CLD_SURF)
+        if p: cld_saved.append(p)
+        for _p in cld_saved:
             print(f"[saved] {_p}")
 
 

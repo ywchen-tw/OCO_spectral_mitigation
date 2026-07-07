@@ -143,6 +143,9 @@ done < "$CASE_SCRIPT"
 
 echo ""
 echo "############ AGGREGATE: tccon_comparison_report ############"
+# --cld-edges: also emit cloud-distance-grouped comparison figures/tables
+# (tccon_comparison_by_cld* + _by_surface_by_cld*), restricted to pre-drift cases
+# where the Aqua-MODIS cloud collocation (cld_dist_km) is reliable.
 python workspace/tccon_comparison_report.py \
     --script   "$CASE_SCRIPT" \
     --out-base "$OUT_BASE" \
@@ -150,6 +153,7 @@ python workspace/tccon_comparison_report.py \
     --corr-col "$CORR_COL" \
     --fname-suffix "_${RADIUS_TAG}" --exclude-sites ny \
     --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN" \
+    --cld-edges "0,10,inf" \
     --ak-harmonize
 
 echo ""
