@@ -369,3 +369,34 @@ Consequences for this plan:
   2026-07-07 (including the TabM / structured-residual reports and the
   cloud-distance-grouped tables) mixes in the buggy reference — regenerate
   before quoting AK columns; direct-reference columns are unaffected.
+
+### Stratospheric handling (added 2026-07-07)
+
+Neither reference has measured stratospheric data; the chains handle it
+differently, and both are defensible:
+
+- **TCCON:** GGG is profile-scaling — one scalar (γ) of measured information;
+  the stratosphere is the scaled GGG2020 prior climatology by construction.
+  Safe because the Rodgers–Connor form uses only h·a·(x_TC − x_a): relative to
+  a direct comparison the stratosphere enters as h·(a−1)·Δ(prior vs prior).
+  The 2026-07-07 diagnostics put the whole genuine smoothing term at
+  +0.006 ± 0.227 ppm with its scatter entirely in the p < 300 hPa band — i.e.
+  AK-weighted stratospheric prior mismatch *is* what harmonization corrects,
+  at the ~0.2 ppm level. Residual risks (real anomaly absent from both priors;
+  γ-scaling profile-shape error) are budgeted by `u_harm` in the uncertainty
+  layer. No top-of-grid extrapolation (TCCON prior grid to 70 km covers the
+  OCO top level); interpolation clamps only at the surface.
+- **ATom:** above the aircraft ceiling (~12 km) the profile is filled with the
+  OCO-2 prior itself, so h·a·(x − x_a) ≡ 0 there — the unmeasured column
+  cancels identically instead of injecting a second climatology — and is
+  charged to the pseudo-column uncertainty via
+  σ_strat = (AK-weighted column fraction above ceiling) × strat_prior_sd
+  (default 1 ppm; `--strat-prior-sd`).
+
+Manuscript sentence: *"Neither reference contributes measured stratospheric
+information: for TCCON the scaled GGG2020 prior represents the stratosphere on
+both sides of the Rodgers–Connor difference, damping its influence to the
+(a−1)-weighted prior mismatch (±0.2 ppm across our cases); for ATom the
+unmeasured column above the aircraft ceiling is filled with the OCO-2 prior so
+that it cancels identically in the comparison, and is charged to the
+pseudo-column uncertainty instead."*
