@@ -2,7 +2,7 @@
 (run_phase_1 … run_phase_5: metadata → ingestion → processing →
 geometry → synthesis).
 
-Split out of demo_combined.py (2026-07, review §7.4).  demo_combined.py
+Split out of oco_modis_cloud_distance.py (2026-07, review §7.4).  oco_modis_cloud_distance.py
 is the orchestrator/CLI and imports these; each phase stays independently
 callable with the same signatures as before.
 """
@@ -27,10 +27,10 @@ from typing import Dict, List, Optional, Tuple
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from pipeline.phase_01_metadata import OCO2MetadataRetriever
-from pipeline.phase_02_ingestion import DataIngestionManager, DownloadedFile
-from pipeline.phase_03_processing import SpatialProcessor
-from pipeline.phase_04_geometry import GeometryProcessor, CollocationResult
+from pipeline.step_01_metadata import OCO2MetadataRetriever
+from pipeline.step_02_ingestion import DataIngestionManager, DownloadedFile
+from pipeline.step_03_processing import SpatialProcessor
+from pipeline.step_04_geometry import GeometryProcessor, CollocationResult
 from config import Config
 from constants import (AQUA_FREE_DRIFT_YEAR, modis_match_buffer_minutes,
                        CLOUD_DIST_BAND_WIDTH_DEG, CLOUD_DIST_BAND_OVERLAP_DEG)
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 
-from demo_utils import print_banner, print_step_header
+from pipeline_utils import print_banner, print_step_header
 
 logger = logging.getLogger(__name__)
 

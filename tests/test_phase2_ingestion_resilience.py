@@ -13,8 +13,8 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from pipeline.phase_01_metadata import OCO2MetadataRetriever  # noqa: E402
-from pipeline.phase_02_ingestion import DataIngestionManager, DownloadedFile  # noqa: E402
+from pipeline.step_01_metadata import OCO2MetadataRetriever  # noqa: E402
+from pipeline.step_02_ingestion import DataIngestionManager, DownloadedFile  # noqa: E402
 
 
 class FakeResponse:
@@ -54,7 +54,7 @@ class Phase2IngestionResilienceTests(unittest.TestCase):
         env = {"EARTHDATA_USERNAME": "", "EARTHDATA_PASSWORD": "", "LAADS_TOKEN": ""}
         with mock.patch.dict(os.environ, env):
             retriever = OCO2MetadataRetriever()
-        with mock.patch("pipeline.phase_01_metadata.requests.get", side_effect=fake_get):
+        with mock.patch("pipeline.step_01_metadata.requests.get", side_effect=fake_get):
             xml = retriever.fetch_oco2_xml_from_cmr(
                 __import__("datetime").datetime(2016, 9, 15)
             )

@@ -6,7 +6,7 @@ Documentation of bugs and code quality issues found and fixed across the pipelin
 
 ## Fix 1 — Met/CO2Prior files always downloaded from first orbit (2026-02-17)
 
-**File**: `src/phase_02_ingestion.py`
+**File**: `src/step_02_ingestion.py`
 **Method**: `_query_ges_disc_directory`
 
 ### Problem
@@ -50,7 +50,7 @@ elif granule_id:
 
 ## Fix 2 — `skip_existing` bypassed download even when files were missing (2026-02-17)
 
-**File**: `src/phase_02_ingestion.py`
+**File**: `src/step_02_ingestion.py`
 **Method**: `download_all_for_date`
 
 ### Problem
@@ -89,7 +89,7 @@ if existing_status:
 
 ## Fix 3 — `run_phase_5` used hardcoded `data_dir="./data"` (2026-02-17)
 
-**File**: `workspace/demo_combined.py`
+**File**: `workspace/oco_modis_cloud_distance.py`
 **Function**: `run_phase_5`
 
 ### Problem
@@ -115,7 +115,7 @@ Call in `main()` updated to pass `data_dir=data_dir`.
 
 ## Fix 4 — Dead parameters in `run_phase_2` (2026-02-17)
 
-**File**: `workspace/demo_combined.py`
+**File**: `workspace/oco_modis_cloud_distance.py`
 **Function**: `run_phase_2`
 
 ### Problem
@@ -135,7 +135,7 @@ Removed both parameters from the signature, the docstring, and the call site in 
 
 ## Fix 5 — `run_phase_3` accepted `visualize`/`viz_dir` but never used them (2026-02-17)
 
-**File**: `workspace/demo_combined.py`
+**File**: `workspace/oco_modis_cloud_distance.py`
 **Function**: `run_phase_3`
 
 ### Problem
@@ -162,7 +162,7 @@ processing_info, success = run_phase_3(target_date, data_dir)
 
 ## Fix 6 — `import traceback` repeated inline in four except blocks (2026-02-17)
 
-**File**: `workspace/demo_combined.py`
+**File**: `workspace/oco_modis_cloud_distance.py`
 
 ### Problem
 
@@ -178,7 +178,7 @@ Added `import traceback` to the top-level imports and removed all four inline im
 
 ## Fix 7 — Dual L2 Lite files downloaded when CMR returns cross-midnight orbit (2026-02-20)
 
-**File**: `src/phase_02_ingestion.py`
+**File**: `src/step_02_ingestion.py`
 **Method**: `download_all_for_date`
 
 ### Problem
@@ -221,7 +221,7 @@ is a no-op there and adds only negligible overhead.
 
 ## Fix 8 — Corrupted L2 Lite `.nc4` silently accepted; cryptic HDF error in spec anal (2026-02-20)
 
-**Files**: `src/phase_02_ingestion.py`, `src/oco_fp_spec_anal.py`
+**Files**: `src/step_02_ingestion.py`, `src/oco_fp_spec_anal.py`
 
 ### Problem
 
@@ -248,14 +248,14 @@ Also fixed glob pattern from `*nc4` to `*.nc4`.
 
 ```bash
 rm /path/to/data/OCO2/YYYY/DOY/oco2_LtCO2_*.nc4
-python workspace/demo_combined.py --date YYYY-MM-DD
+python workspace/oco_modis_cloud_distance.py --date YYYY-MM-DD
 ```
 
 ---
 
 ## Fix 9 — MODIS granule matching intermittent / coverage gaps (2026-02-23)
 
-**Files**: `src/phase_02_ingestion.py`, `src/phase_03_processing.py`, `workspace/demo_combined.py`
+**Files**: `src/step_02_ingestion.py`, `src/step_03_processing.py`, `workspace/oco_modis_cloud_distance.py`
 
 Six separate problems caused MODIS granules to be inconsistently or incompletely
 matched to OCO-2 granules across pipeline runs.
@@ -264,7 +264,7 @@ matched to OCO-2 granules across pipeline runs.
 
 ### Fix 9-A — Timezone mismatch caused zero MODIS downloads on GES DISC runs
 
-**File**: `src/phase_02_ingestion.py` — `find_modis_granules`
+**File**: `src/step_02_ingestion.py` — `find_modis_granules`
 
 **Root cause**: The MODIS `granule_time` was created with `tzinfo=timezone.utc`
 (timezone-aware), but `search_start`/`search_end` inherited the timezone of the
@@ -299,7 +299,7 @@ granule_time = granule_date.replace(hour=hour, minute=minute)
 
 ### Fix 9-B — Phase 2 download buffer reduced unnecessarily, risking coverage gaps
 
-**File**: `src/phase_02_ingestion.py` — `find_modis_granules`
+**File**: `src/step_02_ingestion.py` — `find_modis_granules`
 
 **Root cause**: `find_modis_granules` reduced the download buffer to ±10 min for
 `year < 2022`. Phase 2 uses nominal OCO-2 times from Phase 1 XML metadata, which
@@ -316,7 +316,7 @@ accuracy of collocation, not completeness of the download.
 
 ### Fix 9-C — Adaptive buffer cutoff year was 2022 in Phase 2 but the intent was 2022
 
-**File**: `workspace/demo_combined.py` — `run_phase_3`
+**File**: `workspace/oco_modis_cloud_distance.py` — `run_phase_3`
 
 **Root cause**: The hardcoded `buffer_seconds = 20 * 60` in `run_phase_3` ignored
 the adaptive logic present in `match_temporal_windows` (`year < 2023` → ±10 min).
@@ -335,7 +335,7 @@ buffer_seconds = buffer_minutes * 60
 
 ### Fix 9-D — Phase 3 cache never invalidated after Phase 2 re-downloads
 
-**File**: `workspace/demo_combined.py` — `run_phase_3`
+**File**: `workspace/oco_modis_cloud_distance.py` — `run_phase_3`
 
 **Root cause**: The cache-validity check only tested whether
 `granule_combined_*.pkl` existed on disk. If the cache was created during a
@@ -362,7 +362,7 @@ if latest_modis_mtime > cache_mtime:
 
 ### Fix 9-E — No warning when MODIS granule coverage had gaps
 
-**File**: `workspace/demo_combined.py` — `run_phase_3`
+**File**: `workspace/oco_modis_cloud_distance.py` — `run_phase_3`
 
 **Root cause**: After the MODIS–OCO-2 matching loop there was no check that MODIS
 granules covered every ~5-minute slot in the OCO-2 orbit. A gap (e.g. one missing
@@ -382,8 +382,8 @@ zero MODIS matches are also warned.
 
 ### Fix 9-F — Night-pass MODIS granules included in cloud collocation
 
-**Files**: `workspace/demo_combined.py` — `run_phase_3` matching loop;
-`src/phase_03_processing.py` — `_unpack_cloud_mask`
+**Files**: `workspace/oco_modis_cloud_distance.py` — `run_phase_3` matching loop;
+`src/step_03_processing.py` — `_unpack_cloud_mask`
 
 **Root cause**: The matching code in `run_phase_3` included all MYD35_L2 files
 whose start time fell in the OCO-2 ±buffer window, without checking the day/night
@@ -405,7 +405,7 @@ inside the window, introducing cloud pixels from a completely different scene.
 
 ## Fix 10 — Cross-date granule: `footprints.pkl` never written; granule never processed (2026-02-23)
 
-**File**: `workspace/demo_combined.py` — `run_phase_3`
+**File**: `workspace/oco_modis_cloud_distance.py` — `run_phase_3`
 
 ### Problem
 

@@ -59,7 +59,7 @@ target_day=15
 date=$(printf "%04d-%02d-%02d" "$target_year" "$target_month" "$target_day")
 echo "Processing date: $date"
 
-python workspace/demo_combined.py \
+python workspace/oco_modis_cloud_distance.py \
     --date "$date" \
     --force-recompute-if-lite-before 11.2r
 
@@ -94,7 +94,7 @@ echo ""
 # # Loop through each date
 # for date in "${dates[@]}"; do
 #     echo "Processing date: $date"
-#     python workspace/demo_combined.py --date "$date" --delete-modis
+#     python workspace/oco_modis_cloud_distance.py --date "$date" --delete-modis
 #     if [ $? -ne 0 ]; then
 #         echo "Failed to process date: $date"
 #     else

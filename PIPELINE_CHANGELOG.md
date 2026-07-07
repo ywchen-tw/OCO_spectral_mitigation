@@ -8,7 +8,7 @@
 
 Full detail in `log/PROJECT_REVIEW_2026-07-03.md` (§7 status blocks + the 2026-07-06 header update); highlights:
 
-- **Engineering hardening** (commits `7809fe9`, `223b2cb`): atomic/verified/resumable downloads (§7.1); exact lstsq/BVLS cumulant fit (×14, float32+gzip outputs, `--fit-workers`) (§7.2); shared trainer `train_common.py` + `TrainConfig`, `training_dates.json` manifest per run (§7.3); `src/constants.py` single source of pipeline numbers; `fitting.py` → `cumulant_fit/orbit_data/anomaly/fit_plots` + facade, `demo_combined.py` → `demo_utils/pipeline_phases` (§7.4). All verified bit-for-bit.
+- **Engineering hardening** (commits `7809fe9`, `223b2cb`): atomic/verified/resumable downloads (§7.1); exact lstsq/BVLS cumulant fit (×14, float32+gzip outputs, `--fit-workers`) (§7.2); shared trainer `train_common.py` + `TrainConfig`, `training_dates.json` manifest per run (§7.3); `src/constants.py` single source of pipeline numbers; `fitting.py` → `cumulant_fit/orbit_data/anomaly/fit_plots` + facade, `oco_modis_cloud_distance.py` → `pipeline_utils/pipeline_phases` (§7.4). All verified bit-for-bit.
 - **No-SG default** (`d9c62cb`): spectroscopy k-features default to the no-Savitzky-Golay dual fit (`pipeline._USE_NOSG_K`); SG twins kept for robustness.
 - **DE production adoption** (`8cd20af`, `ea289d7`): reg ablation on nosg 17.8M rows → **lndo01** (`--norm layer --dropout 0.1`) both surfaces; tag renamed `de_*_beta_nll_prof` → `de_*_beta_nll_prof_reg`; targets ocean r05 / land r15 (`910041b`); `--correction-base {bc,raw}` A/B (`6ec8518`).
 - **Feature sets**: `no_contam` / `no_contam_and_xco2` added (`df6b91a`); 6-set TCCON ablation (`featureset_ablation_64x32/`) — xco2 is the only block whose importance survives on TCCON.

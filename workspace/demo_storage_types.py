@@ -3,6 +3,9 @@
 Demo: Storage Type Configuration
 =================================
 
+NOTE: Standalone illustrative example; not part of the production
+``oco_modis_cloud_distance.py`` run path.
+
 This script demonstrates how different storage types work.
 """
 
@@ -14,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from config import Config
-from pipeline.phase_02_ingestion import DataIngestionManager
+from pipeline.step_02_ingestion import DataIngestionManager
 
 print("=" * 70)
 print("Storage Type Configuration Demo")

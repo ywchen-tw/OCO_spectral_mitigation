@@ -9,7 +9,7 @@ with Aqua-MODIS cloud masks.
 __version__ = '0.1.0'
 __author__  = 'OCO-2 Analysis Team'
 
-from .pipeline.phase_01_metadata import OCO2MetadataRetriever, OCO2Granule
+from .pipeline.step_01_metadata import OCO2MetadataRetriever, OCO2Granule
 from .config import Config, DatasetConfig, CoordinateSystem
 
 __all__ = [

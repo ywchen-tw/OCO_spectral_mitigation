@@ -83,8 +83,8 @@ except ImportError:
     HDF4_AVAILABLE = False
     logger.debug("pyhdf not available - MYD03 geolocation integration will be limited")
 
-from .phase_03_processing import OCO2Footprint, MODISCloudMask
-from .phase_02_ingestion import DownloadedFile
+from .step_03_processing import OCO2Footprint, MODISCloudMask
+from .step_02_ingestion import DownloadedFile
 
 
 @dataclass

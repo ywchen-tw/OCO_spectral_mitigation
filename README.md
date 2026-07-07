@@ -42,7 +42,7 @@ export LAADS_TOKEN=your_laads_token
 Run the full data pipeline in one command:
 
 ```bash
-python workspace/demo_combined.py --date 2018-10-18 --visualize --max-distance 20
+python workspace/oco_modis_cloud_distance.py --date 2018-10-18 --visualize --max-distance 20
 ```
 
 Downstream (per date, after the pipeline): spectral fitting
@@ -73,7 +73,7 @@ oco_fp_analysis/
 │   ├── constants.py              # Single source of pipeline numbers (buffer year,
 │   │                             #   anomaly params, band widths, FIT_ORDER)
 │   ├── utils.py
-│   ├── pipeline/                 # Steps 1–4 (+ phase_035_embedding.py, opt-in GEE)
+│   ├── pipeline/                 # Steps 1–4 (+ step_035_embedding.py, opt-in GEE)
 │   ├── spectral/                 # Cumulant fitting: cumulant_fit / orbit_data /
 │   │                             #   anomaly / fitting.py facade; FITTING_DERIVATION.md
 │   ├── analysis/                 # build_feature_dataset, run_all.py science figures
@@ -82,7 +82,7 @@ oco_fp_analysis/
 │   ├── apply/                    # inference bridge (apply_deep_ensemble)
 │   ├── search/                   # autoresearch harness (dormant; xgb only)
 │   └── abs_util/                 # absorption coefficients
-├── workspace/                    # demo_combined.py, TCCON comparison chain
+├── workspace/                    # oco_modis_cloud_distance.py, TCCON comparison chain
 │   │                             #   (tccon_collocate / ak_harmonize /
 │   │                             #    tccon_comparison_report / build_deepens_plot_data)
 │   ├── ATom_analysis/            # aircraft pseudo-column ocean validation

@@ -12,7 +12,7 @@ distance (km) per sounding_id; fits photon path-length cumulants from the L1B
 spectra; trains per-surface deep ensembles to correct the near-cloud XCO2 anomaly.
 
 **Working dir**: `/Users/yuch8913/programming/oco_fp_analysis`
-**Key entry point**: `workspace/demo_combined.py --date YYYY-MM-DD`
+**Key entry point**: `workspace/oco_modis_cloud_distance.py --date YYYY-MM-DD`
 **Test date**: 2018-10-18
 
 ---
@@ -20,13 +20,13 @@ spectra; trains per-surface deep ensembles to correct the near-cloud XCO2 anomal
 ## Architecture
 
 ### Source Files — Data Pipeline (Phases 1–4)
-- `src/pipeline/phase_01_metadata.py` — OCO2MetadataRetriever; CMR + GES DISC XML fetch
-- `src/pipeline/phase_02_ingestion.py` — DataIngestionManager; OCO-2 + MODIS download
-- `src/pipeline/phase_03_processing.py` — SpatialProcessor; footprint + cloud mask extraction
-- `src/pipeline/phase_035_embedding.py` — opt-in GEE satellite-embedding extraction
-- `src/pipeline/phase_04_geometry.py` — GeometryProcessor; ECEF, KD-tree, distances
+- `src/pipeline/step_01_metadata.py` — OCO2MetadataRetriever; CMR + GES DISC XML fetch
+- `src/pipeline/step_02_ingestion.py` — DataIngestionManager; OCO-2 + MODIS download
+- `src/pipeline/step_03_processing.py` — SpatialProcessor; footprint + cloud mask extraction
+- `src/pipeline/step_035_embedding.py` — opt-in GEE satellite-embedding extraction
+- `src/pipeline/step_04_geometry.py` — GeometryProcessor; ECEF, KD-tree, distances
 - `src/abs_util/fp_abs_coeff.py` — Absorption coefficient calc (Doppler, solar H5)
-- `workspace/demo_combined.py` — End-to-end runner (helpers in `demo_utils.py`,
+- `workspace/oco_modis_cloud_distance.py` — End-to-end runner (helpers in `pipeline_utils.py`,
   phase runners in `pipeline_phases.py`)
 - `src/constants.py` — single source of pipeline numbers (buffer year, anomaly
   params, band widths, `FIT_ORDER`)
@@ -119,15 +119,15 @@ Legacy object mode still supported for backward compat.
 
 | # | File | Issue |
 |---|---|---|
-| 1 | phase_02_ingestion.py | Met/CO2Prior always used first orbit file |
-| 2 | phase_02_ingestion.py | skip_existing returned early without verifying files |
-| 3 | demo_combined.py | hardcoded `data_dir="./data"` in run_phase_5 |
-| 7 | phase_02_ingestion.py | Dual L2 Lite from cross-midnight CMR granule |
-| 8 | phase_02_ingestion.py | HTML login page saved as .nc4 (cookie expiry) |
-| 9A | phase_02_ingestion.py | Timezone naive/aware mismatch → zero MODIS downloads on GES DISC runs |
-| 9D | demo_combined.py | Phase 3 cache not invalidated after Phase 2 re-downloads |
-| 9F | demo_combined.py + phase_03 | Night-pass MODIS granules included in cloud collocation |
-| 10 | demo_combined.py `run_phase_3` | Cross-date granule: L2 Lite from target date has no IDs for previous-date orbit → empty footprints → footprints.pkl never written → granule never cached |
+| 1 | step_02_ingestion.py | Met/CO2Prior always used first orbit file |
+| 2 | step_02_ingestion.py | skip_existing returned early without verifying files |
+| 3 | oco_modis_cloud_distance.py | hardcoded `data_dir="./data"` in run_phase_5 |
+| 7 | step_02_ingestion.py | Dual L2 Lite from cross-midnight CMR granule |
+| 8 | step_02_ingestion.py | HTML login page saved as .nc4 (cookie expiry) |
+| 9A | step_02_ingestion.py | Timezone naive/aware mismatch → zero MODIS downloads on GES DISC runs |
+| 9D | oco_modis_cloud_distance.py | Phase 3 cache not invalidated after Phase 2 re-downloads |
+| 9F | oco_modis_cloud_distance.py + phase_03 | Night-pass MODIS granules included in cloud collocation |
+| 10 | oco_modis_cloud_distance.py `run_phase_3` | Cross-date granule: L2 Lite from target date has no IDs for previous-date orbit → empty footprints → footprints.pkl never written → granule never cached |
 
 (2026-07-04 hardening: atomic `.part` downloads + size verification + Range
 resume + MODIS HDF4 readability probe — see PROJECT_REVIEW §7.1.)

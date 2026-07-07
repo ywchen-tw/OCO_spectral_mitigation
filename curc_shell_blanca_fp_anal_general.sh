@@ -77,7 +77,7 @@ done
 # # Loop through each date
 # for date in "${dates[@]}"; do
 #     echo "Processing date: $date"
-#     python workspace/demo_combined.py --date "$date" --delete-modis
+#     python workspace/oco_modis_cloud_distance.py --date "$date" --delete-modis
 #     if [ $? -ne 0 ]; then
 #         echo "Failed to process date: $date"
 #     else

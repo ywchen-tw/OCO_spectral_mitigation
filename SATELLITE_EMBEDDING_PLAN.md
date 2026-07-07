@@ -67,7 +67,7 @@ ee.Initialize(project='<your-gcp-project-id>')  # free GCP project, no billing n
 |---|---|
 | A — OCO2Footprint vertex geometry | ✅ Complete |
 | B — Phase 3.5 GEE extraction module | ⚠ Blocked (see Known Issues) |
-| C — demo_combined.py wiring | ✅ Complete |
+| C — oco_modis_cloud_distance.py wiring | ✅ Complete |
 | C — FeaturePipeline integration (pipeline.py / transformer.py) | ⬜ Pending |
 | C — Dimensionality reduction (PCA / projection) | ⬜ Pending (after permutation importance) |
 
@@ -76,7 +76,7 @@ ee.Initialize(project='<your-gcp-project-id>')  # free GCP project, no billing n
 ## Implementation Phases
 
 ### Phase A — Extend `OCO2Footprint` with vertex geometry ✅
-**File**: `src/pipeline/phase_03_processing.py`
+**File**: `src/pipeline/step_03_processing.py`
 
 #### A1. Add vertex fields to the dataclass
 
@@ -134,7 +134,7 @@ for sid, fp in footprints.items():
 ---
 
 ### Phase B — Phase 3.5: GEE Embedding Extraction ✅
-**New file**: `src/pipeline/phase_035_embedding.py`
+**New file**: `src/pipeline/step_035_embedding.py`
 
 Runs once per date after Phase 3, before Phase 4.  Reads `footprints.pkl`, extracts
 64D mean + 64D std per footprint polygon from GEE, writes
@@ -225,7 +225,7 @@ Saved to: `data/processing/{year}/{doy:03d}/embedding_stats_{date}.parquet`
 ### Phase C — Integrate into FeaturePipeline
 **File**: `src/models/pipeline.py`
 
-> **demo_combined.py wiring** ✅ complete — `run_phase_035()` is called between
+> **oco_modis_cloud_distance.py wiring** ✅ complete — `run_phase_035()` is called between
 > Phase 3 and Phase 4 **only when `--gcp-project` is explicitly supplied**.
 > Non-fatal: a failed GEE call logs a warning and the pipeline continues
 > without embeddings.
@@ -285,9 +285,9 @@ After integration, run the following to confirm marginal value:
 
 | File | Change | Status |
 |---|---|---|
-| `src/pipeline/phase_03_processing.py` | Add `vertex_lon/lat` to `OCO2Footprint`; new `_extract_vertex_data_from_lite`; attach in `extract_oco2_footprints` | ✅ Done |
-| `src/pipeline/phase_035_embedding.py` | **New file** — GEE extraction script; `filterDate` fix; `geodesic=False`; `maxPixels=50000` | ✅ Done |
-| `workspace/demo_combined.py` | Wire Phase 3.5 (lazy import); `--gcp-project` flag with env-var fallback only when flag is present | ✅ Done |
+| `src/pipeline/step_03_processing.py` | Add `vertex_lon/lat` to `OCO2Footprint`; new `_extract_vertex_data_from_lite`; attach in `extract_oco2_footprints` | ✅ Done |
+| `src/pipeline/step_035_embedding.py` | **New file** — GEE extraction script; `filterDate` fix; `geodesic=False`; `maxPixels=50000` | ✅ Done |
+| `workspace/oco_modis_cloud_distance.py` | Wire Phase 3.5 (lazy import); `--gcp-project` flag with env-var fallback only when flag is present | ✅ Done |
 | `src/models/pipeline.py` | Load and merge embedding stats parquet | ⬜ Pending |
 | ~~`src/models/transformer.py`~~ | ~~Add `'Surface\nEmbedding'` to `_FEATURE_GROUPS`~~ file deleted 2026-07-03; retarget to `_FEATURE_SETS` / ProfilePCA-style EOF block (see C2) | ⬜ Pending |
 

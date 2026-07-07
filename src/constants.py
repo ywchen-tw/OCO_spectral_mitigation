@@ -30,7 +30,7 @@ def modis_match_buffer_minutes(year: int) -> int:
 # ---------------------------------------------------------------------------
 # Phase 4: banded nearest-cloud distance calculation
 # ---------------------------------------------------------------------------
-# Production values are the demo_combined.py CLI defaults (the active path).
+# Production values are the oco_modis_cloud_distance.py CLI defaults (the active path).
 # The overlap buffer must comfortably exceed the largest cloud distance of
 # interest so band edges cannot truncate a nearest-cloud search (0.5 deg
 # latitude is roughly 55 km).

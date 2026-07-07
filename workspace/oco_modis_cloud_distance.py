@@ -24,9 +24,9 @@ Cache Structure:
   (e.g., 22845a/, 22846a/) for clean separation and independent processing.
 
 Usage:
-    python workspace/demo_combined.py --date 2018-10-18
-    python workspace/demo_combined.py --date 2018-10-18 --visualize
-    python workspace/demo_combined.py --date 2018-10-18 --skip-phase 2
+    python workspace/oco_modis_cloud_distance.py --date 2018-10-18
+    python workspace/oco_modis_cloud_distance.py --date 2018-10-18 --visualize
+    python workspace/oco_modis_cloud_distance.py --date 2018-10-18 --skip-phase 2
 
 """
 
@@ -50,10 +50,10 @@ from typing import Dict, List, Optional, Tuple
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from pipeline.phase_01_metadata import OCO2MetadataRetriever
-from pipeline.phase_02_ingestion import DataIngestionManager, DownloadedFile
-from pipeline.phase_03_processing import SpatialProcessor
-from pipeline.phase_04_geometry import GeometryProcessor, CollocationResult
+from pipeline.step_01_metadata import OCO2MetadataRetriever
+from pipeline.step_02_ingestion import DataIngestionManager, DownloadedFile
+from pipeline.step_03_processing import SpatialProcessor
+from pipeline.step_04_geometry import GeometryProcessor, CollocationResult
 from config import Config
 from constants import (AQUA_FREE_DRIFT_YEAR, modis_match_buffer_minutes,
                        CLOUD_DIST_BAND_WIDTH_DEG, CLOUD_DIST_BAND_OVERLAP_DEG)
@@ -69,9 +69,9 @@ logger = logging.getLogger(__name__)
 
 
 # Split along the orchestration/per-phase seam (2026-07, review §7.4):
-# helpers live in demo_utils, the five phase runners in pipeline_phases.
+# helpers live in pipeline_utils, the five phase runners in pipeline_phases.
 # All names are re-imported here so external usage is unchanged.
-from demo_utils import (  # noqa: F401
+from pipeline_utils import (  # noqa: F401
     LITE_VERSION_RANK, cleanup_modis_data, delete_lite_files_before, get_storage_dir,
     infer_lite_version, invalidate_lite_downstream_cache,
     lite_version_is_before, parse_orbit_arg, print_banner,
@@ -99,28 +99,28 @@ def main():
         epilog="""
 Examples:
     # Run all steps for a specific date
-  python demo_combined.py --date 2018-10-18
+  python oco_modis_cloud_distance.py --date 2018-10-18
   
   # Run with visualizations
-  python demo_combined.py --date 2018-10-18 --visualize
+  python oco_modis_cloud_distance.py --date 2018-10-18 --visualize
   
   # Force download all files (ignore existing download status)
-  python demo_combined.py --date 2018-10-18 --force-download
+  python oco_modis_cloud_distance.py --date 2018-10-18 --force-download
   
   # Force recompute Phase 4 distances
-  python demo_combined.py --date 2018-10-18 --force-recompute
+  python oco_modis_cloud_distance.py --date 2018-10-18 --force-recompute
   
   # Download only first 2 granules for testing
-  python demo_combined.py --date 2018-10-18 --limit-granules 2
+  python oco_modis_cloud_distance.py --date 2018-10-18 --limit-granules 2
   
   # Delete MODIS data after completion (save disk space)
-  python demo_combined.py --date 2018-10-18 --delete-modis
+  python oco_modis_cloud_distance.py --date 2018-10-18 --delete-modis
   
     # Skip Step 2 (use existing data)
-  python demo_combined.py --date 2018-10-18 --skip-phase 2
+  python oco_modis_cloud_distance.py --date 2018-10-18 --skip-phase 2
   
   # Custom output directory
-  python demo_combined.py --date 2018-10-18 --output-dir ./my_results
+  python oco_modis_cloud_distance.py --date 2018-10-18 --output-dir ./my_results
         """
     )
     
@@ -389,7 +389,7 @@ Examples:
     if gcp_project and 3 not in skip_phases:
         logger.info("\n[STEP 3.5] GEE Satellite Embedding Extraction")
         try:
-            from pipeline.phase_035_embedding import run_phase_035 as _run_phase_035
+            from pipeline.step_035_embedding import run_phase_035 as _run_phase_035
             df_emb = _run_phase_035(
                 target_date=target_date,
                 data_dir=data_dir,

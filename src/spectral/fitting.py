@@ -656,7 +656,7 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
     if not nc4_matches:
         raise FileNotFoundError(
             f"No L2 Lite .nc4 file found in {OCO2_data_dir}. "
-            f"Re-run demo_combined.py for this date to download it."
+            f"Re-run oco_modis_cloud_distance.py for this date to download it."
         )
     lite_nc_file = select_lite_file(nc4_matches, date)
     _validate_readable_hdf5(lite_nc_file, "L2 Lite", date)

@@ -2,6 +2,10 @@
 Phase 3 Demo: Spatial and Bitmask Processing
 ==============================================
 
+NOTE: Superseded for normal runs by ``oco_modis_cloud_distance.py``
+(use ``--skip-phase`` to run a subset). Kept as a minimal single-phase
+debugging example.
+
 Demonstrates OCO-2 footprint extraction, MODIS cloud mask unpacking,
 and temporal matching for collocation.
 
@@ -21,8 +25,8 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from pipeline.phase_02_ingestion import DataIngestionManager
-from pipeline.phase_03_processing import SpatialProcessor
+from pipeline.step_02_ingestion import DataIngestionManager
+from pipeline.step_03_processing import SpatialProcessor
 
 
 def main():
@@ -222,7 +226,7 @@ def main():
                             # Extract cloud masks from combined data
                             if combined_data.get('lon') is not None:
                                 # Reconstruct MODISCloudMask objects for backward compatibility
-                                from pipeline.phase_03_processing import MODISCloudMask
+                                from pipeline.step_03_processing import MODISCloudMask
                                 for modis_granule_id in combined_data.get('modis_granules', []):
                                     # Create a MODISCloudMask with the combined data
                                     # Note: We're creating a single mask with all data for simplicity

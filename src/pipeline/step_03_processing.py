@@ -58,8 +58,8 @@ except ImportError:
     HDF4_AVAILABLE = False
 
 from config import Config
-from .phase_01_metadata import OCO2Granule
-from .phase_02_ingestion import DownloadedFile
+from .step_01_metadata import OCO2Granule
+from .step_02_ingestion import DownloadedFile
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -1271,7 +1271,7 @@ class SpatialProcessor:
             
             # Try to re-download the corrupted file
             try:
-                from .phase_02_ingestion import DataIngestionManager
+                from .step_02_ingestion import DataIngestionManager
                 
                 # Extract year, doy, and granule info from filename
                 # Format: MYD03.AYYYYDDD.HHMM.061.*.hdf
@@ -1979,7 +1979,7 @@ OCO-2 Footprints:
 
 def main():
     """Demo script for Phase 3."""
-    from .phase_02_ingestion import DataIngestionManager
+    from .step_02_ingestion import DataIngestionManager
     
     # Initialize processors
     ingestion = DataIngestionManager(output_dir="../data")

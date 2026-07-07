@@ -105,7 +105,7 @@ Warnings are concerning when followed by:
 mode after the download fixes were validated. The current operational flow runs:
 
 ```bash
-python workspace/demo_combined.py --date "$date" --delete-modis --force-recompute
+python workspace/oco_modis_cloud_distance.py --date "$date" --delete-modis --force-recompute
 python src/spectral/fitting.py --date "$date"
 ```
 

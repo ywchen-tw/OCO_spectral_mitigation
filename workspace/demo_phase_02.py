@@ -3,6 +3,10 @@
 Demo script for Phase 2: Targeted Data Ingestion
 =================================================
 
+NOTE: Superseded for normal runs by ``oco_modis_cloud_distance.py``
+(use ``--skip-phase`` to run a subset). Kept as a minimal single-phase
+debugging example.
+
 This script demonstrates the complete Phase 2 workflow:
 1. Retrieve OCO-2 metadata for a target date
 2. Download OCO-2 products (L1B, L2 Lite, L2 Met, L2 CO2Prior)
@@ -25,7 +29,7 @@ import argparse
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from pipeline.phase_02_ingestion import DataIngestionManager
+from pipeline.step_02_ingestion import DataIngestionManager
 
 # Configure logging
 logging.basicConfig(

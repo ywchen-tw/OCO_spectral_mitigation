@@ -35,7 +35,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from config import Config
-from .phase_01_metadata import OCO2Granule, OCO2MetadataRetriever
+from .step_01_metadata import OCO2Granule, OCO2MetadataRetriever
 
 # Configure logging
 logger = logging.getLogger(__name__)

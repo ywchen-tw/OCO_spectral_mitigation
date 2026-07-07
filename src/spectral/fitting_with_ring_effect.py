@@ -135,7 +135,7 @@ LOG_TRANSMITTANCE_MODELS = {
 def load_shared_data(sat):
     """Load date-level inputs that are shared across all orbits.
 
-    Reads the cloud-distance HDF5 produced by demo_combined.py and the
+    Reads the cloud-distance HDF5 produced by oco_modis_cloud_distance.py and the
     OCO-2 Lite NetCDF file *once*, then builds O(1) index dicts so that
     per-sounding lookups inside the orbit loop are cheap.
 
@@ -154,7 +154,7 @@ def load_shared_data(sat):
     """
     date = sat['date'].strftime("%Y-%m-%d")
 
-    # --- Cloud distances (output of demo_combined.py) ---
+    # --- Cloud distances (output of oco_modis_cloud_distance.py) ---
     cld_dist_file = cloud_distance_file_path(sat["result_dir"], date)
     validate_cloud_distance_file(cld_dist_file, date)
     logger.info(f"Loading cloud distances from {cld_dist_file}")
@@ -259,14 +259,14 @@ def load_shared_data(sat):
 
 
 def cloud_distance_file_path(result_dir, date):
-    """Return the date-level cloud-distance HDF5 path produced by demo_combined.py."""
+    """Return the date-level cloud-distance HDF5 path produced by oco_modis_cloud_distance.py."""
     if isinstance(date, datetime):
         date = date.strftime("%Y-%m-%d")
     return os.path.join(str(result_dir), f"results_{date}.h5")
 
 
 def validate_cloud_distance_file(cld_dist_file, date):
-    """Fail before expensive tau work if demo_combined.py did not finish."""
+    """Fail before expensive tau work if oco_modis_cloud_distance.py did not finish."""
     if isinstance(date, datetime):
         date = date.strftime("%Y-%m-%d")
 
@@ -274,9 +274,9 @@ def validate_cloud_distance_file(cld_dist_file, date):
         raise FileNotFoundError(
             "Cloud-distance HDF5 is missing; spectral fitting cannot continue:\n"
             f"  expected: {cld_dist_file}\n"
-            "This file is produced by workspace/demo_combined.py Step 5. "
-            f"Run workspace/demo_combined.py --date {date} and ensure it completes, "
-            "or pass --output-dir to fitting_with_ring_effect.py if demo_combined.py "
+            "This file is produced by workspace/oco_modis_cloud_distance.py Step 5. "
+            f"Run workspace/oco_modis_cloud_distance.py --date {date} and ensure it completes, "
+            "or pass --output-dir to fitting_with_ring_effect.py if oco_modis_cloud_distance.py "
             "wrote results elsewhere."
         )
 
@@ -290,7 +290,7 @@ def validate_cloud_distance_file(cld_dist_file, date):
         raise OSError(
             "Cloud-distance HDF5 is corrupted or incomplete:\n"
             f"  {cld_dist_file}\n"
-            f"Re-run workspace/demo_combined.py --date {date} --force-recompute "
+            f"Re-run workspace/oco_modis_cloud_distance.py --date {date} --force-recompute "
             "to regenerate it."
         ) from exc
 
@@ -1540,7 +1540,7 @@ def _validate_readable_hdf5(filepath, label, date):
             f"{label} file is corrupted or not readable:\n"
             f"  {filepath}\n"
             f"Delete this file and re-run "
-            f"workspace/demo_combined.py --date {date.strftime('%Y-%m-%d')} "
+            f"workspace/oco_modis_cloud_distance.py --date {date.strftime('%Y-%m-%d')} "
             f"--force-download to re-download it."
         ) from exc
 
@@ -1664,7 +1664,7 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
     if not nc4_matches:
         raise FileNotFoundError(
             f"No L2 Lite .nc4 file found in {OCO2_data_dir}. "
-            f"Re-run demo_combined.py for this date to download it."
+            f"Re-run oco_modis_cloud_distance.py for this date to download it."
         )
     lite_nc_file = select_lite_file(nc4_matches, date)
     _validate_readable_hdf5(lite_nc_file, "L2 Lite", date)

@@ -38,7 +38,7 @@ try:
 except ImportError:
     PANDAS_AVAILABLE = False
 
-from .phase_03_processing import OCO2Footprint
+from .step_03_processing import OCO2Footprint
 
 EMBEDDING_COLLECTION = 'GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL'
 N_DIMS = 64

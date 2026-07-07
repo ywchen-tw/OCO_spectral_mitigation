@@ -3,6 +3,10 @@
 Phase 1 Demo: OCO-2 Metadata Acquisition
 =========================================
 
+NOTE: Superseded for normal runs by ``oco_modis_cloud_distance.py``
+(use ``--skip-phase`` to run a subset). Kept as a minimal single-phase
+debugging example.
+
 This script demonstrates the Phase 1 functionality:
 - Fetching OCO-2 L1B Science metadata from GES DISC
 - Parsing orbit information and viewing modes
@@ -16,7 +20,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from pipeline.phase_01_metadata import OCO2MetadataRetriever
+from pipeline.step_01_metadata import OCO2MetadataRetriever
 from utils import setup_logging
 from config import Config
 

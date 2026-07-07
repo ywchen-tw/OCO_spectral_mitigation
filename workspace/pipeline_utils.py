@@ -1,8 +1,8 @@
-"""Shared helpers for the demo_combined pipeline (banners, Lite-file
+"""Shared helpers for the oco_modis_cloud_distance pipeline (banners, Lite-file
 version handling and downstream-cache invalidation, CLI validation,
 storage-dir resolution, MODIS cleanup).
 
-Split out of demo_combined.py (2026-07, review §7.4); demo_combined
+Split out of oco_modis_cloud_distance.py (2026-07, review §7.4); oco_modis_cloud_distance
 re-imports every name, so its behaviour and CLI are unchanged.
 """
 

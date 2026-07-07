@@ -216,7 +216,7 @@ def main():
         print("  python workspace/demo_phase_02.py --dry-run --date 2018-10-18")
         print()
         print("Or in Python:")
-        print("  from src.phase_02_ingestion import DataIngestionManager")
+        print("  from src.step_02_ingestion import DataIngestionManager")
         print("  manager = DataIngestionManager()")
         print()
         return 0

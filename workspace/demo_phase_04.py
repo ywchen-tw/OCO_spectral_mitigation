@@ -3,6 +3,10 @@
 Demo: Phase 4 - High-Performance Computational Geometry
 ========================================================
 
+NOTE: Superseded for normal runs by ``oco_modis_cloud_distance.py``
+(use ``--skip-phase`` to run a subset). Kept as a minimal single-phase
+debugging example.
+
 This script demonstrates the complete Phase 4 workflow:
 1. Load OCO-2 footprints and MODIS cloud pixels from Phase 3
 2. Integrate MYD03 geolocation data
@@ -29,10 +33,10 @@ import platform
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from pipeline.phase_01_metadata import OCO2MetadataRetriever
-from pipeline.phase_02_ingestion import DataIngestionManager
-from pipeline.phase_03_processing import SpatialProcessor
-from pipeline.phase_04_geometry import GeometryProcessor
+from pipeline.step_01_metadata import OCO2MetadataRetriever
+from pipeline.step_02_ingestion import DataIngestionManager
+from pipeline.step_03_processing import SpatialProcessor
+from pipeline.step_04_geometry import GeometryProcessor
 from config import Config
 from constants import CLOUD_DIST_BAND_WIDTH_DEG, CLOUD_DIST_BAND_OVERLAP_DEG
 
@@ -110,7 +114,7 @@ def main():
     geometry_processor = GeometryProcessor(data_dir=str(data_dir))
     
     # Import DownloadedFile before using it
-    from pipeline.phase_02_ingestion import DownloadedFile
+    from pipeline.step_02_ingestion import DownloadedFile
     
     # ========================================================================
     # Step 1: Get downloaded files from previous phases
