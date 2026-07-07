@@ -51,7 +51,11 @@ def _find_stratified_csv(d: Path) -> 'Path | None':
 
 
 def _collect(dirs: list) -> tuple:
-    """Return (global_stack: dict[key]->list, strat_frames: list[DataFrame], used_dirs)."""
+    """Return (global_stack: dict[key]->list of (dirname, value), strat_frames, used_dirs).
+
+    Values are kept paired with their fold dir so a divergent fold can be named
+    in the outlier flag (see _mean_std).
+    """
     global_stack: dict = {}
     strat_frames = []
     used = []
@@ -67,7 +71,7 @@ def _collect(dirs: list) -> tuple:
         for k in _GLOBAL_KEYS:
             v = g.get(k)
             if isinstance(v, (int, float)):
-                global_stack.setdefault(k, []).append(float(v))
+                global_stack.setdefault(k, []).append((d.name, float(v)))
         sc = _find_stratified_csv(d)
         if sc is not None:
             strat_frames.append(pd.read_csv(sc))
@@ -75,11 +79,28 @@ def _collect(dirs: list) -> tuple:
 
 
 def _mean_std(stack: dict) -> dict:
+    """Per-metric mean/std/median/min/max plus a Tukey far-out outlier flag.
+
+    ``median`` is the outlier-robust summary: a single pathological fold (e.g. a
+    lone out-of-domain footprint blowing up a linear model's held-fold RMSE to
+    1e3+) wrecks the mean but not the median.  ``outliers`` lists (dir, value)
+    for folds that are an *order of magnitude beyond the median's scale*
+    (|v-median| > 10·(|median|+1)).  This scale-aware rule fires only on genuine
+    blowups (RMSE 2486 vs median 0.69) and NOT on normal fold-to-fold variance
+    (an IQR/std fence would false-positive at n=5), so a benign spread is never
+    mislabelled while a poisoned fold is always caught and named.
+    """
     out = {}
-    for k, vals in stack.items():
-        a = np.asarray(vals, dtype=float)
+    for k, pairs in stack.items():
+        names = [p[0] for p in pairs]
+        a = np.asarray([p[1] for p in pairs], dtype=float)
+        med = float(np.median(a))
+        thresh = 10.0 * (abs(med) + 1.0)
+        outliers = [(names[i], float(a[i])) for i in range(len(a))
+                    if abs(a[i] - med) > thresh]
         out[k] = {'mean': float(a.mean()), 'std': float(a.std(ddof=1) if len(a) > 1 else 0.0),
-                  'n': int(len(a)), 'min': float(a.min()), 'max': float(a.max())}
+                  'n': int(len(a)), 'min': float(a.min()), 'max': float(a.max()),
+                  'median': med, 'outliers': outliers}
     return out
 
 
@@ -126,17 +147,30 @@ def main():
         per_label_strat[label] = _agg_stratified(sframes)
         n = next(iter(gms.values()))['n'] if gms else 0
         lines.append(f"## {label}  (n={n} runs: {', '.join(used)})\n")
-        lines.append("| metric | mean ± std | min | max |")
-        lines.append("|---|---|---|---|")
+        lines.append("| metric | mean ± std | median | min | max |")
+        lines.append("|---|---|---|---|---|")
+        flagged = []
         for k in _GLOBAL_KEYS:
             if k in gms:
                 s = gms[k]
-                lines.append(f"| {k} | {_fmt(s)} | {s['min']:.4f} | {s['max']:.4f} |")
+                lines.append(f"| {k} | {_fmt(s)} | {s['median']:.4f} | {s['min']:.4f} | {s['max']:.4f} |")
+                if s['outliers']:
+                    flagged.append((k, s))
         lines.append("")
+        for k, s in flagged:
+            bad = ", ".join(f"{nm} ({val:.4g})" for nm, val in s['outliers'])
+            lines.append(f"> ⚠ **{k}** has outlier fold(s): {bad} — mean is not "
+                         f"robust here; use the **median ({s['median']:.4f})**. "
+                         f"(A lone out-of-domain footprint can blow up a fold's "
+                         f"held-out {k}.)")
+        if flagged:
+            lines.append("")
 
-    # Side-by-side global comparison if >1 label resolved.
+    # Side-by-side global comparison if >1 label resolved.  Cells show mean ± std,
+    # with the robust median in parentheses when it diverges from the mean (an
+    # outlier fold is present) so a poisoned mean is never read at face value.
     if len(per_label_global) > 1:
-        lines.append("## Global comparison (mean ± std)\n")
+        lines.append("## Global comparison (mean ± std; median in () when an outlier fold skews the mean)\n")
         labs = list(per_label_global)
         lines.append("| metric | " + " | ".join(labs) + " |")
         lines.append("|---" * (len(labs) + 1) + "|")
@@ -146,7 +180,10 @@ def main():
             for lab in labs:
                 gm = per_label_global[lab]
                 if k in gm:
-                    cells.append(_fmt(gm[k])); present = True
+                    s = gm[k]; cell = _fmt(s)
+                    if s['outliers']:
+                        cell += f" (med {s['median']:.4f})"
+                    cells.append(cell); present = True
                 else:
                     cells.append("—")
             if present:

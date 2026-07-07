@@ -65,6 +65,62 @@ and DE performing well on both references, further model-side improvement is
 de-prioritized (2026-07-07 decision) — the remaining gaps are reference-chain
 properties, not model error.
 
+### Reviewer-proof baseline comparison: DE vs XGBoost-mean vs Ridge (2026-07-07)
+
+Same-protocol baselines from `log/LINREG_XGB_BASELINE_PLAN_2026-07-07.md`
+(feature_set `full` + fold-specific ProfilePCA, ocean r05 / land r15, date_kfold
+5 folds, 2016–2020 combined parquet), judged by the identical TCCON chain
+(r100, AK-harmonized + direct, `--cld-edges 0,10,inf --exclude-sites ny`).
+Both baselines are point predictors (`corrected = xco2_bc − mu`, same clim-50 /
+|mu|-25 guards). **Caveat:** the DE partner here is the production **global-PCA**
+DE (`de_beta_nll_prof_reg_o05l15_m5`); the *foldpca* DE TCCON run was not
+executed, so the PCA protocol differs from the baselines (small on CV — foldpca
+DE ocean R² 0.707 ≈ global — but flagged for a strictly matched TCCON row).
+
+**Headline (r100, after-correction; before = 1.26 |bias| / 2.67 fp-RMSE AK):**
+
+| model | AK \|bias\| | AK fp-RMSE | direct \|bias\| | direct fp-RMSE | guarded fps |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| DE o05/l15 (global-PCA) | **0.81** | **1.19** | **0.63** | **1.08** | 1 |
+| XGBoost-mean o05/l15 (foldpca) | 0.87 | 1.42 | 0.68 | 1.32 | 3 |
+| Ridge o05/l15 (foldpca) | 1.02 | 1.94 | 0.87 | 1.88 | 1 |
+
+**Near-cloud land fp-RMSE — the manuscript cell (raw→before→after, ppm):**
+
+| land cloud bin | n | raw→before | DE | XGB | Ridge |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| **0–10 km** | 66 | 3.53 → 3.33 | **1.30** | 1.68 | 2.37 |
+| ≥10 km | 38 | — | **0.90** | 0.92 | 0.97 |
+
+Far from cloud all three tie (0.90/0.92/0.97); the models fan out only in the
+near-cloud land tail — DE's structural win, exactly as predicted.
+
+**Cross-validation (date_kfold, held-out global R²):**
+
+| surface | DE foldpca | XGB foldpca | Ridge foldpca |
+| --- | ---: | ---: | ---: |
+| ocean r05 | **0.707** | 0.672 | 0.411 |
+| land r15 | **0.544** | 0.518 | 0.301 † |
+
+† Ridge land CV: median over folds (guard-clean). The raw `aggregate_folds`
+**mean** is −2e6 because **one** held footprint (1 of 3.8M, fold2) extrapolated
+to mu = 2.16M ppm — an unbounded-linear failure the `|mu|>25` guard catches
+(hence only 1 guarded fp on TCCON, numbers unaffected). `aggregate_folds` now
+reports a robust median column + names such outlier folds.
+
+**Interpretation.** The CV ranking (DE ≳ XGB by ΔR² ≈ +0.03; Ridge a clear step
+down at −0.24/−0.30) **survives on TCCON and the tail widens the gap**: global
+held-out R² weights the abundant far-cloud footprints and barely separates DE
+from XGB, whereas near-cloud land — the footprints the correction exists for —
+separates them cleanly (1.30 < 1.68 < 2.37 ppm). **XGBoost-mean is the honest
+parsimony option** (ties DE globally and far-field, ~0.2–0.4 ppm behind only in
+the tail); **Ridge** still removes ~30% of near-cloud land RMSE (proving the
+signal is real) but leaves 2.37 ppm, showing the residual is genuinely
+nonlinear. The manuscript claim is the *correction*; the architecture ranking is
+**DE > XGB > Ridge**, decided in the near-cloud land tail. **Pending:** r50
+robustness rerun (`RADIUS_KM=50`) for both baselines; optional foldpca-DE TCCON
+row for a fully matched PCA protocol.
+
 ## Main conclusion
 
 The next improvement should probably target calibration, blending, and regime
