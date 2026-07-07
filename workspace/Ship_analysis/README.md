@@ -95,3 +95,54 @@ anomalies; the near-cloud day 2019-06-09 is the real test.
 ## References
 - Knapp et al. 2021, ESSD 13, 199–211 (MORE-2). PANGAEA 917240.
 - Butz et al. 2022, Front. Remote Sens. 2, 775805 (MR21-01). PANGAEA 937933.
+
+## Interpreting the corrected-OCO − ship offset (added 2026-07-07)
+
+Per-day residuals (OCO − ship, ppm; `ship_comparison_summary.csv`):
+
+| date | n | cld_med (km) | resid `xco2_bc` | resid corrected | reading |
+|---|--:|--:|--:|--:|---|
+| 2019-06-09 | 586 | 2.2 | +1.09 | +1.13 | true near-cloud case |
+| 2019-06-14 | 243 | 4.9 | +0.22 | +0.47 | mixed |
+| 2019-06-22 | 644 | 41.3 | +0.77 | +0.81 | clear-sky control |
+| 2021-03-15 | 21 | 2.9 | +1.89 | +2.23 | Mirai; n=21, winter, weak constraint |
+
+**Key triangulation (2026-07-07, post AK-fix TCCON report):** ocean-glint
+footprints near TCCON show the SAME offset in the same direction — signed
+after-correction bias **+0.61 ± 0.87 ppm direct**, collapsing to
+**+0.12 ± 1.21 ppm AK-harmonized** (20 cases, n_oco ≥ 20; land: −0.10 direct /
+−0.43 AK). The ship clear-sky control (+0.81 direct) is statistically the same
+number as the TCCON-ocean direct offset. So the ship gap is a general property
+of *direct* ocean-glint comparisons of this product — not a ship-data artifact
+and not created by the ML correction.
+
+**Proposed causes, ranked (no code changes made — analysis only):**
+
+1. **Missing AK/prior harmonization (~+0.5 ppm, dominant).** This module
+   compares `xco2_bc`/corrected directly to EM27 XCO₂; no Rodgers–Connor
+   adjustment. The TCCON-ocean evidence above implies harmonization would
+   remove most of the offset. Precedent: Klappenbach et al. (2015, AMT)
+   applied AK harmonization for exactly this shipborne-EM27-vs-OCO-2 setup.
+2. **EM27 calibration vintage (±0.2–0.4 ppm).** Both cruises are tied to
+   TCCON Karlsruhe under pre-GGG2020 processing (Knapp et al. 2021; Butz et
+   al. 2022), while B11's absolute scale is anchored to GGG2020 (B11 DUG
+   §4.2.3) — a scale-epoch mismatch (GGG2014→GGG2020 + X2007→X2019) of a few
+   tenths ppm.
+3. **Residual B11 ocean-glint regional bias (±0.3 ppm).** The ocean divisor is
+   set globally (coastline crossings); regional/seasonal structure at the
+   0.3–0.5 ppm level is documented (O'Dell et al. 2018; Taylor et al. 2023;
+   Das et al. 2025) and is not removed by a global anchor.
+4. **The ML correction slightly widens the direct gap (+0.04…+0.35 ppm) by
+   design.** Near-cloud ocean μ < 0 (the near-cloud low anomaly), so
+   corrected = bc − μ sits above bc. It repairs the *relative* near-cloud
+   anomaly against the OCO clear-sky field; the clear-sky control proves the
+   base offset predates the correction.
+5. **Sampling.** Four days, one cruise dominating; the Mirai +2.2 (n=21,
+   winter, high SZA) should be read as a weak constraint, not a trend.
+
+**Cheap follow-up if a reviewer pushes:** harmonize the ship reference with
+the (now wet/dry-fixed) `ak_harmonize.py` operator — the collocated parquets
+already carry the flattened ak/pwf/prior columns; the EM27 side needs only a
+γ-scaled prior proxy (PROFFAST priors, or bound the term using the OCO-side
+operator alone). Expected shift is the ~+0.5 ppm seen at the TCCON ocean
+subset, which would bring the clear-sky control near zero.
