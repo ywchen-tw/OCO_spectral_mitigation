@@ -19,8 +19,8 @@ All DOIs verified against Crossref / journal landing pages (2026-07-03). 45 entr
 
 ### Cluster 2 — OCO-2/ACOS vs TCCON validation + operational bias correction
 
-- **Wunch, D., et al. (2017).** Comparisons of OCO-2 XCO2 measurements with TCCON. *AMT*, 10, 2209–2238. DOI: 10.5194/amt-10-2209-2017 — The canonical OCO-2-vs-TCCON validation methodology (coincidence criteria, bias metrics) our TCCON pipeline builds on. **MUST-CITE**
-- **O'Dell, C. W., et al. (2018).** Improved retrievals of CO2 from OCO-2 with the version 8 ACOS algorithm. *AMT*, 11, 6539–6576. DOI: 10.5194/amt-11-6539-2018 — Defines ACOS + the operational parametric bias correction the ML correction is positioned against. **MUST-CITE**
+- **Wunch, D., et al. (2017).** Comparisons of OCO-2 XCO2 measurements with TCCON. *AMT*, 10, 2209–2238. DOI: 10.5194/amt-10-2209-2017 — The canonical OCO-2-vs-TCCON validation methodology (coincidence criteria, bias metrics) our TCCON pipeline builds on. Verified 2026-07-07: defines the B7 "scaling bias" as a **direct** zero-intercept OCO-2-vs-TCCON slope, applied in the Lite-file bias correction; contains NO Rodgers–Connor harmonization (its only averaging-kernel mention is TCCON's own WMO-scale tie). **MUST-CITE**
+- **O'Dell, C. W., et al. (2018).** Improved retrievals of CO2 from OCO-2 with the version 8 ACOS algorithm. *AMT*, 11, 6539–6576. DOI: 10.5194/amt-11-6539-2018 — Defines ACOS + the operational parametric bias correction the ML correction is positioned against. Verified 2026-07-07 (key for the direct-vs-AK story): the *parametric* fit vs TCCON used the Nguyen et al. (2014) AK convolution (<0.3 ppm effect), but the **global scaling divisors were solved by direct TCCON regression** — explicit caveat that the AK correction was neglected there (~0.1 ppm mean; land apparent bias 0.2–0.3 ppm "partly due to neglecting the averaging kernel effect when solving for the global divisors"). **MUST-CITE**
 - **Kiel, M., et al. (2019).** How bias correction goes wrong: XCO2 affected by erroneous surface pressure estimates. *AMT*, 12, 2241–2259. DOI: 10.5194/amt-12-2241-2019 — State-correlated error corrupting the operational bias correction; same failure mode motivating a cloud-proximity-aware correction.
 - **Kulawik, S., et al. (2016).** Consistent evaluation of ACOS-GOSAT, BESD, CarbonTracker, and MACC through comparisons to TCCON. *AMT*, 9, 683–709. DOI: 10.5194/amt-9-683-2016 — TCCON-anchored systematic-vs-random error framework.
 - **Crisp, D., et al. (2017).** On-orbit performance of the OCO-2 instrument. *AMT*, 10, 59–81. DOI: 10.5194/amt-10-59-2017 — L1B glint-mode radiance/calibration reference.
@@ -94,9 +94,20 @@ All DOIs verified against Crossref / journal landing pages (2026-07-03). 45 entr
 - **Watch** — Das et al. "OCO-2 v11.2/OCO-3 v11 vs COCCON" (submitted, no DOI); re-check at revision time.
 - No 2024–2026 paper found doing ML correction of *cloud-proximity* XCO2 bias other than the Mauceri/Keely line and Chen et al. 2025 (our own).
 
+### Direct-TCCON anchoring evidence chain (added 2026-07-07)
+
+Why the corrected product looks better against direct TCCON than AK-harmonized (see PROJECT_REVIEW M2 follow-up): the operational absolute scale is tied to TCCON by **direct, non-AK-harmonized** zero-intercept regression at every product version. Citable chain, all primary sources read and quoted 2026-07-07:
+
+1. **Wunch et al. 2017** (above) — B7 scaling-bias procedure, direct slope, applied in the Lite files.
+2. **O'Dell et al. 2018** (above) — v8 global divisors (Table 11: land 0.9958, ocean 0.9955); explicit AK-neglect statement + ~0.1 ppm magnitude.
+3. **OCO-2/OCO-3 B10 Data User's Guide**, §3.2.3 "Step 3 – Determine global offset from TCCON (TCCON_Adjust)": direct linear regression, intercept forced to zero; OCO-2 = 0.9959·TCCON land, 0.9950 ocean. <https://docserver.gesdisc.eosdis.nasa.gov/public/project/OCO/OCO2_OCO3_B10_DUG.pdf>
+4. **OCO-2 v11 / OCO-3 v10 Data User's Guide**, §4.2.3: same procedure, GGG2020 only; OCO-2 = (0.9997 ± 0.003)·TCCON; ocean divisor set equal via coastline crossings. No AK convolution in the TCCON_Adjust step (AK appears only in the separate drift assessment). <https://docserver.gesdisc.eosdis.nasa.gov/public/project/OCO/OCO2_V11_OCO3_V10_DUG.pdf>
+
+Magnitude caveat: the literature's neglected-AK term (~0.1–0.3 ppm) covers only part of our ak_delta = −0.93 ± 0.74 ppm; the remainder is plausibly our QF0+1 near-cloud operator population and/or the gamma-scaled GGG2020 prior proxy — three diagnostics queued in PROJECT_REVIEW M2. Das et al. 2025 (above) is the contemporary v11.1-vs-GGG2020 companion citation, but its AK methodology was not confirmable (paywalled at check time) — verify before citing its methods.
+
 ### Dropped as unverifiable / not peer-reviewed
 
-Payne et al. "B11" (ATBD only); Osterman et al. Lite-file docs (product documentation); Kulawik et al. 2019 AMTD (withdrawn); a Buschmann Ny-Ålesund-vs-satellite paper (does not exist); Wunch et al. 2015 GGG2014 report (CaltechDATA tech report — cite as dataset if needed).
+Payne et al. "B11" (ATBD only); Osterman et al. Lite-file docs (product documentation — **exception added 2026-07-07:** the B10/B11 DUGs must nevertheless be cited *as product documentation* for the TCCON_Adjust divisor, being the only written source for the B10/B11 anchoring procedure); Kulawik et al. 2019 AMTD (withdrawn); a Buschmann Ny-Ålesund-vs-satellite paper (does not exist); Wunch et al. 2015 GGG2014 report (CaltechDATA tech report — cite as dataset if needed).
 
 ---
 
@@ -156,6 +167,7 @@ Mondrian conformal on the DE is solid. Cheaper epistemic alternatives if compute
 - More HPO on TabM/MLP (flat landscape; default TabM beat tuned ones).
 - Bigger ensembles (M=10 tied M=5) and heterogeneous member architectures (tied homogeneous at scale).
 - `snow_flag` as a feature (neutral); κ = k1²/k2 feature (slightly hurts).
+- **Sun–Earth distance / solar-cycle (11-yr) features (evaluated and rejected 2026-07-07):** both are identical for a sounding and its same-orbit clear-sky reference neighbors, so they cancel *exactly* in the within-orbit anomaly target — zero direct explanatory power; the only channel is as a smooth date proxy, precisely the confound date_kfold guards against (neutral at best in CV, extrapolation risk into new solar-cycle phases/drift era). The radiometric side is already handled: per-sounding solar-rest-frame irradiance (`solar.h5`, Doppler chain), and the annual ±3.4 % irradiance scaling is a continuum-level effect absorbed by the cumulant fit's intercept. Also irrelevant to the direct-vs-AK station-bias gap, which is an absolute-offset/reference-side issue no per-sounding anomaly feature can move.
 
 ### 2.8 Suggested experiment order
 

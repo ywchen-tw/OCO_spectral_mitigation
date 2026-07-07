@@ -9,6 +9,14 @@ Improve corrected XCO2 agreement with TCCON, with two primary metrics:
 - lower after-correction mean absolute station bias;
 - lower per-footprint RMSE around TCCON stations.
 
+**Metric caveat (added 2026-07-07):** under the AK-harmonized reference, the
+station-mean bias has a floor of roughly |ak_delta| ≈ 0.9 ppm that no
+per-sounding anomaly model can cross — it is an absolute-scale offset inherited
+from the operational product's direct-TCCON anchoring, not model error (see the
+final section below). Judge blending/calibration experiments on fp-RMSE and on
+AK-invariant before→after improvements, not on the absolute AK-harmonized
+station bias.
+
 The current best result is still the regularized deep ensemble. The structured
 residual model is close, but does not yet clearly beat DE on the TCCON objective.
 
@@ -273,3 +281,56 @@ land from r15 after the jobs finish:
 de2016_2020_regime_structured_shared_h64x32_b8_e4_foldpca_r05_ocean_f*
 de2016_2020_regime_structured_shared_h64x32_b8_e4_foldpca_r15_land_f*
 ```
+
+## Direct vs AK-harmonized station bias (added 2026-07-07)
+
+Observation: after correction, mean |station bias| is ~0.63 ppm against the
+direct TCCON window mean but ~1.05 ppm against the AK/prior-harmonized
+reference (r100), while fp-RMSE improves under both references.
+
+Diagnosis — this is arithmetic, not a model failure:
+
+- Harmonization shifts the TCCON reference by ak_delta = −0.93 ± 0.74 ppm.
+- Before→after improvements are exactly AK-invariant (same soundings, same
+  operator on both sides of the difference).
+- Once the correction pulls OCO-2 close to the *direct* TCCON mean, the small
+  residuals are dominated by the common-mode shift, so the AK-harmonized
+  after-|bias| lands near |ak_delta|. RMSE still improves because it is
+  dominated by the scatter collapse; a constant shift only adds in quadrature.
+
+Root cause (literature-verified 2026-07-07, primary sources read): the
+operational product's absolute scale is anchored to TCCON by **direct,
+non-AK-harmonized** zero-intercept regression at every version — Wunch et al.
+(2017) for B7; O'Dell et al. (2018) for v8, with the explicit statement that
+the AK correction was neglected when solving the global divisors (~0.1 ppm
+mean; land 0.2–0.3 ppm apparent bias partly from this); B10 DUG §3.2.3 and B11
+DUG §4.2.3 (TCCON_Adjust, GGG2020 in B11) carry the same procedure forward. So
+agreement with direct TCCON is partly built into `xco2_bc`, and harmonization
+re-exposes an offset. The ship EM27 ~+1 ppm ocean offset independently
+corroborates the harmonized picture.
+
+Magnitude caveat: the literature's neglected-AK term (~0.1–0.3 ppm) covers only
+part of our −0.93; the remainder is plausibly the QF0+1 near-cloud operator
+population in `ak_harmonize.py` (near-cloud AKs deviate far more from 1) and/or
+the gamma-scaled GGG2020 prior proxy. Three diagnostics before the manuscript:
+
+1. **a≡1 null check** — recompute `c_est` with the averaging kernel forced to
+   1; must give delta ≈ 0 (nonzero ⇒ units/pwf/interpolation bug).
+2. **QF0-only clear-sky/far-cloud ak_delta subset** — should land near
+   0.1–0.3 ppm (matching O'Dell); the gap to −0.93 is then attributable to the
+   near-cloud population and is itself a quotable result.
+3. **Per-case signed identity** — bias_AK vs (bias_direct − ak_delta) must fall
+   on the 1:1 line, confirming pure common-mode rather than regime dependence.
+
+Consequences for this plan:
+
+- Do NOT try to close the AK-harmonized station bias with model-side changes.
+  A per-sounding anomaly model cannot move the absolute scale; features that
+  are common-mode within an orbit (e.g. sun–Earth distance, 11-yr solar cycle —
+  evaluated and rejected 2026-07-07) cancel exactly in the target and act only
+  as date proxies.
+- Blend / calibration / regime experiments above should therefore be scored on
+  fp-RMSE and on AK-invariant before→after deltas; the absolute AK-harmonized
+  station bias is a property of the reference chain, to be *explained* in the
+  manuscript (anchoring citations: Wunch 2017 → O'Dell 2018 → B10/B11 DUG),
+  not optimized away.

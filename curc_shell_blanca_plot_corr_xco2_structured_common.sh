@@ -30,7 +30,7 @@ export PYTHONPATH=src:${PYTHONPATH:-}
 DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 
-MODEL_ROOT="$DATA_ROOT/results/model_structured_dcn_ensemble"
+MODEL_ROOT="${STRUCT_MODEL_ROOT:-$DATA_ROOT/results/model_structured_dcn_ensemble}"
 MODEL_TAG="${STRUCT_MODEL_TAG:?STRUCT_MODEL_TAG must be set by the wrapper}"
 OCEAN_STEM="${STRUCT_OCEAN_STEM:?STRUCT_OCEAN_STEM must be set by the wrapper}"
 LAND_STEM="${STRUCT_LAND_STEM:?STRUCT_LAND_STEM must be set by the wrapper}"
