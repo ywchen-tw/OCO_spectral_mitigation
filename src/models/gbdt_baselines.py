@@ -47,6 +47,28 @@ QUANTILES = (0.05, 0.5, 0.95)
 SEED = 42
 
 
+def _date_list(frame) -> list:
+    """Sorted unique date strings (bytes-decoded), matching deep_ensemble.py."""
+    if frame is None or 'date' not in frame.columns:
+        return []
+    s = frame['date'].astype(str).str.replace("b'", "", regex=False)
+    return sorted(s.str.replace("'", "", regex=False).unique().tolist())
+
+
+def _carve_calib(train_df, calib_frac: float, seed: int) -> tuple:
+    """Carve a calib block out of TRAIN (date split if ≥2 dates, else random) —
+    identical logic to deep_ensemble.py, used here for --objective mean early
+    stopping so the mean model stops on the SAME calib footprints the DE uses."""
+    try:
+        if 'date' in train_df.columns and pd.to_datetime(
+                train_df['date'].astype(str).str.replace("b'", "").str.replace("'", "")
+                if train_df['date'].dtype == object else train_df['date']).nunique() >= 2:
+            return split_dataframe(train_df, mode='date', test_size=calib_frac)
+        return split_dataframe(train_df, mode='random', test_size=calib_frac, random_state=seed)
+    except Exception:
+        return split_dataframe(train_df, mode='random', test_size=calib_frac, random_state=seed)
+
+
 # ─── Capability checks ─────────────────────────────────────────────────────────
 
 def _xgboost_has_quantile() -> bool:
@@ -56,6 +78,15 @@ def _xgboost_has_quantile() -> bool:
         return major >= 2 or xgb.__version__ >= '1.7'
     except Exception:
         return False
+
+
+def _xgb_version() -> 'str | None':
+    """xgboost version string (for the run summary — reproducibility with n_jobs>1)."""
+    try:
+        import xgboost as xgb
+        return str(xgb.__version__)
+    except Exception:
+        return None
 
 
 def _lightgbm_available() -> bool:
@@ -96,6 +127,35 @@ def train_xgboost(X_train, y_train, quantiles=QUANTILES, cfg: 'dict | None' = No
         models[q] = model
         logger.info("Trained XGBoost q%.2f", q)
     return models
+
+
+def train_xgboost_mean(X_train, y_train, X_calib, y_calib, cfg: 'dict | None' = None):
+    """Train ONE plain XGBoost mean regressor (reg:squarederror); prediction = mu.
+
+    Early stopping is evaluated on the calibration block only (never TCCON, never
+    the held fold), so n_estimators is chosen the same way the DE picks its
+    epochs.  Returns the fitted XGBRegressor.
+    """
+    import xgboost as xgb
+    cfg = cfg or {}
+    model = xgb.XGBRegressor(
+        objective="reg:squarederror",
+        n_estimators=int(cfg.get('n_estimators', 2000)),
+        max_depth=int(cfg.get('max_depth', 6)),
+        learning_rate=float(cfg.get('learning_rate', 0.05)),
+        subsample=float(cfg.get('subsample', 1.0)),
+        colsample_bytree=float(cfg.get('colsample_bytree', 0.8)),
+        reg_lambda=float(cfg.get('reg_lambda', 1.0)),
+        n_jobs=int(cfg.get('n_jobs', 1)),
+        random_state=SEED,
+        tree_method='hist',
+        early_stopping_rounds=int(cfg.get('early_stopping_rounds', 50)),
+        eval_metric='rmse',
+    )
+    model.fit(X_train, y_train, eval_set=[(X_calib, y_calib)], verbose=False)
+    best_it = getattr(model, 'best_iteration', None)
+    logger.info("Trained XGBoost mean regressor (best_iteration=%s)", best_it)
+    return model
 
 
 def train_lightgbm(X_train, y_train, quantiles=QUANTILES, cfg: 'dict | None' = None) -> dict:
@@ -205,6 +265,20 @@ def main():
     parser = argparse.ArgumentParser(description="GBDT quantile baselines for XCO2 anomaly prediction")
     parser.add_argument('--model', type=str, default='xgboost',
                         choices=['xgboost', 'lightgbm'])
+    parser.add_argument('--objective', type=str, default='quantile',
+                        choices=['quantile', 'mean'],
+                        help="'quantile' (default): 3 per-quantile models (q05/q50/q95). "
+                             "'mean': one plain reg:squarederror model, prediction = mu "
+                             "(early-stopped on the calib block) — the parsimonious "
+                             "'plain XGBoost regression' baseline. xgboost only.")
+    parser.add_argument('--calib_frac', type=float, default=0.15,
+                        help='Fraction of TRAIN carved as the calib block for --objective mean '
+                             'early stopping (mirrors deep_ensemble.py).')
+    parser.add_argument('--n_jobs', type=int, default=None,
+                        help='XGBoost/LightGBM threads. Default: SLURM_NTASKS (CPUS_PER_TASK) '
+                             'or os.cpu_count(). NOTE: >1 makes the hist builder NOT bit-'
+                             'reproducible (seeds are still fixed; xgboost version is recorded). '
+                             'Pass 1 for strict determinism at the cost of wall-clock.')
     parser.add_argument('--sfc_type', type=int, default=0)
     parser.add_argument('--val_split', type=str, default='random',
                         choices=['random', 'date', 'date_kfold'])
@@ -237,6 +311,12 @@ def main():
     algo = _resolve_algo(args.model)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
+    # Thread count: explicit --n_jobs, else SLURM allocation, else all local cores.
+    n_jobs = args.n_jobs if args.n_jobs is not None else int(
+        os.environ.get('SLURM_CPUS_PER_TASK') or os.environ.get('SLURM_NTASKS') or os.cpu_count() or 1)
+    tree_cfg = {'n_jobs': n_jobs, 'num_threads': n_jobs}
+    logger.info("tree threads n_jobs=%d (bit-reproducible only if n_jobs==1)", n_jobs)
+
     if args.seed is not None:
         global SEED
         SEED = int(args.seed)   # flows into model random_state + random split below
@@ -265,19 +345,43 @@ def main():
         raise ValueError(f"Target column '{target_col}' not in parquet; regenerate the combined parquet (spectral/fitting.py + build_feature_dataset.py) or pass --target 10km.")
     df = filter_target_outliers(df, target_col=target_col)
 
-    # ── Split RAW first, fit pipeline on train only ────────────────────────────
+    if args.objective == 'mean' and algo != 'xgboost':
+        raise SystemExit("--objective mean is xgboost-only (needs reg:squarederror + early stopping). "
+                         "Drop --model lightgbm or use the default quantile objective.")
+
+    # ── Split RAW first, fit pipeline on (proper-)train only ───────────────────
     train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,
                                         random_state=SEED,
                                         n_folds=args.n_folds, fold=args.fold)
     del df
     gc.collect()
+
+    # Mean mode carves a calib block out of TRAIN for early stopping (mirrors
+    # deep_ensemble.py); the pipeline is fit on proper-train only.  Quantile mode
+    # keeps its original behavior (pipeline fit on full TRAIN, no calib block).
+    calib_df = None
+    if args.objective == 'mean':
+        proper_df, calib_df = _carve_calib(train_df, args.calib_frac, SEED)
+        fit_df = proper_df
+    else:
+        fit_df = train_df
+
+    # Training-date manifest: machine-readable leakage guard for the TCCON chain
+    # (same schema as deep_ensemble.py; calib_dates empty for quantile mode).
+    with open(output_dir / 'training_dates.json', 'w', encoding='utf-8') as f:
+        json.dump({'train_dates': _date_list(fit_df),
+                   'calib_dates': _date_list(calib_df) if calib_df is not None else [],
+                   'held_dates': _date_list(held_df)}, f, indent=2)
+
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
+        prof_path = args.pipeline
     else:
         _prof = True if args.profile_pca == 'auto' else args.profile_pca
-        pipeline = FeaturePipeline.fit(train_df, sfc_type=args.sfc_type,
+        pipeline = FeaturePipeline.fit(fit_df, sfc_type=args.sfc_type,
                                        feature_set=args.feature_set, profile_pca=_prof)
         pipeline.save(output_dir / 'gbdt_pipeline.pkl')
+        prof_path = str(args.profile_pca) if args.profile_pca else None
     features = pipeline.features
 
     def _prep(frame):
@@ -286,42 +390,67 @@ def main():
         valid = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
         return X[valid], y[valid], frame.loc[valid]
 
-    X_train, y_train, _ = _prep(train_df)
+    X_train, y_train, _ = _prep(fit_df)
     X_held, y_held, held_valid = _prep(held_df)
-    print(f"[{algo}] X_train {X_train.shape}  X_held {X_held.shape}")
+    print(f"[{algo}/{args.objective}] X_train {X_train.shape}  X_held {X_held.shape}")
 
-    # ── Train one model per quantile ───────────────────────────────────────────
-    if algo == 'xgboost':
-        models = train_xgboost(X_train, y_train)
-    elif algo == 'lightgbm':
-        models = train_lightgbm(X_train, y_train)
+    # ── Mean objective: one plain regressor, prediction = mu ───────────────────
+    if args.objective == 'mean':
+        X_ca, y_ca, _ = _prep(calib_df)
+        print(f"[{algo}/mean] X_calib {X_ca.shape}")
+        model = train_xgboost_mean(X_train, y_train, X_ca, y_ca, cfg=tree_cfg)
+        joblib.dump(model, output_dir / f'model_mean_{algo}.joblib')
+        logger.info("Saved %s mean regressor → %s", algo, output_dir)
+
+        mu = model.predict(X_held)
+        preds = np.column_stack([mu, mu, mu])   # degenerate intervals (point predictor)
+        prefix = f"{algo}_mean_{args.val_split}"
+        g = diag.compute_metrics(y_held, preds)
+        strat = diag.stratified_metrics(held_valid, y_held, preds)
+        diag.save_diagnostics(output_dir, prefix, g, strat)
+        diag.save_correction_and_preds(output_dir, prefix, held_valid, y_held, preds)
+        print(f"[{prefix}] RMSE={g['rmse']:.4f}  MAE={g['mae']:.4f}  R²={g['r2']:.4f}  "
+              f"(point predictor — interval metrics are degenerate)")
+        _bi = getattr(model, 'best_iteration', None)
+        secondary = {f'{algo}_held_mae': g['mae'], f'{algo}_held_r2': g['r2'],
+                     'best_iteration': int(_bi) if _bi is not None else None}
+        description = f'{algo} MEAN baseline, {args.val_split}-split, feature_set={args.feature_set}'
     else:
-        models = _sklearn_gbdt_fallback(X_train, y_train)
-
-    for q, model in models.items():
-        joblib.dump(model, output_dir / f'model_q{int(round(q*100)):02d}_{algo}.joblib')
-    logger.info("Saved %d %s quantile models → %s", len(models), algo, output_dir)
-
-    # ── Evaluate ───────────────────────────────────────────────────────────────
-    prefix = f"{algo}_{args.val_split}"
-    g = evaluate_gbdt(models, X_held, y_held, held_valid, output_dir, prefix)
-
-    summary = RunSummary(
-        run_id=run_id, script_name=os.path.basename(__file__), model_family=f'gbdt_{algo}',
-        commit=commit, status='success',
-        primary_metric_name=f'{algo}_held_rmse', primary_metric_value=g['rmse'],
-        secondary_metrics={
+        # ── Quantile objective: one model per quantile ─────────────────────────
+        if algo == 'xgboost':
+            models = train_xgboost(X_train, y_train, cfg=tree_cfg)
+        elif algo == 'lightgbm':
+            models = train_lightgbm(X_train, y_train, cfg=tree_cfg)
+        else:
+            models = _sklearn_gbdt_fallback(X_train, y_train)
+        for q, model in models.items():
+            joblib.dump(model, output_dir / f'model_q{int(round(q*100)):02d}_{algo}.joblib')
+        logger.info("Saved %d %s quantile models → %s", len(models), algo, output_dir)
+        prefix = f"{algo}_{args.val_split}"
+        g = evaluate_gbdt(models, X_held, y_held, held_valid, output_dir, prefix)
+        secondary = {
             f'{algo}_held_mae': g['mae'], f'{algo}_held_r2': g['r2'],
             'coverage_90': g['coverage_90'], 'mean_interval_width': g['mean_interval_width'],
             'crossing_rate': g['crossing_rate'],
             'pinball_q05': g['pinball_q05'], 'pinball_q50': g['pinball_q50'],
             'pinball_q95': g['pinball_q95'],
-        },
+        }
+        description = f'{algo} quantile baseline, {args.val_split}-split, feature_set={args.feature_set}'
+
+    summary = RunSummary(
+        run_id=run_id, script_name=os.path.basename(__file__), model_family=f'gbdt_{algo}',
+        commit=commit, status='success',
+        primary_metric_name=f'{algo}_held_rmse', primary_metric_value=g['rmse'],
+        secondary_metrics=secondary,
         runtime_seconds=float(time.monotonic() - run_start),
-        description=f'{algo} quantile baseline, {args.val_split}-split, feature_set={args.feature_set}',
+        description=description,
         artifacts={'output_dir': str(output_dir), 'metrics_json': str(output_dir / f'{prefix}_metrics.json')},
-        config={'model': algo, 'sfc_type': args.sfc_type, 'val_split': args.val_split,
-                'feature_set': args.feature_set, 'test_size': args.test_size},
+        config={'model': algo, 'objective': args.objective, 'sfc_type': args.sfc_type,
+                'val_split': args.val_split, 'feature_set': args.feature_set,
+                'target': target_col, 'profile_pca': prof_path, 'n_jobs': n_jobs,
+                'xgboost_version': _xgb_version(),
+                'calib_frac': args.calib_frac, 'n_folds': args.n_folds, 'fold': args.fold,
+                'test_size': args.test_size},
     )
     with open(output_dir / 'run_summary.json', 'w', encoding='utf-8') as f:
         json.dump(summary.to_dict(), f, indent=2, sort_keys=True)
