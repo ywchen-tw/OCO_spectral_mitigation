@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+PROJECT_DIR=${PROJECT_DIR:-/projects/yuch8913/OCO_spectral_mitigation}
 export STRUCT_TARGET_ALIAS="5km"
 export STRUCT_TARGET_TAG="r05"
-exec "${SCRIPT_DIR}/curc_shell_blanca_train_structured_shared_foldpca_2016_2020.sh"
+exec "${PROJECT_DIR}/curc_shell_blanca_train_structured_shared_foldpca_2016_2020.sh"
