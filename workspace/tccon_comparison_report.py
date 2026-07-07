@@ -18,8 +18,10 @@ window mean).  The 'ak' set only appears under --ak-harmonize; 'direct' always d
     tccon_{ref}_by_surface_*.png  — ocean/land stacked, (a)/(b) panels
     tccon_{ref}_by_cld_*.png      — one panel per nearest-cloud-distance bin
     tccon_{ref}_by_surface_by_cld_bias.png,  tccon_by_site_bias.png
-    tccon_{ref0}_bias_<style>.png — 4 low-DPI bias-style variants for picking (item 3)
-    tccon_ak_vs_direct_bias.png, tccon_ak_shift.png  — reference comparison (AK runs)
+    tccon_{ref}_bias_<style>.png  — 4 low-DPI bias-style variants for picking (item 3)
+    tccon_ak_vs_direct_bias.png, tccon_ak_shift.png  — reference comparison (AK-only:
+                                    both intrinsically contrast AK against direct, so
+                                    they have no per-reference 'direct' counterpart)
 
 Example:
     PYTHONPATH=src python workspace/tccon_comparison_report.py \
@@ -1238,13 +1240,15 @@ def main():
         for ref in (('ak', 'direct') if args.ak_harmonize else ('direct',)):
             _emit_figures(ref)
 
-        # ── 4-style bias test set (low DPI) for the headline all-cases view (item 3) ──
-        ref0 = 'ak' if args.ak_harmonize else 'direct'
-        allc0 = _sel(ref0, 'all', 'all')
-        if len(allc0):
-            for st in BIAS_STYLES:
-                _one(lambda ax, st=st: _draw_bias(ax, allc0, st),
-                     out_dir / f'tccon_{ref0}_bias_{st}{sfx}.png', dpi=85)
+        # ── 4-style bias test set (low DPI) for the all-cases view (item 3) ──
+        # Emit for every active reference so 'direct' gets its dumbbell variants too,
+        # not just the headline 'ak' view.
+        for ref0 in (('ak', 'direct') if args.ak_harmonize else ('direct',)):
+            allc0 = _sel(ref0, 'all', 'all')
+            if len(allc0):
+                for st in BIAS_STYLES:
+                    _one(lambda ax, allc0=allc0, st=st: _draw_bias(ax, allc0, st),
+                         out_dir / f'tccon_{ref0}_bias_{st}{sfx}.png', dpi=85)
 
     # ── AK-vs-direct overlay + reference-shift, split into two single-panel files ──
     if args.ak_harmonize and len(cmp) and 'bias_after_direct' in cmp.columns:
