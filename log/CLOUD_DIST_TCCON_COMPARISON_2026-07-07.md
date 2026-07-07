@@ -25,18 +25,25 @@ correction struggles?* — directly against the TCCON reference.
 
 `workspace/tccon_comparison_report.py` gained a `cld_group` dimension parallel to
 the existing `surface` dimension. Within each case's collocated footprints it
-bins by `cld_dist_km` and reuses the **exact same** `_case_metrics` + `_draw_pair`
+bins by `cld_dist_km` and reuses the **exact same** `_case_metrics` + drawing
 machinery as the headline figures, so the cloud-grouped views are statistically
-and visually consistent with `tccon_comparison` / `tccon_comparison_by_surface`.
+and visually consistent with the `tccon_{ref}_scatter` / `tccon_{ref}_by_surface_*`
+figures.
+
+> **Note (paper-ready refactor):** figures were later split one-panel-per-file and
+> renamed to the symmetric `tccon_{ak,direct}_*` scheme (scatter and bias emitted
+> separately); the `.csv`/`.md` names below are unchanged. See the current
+> docstring/`--help` of `tccon_comparison_report.py` for the authoritative list.
 
 New outputs per model (radius suffix `_r100km`):
 
 | file | content |
 |---|---|
-| `tccon_comparison_by_cld_r100km.png` | scatter + per-case dumbbell, one row per cloud bin |
-| `tccon_comparison_by_surface_by_cld_r100km.png` | same, split ocean/land × bin |
+| `tccon_{ref}_by_cld_scatter_r100km.png`, `tccon_{ref}_by_cld_bias_r100km.png` | one panel per cloud bin (`ref` = `ak`/`direct`) |
+| `tccon_{ref}_by_surface_by_cld_bias_r100km.png` | bias, split ocean/land × bin |
 | `tccon_comparison_by_cld_r100km.csv` | per-(case, surface, bin) metrics |
 | `tccon_comparison_by_cld_agg_r100km.csv` | per-(surface × bin) aggregate, all metrics |
+| `tccon_metrics_{ref}_r100km.csv` | comprehensive per-(surface × cloud-group) metrics table |
 | "Cloud-distance-grouped aggregate" section in `tccon_comparison_r100km.md` | two markdown tables (below) |
 
 New CLI flags:

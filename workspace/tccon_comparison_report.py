@@ -7,11 +7,19 @@ case reproduces the figure's comparison logic:
 Then computes mean ± std of the ORIGINAL (xco2_bc), CORRECTED, and TCCON XCO2, and
 the bias to TCCON before/after correction.
 
-Outputs (to --output-dir):
-    tccon_comparison.csv   — one row per case
-    tccon_comparison.md    — markdown table + aggregate summary
-    tccon_comparison.png   — (a) corrected/original vs TCCON scatter (1:1)
-                              (b) bias-to-TCCON before→after dumbbell, per case
+Outputs (to --output-dir).  Every figure is a SINGLE panel (paper-ready), named
+symmetrically for both TCCON references: ref = 'ak' (harmonized) and 'direct' (raw
+window mean).  The 'ak' set only appears under --ak-harmonize; 'direct' always does.
+    tccon_comparison.csv          — one row per case (headline)
+    tccon_comparison.md           — markdown tables + aggregate summary + metrics table
+    tccon_metrics_{ref}.csv       — comprehensive per-(surface × cloud-group) metrics
+    tccon_{ref}_scatter.png       — corrected/original/raw vs TCCON scatter (1:1 + OLS)
+    tccon_{ref}_bias.png          — bias-to-TCCON panel (style = --bias-style)
+    tccon_{ref}_by_surface_*.png  — ocean/land stacked, (a)/(b) panels
+    tccon_{ref}_by_cld_*.png      — one panel per nearest-cloud-distance bin
+    tccon_{ref}_by_surface_by_cld_bias.png,  tccon_by_site_bias.png
+    tccon_{ref0}_bias_<style>.png — 4 low-DPI bias-style variants for picking (item 3)
+    tccon_ak_vs_direct_bias.png, tccon_ak_shift.png  — reference comparison (AK runs)
 
 Example:
     PYTHONPATH=src python workspace/tccon_comparison_report.py \
@@ -23,11 +31,29 @@ import re
 import sys
 from pathlib import Path
 
+import math
 import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+# ── paper-figure house style (matches src/models/make_deep_ensemble_figure.py) ──
+# Manuscript-friendly serif; every figure below is a SINGLE panel (item 1), with
+# no descriptive titles (item 4) — multi-panel stacks get bold "(a)/(b)…" tags via
+# _panel_label().  NOTE: iteration uses a low --dpi; render final figures at 300.
+plt.rcParams.update({
+    "font.family": "serif",
+    "font.size": 8.5,
+    "mathtext.fontset": "cm",
+    "axes.linewidth": 0.8,
+})
+
+# Bias-panel style variants (item 3); --bias-style picks the production one and the
+# 4-file low-dpi test set is always emitted for the headline all-cases view.
+BIAS_STYLES = ('scatter_clddist', 'dumbbell_clddist', 'dumbbell_nolabel', 'dumbbell_label')
+
+XCO2 = r'$X_{\mathrm{CO}_2}$'   # manuscript XCO₂ rendering used in all figure text (item 5)
 
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_corrected_xco2 import load_tccon, get_storage_dir
@@ -62,6 +88,26 @@ def _safe_nanmean(a):
     """np.nanmean without the all-NaN RuntimeWarning (returns NaN then)."""
     a = np.asarray(a, float); a = a[np.isfinite(a)]
     return float(a.mean()) if a.size else np.nan
+
+
+def _safe_nanstd(a):
+    """np.nanstd, NaN when no finite values (no RuntimeWarning)."""
+    a = np.asarray(a, float); a = a[np.isfinite(a)]
+    return float(a.std()) if a.size else np.nan
+
+
+def _z_to_p(z):
+    """Two-sided normal p-value for a z-score (erfc-based, no scipy)."""
+    return np.nan if not np.isfinite(z) else float(math.erfc(abs(z) / math.sqrt(2.0)))
+
+
+def _panel_label(ax, tag):
+    """Bold panel tag (e.g. '(a)' or '(a) ocean') at the top-left, outside the axes.
+    Paper convention lifted from src/models/make_deep_ensemble_figure.py; no title.
+    No-op when ``tag`` is falsy (single-panel figures need no letter)."""
+    if tag:
+        ax.text(0.0, 1.02, tag, transform=ax.transAxes, fontsize=10,
+                fontweight='bold', va='bottom', ha='left')
 
 
 def _mse_aggregate(g, series=('raw', 'before', 'after')):
@@ -216,6 +262,138 @@ def _sig_lines(sig, label):
     return lines
 
 
+def _boot_bias_ci(vals, sites, n_boot, seed):
+    """Site-clustered bootstrap 95% CI on the mean of ``vals`` (one value per
+    station-day), resampling whole sites with replacement so within-site clustering
+    is respected.  Returns (lo, hi) or (nan, nan) when too few sites/points."""
+    v = np.asarray(vals, float); s = np.asarray(sites)
+    m = np.isfinite(v)
+    v, s = v[m], s[m]
+    uniq = np.unique(s)
+    if v.size < 3 or uniq.size < 2:
+        return np.nan, np.nan
+    rng = np.random.default_rng(seed)
+    idx_by = {u: np.where(s == u)[0] for u in uniq}
+    means = np.empty(n_boot)
+    for b in range(n_boot):
+        pick = rng.choice(uniq, uniq.size, replace=True)
+        means[b] = v[np.concatenate([idx_by[u] for u in pick])].mean()
+    return float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+
+
+def _metrics_agg(g, n_boot=2000, seed=20260707):
+    """Aggregate one (ref, surface, cld-group) block of per-case metric rows into the
+    comprehensive cross-model metrics dict (item 5).  Station-day level for means,
+    biases, robust stats and the OCO-vs-TCCON OLS (reusing _ols_fit); footprint-
+    weighted for pooled RMSE/MAE and reduced-χ²."""
+    out = dict(n_station_days=int(len(g)), n_footprints=int(g['n_oco'].sum()))
+    sites = g['site'].to_numpy() if 'site' in g.columns else np.array([])
+    n = g['n_oco'].to_numpy(float)
+    out['cld_dist_mu'] = _safe_nanmean(g['cld_dist_mu'])
+    out['cld_dist_sd'] = _safe_nanstd(g['cld_dist_mu'])       # spread across station-days
+    out['tccon_mu'] = _safe_nanmean(g['tccon_mu'])
+    out['tccon_sd'] = _safe_nanmean(g['tccon_sd'])
+    out['tccon_err_mean'] = _safe_nanmean(g['tccon_err_mean'])
+    for tag, mucol in (('raw', 'raw_mu'), ('before', 'orig_mu'), ('after', 'corr_mu')):
+        b = g[f'bias_{tag}'].to_numpy(float)
+        r = g[f'rmse_{tag}'].to_numpy(float)
+        ae = g[f'mae_{tag}'].to_numpy(float)
+        mu = g[mucol].to_numpy(float)
+        out[f'{tag}_mu'] = _safe_nanmean(mu); out[f'{tag}_mu_sd'] = _safe_nanstd(mu)
+        out[f'bias_{tag}'] = _safe_nanmean(b); out[f'bias_{tag}_sd'] = _safe_nanstd(b)
+        mr = np.isfinite(r) & np.isfinite(n); wr = float(n[mr].sum())
+        rmse_p = float(np.sqrt(np.sum((n * r ** 2)[mr]) / wr)) if wr > 0 else np.nan
+        ma = np.isfinite(ae) & np.isfinite(n); wa = float(n[ma].sum())
+        out[f'rmse_{tag}'] = rmse_p
+        out[f'mae_{tag}'] = float(np.sum((n * ae)[ma]) / wa) if wa > 0 else np.nan
+        mb = out[f'bias_{tag}']
+        out[f'crmse_{tag}'] = (float(np.sqrt(max(rmse_p ** 2 - mb ** 2, 0.0)))
+                               if np.isfinite(rmse_p) and np.isfinite(mb) else np.nan)
+        bb = b[np.isfinite(b)]
+        if bb.size:
+            med = float(np.median(bb))
+            out[f'medbias_{tag}'] = med
+            out[f'mad_{tag}'] = float(1.4826 * np.median(np.abs(bb - med)))
+        else:
+            out[f'medbias_{tag}'], out[f'mad_{tag}'] = np.nan, np.nan
+    z2 = g['chi2_z2'].to_numpy(float); nz = g['chi2_n'].to_numpy(float)
+    mz = np.isfinite(z2) & np.isfinite(nz) & (nz > 0); wz = float(nz[mz].sum())
+    out['chi2_z2'] = float(np.sum((nz * z2)[mz]) / wz) if wz > 0 else np.nan
+    out['chi2_frac95'] = _safe_nanmean(g['chi2_frac95'])
+    for tag, mucol in (('before', 'orig_mu'), ('after', 'corr_mu')):
+        ff = _ols_fit(g['tccon_mu'], g[mucol])
+        if ff is None:
+            continue
+        out[f'slope_{tag}'] = ff['slope']; out[f'slope_se_{tag}'] = ff['slope_se']
+        out[f'intercept_{tag}'] = ff['intercept']
+        out[f'intercept_se_{tag}'] = ff['intercept_se']; out[f'r2_{tag}'] = ff['r2']
+        zs = ((ff['slope'] - 1.0) / ff['slope_se']
+              if ff['slope_se'] and ff['slope_se'] > 0 else np.nan)
+        zi = (ff['intercept'] / ff['intercept_se']
+              if ff['intercept_se'] and ff['intercept_se'] > 0 else np.nan)
+        out[f'slope_vs1_z_{tag}'] = zs; out[f'slope_vs1_p_{tag}'] = _z_to_p(zs)
+        out[f'intercept_vs0_z_{tag}'] = zi; out[f'intercept_vs0_p_{tag}'] = _z_to_p(zi)
+    for tag in ('before', 'after'):
+        lo, hi = _boot_bias_ci(g[f'bias_{tag}'], sites, n_boot, seed)
+        out[f'bias_{tag}_ci_lo'], out[f'bias_{tag}_ci_hi'] = lo, hi
+    # skill score = fractional pooled-RMSE reduction (1 − RMSE_after/RMSE_ref); the
+    # ML skill (vs operational xco2_bc) and the total-pipeline skill (vs raw xco2_raw).
+    def _skill(ref):
+        r0, r1 = out.get(f'rmse_{ref}'), out['rmse_after']
+        return (1.0 - r1 / r0) if (np.isfinite(r0) and r0 > 0 and np.isfinite(r1)) else np.nan
+    out['skill_rmse'] = _skill('before')          # ML vs operational bias correction
+    out['skill_rmse_vs_raw'] = _skill('raw')      # ML vs pre-bias-correction raw
+    return out
+
+
+def _metrics_table(mrep, cld_labels, n_boot):
+    """Full (ref × surface × cld-group) aggregated metrics DataFrame."""
+    rows = []
+    for ref in ('ak', 'direct'):
+        for sname in ('all', 'ocean', 'land'):
+            for glab in cld_labels:
+                g = mrep[(mrep['ref'] == ref) & (mrep['surface'] == sname)
+                         & (mrep['cld_group'] == glab) & (mrep['n_tccon'] > 0)]
+                if len(g):
+                    rows.append(dict(ref=ref, surface=sname, cld_group=glab,
+                                     **_metrics_agg(g, n_boot=n_boot)))
+    return pd.DataFrame(rows)
+
+
+def _metrics_md_lines(tbl):
+    """Compact markdown for the pooled `all` surface (corrected series); the full
+    raw/before/after × ocean/land breakdown lives in tccon_metrics_{ref}.csv."""
+    def f(x, n=2):
+        return '' if x is None or not np.isfinite(x) else f'{x:.{n}f}'
+    out = ['', '## Comprehensive metrics table (per surface × cloud group)', '',
+           '_Pooled `all` surface, corrected (after) series shown; full '
+           'raw/before/after × ocean/land breakdown in `tccon_metrics_{ref}.csv`. '
+           'RMSE/MAE footprint-weighted; cRMSE = bias-removed RMSE; slope/R² from the '
+           'station-mean OCO-vs-TCCON OLS; ⟨z²⟩ = reduced-χ² vs `de_sigma` (≈1 ideal); '
+           'skill = 1−RMSE_after/RMSE_before (fractional RMSE reduction, >0 = correction '
+           'helps); 95% CI is site-clustered bootstrap on the mean bias._']
+    for ref in ('ak', 'direct'):
+        t = tbl[(tbl['ref'] == ref) & (tbl['surface'] == 'all')]
+        if not len(t):
+            continue
+        out += ['', f'### {ref.upper()} reference', '',
+                '| cld group | n_days | n_fp | cloud dist (km) | bias after | 95% CI | '
+                'RMSE | cRMSE | MAE | median±MAD | slope±SE | R² | ⟨z²⟩ | skill |',
+                '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|']
+        for _, r in t.iterrows():
+            ci = (f"[{f(r['bias_after_ci_lo'])}, {f(r['bias_after_ci_hi'])}]"
+                  if np.isfinite(r.get('bias_after_ci_lo', np.nan)) else '')
+            out.append(
+                f"| {r['cld_group']} | {int(r['n_station_days'])} | {int(r['n_footprints'])} "
+                f"| {f(r['cld_dist_mu'], 1)}±{f(r['cld_dist_sd'], 1)} | {f(r['bias_after'])} "
+                f"| {ci} | {f(r['rmse_after'])} | {f(r['crmse_after'])} | {f(r['mae_after'])} "
+                f"| {f(r['medbias_after'])}±{f(r['mad_after'])} "
+                f"| {f(r.get('slope_after'), 3)}±{f(r.get('slope_se_after'), 3)} "
+                f"| {f(r.get('r2_after'), 3)} | {f(r.get('chi2_z2'), 2)} "
+                f"| {f(r.get('skill_rmse'), 3)} |")
+    return out
+
+
 def _tccon_band(ax, frame):
     """Draw each case's OWN ±(reported TCCON xco2_error) zone as a short grey
     segment centered at bias=0, at that row's y-position.  Rows are assumed
@@ -241,29 +419,25 @@ def _tccon_band(ax, frame):
     return float(np.nanmean(e))
 
 
-def _draw_pair(axA, axB, cmp, title_prefix=''):
-    """Draw the shared 2-panel view for a per-case subset ``cmp``: (axA) OCO-2 mean
-    vs TCCON mean (1:1 + OLS fits with slope/R²/RMSE), (axB) per-case bias-to-TCCON
-    dumbbell raw→before→after with mean±std + RMSE.  Used by the all-cases, excl-sites
-    and by-surface figures so they share one legend/text style."""
+def _draw_scatter(ax, cmp, panel=None):
+    """OCO-2-vs-TCCON station-day scatter on a SINGLE axes (1:1 + OLS raw/before/after
+    with slope/R²/RMSE).  No title (item 4); ``panel`` is a bold top-left tag."""
     cmp = cmp.sort_values('bias_before').reset_index(drop=True)
-    # (a) scatter vs TCCON (1:1)
     if cmp['raw_mu'].notna().any():
-        axA.errorbar(cmp['tccon_mu'], cmp['raw_mu'], xerr=cmp['tccon_sd'], yerr=cmp['raw_sd'],
-                     fmt='o', ms=7, color='darkorange', alpha=0.7, elinewidth=0.8,
-                     markeredgecolor='black', markeredgewidth=0.6, label='raw XCO₂')
-    axA.errorbar(cmp['tccon_mu'], cmp['orig_mu'], xerr=cmp['tccon_sd'], yerr=cmp['orig_sd'],
-                 fmt='o', ms=7, color='steelblue', alpha=0.7, elinewidth=0.8,
-                 markeredgecolor='black', markeredgewidth=0.6, label='original XCO₂_bc')
-    axA.errorbar(cmp['tccon_mu'], cmp['corr_mu'], xerr=cmp['tccon_sd'], yerr=cmp['corr_sd'],
-                 fmt='o', ms=7, color='green', alpha=0.8, elinewidth=0.8,
-                 markeredgecolor='black', markeredgewidth=0.6, label='corrected')
+        ax.errorbar(cmp['tccon_mu'], cmp['raw_mu'], xerr=cmp['tccon_sd'], yerr=cmp['raw_sd'],
+                    fmt='o', ms=6, color='darkorange', alpha=0.7, elinewidth=0.8,
+                    markeredgecolor='black', markeredgewidth=0.5, label=f'raw {XCO2}')
+    ax.errorbar(cmp['tccon_mu'], cmp['orig_mu'], xerr=cmp['tccon_sd'], yerr=cmp['orig_sd'],
+                fmt='o', ms=6, color='steelblue', alpha=0.7, elinewidth=0.8,
+                markeredgecolor='black', markeredgewidth=0.5, label=f'original {XCO2} (bc)')
+    ax.errorbar(cmp['tccon_mu'], cmp['corr_mu'], xerr=cmp['tccon_sd'], yerr=cmp['corr_sd'],
+                fmt='o', ms=6, color='green', alpha=0.8, elinewidth=0.8,
+                markeredgecolor='black', markeredgewidth=0.5, label='corrected')
     lo = float(np.nanmin([cmp['tccon_mu'].min(), cmp['corr_mu'].min(),
                           cmp['orig_mu'].min(), cmp['raw_mu'].min()])) - 1
     hi = float(np.nanmax([cmp['tccon_mu'].max(), cmp['corr_mu'].max(),
                           cmp['orig_mu'].max(), cmp['raw_mu'].max()])) + 1
-    axA.plot([lo, hi], [lo, hi], 'k--', lw=1, label='1:1')
-    # OLS fits: OCO-2 (y) vs TCCON (x), raw / before / after correction
+    ax.plot([lo, hi], [lo, hi], 'k--', lw=1, label='1:1')
     _xline = np.array([lo, hi])
     _series = [('orig_mu', 'steelblue', 'before'), ('corr_mu', 'green', 'after')]
     if cmp['raw_mu'].notna().any():
@@ -274,53 +448,28 @@ def _draw_pair(axA, axB, cmp, title_prefix=''):
         _d = _d[np.isfinite(_d)]
         return float(np.sqrt(np.mean(_d ** 2))) if _d.size else np.nan
 
-    _fits = {}
-    for _col, _color, _lbl in _series:
-        _f = _ols_fit(cmp['tccon_mu'], cmp[_col])
-        if _f is not None:
-            _f['rmse'] = _rmse_to_tccon(_col)
-        _fits[_lbl] = _f
-        if _f is not None:
-            axA.plot(_xline, _f['intercept'] + _f['slope'] * _xline,
-                     '-', color=_color, lw=1.6, alpha=0.9, zorder=4)
     _txt = []
     for _col, _color, _lbl in _series:
-        _f = _fits.get(_lbl)
-        if _f is not None:
-            _txt.append(f"{_lbl}:  slope = {_f['slope']:.3f} ± {_f['slope_se']:.3f}   "
-                        f"R² = {_f['r2']:.3f}   RMSE(station) = {_f['rmse']:.2f}")
+        _f = _ols_fit(cmp['tccon_mu'], cmp[_col])
+        if _f is None:
+            continue
+        ax.plot(_xline, _f['intercept'] + _f['slope'] * _xline,
+                '-', color=_color, lw=1.6, alpha=0.9, zorder=4)
+        _txt.append(f"{_lbl}:  slope = {_f['slope']:.3f} ± {_f['slope_se']:.3f}   "
+                    f"R² = {_f['r2']:.3f}   RMSE(station) = {_rmse_to_tccon(_col):.2f}")
     if _txt:
-        axA.text(0.04, 0.96, '\n'.join(_txt), transform=axA.transAxes,
-                 va='top', ha='left', fontsize=10,
-                 bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
-    axA.set_xlabel('TCCON XCO₂ (ppm)'); axA.set_ylabel('OCO-2 XCO₂ (ppm)')
-    axA.set_title(f'{title_prefix}OCO-2 vs TCCON — station-day means')
-    axA.legend(loc='lower right', title='station-day mean (± footprint σ)')
-    axA.grid(alpha=0.3)
-    axA.set_xlim(lo, hi); axA.set_ylim(lo, hi); axA.set_aspect('equal')
-    # (b) bias raw→before→after dumbbell, per case (errorbar = OCO-2 σ)
-    y = np.arange(len(cmp))
-    has_raw = cmp['bias_raw'].notna().any()
-    for yi in range(len(cmp)):
-        pts = [cmp['bias_before'].iloc[yi], cmp['bias_after'].iloc[yi]]
-        if has_raw and np.isfinite(cmp['bias_raw'].iloc[yi]):
-            pts.append(cmp['bias_raw'].iloc[yi])
-        axB.plot([min(pts), max(pts)], [yi, yi], '-', color='lightgray', lw=1.5, zorder=1)
-    if has_raw:
-        axB.errorbar(cmp['bias_raw'], y, xerr=cmp['raw_sd'], fmt='o', ms=7,
-                     color='darkorange', ecolor='darkorange', elinewidth=0.8,
-                     capsize=3, capthick=0.8, markeredgecolor='black',
-                     markeredgewidth=0.6, label='raw', zorder=2)
-    axB.errorbar(cmp['bias_before'], y, xerr=cmp['orig_sd'], fmt='o', ms=7,
-                 color='steelblue', ecolor='steelblue', elinewidth=0.8,
-                 capsize=3, capthick=0.8, markeredgecolor='black',
-                 markeredgewidth=0.6, label='before', zorder=3)
-    axB.errorbar(cmp['bias_after'], y, xerr=cmp['corr_sd'], fmt='o', ms=7,
-                 color='green', ecolor='green', elinewidth=0.8,
-                 capsize=3, capthick=0.8, markeredgecolor='black',
-                 markeredgewidth=0.6, label='after', zorder=4)
-    axB.axvline(0, color='k', lw=1)
-    _tccon_band(axB, cmp)
+        ax.text(0.04, 0.96, '\n'.join(_txt), transform=ax.transAxes,
+                va='top', ha='left', fontsize=8,
+                bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
+    ax.set_xlabel(f'TCCON {XCO2} (ppm)'); ax.set_ylabel(f'OCO-2 {XCO2} (ppm)')
+    ax.legend(loc='lower right', title='station-day mean (± footprint σ)', fontsize=7)
+    ax.grid(alpha=0.3)
+    ax.set_xlim(lo, hi); ax.set_ylim(lo, hi); ax.set_aspect('equal')
+    _panel_label(ax, panel)
+
+
+def _bias_stat_box(ax, cmp, has_raw):
+    """Shared before/after (and raw) station-bias ± σ + footprint-RMSE annotation box."""
     _btxt = []
     for _lbl, _col, _rcol in (('raw', 'bias_raw', 'rmse_raw'),
                               ('before', 'bias_before', 'rmse_before'),
@@ -333,43 +482,95 @@ def _draw_pair(axA, axB, cmp, title_prefix=''):
             _rtxt = f"   footprint RMSE {np.mean(_r):.2f}" if _r.size else ""
             _btxt.append(f"{_lbl}:  station bias {np.mean(_b):+.2f} ± {np.std(_b):.2f}{_rtxt}")
     if _btxt:
-        axB.text(0.04, 0.96, '\n'.join(_btxt), transform=axB.transAxes,
-                 va='top', ha='left', fontsize=10,
-                 bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
-    axB.set_yticks(y); axB.set_yticklabels([f"{r.site} {r.date}" for r in cmp.itertuples()], fontsize=6)
-    axB.set_xlabel('XCO₂ bias to TCCON (ppm)')
-    axB.set_title((f'{title_prefix}Bias to TCCON: raw → before → after' if has_raw
-                   else f'{title_prefix}Bias before → after correction')
-                  + '   (marker = station-day mean, error bar = footprint σ, shaded = per-case ±TCCON σ)')
-    axB.legend(loc='lower right', title='per station-day'); axB.grid(alpha=0.3, axis='x')
+        ax.text(0.04, 0.96, '\n'.join(_btxt), transform=ax.transAxes,
+                va='top', ha='left', fontsize=8,
+                bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
 
 
-# Under --ak-harmonize the primary comparison columns hold AK/prior-harmonized values
-# and a parallel set of …_direct columns holds the raw-TCCON-window-mean reference (both
-# computed in one run).  _direct_view swaps the direct columns back into the primary
-# names so the SAME scatter/dumbbell + by-surface figures can be re-rendered against the
-# un-harmonized reference.  tccon_mu is always replaced by tccon_mu_raw; the per-case
-# bias/RMSE/σ columns fall back to their AK value where the …_direct twin is absent
-# (rows where AK never applied, so AK == direct anyway).
-_DIRECT_MAP = {
-    'tccon_mu': 'tccon_mu_raw',
-    'bias_raw': 'bias_raw_direct', 'bias_before': 'bias_before_direct',
-    'bias_after': 'bias_after_direct',
-    'rmse_raw': 'rmse_raw_direct', 'rmse_before': 'rmse_before_direct',
-    'rmse_after': 'rmse_after_direct',
-    'raw_sd': 'raw_sd_direct', 'orig_sd': 'orig_sd_direct', 'corr_sd': 'corr_sd_direct',
-}
+def _bias_dumbbell(ax, cmp, sort_col, show_labels, has_raw):
+    """Per-case bias-to-TCCON dumbbell (raw→before→after, errorbar = footprint σ),
+    rows sorted by ``sort_col`` (bias_before or cld_dist_mu).  ``show_labels`` toggles
+    the crowded per-case 'site date' y-tick text (item 3)."""
+    cmp = cmp.sort_values(sort_col).reset_index(drop=True)
+    y = np.arange(len(cmp))
+    for yi in range(len(cmp)):
+        pts = [cmp['bias_before'].iloc[yi], cmp['bias_after'].iloc[yi]]
+        if has_raw and np.isfinite(cmp['bias_raw'].iloc[yi]):
+            pts.append(cmp['bias_raw'].iloc[yi])
+        ax.plot([min(pts), max(pts)], [yi, yi], '-', color='lightgray', lw=1.2, zorder=1)
+    if has_raw:
+        ax.errorbar(cmp['bias_raw'], y, xerr=cmp['raw_sd'], fmt='o', ms=6,
+                    color='darkorange', ecolor='darkorange', elinewidth=0.8,
+                    capsize=2.5, capthick=0.8, markeredgecolor='black',
+                    markeredgewidth=0.5, label='raw', zorder=2)
+    ax.errorbar(cmp['bias_before'], y, xerr=cmp['orig_sd'], fmt='o', ms=6,
+                color='steelblue', ecolor='steelblue', elinewidth=0.8,
+                capsize=2.5, capthick=0.8, markeredgecolor='black',
+                markeredgewidth=0.5, label='before', zorder=3)
+    ax.errorbar(cmp['bias_after'], y, xerr=cmp['corr_sd'], fmt='o', ms=6,
+                color='green', ecolor='green', elinewidth=0.8,
+                capsize=2.5, capthick=0.8, markeredgecolor='black',
+                markeredgewidth=0.5, label='after', zorder=4)
+    ax.axvline(0, color='k', lw=1)
+    _tccon_band(ax, cmp)
+    if show_labels:
+        ax.set_yticks(y)
+        ax.set_yticklabels([f"{r.site} {r.date}" for r in cmp.itertuples()], fontsize=6)
+        ax.set_ylabel('station-day (sorted by pre-correction bias)')
+    else:
+        ax.set_yticks([])
+        _order = ('nearest-cloud distance, near→far' if sort_col == 'cld_dist_mu'
+                  else 'pre-correction bias')
+        ax.set_ylabel(f'station-day (sorted by {_order}; IDs in CSV)')
+    ax.set_xlabel(f'{XCO2} bias to TCCON (ppm)')
+    ax.legend(loc='lower right', title='per station-day', fontsize=7)
+    ax.grid(alpha=0.3, axis='x')
 
 
-def _direct_view(frame):
-    """Copy of ``frame`` with the primary comparison columns replaced by their direct
-    (raw-window-mean) counterparts.  Only meaningful once --ak-harmonize has produced the
-    …_direct columns; callers guard on that."""
-    d = frame.copy()
-    for dst, src in _DIRECT_MAP.items():
-        if src in d.columns:
-            d[dst] = d[dst].where(d[src].isna(), d[src])
-    return d
+def _bias_scatter_clddist(ax, cmp, has_raw):
+    """Bias-to-TCCON vs station-mean nearest-cloud distance (item 3 default): each
+    station-day is a point, before→after linked by a thin connector.  Ties the figure
+    to the cloud-proximity thesis; no per-case labels."""
+    cmp = cmp.sort_values('cld_dist_mu').reset_index(drop=True)
+    x = cmp['cld_dist_mu'].to_numpy(float)
+    for i in range(len(cmp)):
+        ax.plot([x[i], x[i]], [cmp['bias_before'].iloc[i], cmp['bias_after'].iloc[i]],
+                '-', color='lightgray', lw=0.8, zorder=1)
+    if has_raw:
+        ax.scatter(x, cmp['bias_raw'], s=26, color='darkorange', edgecolor='black',
+                   linewidths=0.4, alpha=0.7, label='raw', zorder=2)
+    ax.scatter(x, cmp['bias_before'], s=26, color='steelblue', edgecolor='black',
+               linewidths=0.4, alpha=0.8, label='before', zorder=3)
+    ax.scatter(x, cmp['bias_after'], s=30, color='green', edgecolor='black',
+               linewidths=0.4, alpha=0.85, label='after', zorder=4)
+    ax.axhline(0, color='k', lw=1)
+    # Individual per-station-day TCCON σ (item 1): a short grey ±(reported xco2_error)
+    # bar at that station's x — NOT the pooled mean band.  Reference-independent.
+    # vlines width is in points, so it stays sane even on a single-station panel.
+    err = (cmp['tccon_err_mean'].to_numpy(float) if 'tccon_err_mean' in cmp.columns
+           else np.full(len(cmp), np.nan))
+    m = np.isfinite(x) & np.isfinite(err)
+    if m.any():
+        ax.vlines(x[m], -err[m], err[m], color='gray', alpha=0.30, lw=4,
+                  zorder=0, label='±TCCON σ (per station-day)')
+    ax.set_xlabel('station-mean nearest-cloud distance (km)')
+    ax.set_ylabel(f'{XCO2} bias to TCCON (ppm)')
+    ax.legend(loc='best', fontsize=7); ax.grid(alpha=0.3)
+
+
+def _draw_bias(ax, cmp, style='scatter_clddist', panel=None):
+    """Per-case bias panel on a SINGLE axes, in one of BIAS_STYLES (item 3).  Shared
+    stat box + ±TCCON σ shading; no title (item 4)."""
+    cmp = cmp.copy()
+    has_raw = 'bias_raw' in cmp.columns and cmp['bias_raw'].notna().any()
+    if style == 'scatter_clddist':
+        _bias_scatter_clddist(ax, cmp, has_raw)
+    else:                                              # dumbbell_{clddist,nolabel,label}
+        sort_col = 'cld_dist_mu' if style == 'dumbbell_clddist' else 'bias_before'
+        _bias_dumbbell(ax, cmp, sort_col, show_labels=(style == 'dumbbell_label'),
+                       has_raw=has_raw)
+    _bias_stat_box(ax, cmp, has_raw)
+    _panel_label(ax, panel)
 
 
 def main():
@@ -398,6 +599,15 @@ def main():
                          "right-open; use 'inf' for the open tail) for the cloud-distance-"
                          "grouped TCCON comparison. Default '0,10,inf' → near (≤10 km) vs "
                          "far. Emits tccon_comparison_by_cld{,_by_surface}.")
+    ap.add_argument('--dpi', type=int, default=150,
+                    help='Figure DPI (default 150 for iteration; use 300 for the final '
+                         'manuscript figures). The 4-file bias-style test set always '
+                         'renders at a fixed low DPI regardless of this value.')
+    ap.add_argument('--bias-style', default='scatter_clddist', choices=BIAS_STYLES,
+                    help="Bias-panel style used for the production *_bias figures "
+                         "(default 'scatter_clddist' = bias vs nearest-cloud distance). "
+                         "All four styles are always emitted as a low-DPI test set for "
+                         "the headline all-cases view so the paper style can be chosen.")
     ap.add_argument('--cld-all-years', action='store_true',
                     help=f"Include free-drift-era cases (year ≥ {AQUA_FREE_DRIFT_YEAR}) in "
                          "the cloud-distance-grouped comparison. By default only pre-drift "
@@ -436,19 +646,16 @@ def main():
     sfx = args.fname_suffix
     excl = [s.strip() for s in args.exclude_sites.split(',') if s.strip()]
     # Output paths (suffix inserted before the extension).
+    # Textual/CSV artifacts keep their names; every figure now follows the symmetric
+    # tccon_{ak,direct}_* scheme emitted in the figure section (item 2).
     P_CSV      = out_dir / f'tccon_comparison{sfx}.csv'
     P_MD       = out_dir / f'tccon_comparison{sfx}.md'
-    P_PNG      = out_dir / f'tccon_comparison{sfx}.png'
     P_SITE_CSV = out_dir / f'tccon_comparison_by_site{sfx}.csv'
     P_SIG_CSV  = out_dir / f'tccon_significance{sfx}.csv'
-    P_SITE_PNG = out_dir / f'tccon_comparison_by_site{sfx}.png'
-    P_BYSURF   = out_dir / f'tccon_comparison_by_surface{sfx}.png'
     P_UNC_CSV  = out_dir / f'tccon_uncertainty{sfx}.csv'
     P_UNC_MD   = out_dir / f'tccon_uncertainty{sfx}.md'
     P_CLD_CSV  = out_dir / f'tccon_comparison_by_cld{sfx}.csv'
     P_CLD_AGG  = out_dir / f'tccon_comparison_by_cld_agg{sfx}.csv'
-    P_CLD_PNG  = out_dir / f'tccon_comparison_by_cld{sfx}.png'
-    P_CLD_SURF = out_dir / f'tccon_comparison_by_surface_by_cld{sfx}.png'
     cld_bins = _parse_cld_edges(args.cld_edges)
     storage = get_storage_dir()
 
@@ -511,9 +718,30 @@ def main():
         corr_mu, corr_sd, bias_after, rmse_after, mae_after = _stat(frame[CORR], tmu, n_tc)
         _, _, bias_before_dg, rmse_before_dg, _ = _stat(drop['xco2_bc'], tmu, n_tc)
         _, _, bias_after_dg, rmse_after_dg, _ = _stat(drop[CORR], tmu, n_tc)
+        # station-mean nearest-cloud distance (reference-independent; drives the
+        # cloud-distance bias figure + the metrics table's cloud-distance column).
+        cd = (frame['cld_dist_km'].to_numpy(float) if 'cld_dist_km' in frame.columns
+              else np.array([]))
+        cd = cd[np.isfinite(cd)]
+        cld_dist_mu = float(cd.mean()) if cd.size else np.nan
+        cld_dist_sd = float(cd.std()) if cd.size else np.nan
+        # reduced-χ² of the CORRECTED residual against the model's per-footprint
+        # de_sigma: ⟨z²⟩≈1 ⇔ residual scatter consistent with stated uncertainty.
+        chi2_z2, chi2_frac95, chi2_n = np.nan, np.nan, 0
+        if n_tc and 'de_sigma' in frame.columns:
+            r = np.asarray(frame[CORR], float) - tmu
+            s = np.asarray(frame['de_sigma'], float)
+            m = np.isfinite(r) & np.isfinite(s) & (s > 0)
+            if m.any():
+                zz = r[m] / s[m]
+                chi2_z2 = float(np.mean(zz ** 2))
+                chi2_frac95 = float(np.mean(np.abs(zz) <= 1.96))
+                chi2_n = int(m.sum())
         return dict(
             n_oco=len(frame),
             n_guarded=int(frame['is_guarded'].sum()) if 'is_guarded' in frame.columns else 0,
+            cld_dist_mu=cld_dist_mu, cld_dist_sd=cld_dist_sd,
+            chi2_z2=chi2_z2, chi2_frac95=chi2_frac95, chi2_n=chi2_n,
             raw_mu=raw_mu, raw_sd=raw_sd, orig_mu=orig_mu, orig_sd=orig_sd,
             corr_mu=corr_mu, corr_sd=corr_sd,
             bias_raw=bias_raw, bias_before=bias_before, bias_after=bias_after,
@@ -524,6 +752,10 @@ def main():
 
     rows = []
     rows_cld = []          # cloud-distance-grouped per-case rows (pre-drift cases)
+    # Unified, reference-tagged per-(case, surface, cld-group) metric rows that drive
+    # BOTH the symmetric ak/direct figure set (item 2) and the comprehensive metrics
+    # table (item 5).  cld_group 'all' = ungrouped; the named bins are pre-drift only.
+    rows_metrics = []
     for c in cases:
         site = c['site'] or c['tccon'][:2]
         pq = find_plotdata(out_base, c['date'], site)   # combined_<date>_<site>/plot_data.parquet
@@ -613,12 +845,31 @@ def main():
         # Pre-drift cases only: the Aqua-MODIS cloud collocation (hence cld_dist_km)
         # is reliable before Aqua entered free drift (--cld-all-years to override).
         case_predrift = args.cld_all_years or int(c['date'][:4]) < AQUA_FREE_DRIFT_YEAR
+        # Reference views for the metrics/figure collection: 'direct' is the raw TCCON
+        # window mean; 'ak' the harmonized reference (only distinct, and only present,
+        # under --ak-harmonize).  When AK is off, the sole 'direct' view IS the mean.
+        if args.ak_harmonize and np.isfinite(tmu):
+            ref_specs = (('ak', tmu), ('direct', tmu_raw))
+        else:
+            ref_specs = (('direct', tmu),)
+        terr = col.get('tccon_err_mean', np.nan)
+
+        def _mrows(sname, glab, glo, ghi, gframe):
+            """One reference-tagged metrics row per ref view for a footprint group."""
+            for ref, tref in ref_specs:
+                rows_metrics.append(dict(
+                    ref=ref, site=site, date=c['date'], surface=sname,
+                    cld_group=glab, cld_lo=glo, cld_hi=ghi, predrift=case_predrift,
+                    n_tccon=n_tc, tccon_mu=tref, tccon_sd=tsd, tccon_err_mean=terr,
+                    **_case_metrics(gframe, tref, n_tc)))
+
         # one row per surface: all (pooled) + ocean (sfc0) + land (sfc1)
         for sname, frame in (('all', near),
                              ('ocean', near[near['sfc_type'] == 0]),
                              ('land',  near[near['sfc_type'] == 1])):
             if not len(frame):
                 continue
+            _mrows(sname, 'all', -np.inf, np.inf, frame)   # ungrouped (both refs)
             row = dict(site=site, date=c['date'], surface=sname, n_tccon=n_tc,
                        tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
                        tccon_err_mean=col.get('tccon_err_mean', np.nan),
@@ -651,7 +902,7 @@ def main():
             rows.append(row)
             # ── cloud-distance-grouped rows (same schema + cld_group) ───────────
             # Split this surface's footprints by nearest-cloud distance and emit a
-            # per-(case, surface, cld-bin) row that _draw_pair renders unchanged.
+            # per-(case, surface, cld-bin) row for the cloud-distance aggregate + figures.
             if case_predrift and 'cld_dist_km' in frame.columns:
                 cd = frame['cld_dist_km'].to_numpy(float)
                 for glab, glo, ghi in cld_bins:
@@ -664,6 +915,7 @@ def main():
                         tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
                         tccon_err_mean=col.get('tccon_err_mean', np.nan),
                         **_case_metrics(gframe, tmu, n_tc)))
+                    _mrows(sname, glab, glo, ghi, gframe)   # both refs, per cld-bin
 
     if not rows:
         print(f"No cases matched (out-base={out_base}, script={args.script}). "
@@ -672,6 +924,10 @@ def main():
         return
     rep = pd.DataFrame(rows).sort_values(['surface', 'site', 'date']).reset_index(drop=True)
     rep.to_csv(P_CSV, index=False)
+
+    # Reference-tagged per-(case, surface, cld-group) metrics frame — drives the
+    # symmetric ak/direct figures and the comprehensive metrics table below.
+    mrep = pd.DataFrame(rows_metrics)
 
     rep_cld = pd.DataFrame(rows_cld)
     if len(rep_cld):
@@ -868,151 +1124,230 @@ def main():
         rep_unc = rep_unc[[c for c in unc_cols if c in rep_unc.columns]]
         rep_unc.to_csv(P_UNC_CSV, index=False)
 
+    # ── comprehensive per-(surface × cloud-group) metrics table (item 5) ─────
+    # One aggregated CSV per reference (all columns) + a condensed markdown table.
+    metrics_saved = []
+    if len(mrep):
+        metrics_tbl = _metrics_table(mrep, ['all'] + [b[0] for b in cld_bins],
+                                     n_boot=min(args.n_boot, 2000))
+        if len(metrics_tbl):
+            for ref in metrics_tbl['ref'].unique():
+                p = out_dir / f'tccon_metrics_{ref}{sfx}.csv'
+                metrics_tbl[metrics_tbl['ref'] == ref].to_csv(p, index=False)
+                metrics_saved.append(p)
+            lines += _metrics_md_lines(metrics_tbl)
+
     P_MD.write_text('\n'.join(lines) + '\n')
     print('\n'.join(lines))
+    for _p in metrics_saved:
+        print(f"[saved] {_p}")
     if args.uncertainty and len(cmp) and 'u_D' in cmp.columns:
         print(f"\n[saved] {P_UNC_MD}\n[saved] {P_UNC_CSV}")
 
-    # ── figures (scatter + per-case dumbbell) — ONE shared style for every view ──
-    def _fig_pair(sub, png, title_prefix=''):
-        fig, (axA, axB) = plt.subplots(1, 2, figsize=(16, 7))
-        _draw_pair(axA, axB, sub, title_prefix=title_prefix)
-        fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
+    # ── figures — one panel per file (item 1); symmetric ak/direct sets (item 2);
+    #    no titles, (a)/(b)… letters on multi-panel stacks (item 4) ────────────
+    _saved = []
 
-    def _fig_by_surface(sites_excl, png, ttl_excl='', frame=None):
-        _rep = rep if frame is None else frame
-        rows_ok = lambda s: _rep[(_rep['surface'] == s) & (_rep['n_tccon'] > 0)
-                                & (~_rep['site'].isin(sites_excl))]
-        present = [s for s in ('ocean', 'land') if len(rows_ok(s))]
-        if not present:
+    def _one(draw, png, dpi=None):
+        """Single-panel figure: draw(ax) → its own file."""
+        fig, ax = plt.subplots(figsize=(7.2, 6.2))
+        draw(ax)
+        fig.tight_layout(); fig.savefig(png, dpi=dpi or args.dpi, bbox_inches='tight')
+        plt.close(fig); _saved.append(png); return png
+
+    def _stack(draws, png):
+        """Vertical multi-panel stack; each draw(ax, letter) gets an (a)/(b)… tag."""
+        draws = [d for d in draws if d is not None]
+        if not draws:
             return None
-        fig, axes = plt.subplots(len(present), 2, figsize=(16, 7 * len(present)), squeeze=False)
-        for i, s in enumerate(present):
-            _draw_pair(axes[i, 0], axes[i, 1], rows_ok(s), title_prefix=f'{s.upper()}{ttl_excl}: ')
-        fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
-        return png
+        fig, axes = plt.subplots(len(draws), 1, figsize=(7.6, 5.8 * len(draws)),
+                                 squeeze=False)
+        for i, draw in enumerate(draws):
+            draw(axes[i, 0], chr(ord('a') + i))
+        fig.tight_layout(); fig.savefig(png, dpi=args.dpi, bbox_inches='tight')
+        plt.close(fig); _saved.append(png); return png
 
-    def _fig_groups(specs, png):
-        """One shared _draw_pair row per (subframe, title_prefix) spec that has
-        data.  Used for the cloud-distance-grouped views (by-bin and surface×bin)."""
-        specs = [(s, t) for s, t in specs if len(s)]
-        if not specs:
+    def _grid(cells, ncols, png):
+        """Row-major panel grid (item 2: 2×2 rather than a tall single column).
+        ``cells`` may contain None (rendered blank so the surface×bin grid stays
+        aligned); (a)/(b)… letters follow the filled cells only."""
+        if not any(c is not None for c in cells):
             return None
-        fig, axes = plt.subplots(len(specs), 2, figsize=(16, 7 * len(specs)), squeeze=False)
-        for i, (s, t) in enumerate(specs):
-            _draw_pair(axes[i, 0], axes[i, 1], s, title_prefix=t)
-        fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
-        return png
+        nrows = int(np.ceil(len(cells) / ncols))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(7.6 * ncols, 5.8 * nrows),
+                                 squeeze=False)
+        ltr = 0
+        for k, draw in enumerate(cells):
+            ax = axes[k // ncols, k % ncols]
+            if draw is None:
+                ax.axis('off'); continue
+            draw(ax, chr(ord('a') + ltr)); ltr += 1
+        for k in range(len(cells), nrows * ncols):
+            axes[k // ncols, k % ncols].axis('off')
+        fig.tight_layout(); fig.savefig(png, dpi=args.dpi, bbox_inches='tight')
+        plt.close(fig); _saved.append(png); return png
 
-    def _fig_ak_vs_direct(sub, png):
-        """Direct vs AK-harmonized overlay (only when --ak-harmonize produced the
-        …_direct columns): (left) per-case corrected-bias direct↔AK dumbbell,
-        (right) the AK/prior reference shift Δ = harmonized − raw TCCON per case."""
-        s = sub[sub['bias_after_direct'].notna() & sub['ak_delta'].notna()].copy()
-        if not len(s):
-            return None
-        s['lab'] = s['site'] + ' ' + s['date']
-        s1 = s.sort_values('bias_after_direct').reset_index(drop=True)
-        y = np.arange(len(s1))
-        fig, (axL, axR) = plt.subplots(1, 2, figsize=(15, max(7, 0.30 * len(s1))))
-        for i in y:
-            axL.plot([s1['bias_after_direct'][i], s1['bias_after'][i]], [i, i],
-                     '-', color='lightgray', lw=1.2, zorder=0)
-        axL.plot(s1['bias_after_direct'], y, 'o', color='green', ms=6, label='direct')
-        axL.plot(s1['bias_after'], y, 's', color='purple', ms=6, label='AK-harmonized')
-        axL.axvline(0, color='k', lw=1)
-        _tccon_band(axL, s1)
-        axL.set_yticks(y); axL.set_yticklabels(s1['lab'], fontsize=6)
-        axL.set_xlabel('corrected XCO₂ bias to TCCON (ppm)')
-        axL.set_title('Per-case corrected bias: direct vs AK-harmonized reference')
-        axL.legend(loc='lower right'); axL.grid(alpha=0.3, axis='x')
-        s2 = s.sort_values('ak_delta').reset_index(drop=True); y2 = np.arange(len(s2))
-        axR.barh(y2, s2['ak_delta'], color='teal', alpha=0.85)
-        axR.axvline(0, color='k', lw=1)
-        axR.set_yticks(y2); axR.set_yticklabels(s2['site'] + ' ' + s2['date'], fontsize=6)
-        axR.set_xlabel('AK reference shift Δ = harmonized − raw TCCON (ppm)')
-        axR.set_title('AK/prior reference shift per case'); axR.grid(alpha=0.3, axis='x')
-        fig.tight_layout(); fig.savefig(png, dpi=200, bbox_inches='tight'); plt.close(fig)
-        return png
+    def _sel(ref, surface, cld='all', excl=()):
+        s = mrep[(mrep['ref'] == ref) & (mrep['surface'] == surface)
+                 & (mrep['cld_group'] == cld) & (mrep['n_tccon'] > 0)]
+        return s[~s['site'].isin(excl)] if len(excl) else s
 
-    extra_saved = []
-    if len(cmp):
-        _fig_pair(cmp, P_PNG)                                        # all cases
-        p = _fig_by_surface([], P_BYSURF)
-        if p: extra_saved.append(p)
-        if args.ak_harmonize and 'bias_after_direct' in cmp.columns:  # direct-vs-AK overlay
-            p = _fig_ak_vs_direct(cmp, out_dir / f'tccon_comparison_ak_vs_direct{sfx}.png')
-            if p: extra_saved.append(p)
-            # Direct-reference twins of the two headline figures (the AK versions are the
-            # primary tccon_comparison{,_by_surface} PNGs above): same scatter/dumbbell and
-            # by-surface layout, but corrected/original/raw XCO2 compared to the RAW TCCON
-            # window mean instead of the AK/prior-harmonized reference.
-            _pd = out_dir / f'tccon_comparison_direct{sfx}.png'
-            _fig_pair(_direct_view(cmp), _pd, title_prefix='(direct ref) ')
-            extra_saved.append(_pd)
-            _pds = out_dir / f'tccon_comparison_by_surface_direct{sfx}.png'
-            p = _fig_by_surface([], _pds, ttl_excl=' (direct ref)', frame=_direct_view(rep))
-            if p: extra_saved.append(p)
-        if excl:                                                     # excl-sites variants
-            _sub = cmp[~cmp['site'].isin(excl)]
-            if len(_sub):
-                _pe = out_dir / f'tccon_comparison_excl_{"_".join(excl)}{sfx}.png'
-                _fig_pair(_sub, _pe, title_prefix=f'(excl {",".join(excl)}) ')
-                extra_saved.append(_pe)
-            _pe = out_dir / f'tccon_comparison_by_surface_excl_{"_".join(excl)}{sfx}.png'
-            p = _fig_by_surface(excl, _pe, ttl_excl=f' (excl {",".join(excl)})')
-            if p: extra_saved.append(p)
+    _bs = args.bias_style
+    cld_labels = [b[0] for b in cld_bins]
 
-        # ── per-site bar chart: mean |bias| and σ, before vs after ─────────────
-        if len(site_agg):
-            sa = site_agg.sort_values('mean_abs_bias_before', ascending=False).reset_index(drop=True)
-            x = np.arange(len(sa)); w = 0.38
-            fig2, (bx1, bx2) = plt.subplots(1, 2, figsize=(max(10, 1.0 * len(sa)), 6))
-            bx1.bar(x - w/2, sa['mean_abs_bias_before'], w, color='steelblue', label='before')
-            bx1.bar(x + w/2, sa['mean_abs_bias_after'], w, color='green', label='after')
-            # ±TCCON σ guide: mean |bias| below this line is within TCCON's own
-            # measurement error (reference-independent — see _tccon_band).
-            if 'tccon_err_mean' in cmp.columns:
-                _tem = cmp['tccon_err_mean'].to_numpy(float)
-                _tem = _tem[np.isfinite(_tem)]
-                if _tem.size:
-                    bx1.axhline(float(np.mean(_tem)), color='gray', ls='--', lw=1,
-                                zorder=0, label=f'TCCON σ ({np.mean(_tem):.2f} ppm)')
-            bx1.set_xticks(x); bx1.set_xticklabels(
-                [f"{r.site}\n({int(r.n)}, {int(r.n_improved)}↓)" for r in sa.itertuples()], fontsize=8)
-            bx1.set_ylabel('mean |bias to TCCON| (ppm)')
-            bx1.set_title('Per-site mean |bias| before → after'); bx1.legend(); bx1.grid(alpha=0.3, axis='y')
-            bx2.bar(x - w/2, sa['mean_sd_before'], w, color='steelblue', label='before')
-            bx2.bar(x + w/2, sa['mean_sd_after'], w, color='green', label='after')
-            bx2.set_xticks(x); bx2.set_xticklabels([r.site for r in sa.itertuples()], fontsize=8)
-            bx2.set_ylabel('mean OCO-2 σ (ppm)')
-            bx2.set_title('Per-site mean scatter (σ) before → after'); bx2.legend(); bx2.grid(alpha=0.3, axis='y')
-            fig2.tight_layout()
-            fig2.savefig(P_SITE_PNG, dpi=200, bbox_inches='tight')
-            plt.close(fig2)
-        print(f"\n[saved] {P_CSV}\n[saved] {P_MD}"
-              f"\n[saved] {P_PNG}\n[saved] {P_SITE_CSV}"
-              f"\n[saved] {P_SITE_PNG}")
-        for _p in extra_saved:
-            print(f"[saved] {_p}")
+    def _emit_figures(ref):
+        """Full single-panel figure set for one reference view ('ak' or 'direct')."""
+        allc = _sel(ref, 'all', 'all')
+        if not len(allc):
+            return
+        _one(lambda ax: _draw_scatter(ax, allc), out_dir / f'tccon_{ref}_scatter{sfx}.png')
+        _one(lambda ax: _draw_bias(ax, allc, _bs), out_dir / f'tccon_{ref}_bias{sfx}.png')
+        # by surface (ocean/land) stacked
+        _stack([(lambda ax, ltr, g=_sel(ref, s, 'all'), s=s: _draw_scatter(ax, g, panel=f'({ltr}) {s}'))
+                for s in ('ocean', 'land') if len(_sel(ref, s, 'all'))],
+               out_dir / f'tccon_{ref}_by_surface_scatter{sfx}.png')
+        _stack([(lambda ax, ltr, g=_sel(ref, s, 'all'), s=s: _draw_bias(ax, g, _bs, panel=f'({ltr}) {s}'))
+                for s in ('ocean', 'land') if len(_sel(ref, s, 'all'))],
+               out_dir / f'tccon_{ref}_by_surface_bias{sfx}.png')
+        # by cloud group (surface=all) stacked
+        _stack([(lambda ax, ltr, g=_sel(ref, 'all', gl), gl=gl: _draw_scatter(ax, g, panel=f'({ltr}) {gl}'))
+                for gl in cld_labels if len(_sel(ref, 'all', gl))],
+               out_dir / f'tccon_{ref}_by_cld_scatter{sfx}.png')
+        _stack([(lambda ax, ltr, g=_sel(ref, 'all', gl), gl=gl: _draw_bias(ax, g, _bs, panel=f'({ltr}) {gl}'))
+                for gl in cld_labels if len(_sel(ref, 'all', gl))],
+               out_dir / f'tccon_{ref}_by_cld_bias{sfx}.png')
+        # surface × cloud group (bias only) — 2×ncld grid: rows = ocean/land,
+        # cols = cloud bins (item 2), None-padded so empty (surface, bin) stay aligned.
+        cells = [(None if not len(_sel(ref, s, gl)) else
+                  (lambda ax, ltr, g=_sel(ref, s, gl), s=s, gl=gl:
+                   _draw_bias(ax, g, _bs, panel=f'({ltr}) {s} {gl}')))
+                 for s in ('ocean', 'land') for gl in cld_labels]
+        _grid(cells, len(cld_labels),
+              out_dir / f'tccon_{ref}_by_surface_by_cld_bias{sfx}.png')
+        # excl-sites variants
+        if excl:
+            e = _sel(ref, 'all', 'all', excl=excl)
+            if len(e):
+                _es = '_'.join(excl)
+                _one(lambda ax: _draw_scatter(ax, e),
+                     out_dir / f'tccon_{ref}_excl_{_es}_scatter{sfx}.png')
+                _one(lambda ax: _draw_bias(ax, e, _bs),
+                     out_dir / f'tccon_{ref}_excl_{_es}_bias{sfx}.png')
 
-    # ── cloud-distance-grouped figures (pre-drift cases) ─────────────────────
-    # Same scatter+dumbbell (by-bin) and surface×bin layouts as the headline
-    # figures, but footprints grouped by nearest-cloud distance.
+    if len(mrep):
+        for ref in (('ak', 'direct') if args.ak_harmonize else ('direct',)):
+            _emit_figures(ref)
+
+        # ── 4-style bias test set (low DPI) for the headline all-cases view (item 3) ──
+        ref0 = 'ak' if args.ak_harmonize else 'direct'
+        allc0 = _sel(ref0, 'all', 'all')
+        if len(allc0):
+            for st in BIAS_STYLES:
+                _one(lambda ax, st=st: _draw_bias(ax, allc0, st),
+                     out_dir / f'tccon_{ref0}_bias_{st}{sfx}.png', dpi=85)
+
+    # ── AK-vs-direct overlay + reference-shift, split into two single-panel files ──
+    if args.ak_harmonize and len(cmp) and 'bias_after_direct' in cmp.columns:
+        s = cmp[cmp['bias_after_direct'].notna() & cmp['ak_delta'].notna()].copy()
+        if len(s):
+            s1 = s.sort_values('bias_after_direct').reset_index(drop=True)
+            s2 = s.sort_values('ak_delta').reset_index(drop=True)
+
+            def _draw_ak_bias(ax):
+                y = np.arange(len(s1))
+                xe = s1['corr_sd']            # OCO footprint σ (reference-independent)
+                for i in y:
+                    ax.plot([s1['bias_after_direct'].iloc[i], s1['bias_after'].iloc[i]],
+                            [i, i], '-', color='lightgray', lw=1.2, zorder=0)
+                ax.errorbar(s1['bias_after_direct'], y, xerr=xe, fmt='o', color='green',
+                            ms=6, ecolor='green', elinewidth=0.8, capsize=2.5, capthick=0.8,
+                            markeredgecolor='black', markeredgewidth=0.5, label='direct', zorder=3)
+                ax.errorbar(s1['bias_after'], y, xerr=xe, fmt='s', color='purple',
+                            ms=6, ecolor='purple', elinewidth=0.8, capsize=2.5, capthick=0.8,
+                            markeredgecolor='black', markeredgewidth=0.5,
+                            label='AK-harmonized', zorder=4)
+                ax.axvline(0, color='k', lw=1); _tccon_band(ax, s1)
+                ax.set_yticks([]); ax.set_xlabel(f'corrected {XCO2} bias to TCCON (ppm)')
+                ax.set_ylabel('station-day (sorted by direct bias; IDs in CSV)')
+                ax.legend(loc='lower right', fontsize=7); ax.grid(alpha=0.3, axis='x')
+
+            def _draw_ak_shift(ax):
+                y2 = np.arange(len(s2))
+                ax.barh(y2, s2['ak_delta'], color='teal', alpha=0.85)
+                ax.axvline(0, color='k', lw=1); ax.set_yticks([])
+                ax.set_xlabel('AK reference shift Δ = harmonized − raw TCCON (ppm)')
+                ax.set_ylabel('station-day (sorted by Δ; IDs in CSV)')
+                ax.grid(alpha=0.3, axis='x')
+
+            _one(_draw_ak_bias, out_dir / f'tccon_ak_vs_direct_bias{sfx}.png')
+            _one(_draw_ak_shift, out_dir / f'tccon_ak_shift{sfx}.png')
+
+    # ── per-site 2×2 bar chart, one figure per reference (items 2 + 4) ──────────
+    # (a) mean |bias|, (b) mean footprint RMSE, (c) mean OCO-2 σ — before vs after;
+    # (d) per-site skill = 1−RMSE_after/RMSE_before.  Built per ref from mrep.
+    def _draw_site_fig(ref):
+        g = _sel(ref, 'all', 'all')
+        if not len(g):
+            return
+        # Per-site combined TCCON σ = RMS of that station's station-day xco2_error
+        # windows (individual per-station, not a global mean).
+        def _rms(s):
+            v = s.to_numpy(float); v = v[np.isfinite(v)]
+            return float(np.sqrt(np.mean(v ** 2))) if v.size else np.nan
+        sa = (g.groupby('site').agg(
+                  n=('date', 'size'),
+                  abias_before=('bias_before', lambda s: np.nanmean(np.abs(s))),
+                  abias_after=('bias_after', lambda s: np.nanmean(np.abs(s))),
+                  rmse_before=('rmse_before', 'mean'), rmse_after=('rmse_after', 'mean'),
+                  sd_before=('orig_sd', 'mean'), sd_after=('corr_sd', 'mean'),
+                  terr=('tccon_err_mean', _rms))
+                .reset_index())
+        sa['skill'] = 1.0 - sa['rmse_after'] / sa['rmse_before']
+        sa = sa.sort_values('abias_before', ascending=False).reset_index(drop=True)
+        x = np.arange(len(sa)); w = 0.38; labels = list(sa['site'])
+        fig, axg = plt.subplots(2, 2, figsize=(max(11, 1.1 * len(sa)), 10), squeeze=False)
+
+        def _bars(ax, before, after, ylabel, letter):
+            ax.bar(x - w/2, sa[before], w, color='steelblue', label='before')
+            ax.bar(x + w/2, sa[after], w, color='green', label='after')
+            ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=8)
+            ax.set_ylabel(ylabel); ax.legend(fontsize=7); ax.grid(alpha=0.3, axis='y')
+            _panel_label(ax, letter)
+
+        _bars(axg[0, 0], 'abias_before', 'abias_after', 'mean |bias to TCCON| (ppm)', '(a)')
+        # per-station combined TCCON σ guide segment over each site's bar group
+        ts = sa['terr'].to_numpy(float); _lab = False
+        for xi, ti in zip(x, ts):
+            if not np.isfinite(ti):
+                continue
+            # bold crimson dashed segment overhanging the bar group so it reads
+            # clearly against the before/after bars it sits over.
+            axg[0, 0].hlines(ti, xi - 0.48, xi + 0.48, color='crimson', ls='--', lw=2.6,
+                             zorder=6, label=(None if _lab else 'combined TCCON σ (per station)'))
+            _lab = True
+        axg[0, 0].legend(fontsize=7)
+        _bars(axg[0, 1], 'rmse_before', 'rmse_after', 'mean footprint RMSE (ppm)', '(b)')
+        _bars(axg[1, 0], 'sd_before', 'sd_after', 'mean OCO-2 σ (ppm)', '(c)')
+        axg[1, 1].bar(x, sa['skill'], color='teal', alpha=0.85)
+        axg[1, 1].axhline(0, color='k', lw=1)
+        axg[1, 1].set_xticks(x); axg[1, 1].set_xticklabels(labels, fontsize=8)
+        axg[1, 1].set_ylabel(r'skill = 1 − RMSE$_{\mathrm{after}}$/RMSE$_{\mathrm{before}}$')
+        axg[1, 1].grid(alpha=0.3, axis='y'); _panel_label(axg[1, 1], '(d)')
+        fig.tight_layout()
+        p = out_dir / f'tccon_{ref}_by_site_bias{sfx}.png'
+        fig.savefig(p, dpi=args.dpi, bbox_inches='tight'); plt.close(fig); _saved.append(p)
+
+    if len(mrep):
+        for ref in (('ak', 'direct') if args.ak_harmonize else ('direct',)):
+            _draw_site_fig(ref)
+
+    print(f"\n[saved] {P_CSV}\n[saved] {P_MD}\n[saved] {P_SITE_CSV}")
     if len(rep_cld):
-        labels = [b[0] for b in cld_bins]
-        rc = rep_cld[rep_cld['n_tccon'] > 0]
-        rc_all = rc[rc['surface'] == 'all']
-        cld_saved = [P_CLD_CSV] + ([P_CLD_AGG] if P_CLD_AGG.exists() else [])
-        if len(rc_all):
-            p = _fig_groups([(rc_all[rc_all['cld_group'] == g], f'{g}: ') for g in labels],
-                            P_CLD_PNG)
-            if p: cld_saved.append(p)
-        p = _fig_groups([(rc[(rc['surface'] == s) & (rc['cld_group'] == g)], f'{s.upper()} {g}: ')
-                         for s in ('ocean', 'land') for g in labels], P_CLD_SURF)
-        if p: cld_saved.append(p)
-        for _p in cld_saved:
-            print(f"[saved] {_p}")
+        print(f"[saved] {P_CLD_CSV}")
+        if P_CLD_AGG.exists():
+            print(f"[saved] {P_CLD_AGG}")
+    for _p in _saved:
+        print(f"[saved] {_p}")
 
 
 if __name__ == '__main__':
