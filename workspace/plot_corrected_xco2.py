@@ -59,6 +59,10 @@ _MODEL_CFGS = [
     ('Hybrid',  'hybrid_cond_corrected_xco2',  'hybrid_corrected_xco2',  'deepskyblue'),
     ('DeepEns',
      'deep_ensemble_cond_corrected_xco2', 'deep_ensemble_corrected_xco2', 'limegreen'),
+    ('StructRes',
+     'structured_residual_cond_corrected_xco2',
+     'structured_residual_corrected_xco2',
+     'crimson'),
 ]
 
 def _resolve_model_cfgs(df):

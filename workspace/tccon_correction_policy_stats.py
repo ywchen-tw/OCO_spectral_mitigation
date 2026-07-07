@@ -157,8 +157,13 @@ def main():
     ap.add_argument('--script', default=str(SH),
                     help="Shell script whose run_case lines to read (default: the "
                          "non-drift deepens script).")
+    ap.add_argument('--corr-col', default='deep_ensemble_corrected_xco2',
+                    help="plot_data column holding the corrected XCO2 for the "
+                         "'full_mu' scenario (default 'deep_ensemble_corrected_xco2'; "
+                         "use 'tabm_corrected_xco2' for TabM).")
     args = ap.parse_args()
     sfx = args.fname_suffix
+    SCEN['full_mu'] = args.corr_col   # point the correction scenario at the chosen model column
 
     global OUTDIR
     plotdata_base = Path(args.plotdata_base)
