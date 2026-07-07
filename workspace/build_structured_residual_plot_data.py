@@ -43,6 +43,7 @@ KEEP_COLS = (
     "lat",
     "cld_dist_km",
     "sfc_type",
+    "fp",
     "xco2_bc",
     "xco2_bc_anomaly",
     "xco2_apriori",
@@ -70,6 +71,7 @@ def _load_fold(model_dir):
     dropout = float(meta.get("dropout", 0.0))
     norm = meta.get("norm", "none")
     block_dim = int(meta.get("block_dim", 16))
+    n_experts = int(meta.get("n_experts", 4))
     cross_layers = int(meta.get("cross_layers", 2))
     cross_rank = int(meta.get("cross_rank", 16))
 
@@ -83,6 +85,7 @@ def _load_fold(model_dir):
             dropout=dropout,
             norm=norm,
             block_dim=block_dim,
+            n_experts=n_experts,
             cross_layers=cross_layers,
             cross_rank=cross_rank,
         )

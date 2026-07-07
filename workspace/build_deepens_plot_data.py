@@ -58,7 +58,7 @@ from apply.apply_deep_ensemble import _check_required_columns, _domain_report
 CORR_COL = 'deep_ensemble_corrected_xco2'              # (1) full mu          xco2_bc - mu
 CORR_COL_PNEAR = 'deepens_pnear_corrected_xco2'        # (2) P(near)*mu       xco2_bc - P*mu
 CORR_COL_GATE = 'deepens_gate_corrected_xco2'          # (3) mu*1[P>0.5]      xco2_bc - mu*(P>0.5)
-KEEP_COLS = ('time', 'lon', 'lat', 'cld_dist_km', 'sfc_type',
+KEEP_COLS = ('time', 'lon', 'lat', 'cld_dist_km', 'sfc_type', 'fp',
              'xco2_bc', 'xco2_bc_anomaly', 'xco2_apriori',
              'xco2_raw', 'xco2_raw_anomaly', 'xco2_uncertainty',
              # scene diagnostics for uncertainty-relationship stratification (§4.1);

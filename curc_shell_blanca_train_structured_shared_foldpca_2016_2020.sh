@@ -17,6 +17,8 @@
 #SBATCH --requeue
 
 # Final shared-config structured-residual run on 2016-2020 date-kfold data.
+# Experimental wrappers may override STRUCT_BACKBONE / STRUCT_RUN_STEM_BASE /
+# STRUCT_N_EXPERTS while reusing this same launcher.
 #
 # Default 10 km run stem:
 #   de2016_2020_structured_shared_h64x32_b8_foldpca
@@ -83,7 +85,9 @@ trap 'kill "${GPU_MONITOR_PID}" 2>/dev/null || true' EXIT
 STORAGE=$(python -c "from utils import get_storage_dir; print(get_storage_dir())")
 DATA="${STORAGE}/results/csv_collection/combined_2016_2020_dates.parquet"
 PCA_ROOT="${STRUCT_PCA_ROOT:-${STORAGE}/results/profile_pca_date_kfold_2016_2020}"
-RUN_STEM_BASE="de2016_2020_structured_shared_h64x32_b8_foldpca"
+BACKBONE="${STRUCT_BACKBONE:-structured_residual}"
+N_EXPERTS="${STRUCT_N_EXPERTS:-4}"
+RUN_STEM_BASE="${STRUCT_RUN_STEM_BASE:-de2016_2020_structured_shared_h64x32_b8_foldpca}"
 TARGET_ALIAS="${STRUCT_TARGET_ALIAS:-10km}"
 TARGET_TAG="${STRUCT_TARGET_TAG:-}"
 if [[ -n "${TARGET_TAG}" ]]; then
@@ -117,6 +121,8 @@ if [[ ! -f "${PROFILE_PKL}" ]]; then
 fi
 
 echo "run_stem=${RUN_STEM}"
+echo "backbone=${BACKBONE}"
+echo "n_experts=${N_EXPERTS}"
 echo "target=${TARGET_ALIAS}"
 echo "surface=${SURFACE} sfc_type=${SFC_TYPE} fold=${FOLD}/${NFOLDS}"
 echo "data=${DATA}"
@@ -127,12 +133,13 @@ python -m models.structured_dcn_ensemble \
     --data "${DATA}" \
     --sfc_type "${SFC_TYPE}" \
     --suffix "${SUFFIX}" \
-    --backbone structured_residual \
+    --backbone "${BACKBONE}" \
     --feature_set full \
     --profile-pca "${PROFILE_PKL}" \
     --target "${TARGET_ALIAS}" \
     --hidden_dims 64,32 \
     --block_dim 8 \
+    --n_experts "${N_EXPERTS}" \
     --loss beta_nll \
     --beta 1.0 \
     --lr 0.0005 \

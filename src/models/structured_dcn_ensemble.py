@@ -37,6 +37,7 @@ from .pipeline import (
     filter_target_outliers,
     resolve_target_col,
 )
+from .regime_structured_residual import RegimeStructuredResidualNet
 from .splits import split_dataframe
 from .structured_residual import StructuredResidualNet
 from search.tracking import RunSummary, get_git_commit_hash
@@ -44,7 +45,7 @@ from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
 
-BACKBONES = ("structured_residual", "dcn_v2")
+BACKBONES = ("structured_residual", "regime_structured_residual", "dcn_v2")
 
 
 def build_experimental_member(
@@ -56,6 +57,7 @@ def build_experimental_member(
     dropout: float = 0.0,
     norm: str = "none",
     block_dim: int = 16,
+    n_experts: int = 4,
     cross_layers: int = 2,
     cross_rank: int = 16,
 ) -> nn.Module:
@@ -70,6 +72,15 @@ def build_experimental_member(
             feature_names,
             hidden_dims=hidden_dims,
             block_dim=block_dim,
+            dropout=dropout,
+            norm=norm,
+        )
+    if backbone == "regime_structured_residual":
+        return RegimeStructuredResidualNet(
+            feature_names,
+            hidden_dims=hidden_dims,
+            block_dim=block_dim,
+            n_experts=n_experts,
             dropout=dropout,
             norm=norm,
         )
@@ -104,6 +115,7 @@ def train_member(
     dropout: float,
     norm: str,
     block_dim: int,
+    n_experts: int,
     cross_layers: int,
     cross_rank: int,
     gpu_resident: bool | None,
@@ -135,6 +147,7 @@ def train_member(
         dropout=dropout,
         norm=norm,
         block_dim=block_dim,
+        n_experts=n_experts,
         cross_layers=cross_layers,
         cross_rank=cross_rank,
     ).to(device)
@@ -250,6 +263,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--n_members", type=int, default=5)
     parser.add_argument("--hidden_dims", default="64,32")
     parser.add_argument("--block_dim", type=int, default=16)
+    parser.add_argument("--n_experts", type=int, default=4)
     parser.add_argument("--cross_layers", type=int, default=2)
     parser.add_argument("--cross_rank", type=int, default=16)
     parser.add_argument(
@@ -414,6 +428,7 @@ def main() -> None:
                 dropout=args.dropout,
                 norm=args.norm,
                 block_dim=args.block_dim,
+                n_experts=args.n_experts,
                 cross_layers=args.cross_layers,
                 cross_rank=args.cross_rank,
                 gpu_resident=gpu_resident,
@@ -563,6 +578,7 @@ def main() -> None:
         "beta": args.beta,
         "hidden_dims": list(hidden_dims),
         "block_dim": args.block_dim,
+        "n_experts": args.n_experts,
         "cross_layers": args.cross_layers,
         "cross_rank": args.cross_rank,
         "dropout": args.dropout,
@@ -575,7 +591,7 @@ def main() -> None:
         "near_cloud_km": args.near_cloud_km,
         "train_config": train_config.to_dict(),
     }
-    if args.backbone == "structured_residual":
+    if args.backbone in {"structured_residual", "regime_structured_residual"}:
         metadata["feature_groups"] = members[0].feature_groups
     with open(output_dir / "experimental_meta.pkl", "wb") as stream:
         pickle.dump(metadata, stream)
@@ -616,6 +632,7 @@ def main() -> None:
             "seed": args.seed,
             "loss": args.loss,
             "beta": args.beta,
+            "n_experts": args.n_experts,
         },
     )
     with open(output_dir / "run_summary.json", "w", encoding="utf-8") as stream:
