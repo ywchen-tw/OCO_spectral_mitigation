@@ -99,20 +99,20 @@ echo "fold=${F}/${NFOLDS}  profile_pca=${PROFILE_PKL}"
 # reuses the same fold-specific ProfilePCA pkl.  Mirrors the ablation loops in
 # curc_shell_blanca_de_profile_r05.sh, adapted to foldpca (fold PCA + _foldpca
 # suffix) and the land/15 km reference.  Suffix: de_land_{FS}_prof_foldpca_r15_f${F}.
-for FS in no_xco2 no_spec no_xco2_and_spec; do
-  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_foldpca_r15_f${F} \
-      --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 15km \
-      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
-
-# for FS in no_contam no_contam_and_xco2; do
+# for FS in no_xco2 no_spec no_xco2_and_spec; do
 #   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_foldpca_r15_f${F} \
 #       --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 15km \
 #       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
 #       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
 #       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 # done
+
+for FS in no_contam no_contam_and_xco2; do
+  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_foldpca_r15_f${F} \
+      --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 15km \
+      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
