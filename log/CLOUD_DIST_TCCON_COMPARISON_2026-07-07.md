@@ -2,6 +2,17 @@
 
 **Date:** 2026-07-07 · **Commit:** `a1d700c` · **Models:** deep ensemble, TabM, structured residual
 
+> **AK-reference caveat (added later on 2026-07-07):** the numbers below were
+> generated against the AK-harmonized reference **before** the
+> `ak_harmonize.py` wet/dry fix (CRITICAL_FIXES #11; ak_delta −0.93 → +0.34).
+> Since the shift is common-mode per case, the raw→before→after *progressions*
+> and model *rankings* are unaffected (all series shift together), but absolute
+> bias/MAE/MSE values change. **All reports regenerated with the fix later on
+> 2026-07-07** (DE r100+r50, TabM o05l15 r100+r50, TabM m16 r100, structured
+> o05l15/o10l10 r100+r50, regime + 3 calibration variants r50) — quote the
+> regenerated CSVs, not the tables below; post-fix cross-model summary in
+> `TCCON_BIAS_MODEL_IMPROVEMENT_PLAN_2026-07-06.md` §"Regenerated results".
+
 Splits each OCO-2 ↔ TCCON collocation's footprints by **nearest-cloud distance**
 and reports the correction quality separately for near-cloud vs far-cloud
 footprints. Answers the project's core question — *does the ML correction earn

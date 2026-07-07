@@ -448,3 +448,64 @@ if _m and _m.group(1) != target_date.strftime("%y%m%d"):
                 oco2_files.append(DownloadedFile(..., product_type="L2_Lite"))
         _lite_dirs_added.add(_prev_dir)
 ```
+
+## Fix 11 — AK harmonization used GGG2020 `prior_co2` as dry mole fraction (it is WET) (2026-07-07)
+
+**File:** `workspace/ak_harmonize.py` (`ak_adjusted_ref_from_operator`)
+
+### Symptom
+
+The AK/prior-harmonized TCCON reference sat systematically LOW: `ak_delta`
+(harmonized − raw window mean) averaged **−0.93 ± 0.74 ppm** over the 75
+production r100 cases — 3–9× the 0.1–0.3 ppm smoothing/prior term expected from
+the literature (O'Dell et al. 2018). Downstream, the corrected product looked
+great against direct TCCON (after mean |bias| 0.63 ppm) but poor against the
+harmonized reference (1.05 ppm, signed +0.93 — i.e. exactly the spurious shift).
+
+### Root cause
+
+The Rodgers–Connor truth proxy was built as `x_TC = gamma * prior_co2`, treating
+the GGG2020 public-file `prior_co2` profile as a dry-air mole fraction. It is a
+**wet** mole fraction, while every OCO-2 operator quantity (`pressure_weight`,
+`xco2_averaging_kernel`, `co2_profile_apriori`, `xco2_apriori`) is dry-air. The
+proxy column was therefore deficient by ~q per level — an error of
+≈ −1.3 ppm × column-H₂O fraction, largest at humid sites (Darwin/Réunion/Burgos
+−1.5 to −2.8 ppm; dry winter cases ≈ 0).
+
+### Diagnosis chain (scripted a≡1 / population / decomposition diagnostics)
+
+1. Forcing the averaging kernel to 1 (which should collapse the delta to ≈0)
+   left it unchanged: −0.933 ± 0.720 vs −0.927 ± 0.743 full. The true AK
+   smoothing term is only **+0.006 ± 0.227 ppm** — literature-consistent.
+2. Operator population (QF0+1 near-cloud vs far-cloud footprints): paired
+   difference +0.033 ± 0.110 ppm — negligible (hypothesis refuted).
+3. OCO side internally consistent: `xco2_apriori − Σ h·co2_profile_apriori`
+   = 0.000 exactly, every case.
+4. Residual term `gamma·(Σh·prior_co2 − prior_xco2)` correlates with column H₂O
+   (r = −0.66); level-by-level, the deficit accumulates exactly in the humid
+   layers (Darwin: −1.85 ppm by 500 hPa, flat above).
+5. Wet/dry closure: dry-converting closes the Darwin proxy column to +0.18 ppm;
+   native-grid closure across all 20 TCCON sites accepts wet
+   (+0.40 ± 0.42 ppm) and rejects dry (−1.11 ± 0.57, worst at humid sites).
+
+### Fix
+
+```python
+prior_h2o = np.ma.filled(ds.variables['prior_h2o'][sel], np.nan).astype(float)
+...
+x_tc = gamma * prior_co2[i] / np.clip(1.0 - prior_h2o[i], 0.5, 1.0)
+```
+
+### Impact (r100 production report, regenerated 2026-07-07)
+
+- `ak_delta`: −0.93 ± 0.74 → **+0.34 ± 0.55 ppm** (now literature-scale).
+- After-correction AK-harmonized mean |bias|: 1.05 → **0.81 ppm** (signed
+  +0.93 → −0.34); before: 1.39 → 1.26. Direct-reference numbers unchanged.
+- Station-day |bias| Wilcoxon (after vs before), previously the weak axis at
+  p = 0.17, is now **p = 0.0064** on the harmonized reference; site-clustered
+  bootstrap Δ mean |bias| −0.43 [−0.71, −0.13], p = 0.004.
+- r50: after AK mean |bias| 0.79 (direct 0.63), ak_delta +0.33 ± 0.60.
+- Ship (`Ship_analysis`) and ATom (`ATom_analysis`) chains are NOT affected:
+  ship compares `xco2_bc` directly to shipboard EM27 XCO₂ (no GGG prior path);
+  ATom uses only `operator_from_dataframe` (the verified-clean OCO-side
+  operator) on in-situ dry-air profiles.

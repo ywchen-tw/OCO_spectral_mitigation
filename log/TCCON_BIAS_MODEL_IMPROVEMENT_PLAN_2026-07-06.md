@@ -9,18 +9,24 @@ Improve corrected XCO2 agreement with TCCON, with two primary metrics:
 - lower after-correction mean absolute station bias;
 - lower per-footprint RMSE around TCCON stations.
 
-**Metric caveat (added 2026-07-07):** under the AK-harmonized reference, the
-station-mean bias has a floor of roughly |ak_delta| ≈ 0.9 ppm that no
-per-sounding anomaly model can cross — it is an absolute-scale offset inherited
-from the operational product's direct-TCCON anchoring, not model error (see the
-final section below). Judge blending/calibration experiments on fp-RMSE and on
-AK-invariant before→after improvements, not on the absolute AK-harmonized
-station bias.
+**Metric caveat (added 2026-07-07; revised same day after the wet/dry fix):**
+under the AK-harmonized reference the station-mean bias has a floor of roughly
+|ak_delta| ≈ **0.3–0.4 ppm** that no per-sounding anomaly model can cross — an
+absolute-scale offset inherited from the operational product's direct-TCCON
+anchoring plus the genuine smoothing term, not model error (see the final
+section below; the originally observed ≈0.9 ppm floor was dominated by the
+`ak_harmonize.py` wet/dry bug, fixed 2026-07-07 — CRITICAL_FIXES #11). Judge
+blending/calibration experiments on fp-RMSE and on AK-invariant before→after
+improvements, not on the absolute AK-harmonized station bias.
 
 The current best result is still the regularized deep ensemble. The structured
 residual model is close, but does not yet clearly beat DE on the TCCON objective.
 
 ## Current reference results
+
+> **Superseded 2026-07-07.** The table below was generated on the pre-fix
+> (buggy) AK reference — see CRITICAL_FIXES #11 and the regenerated table
+> that follows it.
 
 For the local r50 km TCCON comparison:
 
@@ -32,9 +38,32 @@ For the local r50 km TCCON comparison:
 | Structured o05/l15, drop-guarded | ~0.96 ppm | ~1.37 ppm | close to DE after excluding guarded footprints |
 | TabM o05/l15 | ~1.09 ppm | ~1.78 ppm | weaker than DE and structured |
 
-Interpretation: the structured residual model is not fundamentally failing.
-It is close to DE, especially after guard filtering, but it appears slightly
-less robust for station-level bias and high-risk footprints.
+### Regenerated results (2026-07-07, fixed AK reference; all model reports rerun)
+
+r50 km (69 cases), after-correction, AK-harmonized | direct:
+
+| model set | AK \|bias\| | AK fp-RMSE | direct \|bias\| | direct fp-RMSE |
+| --- | ---: | ---: | ---: | ---: |
+| DE o05/l15 | 0.79 | **1.19** | 0.63 | **1.08** |
+| Structured o10/l10 | **0.74** | 1.26 | 0.63 | 1.19 |
+| Structured o05/l15 | 0.85 | 1.33 | 0.66 | 1.22 |
+| Struct + cal (surface/\|mu\|/sigma) | 0.84 | 1.29 | 0.62 | 1.16 |
+| Regime structured o05/l15 | 0.83 | 1.36 | 0.67 | 1.25 |
+| TabM o05/l15 | 0.97 | 1.62 | 0.81 | 1.53 |
+
+r100 km (75 cases): DE 0.81/1.19 (AK), 0.63/1.08 (direct); Structured o10/l10
+0.78/1.26; Structured o05/l15 0.86/1.33; TabM o05/l15 0.90/1.53.
+
+Interpretation (updated): **DE keeps a clear fp-RMSE lead at every radius and
+reference** — the footprint-level metric that reflects the near-cloud tail.
+On station-mean |bias|, Structured o10/l10 now marginally edges DE
+(0.74 vs 0.79 AK r50; 0.78 vs 0.81 r100), but the gap (~0.04 ppm) is well
+inside the site-clustered CI (±0.3) — treat as a tie. The calibration variants
+remain indistinguishable from uncalibrated structured. TabM stays clearly
+behind. Conclusion unchanged: DE stays production; with the AK reference fixed
+and DE performing well on both references, further model-side improvement is
+de-prioritized (2026-07-07 decision) — the remaining gaps are reference-chain
+properties, not model error.
 
 ## Main conclusion
 
@@ -282,45 +311,47 @@ de2016_2020_regime_structured_shared_h64x32_b8_e4_foldpca_r05_ocean_f*
 de2016_2020_regime_structured_shared_h64x32_b8_e4_foldpca_r15_land_f*
 ```
 
-## Direct vs AK-harmonized station bias (added 2026-07-07)
+## Direct vs AK-harmonized station bias (added 2026-07-07 — RESOLVED same day)
 
-Observation: after correction, mean |station bias| is ~0.63 ppm against the
+Observation: after correction, mean |station bias| was ~0.63 ppm against the
 direct TCCON window mean but ~1.05 ppm against the AK/prior-harmonized
-reference (r100), while fp-RMSE improves under both references.
+reference (r100), while fp-RMSE improved under both references.
 
-Diagnosis — this is arithmetic, not a model failure:
+**Resolution: the planned diagnostics ran and found a bug** (CRITICAL_FIXES
+#11). The a≡1 null check failed — forcing the averaging kernel to 1 left the
+delta unchanged (−0.933 vs −0.927), so the shift was never an AK effect (true
+smoothing term: +0.006 ± 0.227 ppm, literature-scale). The near-cloud vs
+far-cloud operator-population hypothesis was refuted (+0.033 ± 0.110 ppm
+paired). The entire shift sat in the truth-proxy column: GGG2020 `prior_co2`
+is a **wet** mole fraction and `ak_harmonize.py` used it as dry against the
+dry-air OCO-2 operator — an error of ≈ −1.3 ppm × column-H₂O fraction,
+confirmed by H₂O correlation (r = −0.66), level-by-level accumulation in the
+humid layers, and wet/dry closure tests across all 20 TCCON sites.
 
-- Harmonization shifts the TCCON reference by ak_delta = −0.93 ± 0.74 ppm.
-- Before→after improvements are exactly AK-invariant (same soundings, same
-  operator on both sides of the difference).
-- Once the correction pulls OCO-2 close to the *direct* TCCON mean, the small
-  residuals are dominated by the common-mode shift, so the AK-harmonized
-  after-|bias| lands near |ak_delta|. RMSE still improves because it is
-  dominated by the scatter collapse; a constant shift only adds in quadrature.
+Fix (`x_tc = gamma·prior_co2/(1 − prior_h2o)`) applied; r100 + r50 reports
+regenerated 2026-07-07:
 
-Root cause (literature-verified 2026-07-07, primary sources read): the
-operational product's absolute scale is anchored to TCCON by **direct,
-non-AK-harmonized** zero-intercept regression at every version — Wunch et al.
-(2017) for B7; O'Dell et al. (2018) for v8, with the explicit statement that
-the AK correction was neglected when solving the global divisors (~0.1 ppm
-mean; land 0.2–0.3 ppm apparent bias partly from this); B10 DUG §3.2.3 and B11
-DUG §4.2.3 (TCCON_Adjust, GGG2020 in B11) carry the same procedure forward. So
-agreement with direct TCCON is partly built into `xco2_bc`, and harmonization
-re-exposes an offset. The ship EM27 ~+1 ppm ocean offset independently
-corroborates the harmonized picture.
+| | direct | AK (buggy) | AK (fixed) |
+| --- | ---: | ---: | ---: |
+| ak_delta | — | −0.93 ± 0.74 | **+0.34 ± 0.55** |
+| after mean \|bias\| (r100) | 0.63 | 1.05 | **0.81** |
+| before mean \|bias\| (r100) | 1.08 | 1.39 | 1.26 |
+| after fp-RMSE (r100) | 1.08 | 1.44 | **1.19** |
 
-Magnitude caveat: the literature's neglected-AK term (~0.1–0.3 ppm) covers only
-part of our −0.93; the remainder is plausibly the QF0+1 near-cloud operator
-population in `ak_harmonize.py` (near-cloud AKs deviate far more from 1) and/or
-the gamma-scaled GGG2020 prior proxy. Three diagnostics before the manuscript:
+Bonus: on the fixed reference the station-day |bias| Wilcoxon — previously the
+weak axis (p = 0.17) — is significant (**p = 0.0064**); site-clustered
+bootstrap Δ mean |bias| −0.43 [−0.71, −0.13], p = 0.004.
 
-1. **a≡1 null check** — recompute `c_est` with the averaging kernel forced to
-   1; must give delta ≈ 0 (nonzero ⇒ units/pwf/interpolation bug).
-2. **QF0-only clear-sky/far-cloud ak_delta subset** — should land near
-   0.1–0.3 ppm (matching O'Dell); the gap to −0.93 is then attributable to the
-   near-cloud population and is itself a quotable result.
-3. **Per-case signed identity** — bias_AK vs (bias_direct − ak_delta) must fall
-   on the 1:1 line, confirming pure common-mode rather than regime dependence.
+The residual ~0.3 ppm direct-vs-AK gap is real and literature-consistent: the
+operational absolute scale is anchored to TCCON by **direct, non-harmonized**
+zero-intercept regression at every version — Wunch et al. (2017) for B7;
+O'Dell et al. (2018) for v8 (AK correction explicitly neglected in the global
+divisors, ~0.1 ppm mean; land 0.2–0.3 ppm apparent bias partly from this);
+B10 DUG §3.2.3 / B11 DUG §4.2.3 (TCCON_Adjust, GGG2020 in B11). Ship/ATom
+chains audited — NOT affected (ship compares `xco2_bc` directly to shipborne
+EM27 XCO₂, Knapp et al. 2021 ESSD; ATom uses the verified-clean OCO-side
+operator on in-situ dry profiles), so the ship ~+1 ppm ocean offset stands as
+an independent direct-comparison observation.
 
 Consequences for this plan:
 
@@ -330,7 +361,11 @@ Consequences for this plan:
   evaluated and rejected 2026-07-07) cancel exactly in the target and act only
   as date proxies.
 - Blend / calibration / regime experiments above should therefore be scored on
-  fp-RMSE and on AK-invariant before→after deltas; the absolute AK-harmonized
-  station bias is a property of the reference chain, to be *explained* in the
-  manuscript (anchoring citations: Wunch 2017 → O'Dell 2018 → B10/B11 DUG),
-  not optimized away.
+  fp-RMSE and on AK-invariant before→after deltas; the residual absolute
+  AK-harmonized station bias (~0.3 ppm floor) is a property of the reference
+  chain, to be *explained* in the manuscript (anchoring citations: Wunch 2017 →
+  O'Dell 2018 → B10/B11 DUG), not optimized away.
+- Any comparison table quoting AK-referenced numbers generated before
+  2026-07-07 (including the TabM / structured-residual reports and the
+  cloud-distance-grouped tables) mixes in the buggy reference — regenerate
+  before quoting AK columns; direct-reference columns are unaffected.

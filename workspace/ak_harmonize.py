@@ -13,7 +13,18 @@ with, per level j on the OCO-2 20-level grid,
     c_a,OCO2   OCO-2 prior XCO2 (Lite ``xco2_apriori``),
 and x_TC the TCCON truth-proxy profile: the TCCON prior scaled by the retrieved
 column scale factor gamma = xco2_TCCON / prior_xco2_TCCON (GGG is a profile-
-scaling retrieval), interpolated onto the OCO-2 pressure grid in log-p.
+scaling retrieval), converted from wet to dry mole fraction, and interpolated
+onto the OCO-2 pressure grid in log-p.
+
+WET->DRY (fix 2026-07-07): the GGG2020 public-file ``prior_co2`` profile is a
+WET mole fraction, while the OCO-2 operator quantities (h, a, x_a, c_a) are all
+dry-air.  The proxy therefore uses prior_co2 / (1 - prior_h2o).  Verified two
+ways: dividing closes the OCO-grid proxy column against ``prior_xco2`` to
+~0.2 ppm per case, and a native-grid closure test across all 20 TCCON sites
+accepts the wet interpretation (+0.40 +/- 0.42 ppm) and rejects dry
+(-1.11 +/- 0.57, worst at humid sites).  Without the conversion ak_delta was
+biased by ~ -1.3 ppm x column-H2O-fraction (mean -0.93 ppm over the 75
+production cases; fixed mean +0.34 +/- 0.55).
 
 Case-level design: the reports compare footprints against a single per-case
 TCCON window mean, so per-footprint identity is unnecessary — h, a, x_a, c_a
@@ -178,6 +189,9 @@ def ak_adjusted_ref_from_operator(op, tccon_nc_path, tmin, tmax, window_min=60.0
             return None
         prior_xco2 = np.ma.filled(ds.variables['prior_xco2'][sel], np.nan).astype(float)
         prior_co2 = np.ma.filled(ds.variables['prior_co2'][sel], np.nan).astype(float)
+        # prior_co2 is a WET mole fraction (see module docstring); prior_h2o is
+        # needed to convert it to the dry-air basis of the OCO-2 operator.
+        prior_h2o = np.ma.filled(ds.variables['prior_h2o'][sel], np.nan).astype(float)
         p_var = ds.variables['prior_pressure']
         prior_p = _pressure_to_hpa(np.ma.filled(p_var[sel], np.nan).astype(float),
                                    getattr(p_var, 'units', 'atm'))
@@ -192,7 +206,9 @@ def ak_adjusted_ref_from_operator(op, tccon_nc_path, tmin, tmax, window_min=60.0
         if not (np.isfinite(prior_xco2[i]) and prior_xco2[i] > 0):
             continue
         gamma = xco2[i] / prior_xco2[i]
-        x_tc = gamma * prior_co2[i]                  # truth-proxy profile (ppm)
+        # truth-proxy profile (ppm), wet -> dry mole fraction (clip guards
+        # against pathological prior_h2o; q < 0.5 everywhere in practice)
+        x_tc = gamma * prior_co2[i] / np.clip(1.0 - prior_h2o[i], 0.5, 1.0)
         m = np.isfinite(x_tc) & np.isfinite(prior_p[i]) & (prior_p[i] > 0)
         if m.sum() < 5:
             continue
