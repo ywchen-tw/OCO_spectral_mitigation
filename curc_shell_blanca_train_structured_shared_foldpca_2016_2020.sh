@@ -18,8 +18,17 @@
 
 # Final shared-config structured-residual run on 2016-2020 date-kfold data.
 #
-# Run stem:
+# Default 10 km run stem:
 #   de2016_2020_structured_shared_h64x32_b8_foldpca
+#
+# Target-reference wrappers can set:
+#   STRUCT_TARGET_ALIAS=5km  STRUCT_TARGET_TAG=r05
+#   STRUCT_TARGET_ALIAS=10km STRUCT_TARGET_TAG=
+#   STRUCT_TARGET_ALIAS=15km STRUCT_TARGET_TAG=r15
+#
+# A non-empty STRUCT_TARGET_TAG is appended to RUN_STEM, matching the existing
+# DE convention where 5 km and 15 km carry _r05/_r15 and the 10 km default has
+# no target tag.
 #
 # The shared config was selected from local 2020 M=3 confirmation:
 #   hidden_dims = 64,32
@@ -73,8 +82,15 @@ trap 'kill "${GPU_MONITOR_PID}" 2>/dev/null || true' EXIT
 
 STORAGE=$(python -c "from utils import get_storage_dir; print(get_storage_dir())")
 DATA="${STORAGE}/results/csv_collection/combined_2016_2020_dates.parquet"
-PCA_ROOT="${STORAGE}/results/profile_pca_date_kfold_2016_2020"
-RUN_STEM="de2016_2020_structured_shared_h64x32_b8_foldpca"
+PCA_ROOT="${STRUCT_PCA_ROOT:-${STORAGE}/results/profile_pca_date_kfold_2016_2020}"
+RUN_STEM_BASE="de2016_2020_structured_shared_h64x32_b8_foldpca"
+TARGET_ALIAS="${STRUCT_TARGET_ALIAS:-10km}"
+TARGET_TAG="${STRUCT_TARGET_TAG:-}"
+if [[ -n "${TARGET_TAG}" ]]; then
+    RUN_STEM="${RUN_STEM_BASE}_${TARGET_TAG}"
+else
+    RUN_STEM="${RUN_STEM_BASE}"
+fi
 NFOLDS=5
 
 TASK_ID=${SLURM_ARRAY_TASK_ID}
@@ -101,6 +117,7 @@ if [[ ! -f "${PROFILE_PKL}" ]]; then
 fi
 
 echo "run_stem=${RUN_STEM}"
+echo "target=${TARGET_ALIAS}"
 echo "surface=${SURFACE} sfc_type=${SFC_TYPE} fold=${FOLD}/${NFOLDS}"
 echo "data=${DATA}"
 echo "profile_pca=${PROFILE_PKL}"
@@ -113,7 +130,7 @@ python -m models.structured_dcn_ensemble \
     --backbone structured_residual \
     --feature_set full \
     --profile-pca "${PROFILE_PKL}" \
-    --target 10km \
+    --target "${TARGET_ALIAS}" \
     --hidden_dims 64,32 \
     --block_dim 8 \
     --loss beta_nll \
