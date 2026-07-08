@@ -58,6 +58,33 @@ Standalone CLI; outputs under `results/figures/cld_dist_analysis/spec_sensitivit
   holdout): AUC land 0.69 (HGB) / 0.66 ocean (logreg). Deployment-compatible
   (no neighbors, no MODIS) → MODIS-free flagging claim.
 
+### Single-case showcase with MODIS RGB (Job 1/3) — `workspace/spec_case_study/`
+- `screen_spec_cases.py` — scans the combined parquet for frames where a small
+  cloud clips one edge of the swath (same-frame cross-track contrast: min fp
+  cld < 2 km, max > 8 km — the swath is only ~10 km wide, so 15 km contrast is
+  geometrically impossible), with clear context (baselines) and a short
+  near-run (genuinely small cloud). 631 land / 219 ocean candidates on the
+  full parquet → `spec_case_candidates_{land,ocean}.csv`.
+- `spec_case_figure.py` — per case: Aqua true-color RGB from **NASA GIBS WMS**
+  (no login; A-Train ⇒ the daily composite at the overpass IS the matching
+  granule; cached under `rgb_cache/`) with footprints colored by cld_dist
+  (overview + ±15 km zoom), fp×along-track cross-band Δk1 z heatmap
+  ("spectra-only cloud localization"), then along-track traces vs per-fp
+  clear baselines: Δk1/Δk2/Δ(exp int−alb)/continuum ratio/Δalbedo/ΔXCO2/cld.
+- **102 cases rendered** (56 land / 46 ocean, deduplicated by overpass;
+  index with metadata: `case_index.{md,csv}` alongside the figures) —
+  awaiting hand-pick. Reading key: real cloud = white in zoom RGB + all-band
+  Δk1/Δk2 + continuum/exp-int + XCO2 response; surface feature (river,
+  vegetation, bright soil) = Δalbedo & continuum move together, Δk1 quiet —
+  valuable as "correction tolerates surface variance" exhibits; RGB-clean +
+  spectra-quiet = MYD35 false positive (selectivity exhibit).
+- Vetted so far: **Tasman Sea 2018-05-01** (isolated popcorn cumulus,
+  brightening + −1.4 ppm) and **N Pacific 2019-02-01** (cloud-street
+  approach, continuum ×20, −5 ppm) are showcase-grade; Botswana 2019-08-01
+  is a MYD35 **false positive** (dark vegetation patch, no cloud, spectra
+  quiet: a selectivity demo in itself).
+- Outputs: `results/figures/cld_dist_analysis/spec_case_study/`.
+
 ### run_all.py figure-suite trim
 Default `full` profile: **~19,968 → ~250 figures** (verified end-to-end on a
 1.2M-row subset). fp_0..7 loop → footprint overlay (`run_footprint_overlay`,
