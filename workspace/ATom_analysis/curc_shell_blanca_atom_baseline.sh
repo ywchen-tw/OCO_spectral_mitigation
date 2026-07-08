@@ -12,19 +12,21 @@
 #SBATCH --qos=preemptable
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ATom ocean-glint BASELINE (linreg | xgb) correction runner — the ocean analog
-# of curc_shell_blanca_atom_deepens.sh for the two reviewer baselines.
+# ATom ocean-glint NON-DE model correction runner — the ocean analog of
+# curc_shell_blanca_atom_deepens.sh for the reviewer baselines (linreg/xgb) and the
+# alternative correction models (tabm/structured).
 #
-# Applies the ocean r05 baseline (build_baseline_plot_data.py --model-kind) to the
-# OCO-2 footprints on each ATom-coincident date, emitting plot_data.parquet with
-# <kind>_corrected_xco2, then re-scores the SAME aircraft pseudo-columns as the DE
-# run via atom_pseudo_column.py (reusing the DE tree's model-independent
-# atom_merged/ profiles).  Output goes to the baseline's own model_comparison
-# subtree so it never collides with the DE case.
+# Applies the model's ocean r05 correction (the kind-specific build_*_plot_data.py)
+# to the OCO-2 footprints on each ATom-coincident date, emitting plot_data.parquet
+# with <kind>_corrected_xco2, then re-scores the SAME aircraft pseudo-columns as the
+# DE run via atom_pseudo_column.py (reusing the DE tree's model-independent
+# atom_merged/ profiles).  Output goes to each model's own model_comparison subtree.
 #
 # Pick the model with the first positional arg (default linreg):
 #     bash workspace/ATom_analysis/curc_shell_blanca_atom_baseline.sh linreg
 #     bash workspace/ATom_analysis/curc_shell_blanca_atom_baseline.sh xgb
+#     bash workspace/ATom_analysis/curc_shell_blanca_atom_baseline.sh tabm
+#     bash workspace/ATom_analysis/curc_shell_blanca_atom_baseline.sh structured
 #
 # Submit from the REPO ROOT.  Runs locally (models live under results/).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,20 +50,40 @@ DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 
 # ─── model kind + dirs ────────────────────────────────────────────────────────
+# Each kind sets: MODEL_TAG, OUT_SUBDIR (model_comparison/<sub>/), CORR_COL,
+# BUILDER (the build_*_plot_data.py that emits <corr_col>), OCEAN_MODEL_DIRS (r05).
 MODEL_KIND="${1:-linreg}"
 case "$MODEL_KIND" in
     linreg)
-        MODEL_TAG=linreg_prof_foldpca_o05l15
+        MODEL_TAG=linreg_prof_foldpca_o05l15; OUT_SUBDIR=linreg
+        CORR_COL=linreg_corrected_xco2
+        BUILDER=(workspace/build_baseline_plot_data.py --model-kind linreg)
         OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_linear_baseline/linreg_ocean_full_prof_foldpca_r05_f*) ;;
     xgb)
-        MODEL_TAG=xgb_prof_foldpca_o05l15
+        MODEL_TAG=xgb_prof_foldpca_o05l15; OUT_SUBDIR=xgb
+        CORR_COL=xgb_corrected_xco2
+        BUILDER=(workspace/build_baseline_plot_data.py --model-kind xgb)
         OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_gbdt/xgb_ocean_full_prof_foldpca_r05_f*) ;;
-    *)  echo "unknown model kind '$MODEL_KIND' (expected linreg|xgb)"; exit 2 ;;
+    tabm)
+        MODEL_TAG=tabm_prof_o05l15; OUT_SUBDIR=tabm
+        CORR_COL=tabm_corrected_xco2
+        BUILDER=(workspace/build_tabm_plot_data.py)
+        OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_tabm/tabm_ocean_prof_r05_f*) ;;
+    structured)
+        # NOTE: the LOCAL structured ocean r05 folds are the NON-regime variant; the
+        # regime TCCON report uses regime_* (whose ocean folds are trained on CURC).
+        # On CURC, override OCEAN_STEM/MODEL_TAG to match the regime run.
+        MODEL_TAG="${STRUCT_MODEL_TAG:-structured_shared_foldpca_o05l15_m5}"; OUT_SUBDIR=structured_residual
+        CORR_COL=structured_residual_corrected_xco2
+        BUILDER=(workspace/build_structured_residual_plot_data.py)
+        OCEAN_STEM="${STRUCT_OCEAN_STEM:-de2016_2020_structured_shared_h64x32_b8_foldpca_r05_ocean}"
+        STRUCT_ROOT="${STRUCT_MODEL_ROOT:-$DATA_ROOT/results/model_structured_dcn_ensemble}"
+        OCEAN_MODEL_DIRS=("$STRUCT_ROOT"/"${OCEAN_STEM}"_f*) ;;
+    *)  echo "unknown model kind '$MODEL_KIND' (expected linreg|xgb|tabm|structured)"; exit 2 ;;
 esac
-CORR_COL=${MODEL_KIND}_corrected_xco2
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
-OUT_BASE="$DATA_ROOT"/results/model_comparison/${MODEL_KIND}/${MODEL_TAG}/atom
+OUT_BASE="$DATA_ROOT"/results/model_comparison/${OUT_SUBDIR}/${MODEL_TAG}/atom
 # atom_merged/ is model-independent → reuse the DE tree's already-built profiles.
 DE_ATOM="$DATA_ROOT"/results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atom
 MERGED_DIR="$DE_ATOM/atom_merged"
@@ -83,7 +105,7 @@ for date in "${DATES[@]}"; do
         echo "  SKIP: input parquet not found: $input"; continue
     fi
     mkdir -p "$outdir"
-    python workspace/build_baseline_plot_data.py --model-kind "$MODEL_KIND" \
+    python "${BUILDER[@]}" \
         --ocean-model-dir "${OCEAN_MODEL_DIRS[@]}" \
         --input "$input" --output "$plotdata" \
         || { echo "  build failed"; continue; }

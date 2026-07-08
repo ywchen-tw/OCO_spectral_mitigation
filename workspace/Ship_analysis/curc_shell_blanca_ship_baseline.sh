@@ -21,9 +21,11 @@
 # figure and (c) the cross-case summary CSV/plot — reading the baseline corr column.
 # Output goes to the baseline's own model_comparison subtree.
 #
-# Pick the model with the first positional arg (default linreg):
+# Pick the model with the first positional arg (default linreg; linreg|xgb|tabm|structured):
 #     bash workspace/Ship_analysis/curc_shell_blanca_ship_baseline.sh linreg
 #     bash workspace/Ship_analysis/curc_shell_blanca_ship_baseline.sh xgb
+#     bash workspace/Ship_analysis/curc_shell_blanca_ship_baseline.sh tabm
+#     bash workspace/Ship_analysis/curc_shell_blanca_ship_baseline.sh structured
 #
 # Submit from the REPO ROOT.  Runs locally (models live under results/).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -50,17 +52,34 @@ export OCO2_DATAROOT="$DATA_ROOT"
 MODEL_KIND="${1:-linreg}"
 case "$MODEL_KIND" in
     linreg)
-        MODEL_TAG=linreg_prof_foldpca_o05l15
+        MODEL_TAG=linreg_prof_foldpca_o05l15; OUT_SUBDIR=linreg
+        CORR_COL=linreg_corrected_xco2
+        BUILDER=(workspace/build_baseline_plot_data.py --model-kind linreg)
         OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_linear_baseline/linreg_ocean_full_prof_foldpca_r05_f*) ;;
     xgb)
-        MODEL_TAG=xgb_prof_foldpca_o05l15
+        MODEL_TAG=xgb_prof_foldpca_o05l15; OUT_SUBDIR=xgb
+        CORR_COL=xgb_corrected_xco2
+        BUILDER=(workspace/build_baseline_plot_data.py --model-kind xgb)
         OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_gbdt/xgb_ocean_full_prof_foldpca_r05_f*) ;;
-    *)  echo "unknown model kind '$MODEL_KIND' (expected linreg|xgb)"; exit 2 ;;
+    tabm)
+        MODEL_TAG=tabm_prof_o05l15; OUT_SUBDIR=tabm
+        CORR_COL=tabm_corrected_xco2
+        BUILDER=(workspace/build_tabm_plot_data.py)
+        OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_tabm/tabm_ocean_prof_r05_f*) ;;
+    structured)
+        # LOCAL structured ocean r05 folds are the NON-regime variant; on CURC override
+        # STRUCT_OCEAN_STEM/STRUCT_MODEL_TAG/STRUCT_MODEL_ROOT to match the regime run.
+        MODEL_TAG="${STRUCT_MODEL_TAG:-structured_shared_foldpca_o05l15_m5}"; OUT_SUBDIR=structured_residual
+        CORR_COL=structured_residual_corrected_xco2
+        BUILDER=(workspace/build_structured_residual_plot_data.py)
+        OCEAN_STEM="${STRUCT_OCEAN_STEM:-de2016_2020_structured_shared_h64x32_b8_foldpca_r05_ocean}"
+        STRUCT_ROOT="${STRUCT_MODEL_ROOT:-$DATA_ROOT/results/model_structured_dcn_ensemble}"
+        OCEAN_MODEL_DIRS=("$STRUCT_ROOT"/"${OCEAN_STEM}"_f*) ;;
+    *)  echo "unknown model kind '$MODEL_KIND' (expected linreg|xgb|tabm|structured)"; exit 2 ;;
 esac
-CORR_COL=${MODEL_KIND}_corrected_xco2
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
-OUT_BASE="$DATA_ROOT"/results/model_comparison/${MODEL_KIND}/${MODEL_TAG}/ship
+OUT_BASE="$DATA_ROOT"/results/model_comparison/${OUT_SUBDIR}/${MODEL_TAG}/ship
 
 RADIUS_KM="${RADIUS_KM:-100}"
 WINDOW_MIN="${WINDOW_MIN:-120}"
@@ -79,8 +98,8 @@ ship_case() {
     fi
     mkdir -p "$outdir"
 
-    # (a) apply ocean baseline → plot_data.parquet
-    python workspace/build_baseline_plot_data.py --model-kind "$MODEL_KIND" \
+    # (a) apply ocean model → plot_data.parquet
+    python "${BUILDER[@]}" \
         --ocean-model-dir "${OCEAN_MODEL_DIRS[@]}" \
         --input "$input" --output "$plotdata" \
         || { echo "  build failed"; return; }
