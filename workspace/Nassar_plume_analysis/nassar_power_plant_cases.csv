@@ -1,0 +1,22 @@
+case_id,source_name,date,country,observing_mode,overpass_type,lat,lon,priority,note
+amos_20151205,Amos,2015-12-05,USA,Nadir,Flyby (~8 km),38.4731,-81.8233,2,
+white_bluff_20150825,White Bluff,2015-08-25,USA,Glint,Flyby (~11 km),34.4236,-92.1392,2,
+colstrip_20141028,Colstrip,2014-10-28,USA,Glint,Flyby (~17 km),45.8831,-106.614,3,
+gavin_kyger_20150730,Gavin-Kyger,2015-07-30,USA,Nadir,Direct Overpass,38.92855,-82.11751,1,Listed with asterisk in the source table.
+ghent_20150813,Ghent,2015-08-13,USA,Nadir,Flyby (~8 km),38.74753,-85.03433,1,Listed with asterisk in the source table.
+comanche_20141104,Comanche,2014-11-04,USA,Glint,Flyby (~14 km),38.2081,-104.5747,2,
+westar_20151204,Westar,2015-12-04,USA,Nadir,Direct Overpass,39.28556,-96.11701,1,Listed with asterisk in the source table.
+westar_20180721,Westar,2018-07-21,USA,Nadir,Direct Overpass,39.28556,-96.11701,1,
+matimba_20141107,Matimba,2014-11-07,S. Africa,Glint,Flyby (~7 km),-23.66833,27.61056,1,Listed with asterisk in the source table.
+matimba_20161011,Matimba,2016-10-11,S. Africa,Glint,Direct Overpass,-23.66833,27.61056,1,Listed with asterisk in the source table.
+sasan_20141023,Sasan,2014-10-23,India,Nadir,Direct Overpass,23.97861,82.62761,1,Listed with asterisk in the source table.
+vindhyachal_20141110,Vindhyachal,2014-11-10,India,Glint,Flyby (~4.5 km),24.09856,82.67167,1,Paired with Sasan in the same OCO-2 overpass.
+sasan_20141110,Sasan,2014-11-10,India,Glint,Flyby (~4.5 km),23.97861,82.62761,1,Paired with Vindhyachal in the same OCO-2 overpass.
+sasan_20170305,Sasan,2017-03-05,India,Nadir,Direct Overpass,23.97861,82.62761,1,
+sasan_20181002,Sasan,2018-10-02,India,Nadir,Flyby (~8 km),23.97861,82.62761,1,
+belchatow_20170328,Belchatow,2017-03-28,Poland,Glint,Flyby (~3 km),51.26639,19.33056,1,
+kozienice_20180511,Kozienice,2018-05-11,Poland,Glint,Flyby (~4 km),51.66472,21.46667,1,
+taean_20150417,Taean,2015-04-17,S. Korea,Ocean Glint,Flyby (~3 km),36.90557,126.23463,1,
+lipetsk_20160718,Lipetsk,2016-07-18,Russia,Nadir,Flyby (<6 km),52.6,39.6,2,
+lipetsk_20170504,Lipetsk,2017-05-04,Russia,Glint,Flyby (<20 km),52.6,39.6,3,
+lipetsk_20180825,Lipetsk,2018-08-25,Russia,Nadir,Flyby (<1 km),52.6,39.6,1,
