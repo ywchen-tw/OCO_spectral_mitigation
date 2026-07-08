@@ -11,19 +11,23 @@
 #SBATCH --account=blanca-airs
 #SBATCH --qos=preemptable
 
-# Standalone Nassar et al. power-plant plume-control runner.
+# Standalone power-plant plume-control runner using Nassar et al. plant locations.
 #
-# Applies the production deep ensemble to the exact OCO-2 dates/source coordinates
-# listed in nassar_power_plant_cases.csv.  There is no TCCON step here: these are
-# plume negative controls for M1, not station-day validation cases.  The downstream
-# screen_nassar_plumes.py script selects footprints near each plant and tests
-# whether real XCO2 enhancements are preserved while predicted mu stays inert.
+# Applies the production deep ensemble to user-selected OCO-2 dates, then the
+# downstream screen_nassar_plumes.py script cross-checks those dates against the
+# plant lon/lat catalog.  Dates are deliberately NOT taken from the Nassar table:
+# the table is only a source-coordinate catalog.
 #
 # Prerequisite per date:
 #   results/csv_collection/combined_<YYYY-MM-DD>_all_orbits.parquet
 #
 # Submit from repo root:
-#   sbatch workspace/Nassar_plume_analysis/curc_shell_blanca_nassar_deepens.sh
+#   NASSAR_DATES="2018-06-03 2021-04-24" \
+#     sbatch workspace/Nassar_plume_analysis/curc_shell_blanca_nassar_deepens.sh
+#
+# Or:
+#   NASSAR_DATES_FILE=path/to/dates_yyyymmdd_or_yyyy-mm-dd.txt \
+#     sbatch workspace/Nassar_plume_analysis/curc_shell_blanca_nassar_deepens.sh
 
 if [[ "$(uname -s)" == "Linux" ]]; then
     module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
@@ -53,18 +57,41 @@ LAND_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_land_f*)
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
 OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${MODEL_TAG}/nassar_plumes
-CASES_CSV="${CASES_CSV:-workspace/Nassar_plume_analysis/nassar_power_plant_cases.csv}"
+PLANTS_CSV="${PLANTS_CSV:-workspace/Nassar_plume_analysis/nassar_power_plants.csv}"
 
 mkdir -p "$OUT_BASE"
 
-nassar_case() {
-    local case_id="$1" date="$2"
+normalize_date() {
+    local raw="$1"
+    raw="${raw//[$'\r\n\t ']/}"
+    if [[ "$raw" =~ ^[0-9]{8}$ ]]; then
+        printf "%s-%s-%s\n" "${raw:0:4}" "${raw:4:2}" "${raw:6:2}"
+    else
+        printf "%s\n" "$raw"
+    fi
+}
+
+load_dates() {
+    if [[ "$#" -gt 0 ]]; then
+        printf "%s\n" "$@"
+    elif [[ -n "${NASSAR_DATES:-}" ]]; then
+        printf "%s\n" $NASSAR_DATES
+    elif [[ -n "${NASSAR_DATES_FILE:-}" ]]; then
+        sed '/^[[:space:]]*$/d; /^[[:space:]]*#/d' "$NASSAR_DATES_FILE"
+    else
+        echo "No dates supplied. Set NASSAR_DATES, NASSAR_DATES_FILE, or pass dates as arguments." >&2
+        return 2
+    fi
+}
+
+nassar_date() {
+    local date="$1"
     local input="$CSV_DIR/combined_${date}_all_orbits.parquet"
-    local outdir="$OUT_BASE/combined_${date}_${case_id}"
+    local outdir="$OUT_BASE/combined_${date}"
     local plotdata="$outdir/plot_data.parquet"
 
     echo ""
-    echo "############ NASSAR CASE $case_id  $date  ############"
+    echo "############ POWER-PLANT SCREEN DATE $date  ############"
     if [[ ! -f "$input" ]]; then
         echo "  SKIP: input parquet not found: $input"
         return
@@ -81,21 +108,22 @@ nassar_case() {
     echo "  wrote $plotdata"
 }
 
-python - "$CASES_CSV" <<'PY' | while IFS=$'\t' read -r case_id date; do
-import csv
-import sys
+mapfile -t REQUESTED_DATES < <(load_dates "$@")
+if [[ "${#REQUESTED_DATES[@]}" -eq 0 ]]; then
+    echo "No dates supplied after filtering." >&2
+    exit 2
+fi
 
-with open(sys.argv[1], newline="") as f:
-    for row in csv.DictReader(f):
-        print(f"{row['case_id']}\t{row['date']}")
-PY
-    nassar_case "$case_id" "$date"
+for raw_date in "${REQUESTED_DATES[@]}"; do
+    date="$(normalize_date "$raw_date")"
+    nassar_date "$date"
 done
 
 echo ""
 echo "############ NASSAR PLUME SCREEN ############"
 python workspace/Nassar_plume_analysis/screen_nassar_plumes.py \
-    --cases "$CASES_CSV" \
+    --plants "$PLANTS_CSV" \
+    --dates "${REQUESTED_DATES[@]}" \
     --csv-dir "$CSV_DIR" \
     --plot-base "$OUT_BASE" \
     --output "$OUT_BASE/nassar_plume_screen.csv" \
@@ -103,5 +131,5 @@ python workspace/Nassar_plume_analysis/screen_nassar_plumes.py \
     || echo "  plume screen failed"
 
 echo ""
-echo "Nassar plume-control DE outputs -> $OUT_BASE/combined_<date>_<case_id>/"
+echo "Power-plant plume-control DE outputs -> $OUT_BASE/combined_<date>/"
 echo "Screen summary -> $OUT_BASE/nassar_plume_screen.csv"

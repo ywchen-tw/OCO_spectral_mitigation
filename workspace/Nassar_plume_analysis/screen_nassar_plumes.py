@@ -1,13 +1,12 @@
 #!/usr/bin/env python
-"""Screen Nassar et al. power-plant OCO-2 cases for plume-control usefulness.
+"""Screen processed OCO-2 dates against Nassar et al. power-plant locations.
 
 The script can run before or after deep-ensemble plot data exists:
 
 * If ``plot_data.parquet`` exists, it reports source proximity, cloud-distance
   coverage, XCO2, predicted mu, and corrected-XCO2 statistics.
 * Otherwise it falls back to ``results/csv_collection/combined_<date>_all_orbits``
-  and reports the geometry/cloud/source information needed to decide which dates
-  are worth processing next.
+  and reports the geometry/cloud/source information for the selected dates.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 
-DEFAULT_CASES = Path(__file__).with_name("nassar_power_plant_cases.csv")
+DEFAULT_PLANTS = Path(__file__).with_name("nassar_power_plants.csv")
 DEFAULT_CSV_DIR = Path("results/csv_collection")
 DEFAULT_PLOT_BASE = Path(
     "results/model_comparison/deep_ensemble/"
@@ -48,7 +47,7 @@ def first_existing_column(columns: Iterable[str], candidates: Iterable[str]) -> 
     return None
 
 
-def read_case_rows(path: Path) -> list[dict[str, str]]:
+def read_plant_rows(path: Path) -> list[dict[str, str]]:
     with path.open(newline="") as f:
         return list(csv.DictReader(f))
 
@@ -77,38 +76,52 @@ def read_subset(path: Path) -> pd.DataFrame:
     return pd.read_parquet(path, columns=usecols)
 
 
-def source_plot_path(plot_base: Path, date: str, case_id: str) -> Path:
-    return plot_base / f"combined_{date}_{case_id}" / "plot_data.parquet"
+def normalize_date(raw: str) -> str:
+    value = raw.strip()
+    if len(value) == 8 and value.isdigit():
+        return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
+    return value
+
+
+def source_plot_path(plot_base: Path, date: str) -> Path:
+    return plot_base / f"combined_{date}" / "plot_data.parquet"
 
 
 def source_feature_path(csv_dir: Path, date: str) -> Path:
     return csv_dir / f"combined_{date}_all_orbits.parquet"
 
 
-def summarize_case(
-    row: dict[str, str],
+def discover_plot_dates(plot_base: Path) -> list[str]:
+    dates = []
+    for path in sorted(plot_base.glob("combined_*/plot_data.parquet")):
+        name = path.parent.name
+        date = name.removeprefix("combined_")
+        if len(date) >= 10:
+            dates.append(date[:10])
+    return sorted(set(dates))
+
+
+def summarize_pair(
+    plant: dict[str, str],
+    date: str,
     csv_dir: Path,
     plot_base: Path,
     radius_km: float,
     clear_cloud_km: float,
 ) -> dict[str, object]:
-    case_id = row["case_id"]
-    date = row["date"]
-    src_lat = float(row["lat"])
-    src_lon = float(row["lon"])
+    plant_id = plant["plant_id"]
+    src_lat = float(plant["lat"])
+    src_lon = float(plant["lon"])
 
-    plot_path = source_plot_path(plot_base, date, case_id)
+    plot_path = source_plot_path(plot_base, date)
     feature_path = source_feature_path(csv_dir, date)
     data_path = plot_path if plot_path.exists() else feature_path
 
     out: dict[str, object] = {
-        "case_id": case_id,
-        "source_name": row["source_name"],
+        "plant_id": plant_id,
+        "source_name": plant["source_name"],
         "date": date,
-        "country": row["country"],
-        "observing_mode": row["observing_mode"],
-        "overpass_type": row["overpass_type"],
-        "priority": row.get("priority", ""),
+        "country": plant["country"],
         "src_lat": src_lat,
         "src_lon": src_lon,
         "data_stage": "plot_data" if plot_path.exists() else "feature",
@@ -185,11 +198,9 @@ def summarize_case(
 
 def write_markdown(df: pd.DataFrame, path: Path) -> None:
     keep = [
-        "case_id",
+        "plant_id",
         "date",
         "source_name",
-        "observing_mode",
-        "overpass_type",
         "data_stage",
         "status",
         "min_source_dist_km",
@@ -227,7 +238,19 @@ def write_markdown(df: pd.DataFrame, path: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
+    parser.add_argument("--plants", "--cases", dest="plants", type=Path, default=DEFAULT_PLANTS)
+    parser.add_argument(
+        "--dates",
+        nargs="*",
+        default=None,
+        help="Dates to screen, as YYYY-MM-DD or YYYYMMDD. If omitted, existing plot-base outputs are used.",
+    )
+    parser.add_argument(
+        "--date-file",
+        type=Path,
+        default=None,
+        help="Optional text file containing one YYYY-MM-DD or YYYYMMDD date per line.",
+    )
     parser.add_argument("--csv-dir", type=Path, default=DEFAULT_CSV_DIR)
     parser.add_argument("--plot-base", type=Path, default=DEFAULT_PLOT_BASE)
     parser.add_argument("--output", type=Path, default=DEFAULT_PLOT_BASE / "nassar_plume_screen.csv")
@@ -239,15 +262,34 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    rows = read_case_rows(args.cases)
+    plants = read_plant_rows(args.plants)
+    raw_dates = list(args.dates or [])
+    if args.date_file is not None:
+        raw_dates.extend(
+            line.strip()
+            for line in args.date_file.read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+    if raw_dates:
+        dates = sorted({normalize_date(date) for date in raw_dates})
+    else:
+        dates = discover_plot_dates(args.plot_base)
+
+    if not dates:
+        raise SystemExit(
+            "No dates supplied and no existing plot_data dates found under "
+            f"{args.plot_base}. Use --dates or --date-file."
+        )
+
     summaries = [
-        summarize_case(row, args.csv_dir, args.plot_base, args.radius_km, args.clear_cloud_km)
-        for row in rows
+        summarize_pair(plant, date, args.csv_dir, args.plot_base, args.radius_km, args.clear_cloud_km)
+        for date in dates
+        for plant in plants
     ]
     df = pd.DataFrame(summaries)
-    sort_cols = [c for c in ["status", "priority", "min_source_dist_km"] if c in df.columns]
+    sort_cols = [c for c in ["status", "date", "min_source_dist_km"] if c in df.columns]
     if sort_cols:
-        df = df.sort_values(sort_cols, ascending=[True, True, True][: len(sort_cols)])
+        df = df.sort_values(sort_cols)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(args.output, index=False)
