@@ -36,14 +36,20 @@ from ak_harmonize import operator_from_dataframe, _haversine_km  # noqa: E402
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CSV_DIR = os.path.join(REPO, "results", "csv_collection")
 TAG = "de_beta_nll_prof_reg_o05l15_m5"
-OUT_BASE = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
-PLOT_BASE = OUT_BASE                              # per-case combined_<date>_atom/ dirs
-MERGED_DIR = os.path.join(OUT_BASE, "atom_merged")  # merged profiles (input)
+DE_ATOM = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
+# The following four are DEFAULTS (production DE); --out-base/--plot-base/--merged-dir/
+# --corr-col override them so the SAME pipeline scores the linreg/xgb baselines against
+# the SAME aircraft pseudo-columns.  atom_merged is model-independent, so baselines
+# reuse the DE tree's merged profiles (default MERGED_DIR) rather than re-deriving them.
+OUT_BASE = DE_ATOM                                # where results CSV/plot are written
+PLOT_BASE = DE_ATOM                               # per-case combined_<date>_atom/ dirs
+MERGED_DIR = os.path.join(DE_ATOM, "atom_merged")  # merged profiles (input)
 EPOCH = dt.datetime(1970, 1, 1)
 
 DATES = ["2017-01-26", "2017-02-04", "2017-02-06", "2017-02-10", "2017-10-09",
          "2017-10-20", "2017-10-27", "2018-05-12"]
 CORR_COL = "deep_ensemble_corrected_xco2"
+MODEL_LABEL = "DE-corrected"                      # cosmetic (plot legends/titles)
 
 # Flights whose OCO coincidence day (key everywhere) is the flight's 2nd UTC day, so
 # the merged ATom profile lives under the flight (1st) date.
@@ -189,11 +195,11 @@ def make_summary_plot(df, out_png):
     ax1.errorbar(d.resid_bc, y, xerr=d.oco_bc_sd, fmt="o", ms=6, color=RED, ecolor=RED,
                  elinewidth=1, capsize=2, zorder=2, label="xco2_bc − ATom")
     ax1.errorbar(d.resid_corr, y, xerr=d.oco_corr_sd, fmt="o", ms=6, color=BLUE, ecolor=BLUE,
-                 elinewidth=1, capsize=2, zorder=3, label="DE-corrected − ATom")
+                 elinewidth=1, capsize=2, zorder=3, label=f"{MODEL_LABEL} − ATom")
     ax1.axvline(0, color="k", lw=0.7)
     ax1.set_yticks(y); ax1.set_yticklabels(lbl, fontsize=8); ax1.invert_yaxis()
     ax1.set_xlabel("OCO-2 − ATom pseudo-column (ppm)   [error bars = OCO sounding spread]")
-    ax1.set_title("Per-leg bias: xco2_bc → DE-corrected")
+    ax1.set_title(f"Per-leg bias: xco2_bc → {MODEL_LABEL}")
     ax1.legend(handles=[Patch(facecolor=GREY, alpha=0.25, label="ATom pseudo-column ±1σ (per leg)"),
                         *ax1.get_legend_handles_labels()[0]], fontsize=7)
 
@@ -204,7 +210,7 @@ def make_summary_plot(df, out_png):
     ax2.errorbar(d.cld_med, d.resid_bc, yerr=d.oco_bc_sd, fmt="o", color=RED, mfc="none",
                  ms=7, elinewidth=0.8, capsize=2, label="xco2_bc")
     ax2.errorbar(d.cld_med, d.resid_corr, yerr=d.oco_corr_sd, fmt="o", color=BLUE,
-                 ms=7, elinewidth=0.8, capsize=2, label="DE-corrected")
+                 ms=7, elinewidth=0.8, capsize=2, label=MODEL_LABEL)
     for r in d.itertuples():
         ax2.plot([r.cld_med, r.cld_med], [r.resid_bc, r.resid_corr], color="0.8", zorder=0)
     ax2.set_xlabel("median cloud distance of collocated OCO-2 (km)")
@@ -225,6 +231,9 @@ def make_summary_plot(df, out_png):
 
 
 def main():
+    # module globals used by load_oco/load_atom/process/make_summary_plot; declared
+    # up front (before argparse reads them as defaults) so the overrides below are legal
+    global CORR_COL, OUT_BASE, PLOT_BASE, MERGED_DIR, MODEL_LABEL
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--radius-km", type=float, default=100)
     ap.add_argument("--window-min", type=float, default=120)
@@ -232,8 +241,26 @@ def main():
     ap.add_argument("--strat-prior-sd", type=float, default=1.0,
                     help="nominal stratospheric CO2 prior σ (ppm) for the pseudo-column "
                          "uncertainty's prior-fill term above the aircraft ceiling")
+    ap.add_argument("--corr-col", default=CORR_COL,
+                    help="corrected-XCO2 column in each plot_data.parquet "
+                         "(deep_ensemble_corrected_xco2 | linreg_corrected_xco2 | xgb_corrected_xco2)")
+    ap.add_argument("--out-base", default=OUT_BASE,
+                    help="dir for the results CSV/plot AND (default) the per-case "
+                         "combined_<date>_atom/plot_data.parquet inputs")
+    ap.add_argument("--plot-base", default=None,
+                    help="dir holding combined_<date>_atom/plot_data.parquet (default: --out-base)")
+    ap.add_argument("--merged-dir", default=MERGED_DIR,
+                    help="atom_merged/ profiles (model-independent; default reuses the DE tree)")
+    ap.add_argument("--model-label", default=MODEL_LABEL, help="cosmetic label for plot legends")
     args = ap.parse_args()
     twin = args.window_min * 60
+
+    # override module globals from CLI (declared global at top of main())
+    CORR_COL = args.corr_col
+    OUT_BASE = args.out_base
+    PLOT_BASE = args.plot_base if args.plot_base is not None else args.out_base
+    MERGED_DIR = args.merged_dir
+    MODEL_LABEL = args.model_label
 
     all_rows = []
     for date in DATES:

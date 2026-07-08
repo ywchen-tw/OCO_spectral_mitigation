@@ -7,6 +7,12 @@ case reproduces the figure's comparison logic:
 Then computes mean ± std of the ORIGINAL (xco2_bc), CORRECTED, and TCCON XCO2, and
 the bias to TCCON before/after correction.
 
+Every metric variable and figure is emitted THREE times, split by OCO-2 quality
+flag: 'all' (xco2_qf 0+1, the headline — original behaviour), plus 'qf0' (good)
+and 'qf1'.  CSVs gain a ``qf_group`` column; figures gain a '_qf0'/'_qf1' filename
+suffix ('all' keeps its original names).  xco2_qf is merged from the source
+parquet; cases without it populate only the 'all' group.
+
 Outputs (to --output-dir).  Every figure is a SINGLE panel (paper-ready), named
 symmetrically for both TCCON references: ref = 'ak' (harmonized) and 'direct' (raw
 window mean).  The 'ak' set only appears under --ak-harmonize; 'direct' always does.
@@ -70,6 +76,24 @@ except Exception:                       # noqa: BLE001 — run without PYTHONPAT
     AQUA_FREE_DRIFT_YEAR = 2022
 
 CORR = 'deep_ensemble_corrected_xco2'   # overridable with --corr-col (e.g. tabm_corrected_xco2)
+
+# Quality-flag grouping (OCO-2 xco2_qf).  Every metric variable and figure is
+# emitted three times: 'all' = the headline QF 0+1 pool (unchanged behaviour),
+# plus the QF=0 (good) and QF=1 splits.  qfval None ⇒ keep the whole frame.
+QF_GROUPS = (('all', None), ('qf0', 0), ('qf1', 1))
+QF_TITLES = {'all': 'all (QF 0+1)', 'qf0': 'QF=0 (good)', 'qf1': 'QF=1'}
+# Figure/filename suffix per group ('' keeps the pre-existing 'all' filenames).
+QF_FSFX = {'all': '', 'qf0': '_qf0', 'qf1': '_qf1'}
+
+
+def _qf_frame(frame, qfval):
+    """Subset a footprint frame to one xco2_qf value (None ⇒ keep all).  Empty
+    when a specific QF is requested but the flag column is absent/NaN there."""
+    if qfval is None:
+        return frame
+    if 'xco2_qf' not in getattr(frame, 'columns', ()):
+        return frame.iloc[0:0]
+    return frame[frame['xco2_qf'].to_numpy(float) == qfval]
 
 
 def _parse_cld_edges(spec):
@@ -349,16 +373,19 @@ def _metrics_agg(g, n_boot=2000, seed=20260707):
 
 
 def _metrics_table(mrep, cld_labels, n_boot):
-    """Full (ref × surface × cld-group) aggregated metrics DataFrame."""
+    """Full (ref × qf-group × surface × cld-group) aggregated metrics DataFrame."""
     rows = []
+    qf_labels = [q for q, _ in QF_GROUPS]
     for ref in ('ak', 'direct'):
-        for sname in ('all', 'ocean', 'land'):
-            for glab in cld_labels:
-                g = mrep[(mrep['ref'] == ref) & (mrep['surface'] == sname)
-                         & (mrep['cld_group'] == glab) & (mrep['n_tccon'] > 0)]
-                if len(g):
-                    rows.append(dict(ref=ref, surface=sname, cld_group=glab,
-                                     **_metrics_agg(g, n_boot=n_boot)))
+        for qf in qf_labels:
+            for sname in ('all', 'ocean', 'land'):
+                for glab in cld_labels:
+                    g = mrep[(mrep['ref'] == ref) & (mrep['qf_group'] == qf)
+                             & (mrep['surface'] == sname) & (mrep['cld_group'] == glab)
+                             & (mrep['n_tccon'] > 0)]
+                    if len(g):
+                        rows.append(dict(ref=ref, qf_group=qf, surface=sname,
+                                         cld_group=glab, **_metrics_agg(g, n_boot=n_boot)))
     return pd.DataFrame(rows)
 
 
@@ -374,25 +401,28 @@ def _metrics_md_lines(tbl):
            'station-mean OCO-vs-TCCON OLS; ⟨z²⟩ = reduced-χ² vs `de_sigma` (≈1 ideal); '
            'skill = 1−RMSE_after/RMSE_before (fractional RMSE reduction, >0 = correction '
            'helps); 95% CI is site-clustered bootstrap on the mean bias._']
+    qf_labels = [q for q, _ in QF_GROUPS]
     for ref in ('ak', 'direct'):
-        t = tbl[(tbl['ref'] == ref) & (tbl['surface'] == 'all')]
-        if not len(t):
-            continue
-        out += ['', f'### {ref.upper()} reference', '',
-                '| cld group | n_days | n_fp | cloud dist (km) | bias after | 95% CI | '
-                'RMSE | cRMSE | MAE | median±MAD | slope±SE | R² | ⟨z²⟩ | skill |',
-                '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|']
-        for _, r in t.iterrows():
-            ci = (f"[{f(r['bias_after_ci_lo'])}, {f(r['bias_after_ci_hi'])}]"
-                  if np.isfinite(r.get('bias_after_ci_lo', np.nan)) else '')
-            out.append(
-                f"| {r['cld_group']} | {int(r['n_station_days'])} | {int(r['n_footprints'])} "
-                f"| {f(r['cld_dist_mu'], 1)}±{f(r['cld_dist_sd'], 1)} | {f(r['bias_after'])} "
-                f"| {ci} | {f(r['rmse_after'])} | {f(r['crmse_after'])} | {f(r['mae_after'])} "
-                f"| {f(r['medbias_after'])}±{f(r['mad_after'])} "
-                f"| {f(r.get('slope_after'), 3)}±{f(r.get('slope_se_after'), 3)} "
-                f"| {f(r.get('r2_after'), 3)} | {f(r.get('chi2_z2'), 2)} "
-                f"| {f(r.get('skill_rmse'), 3)} |")
+        for qf in qf_labels:
+            t = tbl[(tbl['ref'] == ref) & (tbl.get('qf_group', 'all') == qf)
+                    & (tbl['surface'] == 'all')]
+            if not len(t):
+                continue
+            out += ['', f'### {ref.upper()} reference — {QF_TITLES[qf]}', '',
+                    '| cld group | n_days | n_fp | cloud dist (km) | bias after | 95% CI | '
+                    'RMSE | cRMSE | MAE | median±MAD | slope±SE | R² | ⟨z²⟩ | skill |',
+                    '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|']
+            for _, r in t.iterrows():
+                ci = (f"[{f(r['bias_after_ci_lo'])}, {f(r['bias_after_ci_hi'])}]"
+                      if np.isfinite(r.get('bias_after_ci_lo', np.nan)) else '')
+                out.append(
+                    f"| {r['cld_group']} | {int(r['n_station_days'])} | {int(r['n_footprints'])} "
+                    f"| {f(r['cld_dist_mu'], 1)}±{f(r['cld_dist_sd'], 1)} | {f(r['bias_after'])} "
+                    f"| {ci} | {f(r['rmse_after'])} | {f(r['crmse_after'])} | {f(r['mae_after'])} "
+                    f"| {f(r['medbias_after'])}±{f(r['mad_after'])} "
+                    f"| {f(r.get('slope_after'), 3)}±{f(r.get('slope_se_after'), 3)} "
+                    f"| {f(r.get('r2_after'), 3)} | {f(r.get('chi2_z2'), 2)} "
+                    f"| {f(r.get('skill_rmse'), 3)} |")
     return out
 
 
@@ -780,7 +810,9 @@ def main():
             # Only pull columns the plot_data doesn't already carry (newer
             # build_deepens_plot_data.py keeps xco2_raw itself); merging a column
             # already present would collide into xco2_raw_x/_y and blank the raw series.
-            extra = [c for c in ['xco2_raw'] if c in avail and c not in oco.columns]
+            # xco2_qf drives the quality-flag grouping (QF=0/QF=1); absent → only the
+            # pooled 'all' group is populated for that case.
+            extra = [c for c in ['xco2_raw', 'xco2_qf'] if c in avail and c not in oco.columns]
             want = ['time', 'lon', 'lat'] + extra + ak_cols
             src = (pd.read_parquet(sp, columns=want)
                      .drop_duplicates(['time', 'lon', 'lat']))
@@ -856,75 +888,83 @@ def main():
             ref_specs = (('direct', tmu),)
         terr = col.get('tccon_err_mean', np.nan)
 
-        def _mrows(sname, glab, glo, ghi, gframe):
+        def _mrows(sname, qflab, glab, glo, ghi, gframe):
             """One reference-tagged metrics row per ref view for a footprint group."""
             for ref, tref in ref_specs:
                 rows_metrics.append(dict(
-                    ref=ref, site=site, date=c['date'], surface=sname,
+                    ref=ref, site=site, date=c['date'], surface=sname, qf_group=qflab,
                     cld_group=glab, cld_lo=glo, cld_hi=ghi, predrift=case_predrift,
                     n_tccon=n_tc, tccon_mu=tref, tccon_sd=tsd, tccon_err_mean=terr,
                     **_case_metrics(gframe, tref, n_tc)))
 
-        # one row per surface: all (pooled) + ocean (sfc0) + land (sfc1)
-        for sname, frame in (('all', near),
-                             ('ocean', near[near['sfc_type'] == 0]),
-                             ('land',  near[near['sfc_type'] == 1])):
-            if not len(frame):
+        # one row per (surface, quality-flag group): surface = all/ocean/land,
+        # qf_group = all (QF 0+1) / qf0 / qf1 (OCO xco2_qf split).  The TCCON
+        # reference is unchanged across QF groups (only the OCO footprint set is
+        # subset), so tmu/n_tc/ak_delta carry through.
+        for sname, sframe in (('all', near),
+                              ('ocean', near[near['sfc_type'] == 0]),
+                              ('land',  near[near['sfc_type'] == 1])):
+            if not len(sframe):
                 continue
-            _mrows(sname, 'all', -np.inf, np.inf, frame)   # ungrouped (both refs)
-            row = dict(site=site, date=c['date'], surface=sname, n_tccon=n_tc,
-                       tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
-                       tccon_err_mean=col.get('tccon_err_mean', np.nan),
-                       ak_delta=ak_delta, ak_n_lite=ak_n_lite, ak_source=ak_source,
-                       **_case_metrics(frame, tmu, n_tc))
-            # When AK harmonization is active the PRIMARY metrics above use the AK
-            # reference; also compute the direct (raw window-mean) reference metrics
-            # so ONE run emits both comparisons (…_direct columns + overlay figure).
-            # RMSE-to-TCCON is non-linear in the reference, so it must be recomputed
-            # (the bias terms alone would shift by ak_delta, but RMSE would not).
-            if args.ak_harmonize and np.isfinite(tmu_raw) and tmu_raw != tmu:
-                md = _case_metrics(frame, tmu_raw, n_tc)
-                row.update({f'{k}_direct': md[k] for k in (
-                    'bias_raw', 'bias_before', 'bias_after',
-                    'rmse_raw', 'rmse_before', 'rmse_after',
-                    'raw_sd', 'orig_sd', 'corr_sd')})
-            # ── Phase-4 Side-A budget + comparison stats (per surface) ──────────
-            # D = corrected mean − AK TCCON = bias_after; u_D = √(u_oco²+u_TC²);
-            # M1 (z/CI) + M3 (TOST equiv at --rope-delta).  Skipped (NaN) when the
-            # plot_data lacks de_sigma or Side B could not be built.
-            if args.uncertainty:
-                sa = side_a_case(frame, infl_by_sfc, decorr_km=args.decorr_km)
-                u_oco = sa['u_oco'] if sa else np.nan
-                cmpv = compare_case(row['bias_after'], u_oco, u_tc_case,
-                                    delta=args.rope_delta)
-                row.update(dict(u_oco=u_oco, u_TC=u_tc_case, **cmpv, **u_tc_parts))
-                if sa:
-                    row.update(dict(uA_epi=sa['epi_sigma'], uA_avg=sa['avg_sigma'],
-                                    uA_Neff=sa['N_eff'], uA_src=sa['epi_src']))
-            rows.append(row)
-            # ── cloud-distance-grouped rows (same schema + cld_group) ───────────
-            # Split this surface's footprints by nearest-cloud distance and emit a
-            # per-(case, surface, cld-bin) row for the cloud-distance aggregate + figures.
-            if case_predrift and 'cld_dist_km' in frame.columns:
-                cd = frame['cld_dist_km'].to_numpy(float)
-                for glab, glo, ghi in cld_bins:
-                    gframe = frame[np.isfinite(cd) & (cd >= glo) & (cd < ghi)]
-                    if not len(gframe):
-                        continue
-                    rows_cld.append(dict(
-                        site=site, date=c['date'], surface=sname, cld_group=glab,
-                        cld_lo=glo, cld_hi=ghi, n_tccon=n_tc,
-                        tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
-                        tccon_err_mean=col.get('tccon_err_mean', np.nan),
-                        **_case_metrics(gframe, tmu, n_tc)))
-                    _mrows(sname, glab, glo, ghi, gframe)   # both refs, per cld-bin
+            for qflab, qfval in QF_GROUPS:
+                frame = _qf_frame(sframe, qfval)
+                if not len(frame):
+                    continue
+                _mrows(sname, qflab, 'all', -np.inf, np.inf, frame)   # ungrouped
+                row = dict(site=site, date=c['date'], surface=sname, qf_group=qflab,
+                           n_tccon=n_tc, tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
+                           tccon_err_mean=col.get('tccon_err_mean', np.nan),
+                           ak_delta=ak_delta, ak_n_lite=ak_n_lite, ak_source=ak_source,
+                           **_case_metrics(frame, tmu, n_tc))
+                # When AK harmonization is active the PRIMARY metrics above use the AK
+                # reference; also compute the direct (raw window-mean) reference metrics
+                # so ONE run emits both comparisons (…_direct columns + overlay figure).
+                # RMSE-to-TCCON is non-linear in the reference, so it must be recomputed
+                # (the bias terms alone would shift by ak_delta, but RMSE would not).
+                if args.ak_harmonize and np.isfinite(tmu_raw) and tmu_raw != tmu:
+                    md = _case_metrics(frame, tmu_raw, n_tc)
+                    row.update({f'{k}_direct': md[k] for k in (
+                        'bias_raw', 'bias_before', 'bias_after',
+                        'rmse_raw', 'rmse_before', 'rmse_after',
+                        'raw_sd', 'orig_sd', 'corr_sd')})
+                # ── Phase-4 Side-A budget + comparison stats (per surface × QF) ──
+                # D = corrected mean − AK TCCON = bias_after; u_D = √(u_oco²+u_TC²);
+                # M1 (z/CI) + M3 (TOST equiv at --rope-delta).  Skipped (NaN) when the
+                # plot_data lacks de_sigma or Side B could not be built.
+                if args.uncertainty:
+                    sa = side_a_case(frame, infl_by_sfc, decorr_km=args.decorr_km)
+                    u_oco = sa['u_oco'] if sa else np.nan
+                    cmpv = compare_case(row['bias_after'], u_oco, u_tc_case,
+                                        delta=args.rope_delta)
+                    row.update(dict(u_oco=u_oco, u_TC=u_tc_case, **cmpv, **u_tc_parts))
+                    if sa:
+                        row.update(dict(uA_epi=sa['epi_sigma'], uA_avg=sa['avg_sigma'],
+                                        uA_Neff=sa['N_eff'], uA_src=sa['epi_src']))
+                rows.append(row)
+                # ── cloud-distance-grouped rows (same schema + cld_group) ───────
+                # Split this (surface, QF) footprint set by nearest-cloud distance and
+                # emit a per-(case, surface, qf, cld-bin) row for the aggregate + figures.
+                if case_predrift and 'cld_dist_km' in frame.columns:
+                    cd = frame['cld_dist_km'].to_numpy(float)
+                    for glab, glo, ghi in cld_bins:
+                        gframe = frame[np.isfinite(cd) & (cd >= glo) & (cd < ghi)]
+                        if not len(gframe):
+                            continue
+                        rows_cld.append(dict(
+                            site=site, date=c['date'], surface=sname, qf_group=qflab,
+                            cld_group=glab, cld_lo=glo, cld_hi=ghi, n_tccon=n_tc,
+                            tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
+                            tccon_err_mean=col.get('tccon_err_mean', np.nan),
+                            **_case_metrics(gframe, tmu, n_tc)))
+                        _mrows(sname, qflab, glab, glo, ghi, gframe)   # both refs
 
     if not rows:
         print(f"No cases matched (out-base={out_base}, script={args.script}). "
               "Nothing to report — check that each case's plot_data.parquet exists.",
               file=sys.stderr)
         return
-    rep = pd.DataFrame(rows).sort_values(['surface', 'site', 'date']).reset_index(drop=True)
+    rep = pd.DataFrame(rows).sort_values(
+        ['qf_group', 'surface', 'site', 'date']).reset_index(drop=True)
     rep.to_csv(P_CSV, index=False)
 
     # Reference-tagged per-(case, surface, cld-group) metrics frame — drives the
@@ -933,191 +973,217 @@ def main():
 
     rep_cld = pd.DataFrame(rows_cld)
     if len(rep_cld):
-        rep_cld = (rep_cld.sort_values(['surface', 'cld_group', 'site', 'date'])
+        rep_cld = (rep_cld.sort_values(['qf_group', 'surface', 'cld_group', 'site', 'date'])
                           .reset_index(drop=True))
         rep_cld.to_csv(P_CLD_CSV, index=False)
 
     rep_all = rep[rep['surface'] == 'all']            # pooled-surface per-case rows
-    cmp = rep_all[rep_all['n_tccon'] > 0].copy()
     # ── markdown ───────────────────────────────────────────────────────────────
     def f(x, n=2): return '' if pd.isna(x) else f'{x:.{n}f}'
+    # Everything below is emitted once per quality-flag group (all/qf0/qf1); the
+    # per-group tables accumulate a qf_group column into the shared CSVs, written
+    # after the loop.
     lines = ['# OCO-2 corrected vs TCCON — combined comparison', '',
-             f'{len(rep_all)} cases ({len(cmp)} with TCCON in ±{args.window_min:g} min, '
-             f'≤{args.radius_km:g} km).  XCO2 in ppm (mean ± std).', '',
-             '| site | date | n_oco | n_tccon | original | corrected | TCCON | bias before | bias after |',
-             '|---|---|--:|--:|---|---|---|--:|--:|']
-    for _, r in rep_all.iterrows():
-        lines.append(f"| {r['site']} | {r['date']} | {r['n_oco']} | {r['n_tccon']} | "
-                     f"{f(r['orig_mu'])}±{f(r['orig_sd'])} | {f(r['corr_mu'])}±{f(r['corr_sd'])} | "
-                     f"{f(r['tccon_mu'])}±{f(r['tccon_sd'])} | {f(r['bias_before'],2)} | {f(r['bias_after'],2)} |")
-    site_agg = pd.DataFrame()
-    if len(cmp):
-        bb, ba = cmp['bias_before'].to_numpy(), cmp['bias_after'].to_numpy()
-        rb, ra = cmp['rmse_before'].to_numpy(), cmp['rmse_after'].to_numpy()
-        ba_dg, ra_dg = cmp['bias_after_dg'].to_numpy(), cmp['rmse_after_dg'].to_numpy()
-        # raw (pre-bias-correction xco2_raw) series — shown when available so the
-        # headline reads raw → before(xco2_bc) → after(ML), not just before → after.
-        braw = cmp['bias_raw'].to_numpy(float); rraw = cmp['rmse_raw'].to_numpy(float)
-        has_raw = np.isfinite(braw).any()
-        _r_absbias = f"raw **{np.nanmean(np.abs(braw)):.2f}** → " if has_raw else ''
-        _r_rmsbias = f"raw **{np.sqrt(np.nanmean(braw**2)):.2f}** → " if has_raw else ''
-        _r_ocostd  = f"raw **{cmp['raw_sd'].mean():.2f}** → " if has_raw else ''
-        _r_fprmse  = f"raw **{np.nanmean(rraw):.2f}** → " if has_raw else ''
-        n_g_tot = int(cmp['n_guarded'].sum())
-        lines += ['', '## Aggregate (cases with TCCON)', '',
-                  '_Headline KEEPS guarded footprints (correction skipped there → corrected = raw '
-                  'xco2_bc): the end-to-end result. The drop-guards line below excludes them._'
-                  + ('' if not has_raw else '  raw = pre-bias-correction xco2_raw; '
-                     'before = xco2_bc (operational bias correction); after = ML-corrected.'), '',
-                  f"- mean |bias|:  {_r_absbias}before **{np.nanmean(np.abs(bb)):.2f}** → after **{np.nanmean(np.abs(ba)):.2f}** ppm",
-                  f"- RMS bias:    {_r_rmsbias}before **{np.sqrt(np.nanmean(bb**2)):.2f}** → after **{np.sqrt(np.nanmean(ba**2)):.2f}** ppm",
-                  f"- mean OCO std: {_r_ocostd}before **{cmp['orig_sd'].mean():.2f}** → after **{cmp['corr_sd'].mean():.2f}** ppm",
-                  f"- mean per-footprint RMSE-to-TCCON: {_r_fprmse}before **{np.nanmean(rb):.2f}** → after **{np.nanmean(ra):.2f}** ppm",
-                  f"- improved (|bias| down) in **{int((np.abs(ba)<np.abs(bb)).sum())}/{len(cmp)}** cases",
-                  f"- improved (per-footprint RMSE down) in **{int((ra<rb).sum())}/{len(cmp)}** cases",
-                  f"- **drop-guards** ({n_g_tot} guarded footprints excluded): corrected mean |bias| "
-                  f"**{np.nanmean(np.abs(ba_dg)):.2f}** ppm, per-footprint RMSE **{np.nanmean(ra_dg):.2f}** ppm"]
+             f'TCCON within ±{args.window_min:g} min, ≤{args.radius_km:g} km.  '
+             f'XCO2 in ppm (mean ± std).  Split into quality-flag groups: '
+             f'all (QF 0+1), QF=0 (good), QF=1.']
+    site_rows_all, sig_rows_all, cld_agg_all, unc_md_all = [], [], [], []
+    for qflab, _qfv in QF_GROUPS:
+        rep_all_qf = rep_all[rep_all['qf_group'] == qflab]
+        if not len(rep_all_qf):
+            continue
+        cmp = rep_all_qf[rep_all_qf['n_tccon'] > 0].copy()
+        lines += ['', '', f'# ═══════════ Quality flag: {QF_TITLES[qflab]} ═══════════', '',
+                  f'{len(rep_all_qf)} cases ({len(cmp)} with TCCON in ±{args.window_min:g} min, '
+                  f'≤{args.radius_km:g} km).', '',
+                  '| site | date | n_oco | n_tccon | original | corrected | TCCON | bias before | bias after |',
+                  '|---|---|--:|--:|---|---|---|--:|--:|']
+        for _, r in rep_all_qf.iterrows():
+            lines.append(f"| {r['site']} | {r['date']} | {r['n_oco']} | {r['n_tccon']} | "
+                         f"{f(r['orig_mu'])}±{f(r['orig_sd'])} | {f(r['corr_mu'])}±{f(r['corr_sd'])} | "
+                         f"{f(r['tccon_mu'])}±{f(r['tccon_sd'])} | {f(r['bias_before'],2)} | {f(r['bias_after'],2)} |")
+        if len(cmp):
+            bb, ba = cmp['bias_before'].to_numpy(), cmp['bias_after'].to_numpy()
+            rb, ra = cmp['rmse_before'].to_numpy(), cmp['rmse_after'].to_numpy()
+            ba_dg, ra_dg = cmp['bias_after_dg'].to_numpy(), cmp['rmse_after_dg'].to_numpy()
+            # raw (pre-bias-correction xco2_raw) series — shown when available so the
+            # headline reads raw → before(xco2_bc) → after(ML), not just before → after.
+            braw = cmp['bias_raw'].to_numpy(float); rraw = cmp['rmse_raw'].to_numpy(float)
+            has_raw = np.isfinite(braw).any()
+            _r_absbias = f"raw **{np.nanmean(np.abs(braw)):.2f}** → " if has_raw else ''
+            _r_rmsbias = f"raw **{np.sqrt(np.nanmean(braw**2)):.2f}** → " if has_raw else ''
+            _r_ocostd  = f"raw **{cmp['raw_sd'].mean():.2f}** → " if has_raw else ''
+            _r_fprmse  = f"raw **{np.nanmean(rraw):.2f}** → " if has_raw else ''
+            n_g_tot = int(cmp['n_guarded'].sum())
+            lines += ['', '## Aggregate (cases with TCCON)', '',
+                      '_Headline KEEPS guarded footprints (correction skipped there → corrected = raw '
+                      'xco2_bc): the end-to-end result. The drop-guards line below excludes them._'
+                      + ('' if not has_raw else '  raw = pre-bias-correction xco2_raw; '
+                         'before = xco2_bc (operational bias correction); after = ML-corrected.'), '',
+                      f"- mean |bias|:  {_r_absbias}before **{np.nanmean(np.abs(bb)):.2f}** → after **{np.nanmean(np.abs(ba)):.2f}** ppm",
+                      f"- RMS bias:    {_r_rmsbias}before **{np.sqrt(np.nanmean(bb**2)):.2f}** → after **{np.sqrt(np.nanmean(ba**2)):.2f}** ppm",
+                      f"- mean OCO std: {_r_ocostd}before **{cmp['orig_sd'].mean():.2f}** → after **{cmp['corr_sd'].mean():.2f}** ppm",
+                      f"- mean per-footprint RMSE-to-TCCON: {_r_fprmse}before **{np.nanmean(rb):.2f}** → after **{np.nanmean(ra):.2f}** ppm",
+                      f"- improved (|bias| down) in **{int((np.abs(ba)<np.abs(bb)).sum())}/{len(cmp)}** cases",
+                      f"- improved (per-footprint RMSE down) in **{int((ra<rb).sum())}/{len(cmp)}** cases",
+                      f"- **drop-guards** ({n_g_tot} guarded footprints excluded): corrected mean |bias| "
+                      f"**{np.nanmean(np.abs(ba_dg)):.2f}** ppm, per-footprint RMSE **{np.nanmean(ra_dg):.2f}** ppm"]
 
-        if args.ak_harmonize:
-            ak = cmp['ak_delta'].to_numpy(float)
-            n_h = int(np.isfinite(ak).sum())
-            if n_h:
-                _src = cmp['ak_source'].astype(str)
-                lines += [f"- **AK/prior harmonization** (Rodgers & Connor 2003 / Wunch et al. 2017): "
-                          f"**{n_h}/{len(cmp)}** cases harmonized "
-                          f"({int((_src == 'parquet').sum())} from parquet AK columns, "
-                          f"{int((_src == 'lite').sum())} from Lite files); TCCON reference shift "
-                          f"Δ = {np.nanmean(ak):+.2f} ± {np.nanstd(ak):.2f} ppm "
-                          f"(un-harmonized cases keep the raw window mean; the shift moves the "
-                          f"reference, so the SIGNED per-case after−before delta is invariant, but "
-                          f"the |bias|/RMSE headline below is not — see the direct-vs-AK table)"]
-                # Direct (raw window-mean) vs AK-harmonized headline, from the SAME
-                # footprints — the two references computed in one run.
-                if 'bias_before_direct' in cmp.columns:
-                    def _refagg(brw, bb, ba, rrw, rb, ra):
-                        """mean |bias| and mean fp-RMSE strings, raw→before→after."""
-                        brw, bb, ba = (x.to_numpy(float) for x in (brw, bb, ba))
-                        rrw, rb, ra = (x.to_numpy(float) for x in (rrw, rb, ra))
-                        _rb = f"{np.nanmean(np.abs(brw)):.2f} → " if has_raw else ''
-                        _rr = f"{np.nanmean(rrw):.2f} → " if has_raw else ''
-                        return (f"{_rb}{np.nanmean(np.abs(bb)):.2f} → **{np.nanmean(np.abs(ba)):.2f}**",
-                                f"{_rr}{np.nanmean(rb):.2f} → **{np.nanmean(ra):.2f}**")
-                    _d = _refagg(cmp['bias_raw_direct'], cmp['bias_before_direct'], cmp['bias_after_direct'],
-                                 cmp['rmse_raw_direct'], cmp['rmse_before_direct'], cmp['rmse_after_direct'])
-                    _a = _refagg(cmp['bias_raw'], cmp['bias_before'], cmp['bias_after'],
-                                 cmp['rmse_raw'], cmp['rmse_before'], cmp['rmse_after'])
-                    _seq = 'raw→before→after' if has_raw else 'before→after'
-                    lines += ['', '### Reference comparison: direct window-mean vs AK-harmonized',
-                              '_Same footprints, two TCCON references (both computed this run)._', '',
-                              f'| reference | mean \\|bias\\| {_seq} | mean fp-RMSE {_seq} |',
-                              '|---|--:|--:|',
-                              f"| direct | {_d[0]} | {_d[1]} |",
-                              f"| AK-harmonized | {_a[0]} | {_a[1]} |"]
-            else:
-                lines += ["- **AK/prior harmonization requested but no case could be harmonized** "
-                          "(no parquet AK columns and no day Lite files found — rebuild the "
-                          "per-date parquets with the dual-fit fitting.py or set $OCO2_LITE_DIR); "
-                          "raw TCCON means used"]
+            if args.ak_harmonize:
+                ak = cmp['ak_delta'].to_numpy(float)
+                n_h = int(np.isfinite(ak).sum())
+                if n_h:
+                    _src = cmp['ak_source'].astype(str)
+                    lines += [f"- **AK/prior harmonization** (Rodgers & Connor 2003 / Wunch et al. 2017): "
+                              f"**{n_h}/{len(cmp)}** cases harmonized "
+                              f"({int((_src == 'parquet').sum())} from parquet AK columns, "
+                              f"{int((_src == 'lite').sum())} from Lite files); TCCON reference shift "
+                              f"Δ = {np.nanmean(ak):+.2f} ± {np.nanstd(ak):.2f} ppm "
+                              f"(un-harmonized cases keep the raw window mean; the shift moves the "
+                              f"reference, so the SIGNED per-case after−before delta is invariant, but "
+                              f"the |bias|/RMSE headline below is not — see the direct-vs-AK table)"]
+                    # Direct (raw window-mean) vs AK-harmonized headline, from the SAME
+                    # footprints — the two references computed in one run.
+                    if 'bias_before_direct' in cmp.columns:
+                        def _refagg(brw, bb, ba, rrw, rb, ra):
+                            """mean |bias| and mean fp-RMSE strings, raw→before→after."""
+                            brw, bb, ba = (x.to_numpy(float) for x in (brw, bb, ba))
+                            rrw, rb, ra = (x.to_numpy(float) for x in (rrw, rb, ra))
+                            _rb = f"{np.nanmean(np.abs(brw)):.2f} → " if has_raw else ''
+                            _rr = f"{np.nanmean(rrw):.2f} → " if has_raw else ''
+                            return (f"{_rb}{np.nanmean(np.abs(bb)):.2f} → **{np.nanmean(np.abs(ba)):.2f}**",
+                                    f"{_rr}{np.nanmean(rb):.2f} → **{np.nanmean(ra):.2f}**")
+                        _d = _refagg(cmp['bias_raw_direct'], cmp['bias_before_direct'], cmp['bias_after_direct'],
+                                     cmp['rmse_raw_direct'], cmp['rmse_before_direct'], cmp['rmse_after_direct'])
+                        _a = _refagg(cmp['bias_raw'], cmp['bias_before'], cmp['bias_after'],
+                                     cmp['rmse_raw'], cmp['rmse_before'], cmp['rmse_after'])
+                        _seq = 'raw→before→after' if has_raw else 'before→after'
+                        lines += ['', '### Reference comparison: direct window-mean vs AK-harmonized',
+                                  '_Same footprints, two TCCON references (both computed this run)._', '',
+                                  f'| reference | mean \\|bias\\| {_seq} | mean fp-RMSE {_seq} |',
+                                  '|---|--:|--:|',
+                                  f"| direct | {_d[0]} | {_d[1]} |",
+                                  f"| AK-harmonized | {_a[0]} | {_a[1]} |"]
+                else:
+                    lines += ["- **AK/prior harmonization requested but no case could be harmonized** "
+                              "(no parquet AK columns and no day Lite files found — rebuild the "
+                              "per-date parquets with the dual-fit fitting.py or set $OCO2_LITE_DIR); "
+                              "raw TCCON means used"]
 
-        # ── significance: paired Wilcoxon + site-clustered bootstrap (M3) ─────
-        sig = _significance(cmp, n_boot=args.n_boot)
-        lines += _sig_lines(sig, 'all sites')
-        sig_rows = [dict(subset='all', **sig)]
-        if excl:
-            _sub = cmp[~cmp['site'].isin(excl)]
-            if len(_sub) >= 6:
-                sig_e = _significance(_sub, n_boot=args.n_boot)
-                lines += _sig_lines(sig_e, f'excl {",".join(excl)}')
-                sig_rows.append(dict(subset=f'excl_{"_".join(excl)}', **sig_e))
-        pd.DataFrame(sig_rows).to_csv(P_SIG_CSV, index=False)
+            # ── significance: paired Wilcoxon + site-clustered bootstrap (M3) ─────
+            sig = _significance(cmp, n_boot=args.n_boot)
+            lines += _sig_lines(sig, f'{QF_TITLES[qflab]}, all sites')
+            sig_rows_all.append(dict(qf_group=qflab, subset='all', **sig))
+            if excl:
+                _sub = cmp[~cmp['site'].isin(excl)]
+                if len(_sub) >= 6:
+                    sig_e = _significance(_sub, n_boot=args.n_boot)
+                    lines += _sig_lines(sig_e, f'{QF_TITLES[qflab]}, excl {",".join(excl)}')
+                    sig_rows_all.append(dict(qf_group=qflab,
+                                             subset=f'excl_{"_".join(excl)}', **sig_e))
 
-        # ── per-site aggregate ─────────────────────────────────────────────────
-        c2 = cmp.copy()
-        c2['abs_before'] = c2['bias_before'].abs(); c2['abs_after'] = c2['bias_after'].abs()
-        c2['improved'] = c2['abs_after'] < c2['abs_before']
-        c2['improved_rmse'] = c2['rmse_after'] < c2['rmse_before']
-        site_agg = (c2.groupby('site')
-                    .agg(n=('date', 'size'),
-                         mean_abs_bias_before=('abs_before', 'mean'),
-                         mean_abs_bias_after=('abs_after', 'mean'),
-                         mean_rmse_before=('rmse_before', 'mean'),
-                         mean_rmse_after=('rmse_after', 'mean'),
-                         mean_sd_before=('orig_sd', 'mean'),
-                         mean_sd_after=('corr_sd', 'mean'),
-                         n_improved=('improved', 'sum'),
-                         n_improved_rmse=('improved_rmse', 'sum'))
-                    .reset_index().sort_values('mean_rmse_after'))
-        site_agg.to_csv(P_SITE_CSV, index=False)
-        lines += ['', '## Per-site aggregate (cases with TCCON, sorted by post-correction RMSE)', '',
-                  '| site | n | mean \\|bias\\| before | after | mean RMSE before | after | mean σ before | after | \\|bias\\|↓ | RMSE↓ |',
-                  '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|']
-        for _, s in site_agg.iterrows():
-            lines.append(f"| {s['site']} | {int(s['n'])} | {s['mean_abs_bias_before']:.2f} | "
-                         f"**{s['mean_abs_bias_after']:.2f}** | {s['mean_rmse_before']:.2f} | "
-                         f"**{s['mean_rmse_after']:.2f}** | {s['mean_sd_before']:.2f} | "
-                         f"{s['mean_sd_after']:.2f} | {int(s['n_improved'])}/{int(s['n'])} | "
-                         f"{int(s['n_improved_rmse'])}/{int(s['n'])} |")
+            # ── per-site aggregate ─────────────────────────────────────────────────
+            c2 = cmp.copy()
+            c2['abs_before'] = c2['bias_before'].abs(); c2['abs_after'] = c2['bias_after'].abs()
+            c2['improved'] = c2['abs_after'] < c2['abs_before']
+            c2['improved_rmse'] = c2['rmse_after'] < c2['rmse_before']
+            site_agg = (c2.groupby('site')
+                        .agg(n=('date', 'size'),
+                             mean_abs_bias_before=('abs_before', 'mean'),
+                             mean_abs_bias_after=('abs_after', 'mean'),
+                             mean_rmse_before=('rmse_before', 'mean'),
+                             mean_rmse_after=('rmse_after', 'mean'),
+                             mean_sd_before=('orig_sd', 'mean'),
+                             mean_sd_after=('corr_sd', 'mean'),
+                             n_improved=('improved', 'sum'),
+                             n_improved_rmse=('improved_rmse', 'sum'))
+                        .reset_index().sort_values('mean_rmse_after'))
+            site_rows_all.append(site_agg.assign(qf_group=qflab))
+            lines += ['', f'## Per-site aggregate — {QF_TITLES[qflab]} '
+                      '(cases with TCCON, sorted by post-correction RMSE)', '',
+                      '| site | n | mean \\|bias\\| before | after | mean RMSE before | after | mean σ before | after | \\|bias\\|↓ | RMSE↓ |',
+                      '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|']
+            for _, s in site_agg.iterrows():
+                lines.append(f"| {s['site']} | {int(s['n'])} | {s['mean_abs_bias_before']:.2f} | "
+                             f"**{s['mean_abs_bias_after']:.2f}** | {s['mean_rmse_before']:.2f} | "
+                             f"**{s['mean_rmse_after']:.2f}** | {s['mean_sd_before']:.2f} | "
+                             f"{s['mean_sd_after']:.2f} | {int(s['n_improved'])}/{int(s['n'])} | "
+                             f"{int(s['n_improved_rmse'])}/{int(s['n'])} |")
 
-    # ── cloud-distance-grouped aggregate (pre-drift cases) ────────────────────
-    rc_all = pd.DataFrame()
-    if len(rep_cld):
-        rc_all = rep_cld[(rep_cld['surface'] == 'all') & (rep_cld['n_tccon'] > 0)]
-    if len(rc_all):
-        era = 'all years' if args.cld_all_years else f'pre-drift, year < {AQUA_FREE_DRIFT_YEAR}'
-        n_days = rc_all[['site', 'date']].drop_duplicates().shape[0]
-        # Aggregate every (surface, cld group) → CSV; markdown shows the pooled 'all' rows.
-        agg_rows = []
-        for sname in ('all', 'ocean', 'land'):
+        # ── cloud-distance-grouped aggregate (pre-drift cases) ────────────────────
+        rep_cld_qf = (rep_cld[rep_cld['qf_group'] == qflab]
+                      if len(rep_cld) else rep_cld)
+        rc_all = pd.DataFrame()
+        if len(rep_cld_qf):
+            rc_all = rep_cld_qf[(rep_cld_qf['surface'] == 'all') & (rep_cld_qf['n_tccon'] > 0)]
+        if len(rc_all):
+            era = 'all years' if args.cld_all_years else f'pre-drift, year < {AQUA_FREE_DRIFT_YEAR}'
+            n_days = rc_all[['site', 'date']].drop_duplicates().shape[0]
+            # Aggregate every (surface, cld group) → CSV; markdown shows the pooled 'all' rows.
+            agg_rows = []
+            for sname in ('all', 'ocean', 'land'):
+                for glab, _, _ in cld_bins:
+                    g = rep_cld_qf[(rep_cld_qf['surface'] == sname) & (rep_cld_qf['n_tccon'] > 0)
+                                   & (rep_cld_qf['cld_group'] == glab)]
+                    if len(g):
+                        agg_rows.append(dict(qf_group=qflab, surface=sname, cld_group=glab,
+                                             **_mse_aggregate(g)))
+            cld_agg_all.extend(agg_rows)
+            agg_all = {r['cld_group']: r for r in agg_rows if r['surface'] == 'all'}
+            has_raw = any(np.isfinite(a.get('mean_rmse_raw', np.nan)) for a in agg_all.values())
+            _seq = 'raw → before → after' if has_raw else 'before → after'
+            # (1) error metrics: |bias|, MAE, RMSE — each raw → before(xco2_bc) → after(ML).
+            lines += ['', f'## Cloud-distance-grouped aggregate — {QF_TITLES[qflab]} ({era})', '',
+                      f'_Each collocation\'s footprints split by nearest-cloud distance '
+                      f'(edges {args.cld_edges} km); station-day mean per bin, over '
+                      f'{n_days} station-days.  Each cell is {_seq} (ppm).'
+                      + ('  raw = pre-bias-correction xco2_raw, before = xco2_bc, '
+                         'after = ML-corrected._' if has_raw else '_'), '',
+                      f'| cld group | n | mean \\|bias\\| ({_seq}) | MAE ({_seq}) | fp-RMSE ({_seq}) | \\|bias\\|↓ |',
+                      '|---|--:|--:|--:|--:|--:|']
             for glab, _, _ in cld_bins:
-                g = rep_cld[(rep_cld['surface'] == sname) & (rep_cld['n_tccon'] > 0)
-                            & (rep_cld['cld_group'] == glab)]
-                if len(g):
-                    agg_rows.append(dict(surface=sname, cld_group=glab, **_mse_aggregate(g)))
-        pd.DataFrame(agg_rows).to_csv(P_CLD_AGG, index=False)
-        agg_all = {r['cld_group']: r for r in agg_rows if r['surface'] == 'all'}
-        has_raw = any(np.isfinite(a.get('mean_rmse_raw', np.nan)) for a in agg_all.values())
-        _seq = 'raw → before → after' if has_raw else 'before → after'
-        # (1) error metrics: |bias|, MAE, RMSE — each raw → before(xco2_bc) → after(ML).
-        lines += ['', f'## Cloud-distance-grouped aggregate ({era})', '',
-                  f'_Each collocation\'s footprints split by nearest-cloud distance '
-                  f'(edges {args.cld_edges} km); station-day mean per bin, over '
-                  f'{n_days} station-days.  Each cell is {_seq} (ppm).'
-                  + ('  raw = pre-bias-correction xco2_raw, before = xco2_bc, '
-                     'after = ML-corrected._' if has_raw else '_'), '',
-                  f'| cld group | n | mean \\|bias\\| ({_seq}) | MAE ({_seq}) | fp-RMSE ({_seq}) | \\|bias\\|↓ |',
-                  '|---|--:|--:|--:|--:|--:|']
-        for glab, _, _ in cld_bins:
-            g = rc_all[rc_all['cld_group'] == glab]
-            a = agg_all.get(glab)
-            if not len(g) or a is None:
-                continue
-            ab, aa = g['bias_before'].abs(), g['bias_after'].abs()
-            lines.append(f"| {glab} | {len(g)} | {_prog(a, 'mean_absbias_%s')} | "
-                         f"{_prog(a, 'mean_mae_%s')} | {_prog(a, 'mean_rmse_%s')} | "
-                         f"{int((aa < ab).sum())}/{len(g)} |")
-        # (2) absolute MSE (ppm²): pooled footprint-weighted, mean per-case, station-mean.
-        lines += ['', f'### Cloud-distance-grouped absolute MSE (ppm², {_seq})', '',
-                  '_pooled = footprint-weighted mean of (XCO₂−TCCON)² (Σ n·RMSE²/Σ n); '
-                  'per-case = mean of per-station-day MSE (=RMSE²); station = mean of '
-                  'squared station-day bias.  Full surface×bin breakdown in the _agg CSV._', '',
-                  f'| cld group | n | pooled fp-MSE ({_seq}) | mean per-case MSE ({_seq}) | station-mean MSE ({_seq}) |',
-                  '|---|--:|--:|--:|--:|']
-        for glab, _, _ in cld_bins:
-            a = agg_all.get(glab)
-            if a is None:
-                continue
-            lines.append(f"| {glab} | {a['n']} | {_prog(a, 'pooled_mse_%s')} | "
-                         f"{_prog(a, 'mean_case_mse_%s')} | {_prog(a, 'station_mse_%s')} |")
+                g = rc_all[rc_all['cld_group'] == glab]
+                a = agg_all.get(glab)
+                if not len(g) or a is None:
+                    continue
+                ab, aa = g['bias_before'].abs(), g['bias_after'].abs()
+                lines.append(f"| {glab} | {len(g)} | {_prog(a, 'mean_absbias_%s')} | "
+                             f"{_prog(a, 'mean_mae_%s')} | {_prog(a, 'mean_rmse_%s')} | "
+                             f"{int((aa < ab).sum())}/{len(g)} |")
+            # (2) absolute MSE (ppm²): pooled footprint-weighted, mean per-case, station-mean.
+            lines += ['', f'### Cloud-distance-grouped absolute MSE (ppm², {_seq})', '',
+                      '_pooled = footprint-weighted mean of (XCO₂−TCCON)² (Σ n·RMSE²/Σ n); '
+                      'per-case = mean of per-station-day MSE (=RMSE²); station = mean of '
+                      'squared station-day bias.  Full surface×bin breakdown in the _agg CSV._', '',
+                      f'| cld group | n | pooled fp-MSE ({_seq}) | mean per-case MSE ({_seq}) | station-mean MSE ({_seq}) |',
+                      '|---|--:|--:|--:|--:|']
+            for glab, _, _ in cld_bins:
+                a = agg_all.get(glab)
+                if a is None:
+                    continue
+                lines.append(f"| {glab} | {a['n']} | {_prog(a, 'pooled_mse_%s')} | "
+                             f"{_prog(a, 'mean_case_mse_%s')} | {_prog(a, 'station_mse_%s')} |")
 
-    # ── Phase-4 uncertainty-aware comparison (M1/M3/M4 + ⟨z²⟩) ────────────────
-    if args.uncertainty and len(cmp) and 'u_D' in cmp.columns:
-        unc_block = markdown_block(cmp, radius_km=args.radius_km,
-                                   window_min=args.window_min, delta=args.rope_delta)
-        lines += unc_block
-        # standalone artifacts: the block as its own md + the full per-case CSV
-        # (all budget components: u_oco/u_TC parts, z, CIs, flags).
-        P_UNC_MD.write_text('\n'.join(unc_block).lstrip('\n') + '\n')
-        unc_cols = ['site', 'date', 'surface', 'n_oco', 'n_tccon', 'bias_after',
+        # ── Phase-4 uncertainty-aware comparison (M1/M3/M4 + ⟨z²⟩), per QF group ──
+        if args.uncertainty and len(cmp) and 'u_D' in cmp.columns:
+            unc_block = markdown_block(cmp, radius_km=args.radius_km,
+                                       window_min=args.window_min, delta=args.rope_delta)
+            _uhdr = ['', f'### Uncertainty-aware comparison — {QF_TITLES[qflab]}']
+            lines += _uhdr + unc_block
+            unc_md_all += _uhdr + unc_block
+
+    # ── post-QF-loop CSV writes (qf_group column carries the split) ────────────
+    if sig_rows_all:
+        pd.DataFrame(sig_rows_all).to_csv(P_SIG_CSV, index=False)
+    if site_rows_all:
+        pd.concat(site_rows_all, ignore_index=True).to_csv(P_SITE_CSV, index=False)
+    if cld_agg_all:
+        pd.DataFrame(cld_agg_all).to_csv(P_CLD_AGG, index=False)
+    if args.uncertainty and unc_md_all:
+        # standalone artifacts: the (per-QF) blocks as their own md + the full
+        # per-case CSV (all budget components: u_oco/u_TC parts, z, CIs, flags).
+        P_UNC_MD.write_text('\n'.join(unc_md_all).lstrip('\n') + '\n')
+        unc_cols = ['site', 'date', 'surface', 'qf_group', 'n_oco', 'n_tccon', 'bias_after',
                     'D', 'u_oco', 'u_TC', 'u_D', 'z', 'ci_lo', 'ci_hi',
                     'significant', 'equivalent', 'tost_p',
                     'uA_epi', 'uA_avg', 'uA_Neff', 'uA_src',
@@ -1143,7 +1209,7 @@ def main():
     print('\n'.join(lines))
     for _p in metrics_saved:
         print(f"[saved] {_p}")
-    if args.uncertainty and len(cmp) and 'u_D' in cmp.columns:
+    if args.uncertainty and unc_md_all:
         print(f"\n[saved] {P_UNC_MD}\n[saved] {P_UNC_CSV}")
 
     # ── figures — one panel per file (item 1); symmetric ak/direct sets (item 2);
@@ -1189,60 +1255,66 @@ def main():
         fig.tight_layout(); fig.savefig(png, dpi=args.dpi, bbox_inches='tight')
         plt.close(fig); _saved.append(png); return png
 
-    def _sel(ref, surface, cld='all', excl=()):
-        s = mrep[(mrep['ref'] == ref) & (mrep['surface'] == surface)
-                 & (mrep['cld_group'] == cld) & (mrep['n_tccon'] > 0)]
+    def _sel(ref, surface, cld='all', qf='all', excl=()):
+        s = mrep[(mrep['ref'] == ref) & (mrep['qf_group'] == qf)
+                 & (mrep['surface'] == surface) & (mrep['cld_group'] == cld)
+                 & (mrep['n_tccon'] > 0)]
         return s[~s['site'].isin(excl)] if len(excl) else s
 
     _bs = args.bias_style
     cld_labels = [b[0] for b in cld_bins]
+    qf_labels = [q for q, _ in QF_GROUPS]
 
-    def _emit_figures(ref):
-        """Full single-panel figure set for one reference view ('ak' or 'direct')."""
-        allc = _sel(ref, 'all', 'all')
+    def _emit_figures(ref, qf):
+        """Full single-panel figure set for one (reference, quality-flag) view.
+        qf ∈ {'all','qf0','qf1'}; the QF suffix (''/_qf0/_qf1) is inserted into
+        every filename so the 'all' set keeps its original names."""
+        q = QF_FSFX[qf]
+        allc = _sel(ref, 'all', 'all', qf)
         if not len(allc):
             return
-        _one(lambda ax: _draw_scatter(ax, allc), out_dir / f'tccon_{ref}_scatter{sfx}.png')
-        _one(lambda ax: _draw_bias(ax, allc, _bs), out_dir / f'tccon_{ref}_bias{sfx}.png')
+        _one(lambda ax: _draw_scatter(ax, allc), out_dir / f'tccon_{ref}_scatter{q}{sfx}.png')
+        _one(lambda ax: _draw_bias(ax, allc, _bs), out_dir / f'tccon_{ref}_bias{q}{sfx}.png')
         # by surface (ocean/land) stacked
-        _stack([(lambda ax, ltr, g=_sel(ref, s, 'all'), s=s: _draw_scatter(ax, g, panel=f'({ltr}) {s}'))
-                for s in ('ocean', 'land') if len(_sel(ref, s, 'all'))],
-               out_dir / f'tccon_{ref}_by_surface_scatter{sfx}.png')
-        _stack([(lambda ax, ltr, g=_sel(ref, s, 'all'), s=s: _draw_bias(ax, g, _bs, panel=f'({ltr}) {s}'))
-                for s in ('ocean', 'land') if len(_sel(ref, s, 'all'))],
-               out_dir / f'tccon_{ref}_by_surface_bias{sfx}.png')
+        _stack([(lambda ax, ltr, g=_sel(ref, s, 'all', qf), s=s: _draw_scatter(ax, g, panel=f'({ltr}) {s}'))
+                for s in ('ocean', 'land') if len(_sel(ref, s, 'all', qf))],
+               out_dir / f'tccon_{ref}_by_surface_scatter{q}{sfx}.png')
+        _stack([(lambda ax, ltr, g=_sel(ref, s, 'all', qf), s=s: _draw_bias(ax, g, _bs, panel=f'({ltr}) {s}'))
+                for s in ('ocean', 'land') if len(_sel(ref, s, 'all', qf))],
+               out_dir / f'tccon_{ref}_by_surface_bias{q}{sfx}.png')
         # by cloud group (surface=all) stacked
-        _stack([(lambda ax, ltr, g=_sel(ref, 'all', gl), gl=gl: _draw_scatter(ax, g, panel=f'({ltr}) {gl}'))
-                for gl in cld_labels if len(_sel(ref, 'all', gl))],
-               out_dir / f'tccon_{ref}_by_cld_scatter{sfx}.png')
-        _stack([(lambda ax, ltr, g=_sel(ref, 'all', gl), gl=gl: _draw_bias(ax, g, _bs, panel=f'({ltr}) {gl}'))
-                for gl in cld_labels if len(_sel(ref, 'all', gl))],
-               out_dir / f'tccon_{ref}_by_cld_bias{sfx}.png')
+        _stack([(lambda ax, ltr, g=_sel(ref, 'all', gl, qf), gl=gl: _draw_scatter(ax, g, panel=f'({ltr}) {gl}'))
+                for gl in cld_labels if len(_sel(ref, 'all', gl, qf))],
+               out_dir / f'tccon_{ref}_by_cld_scatter{q}{sfx}.png')
+        _stack([(lambda ax, ltr, g=_sel(ref, 'all', gl, qf), gl=gl: _draw_bias(ax, g, _bs, panel=f'({ltr}) {gl}'))
+                for gl in cld_labels if len(_sel(ref, 'all', gl, qf))],
+               out_dir / f'tccon_{ref}_by_cld_bias{q}{sfx}.png')
         # surface × cloud group (bias only) — 2×ncld grid: rows = ocean/land,
         # cols = cloud bins (item 2), None-padded so empty (surface, bin) stay aligned.
-        cells = [(None if not len(_sel(ref, s, gl)) else
-                  (lambda ax, ltr, g=_sel(ref, s, gl), s=s, gl=gl:
+        cells = [(None if not len(_sel(ref, s, gl, qf)) else
+                  (lambda ax, ltr, g=_sel(ref, s, gl, qf), s=s, gl=gl:
                    _draw_bias(ax, g, _bs, panel=f'({ltr}) {s} {gl}')))
                  for s in ('ocean', 'land') for gl in cld_labels]
         _grid(cells, len(cld_labels),
-              out_dir / f'tccon_{ref}_by_surface_by_cld_bias{sfx}.png')
+              out_dir / f'tccon_{ref}_by_surface_by_cld_bias{q}{sfx}.png')
         # excl-sites variants
         if excl:
-            e = _sel(ref, 'all', 'all', excl=excl)
+            e = _sel(ref, 'all', 'all', qf, excl=excl)
             if len(e):
                 _es = '_'.join(excl)
                 _one(lambda ax: _draw_scatter(ax, e),
-                     out_dir / f'tccon_{ref}_excl_{_es}_scatter{sfx}.png')
+                     out_dir / f'tccon_{ref}_excl_{_es}_scatter{q}{sfx}.png')
                 _one(lambda ax: _draw_bias(ax, e, _bs),
-                     out_dir / f'tccon_{ref}_excl_{_es}_bias{sfx}.png')
+                     out_dir / f'tccon_{ref}_excl_{_es}_bias{q}{sfx}.png')
 
     if len(mrep):
         for ref in (('ak', 'direct') if args.ak_harmonize else ('direct',)):
-            _emit_figures(ref)
+            for qf in qf_labels:               # all (QF0+1) + qf0 + qf1
+                _emit_figures(ref, qf)
 
         # ── 4-style bias test set (low DPI) for the all-cases view (item 3) ──
-        # Emit for every active reference so 'direct' gets its dumbbell variants too,
-        # not just the headline 'ak' view.
+        # Emit for every active reference so 'direct' gets its dumbbell variants too.
+        # Only the pooled QF (all) group — this is a one-off style-picking aid.
         for ref0 in (('ak', 'direct') if args.ak_harmonize else ('direct',)):
             allc0 = _sel(ref0, 'all', 'all')
             if len(allc0):
@@ -1251,8 +1323,12 @@ def main():
                          out_dir / f'tccon_{ref0}_bias_{st}{sfx}.png', dpi=85)
 
     # ── AK-vs-direct overlay + reference-shift, split into two single-panel files ──
-    if args.ak_harmonize and len(cmp) and 'bias_after_direct' in cmp.columns:
-        s = cmp[cmp['bias_after_direct'].notna() & cmp['ak_delta'].notna()].copy()
+    # One pair per quality-flag group (all/qf0/qf1); QF suffix keeps the 'all' names.
+    def _emit_ak_overlay(cmp_qf, qf):
+        if not (args.ak_harmonize and len(cmp_qf) and 'bias_after_direct' in cmp_qf.columns):
+            return
+        q = QF_FSFX[qf]
+        s = cmp_qf[cmp_qf['bias_after_direct'].notna() & cmp_qf['ak_delta'].notna()].copy()
         if len(s):
             s1 = s.sort_values('bias_after_direct').reset_index(drop=True)
             s2 = s.sort_values('ak_delta').reset_index(drop=True)
@@ -1283,14 +1359,19 @@ def main():
                 ax.set_ylabel('station-day (sorted by Δ; IDs in CSV)')
                 ax.grid(alpha=0.3, axis='x')
 
-            _one(_draw_ak_bias, out_dir / f'tccon_ak_vs_direct_bias{sfx}.png')
-            _one(_draw_ak_shift, out_dir / f'tccon_ak_shift{sfx}.png')
+            _one(_draw_ak_bias, out_dir / f'tccon_ak_vs_direct_bias{q}{sfx}.png')
+            _one(_draw_ak_shift, out_dir / f'tccon_ak_shift{q}{sfx}.png')
+
+    if args.ak_harmonize and len(rep_all):
+        for qf in qf_labels:
+            cmp_qf = rep_all[(rep_all['qf_group'] == qf) & (rep_all['n_tccon'] > 0)]
+            _emit_ak_overlay(cmp_qf, qf)
 
     # ── per-site 2×2 bar chart, one figure per reference (items 2 + 4) ──────────
     # (a) mean |bias|, (b) mean footprint RMSE, (c) mean OCO-2 σ — before vs after;
     # (d) per-site skill = 1−RMSE_after/RMSE_before.  Built per ref from mrep.
-    def _draw_site_fig(ref):
-        g = _sel(ref, 'all', 'all')
+    def _draw_site_fig(ref, qf):
+        g = _sel(ref, 'all', 'all', qf)
         if not len(g):
             return
         # Per-site combined TCCON σ = RMS of that station's station-day xco2_error
@@ -1338,12 +1419,13 @@ def main():
         axg[1, 1].set_ylabel(r'skill = 1 − RMSE$_{\mathrm{after}}$/RMSE$_{\mathrm{before}}$')
         axg[1, 1].grid(alpha=0.3, axis='y'); _panel_label(axg[1, 1], '(d)')
         fig.tight_layout()
-        p = out_dir / f'tccon_{ref}_by_site_bias{sfx}.png'
+        p = out_dir / f'tccon_{ref}_by_site_bias{QF_FSFX[qf]}{sfx}.png'
         fig.savefig(p, dpi=args.dpi, bbox_inches='tight'); plt.close(fig); _saved.append(p)
 
     if len(mrep):
         for ref in (('ak', 'direct') if args.ak_harmonize else ('direct',)):
-            _draw_site_fig(ref)
+            for qf in qf_labels:
+                _draw_site_fig(ref, qf)
 
     print(f"\n[saved] {P_CSV}\n[saved] {P_MD}\n[saved] {P_SITE_CSV}")
     if len(rep_cld):

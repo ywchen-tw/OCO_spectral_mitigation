@@ -87,9 +87,11 @@ def main():
                     help="overlay a MODIS Aqua true-colour RGB (NASA GIBS) on the map panels")
     ap.add_argument("--modis-which", default="aqua", choices=["aqua", "terra"])
     ap.add_argument("--output-dir", required=True)
+    ap.add_argument("--corr-col", default="deep_ensemble_corrected_xco2",
+                    help="corrected-XCO2 column in plot_data (deep_ensemble_/linreg_/xgb_corrected_xco2)")
     args = ap.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
-    corr_col = "deep_ensemble_corrected_xco2"
+    corr_col = args.corr_col
 
     oco = pd.read_parquet(args.plot_data)
     oco = oco[(oco.sfc_type == 0)]                                   # ocean glint

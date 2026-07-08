@@ -25,7 +25,8 @@ from plot_ship_comparison import load_ship, haversine_km, TABS  # noqa: E402
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 DEFAULT_OUT = os.path.join(REPO, "results/model_comparison/deep_ensemble/"
                            "de_beta_nll_prof_reg_o05l15_m5/ship")
-CORR = "deep_ensemble_corrected_xco2"
+CORR = "deep_ensemble_corrected_xco2"   # overridable via --corr-col (linreg/xgb baselines)
+MODEL_LABEL = "DE-corrected"            # cosmetic (plot legends/titles)
 
 # (date, ship, (lon_min,lon_max), (lat_min,lat_max)) — same 4 cases as the runner
 CASES = [
@@ -92,11 +93,11 @@ def make_summary_plot(df, out_png):
     ax1.errorbar(d.resid_bc, y, xerr=d.oco_bc_sd, fmt="o", ms=7, color=RED, ecolor=RED,
                  elinewidth=1, capsize=3, zorder=2, label="xco2_bc − ship")
     ax1.errorbar(d.resid_corr, y, xerr=d.oco_corr_sd, fmt="o", ms=7, color=BLUE, ecolor=BLUE,
-                 elinewidth=1, capsize=3, zorder=3, label="DE-corrected − ship")
+                 elinewidth=1, capsize=3, zorder=3, label=f"{MODEL_LABEL} − ship")
     ax1.axvline(0, color="k", lw=0.7)
     ax1.set_yticks(y); ax1.set_yticklabels(lbl, fontsize=9); ax1.invert_yaxis()
     ax1.set_xlabel("OCO-2 − ship EM27/SUN (ppm)   [±1σ of collocated soundings]")
-    ax1.set_title("Per-case bias: xco2_bc → DE-corrected"); ax1.legend(fontsize=8)
+    ax1.set_title(f"Per-case bias: xco2_bc → {MODEL_LABEL}"); ax1.legend(fontsize=8)
 
     # (B) bias vs cloud distance, yerr = 1σ of the collocated OCO-2 soundings.
     # Grey band = ship measured XCO2 uncertainty about the (zero) reference, per case.
@@ -108,7 +109,7 @@ def make_summary_plot(df, out_png):
     ax2.errorbar(d.cld_med, d.resid_bc, yerr=d.oco_bc_sd, fmt="o", color=RED, mfc="none",
                  ms=8, elinewidth=0.8, capsize=3, label="xco2_bc")
     ax2.errorbar(d.cld_med, d.resid_corr, yerr=d.oco_corr_sd, fmt="o", color=BLUE,
-                 ms=8, elinewidth=0.8, capsize=3, label="DE-corrected")
+                 ms=8, elinewidth=0.8, capsize=3, label=MODEL_LABEL)
     for r in d.itertuples():
         ax2.plot([r.cld_med, r.cld_med], [r.resid_bc, r.resid_corr], color="0.8", zorder=0)
         ax2.annotate(r.date[5:], (r.cld_med, r.resid_corr), fontsize=7,
@@ -131,11 +132,17 @@ def make_summary_plot(df, out_png):
 
 
 def main():
+    global CORR, MODEL_LABEL
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out-base", default=DEFAULT_OUT)
     ap.add_argument("--radius-km", type=float, default=100)
     ap.add_argument("--window-min", type=float, default=120)
+    ap.add_argument("--corr-col", default=CORR,
+                    help="corrected-XCO2 column in plot_data (deep_ensemble_/linreg_/xgb_corrected_xco2)")
+    ap.add_argument("--model-label", default=MODEL_LABEL, help="cosmetic label for plot legends")
     args = ap.parse_args()
+    CORR = args.corr_col
+    MODEL_LABEL = args.model_label
     twin = args.window_min * 60
 
     rows = []
