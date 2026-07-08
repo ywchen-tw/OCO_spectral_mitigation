@@ -274,11 +274,15 @@ def run_stratified_analysis(df: pd.DataFrame,
                             base_outdir: str,
                             strat_var: str,
                             edges: list,
-                            unit: str = '') -> None:
-    """Split df into fixed-edge strata of *strat_var* and run core plots on each.
+                            unit: str = '',
+                            overlays_only: bool = True) -> None:
+    """Split df into fixed-edge strata of *strat_var* and plot comparisons.
 
-    Per-stratum plots: {base_outdir}/stratified/by_{strat_var}/{bin_label}/
     Overlay plots:     {base_outdir}/stratified/by_{strat_var}/
+    Per-stratum plots: {base_outdir}/stratified/by_{strat_var}/{bin_label}/
+                       — only when overlays_only=False (legacy mode; re-runs
+                       the core suite per stratum, ~35× the figure count for
+                       content the overlays already carry).
     """
     strat_df, _, bin_labels = _build_strata(df, strat_var, edges, unit)
     if strat_df is None:
@@ -289,7 +293,7 @@ def run_stratified_analysis(df: pd.DataFrame,
     overlay_dir = os.path.join(base_outdir, 'stratified', f'by_{strat_var}')
     logger.info(f"  Stratifying by '{strat_var}' into {len(bin_labels)} bins")
 
-    for slabel in bin_labels:
+    for slabel in bin_labels if not overlays_only else []:
         sdf = df[df['_strat'] == slabel].copy()
         if len(sdf) < 100:
             logger.info(f"    {strat_var}={slabel}: {len(sdf)} soundings — skipping (< 100)")

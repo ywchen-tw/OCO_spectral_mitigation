@@ -67,15 +67,14 @@ results/figures/cld_dist_analysis/
         ref_signal_hierarchy.png
         ref_alb_decoupled_exp_residuals.png
         obs_vs_ref_scatter_{ocean,land}.png
-    r15_corrected/   (Sections R0–R7 with r15 reference, requires r15_* columns)
-        r15_diff_scatter_{k1,k2,alb,exp}.png
-        r15_coverage_bias.png
-        r15_std_profiles.png
-        r15_corrected_{k1,k2,alb,exp}_profiles.png
-        r15_zscore_{k1,k2,alb,exp}_profiles.png
-        r15_signal_hierarchy.png
-        r15_alb_decoupled_exp_residuals.png
-        obs_vs_r15_scatter_{ocean,land}.png
+    land_class/      (opt-in --land-class: IGBP land-cover-stratified suite)
+    footprints/{ocean,land}/  (footprint-as-group overlay suite)
+
+NOTE (2026-07-08): the default 'full' profile is TRIMMED — footprint overlay
+instead of the fp_0..7 loop, stratified overlays without per-stratum trees,
+primary XCO2 target only, no sign-split suites / scatter matrices, and the
+load-bearing R-plots only (~200 figures vs ~20k). Pass --legacy-full for the
+old behaviour.
 
 Code structure
 --------------
@@ -194,7 +193,9 @@ from analysis.k_coeff import (
     plot_fp_area_analysis, plot_xco2_anomaly_ocean_land,
 )
 from analysis.stratified import STRAT_CONFIG, run_stratified_analysis
-from analysis.footprint import run_footprint_analysis
+from analysis.land_cover import assign_land_cover
+from analysis.land_class import run_land_class_analysis
+from analysis.footprint import run_footprint_analysis, run_footprint_overlay
 from analysis.xco2 import (
     plot_xco2_derived_vs_cld_dist_binned, plot_xco2_derived_vs_bc_anomaly,
     plot_xco2_anomaly_vs_cld_dist_binned,
@@ -202,9 +203,8 @@ from analysis.xco2 import (
     _XCO2_TARGET_CONFIG, run_xco2_target_analysis,
 )
 from analysis.ref_corrected import (
-    _REF_PAIRS, _R15_PAIRS, _R05_PAIRS,
-    _has_ref_data, _has_r15_data, _has_r05_data,
-    add_ref_anomalies, add_r15_anomalies, add_r05_anomalies,
+    _has_ref_data,
+    add_ref_anomalies,
     plot_ref_diff_vs_cld_dist, plot_ref_coverage_bias,
     plot_ref_std_profiles, plot_ref_corrected_profiles,
     plot_ref_zscore_profiles, plot_ref_signal_hierarchy,
@@ -382,10 +382,12 @@ def _run_subset_analysis(
     subset_name,
     subset_outdir,
     analysis_profile='full',
+    legacy_full=False,
 ):
     logger.info(f"\n{'='*55}\nRunning analysis for subset: {subset_name.upper()}\n{'='*55}")
     logger.info(f"  {subset_name} soundings: {len(sdf):,}")
-    logger.info(f"  profile: {analysis_profile}")
+    logger.info(f"  profile: {analysis_profile}"
+                + (' (legacy-full)' if legacy_full else ''))
 
     is_screen = analysis_profile == 'screen'
     is_core_or_full = analysis_profile in ('core', 'full')
@@ -416,7 +418,8 @@ def _run_subset_analysis(
         logger.info("Plotting albedo vs exp_intercept …")
         plot_alb_vs_exp_intercept(sdf, subset_outdir)
 
-    if is_full:
+    if is_full and legacy_full:
+        # exploratory 3x3 hexbin matrix — superseded by the ratio profiles
         logger.info("Plotting albedo vs exp_intercept cross-band …")
         plot_alb_vs_exp_intercept_cross(sdf, subset_outdir)
 
@@ -443,8 +446,8 @@ def _run_subset_analysis(
         logger.info("Plotting k1 vs k2 joint colored by cld_dist …")
         plot_k1_k2_joint(sdf, subset_outdir)
 
-    # ── Section 3f: cross-band k combinations ───────────────────────────────
-    if is_full:
+    # ── Section 3f: cross-band k combinations (legacy: heavy scatter matrices) ──
+    if is_full and legacy_full:
         logger.info("Plotting cross-band k combination profiles and scatter matrix …")
         _k_cols = ['cld_dist_km'] + [c for c in sdf.columns
                                      if c.rsplit('_', 1)[-1] in ('k1', 'k2', 'k3')]
@@ -471,10 +474,11 @@ def _run_subset_analysis(
                  if col in sdf.columns])
     gc.collect()
 
-    # ── Section 5: XCO2 full suite (one subfolder per target) ───────────────
+    # ── Section 5: XCO2 full suite (primary target; all four under legacy) ──
     if is_full:
         xco2_base = str(Path(subset_outdir) / 'xco2')
-        for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
+        _targets = _XCO2_TARGET_CONFIG if legacy_full else _XCO2_TARGET_CONFIG[:1]
+        for _col, _lbl, _ in _targets:
             logger.info(f"Section 5 [{_col}]: running full XCO2 plot suite …")
             run_xco2_target_analysis(sdf, bins, labels,
                                      xco2_base, _col, _lbl)
@@ -486,7 +490,8 @@ def _run_subset_analysis(
         plot_xco2_derived_vs_cld_dist_binned(sdf, bins, labels, subset_outdir)
 
     if is_full:
-        for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
+        _targets = _XCO2_TARGET_CONFIG if legacy_full else _XCO2_TARGET_CONFIG[:1]
+        for _col, _lbl, _ in _targets:
             logger.info(f"Plotting xco2 derived quantities vs {_col} …")
             plot_xco2_derived_vs_bc_anomaly(sdf, bins, labels, subset_outdir,
                                              y_col=_col, y_label=_lbl)
@@ -494,8 +499,10 @@ def _run_subset_analysis(
 
     logger.info(f"All figures for {subset_name} written to {subset_outdir}")
 
-    # ── Part 3: XCO2 sign-split analyses ─────────────────────────────────────
-    if is_full:
+    # ── Part 3: XCO2 sign-split analyses (legacy only) ───────────────────────
+    # Superseded by the physically-defined shadow/brightening split in
+    # analysis/spec_sensitivity.py.
+    if is_full and legacy_full:
         for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
             logger.info(f"Running XCO2 sign-split analysis [{_col}] for {subset_name.upper()} …")
             run_xco2_sign_analysis(sdf, bins, labels, subset_outdir,
@@ -503,14 +510,17 @@ def _run_subset_analysis(
                                    split_col=_col, split_label=_lbl)
             gc.collect()
 
-    # ── Section 4: stratified analyses ───────────────────────────────────────
+    # ── Section 4: stratified analyses (overlays; per-stratum trees legacy) ──
     if is_full:
         logger.info(f"Running stratified analyses for {subset_name.upper()} …")
         for strat_var, (strat_edges, strat_unit) in STRAT_CONFIG.items():
             if strat_var not in sdf.columns:
                 continue
+            if strat_var == 'sza' and 'mu_sza' in sdf.columns:
+                continue   # mu_sza already covers the SZA axis
             run_stratified_analysis(sdf, bins, labels, subset_outdir,
-                                    strat_var, strat_edges, strat_unit)
+                                    strat_var, strat_edges, strat_unit,
+                                    overlays_only=not legacy_full)
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -551,6 +561,32 @@ def main():
         default=None,
         help='Optional parquet filename inside results/csv_collection.',
     )
+    parser.add_argument(
+        '--land-class',
+        action='store_true',
+        help='Run IGBP land-cover-stratified spec-feature analysis '
+             '(requires MCD12C1 files, see --mcd12c1-dir).',
+    )
+    parser.add_argument(
+        '--mcd12c1-dir',
+        type=str,
+        default=None,
+        help='Directory of MCD12C1.A*.hdf files (default: <storage>/data/MODIS/MCD12C1).',
+    )
+    parser.add_argument(
+        '--land-class-only',
+        action='store_true',
+        help='Run ONLY the land-cover-stratified analysis, then exit (implies --land-class).',
+    )
+    parser.add_argument(
+        '--legacy-full',
+        action='store_true',
+        help='Restore the pre-trim full suite: per-footprint fp_0..7 loop, '
+             'per-stratum directory trees, all four XCO2 targets, sign-split '
+             'suites, cross-band scatter matrices, and all R0-R14 plots '
+             '(~20k figures). Default keeps overlays and the load-bearing '
+             'subset (~200 figures).',
+    )
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()
@@ -581,21 +617,24 @@ def main():
     logger.info(f"Using surface selection: {args.surface}")
     logger.info(f"Writing figures under: results/figures/{analysis_dir}")
 
-    # ── scale exp_intercept by π ──────────────────────────────────────────────
-    # # TODO: remove this once the π factor is absorbed into oco_fp_spec_anal.py
-    # # Scale both obs and ref exp_int so they stay on the same scale for diffs.
-    # _exp_int_cols = [
-    #     'exp_o2a_intercept',    'exp_wco2_intercept',    'exp_sco2_intercept',
-    #     'ref_exp_int_o2a_mean', 'ref_exp_int_wco2_mean', 'ref_exp_int_sco2_mean',
-    #     'ref_exp_int_o2a_std',  'ref_exp_int_wco2_std',  'ref_exp_int_sco2_std',
-    # ]
-    # for _col in _exp_int_cols:
-    #     if _col in df.columns:
-    #         df[_col] = df[_col]
-
     # ── cloud-distance bins ───────────────────────────────────────────────────
     edges  = [0, 2, 5, 10, 15, 20, 30, 50]
     bins, labels = cld_dist_bins(edges)
+
+    # ── land-cover-stratified spec-feature analysis (opt-in) ─────────────────
+    if args.land_class or args.land_class_only:
+        mcd_dir = (Path(args.mcd12c1_dir) if args.mcd12c1_dir
+                   else storage_dir / 'data' / 'MODIS' / 'MCD12C1')
+        lc_outdir = str(result_dir / 'figures' / analysis_dir / 'land_class')
+        logger.info(f"Assigning MCD12C1 land cover from {mcd_dir} …")
+        df = assign_land_cover(df, mcd_dir)
+        land_df = df[df['sfc_type'] == 1] if 'sfc_type' in df.columns else df
+        run_land_class_analysis(land_df, bins, labels, lc_outdir)
+        del land_df
+        gc.collect()
+        if args.land_class_only:
+            logger.info("--land-class-only: stopping after land-class analysis.")
+            return
 
     # ── Section 1: signal hierarchy (full df, internal ocean/land split) ─────
     overall_outdir = str(result_dir / 'figures' / analysis_dir)
@@ -649,9 +688,8 @@ def main():
         logger.info("Adding ref-corrected anomaly columns …")
         df_r = add_ref_anomalies(df)
 
-        logger.info("R0: fp − ref scatter vs cloud distance …")
-        plot_ref_diff_vs_cld_dist(df_r, ref_outdir)
-
+        # Load-bearing set (manuscript chain): R1 selection bias, R2 ref σ,
+        # R3 delta profiles, R5 delta hierarchy, R10 decay length, R14 fp_area.
         logger.info("R1: Ref coverage bias analysis …")
         plot_ref_coverage_bias(df_r, bins, labels, ref_outdir)
 
@@ -661,35 +699,42 @@ def main():
         logger.info("R3: Ref-corrected anomaly profiles …")
         plot_ref_corrected_profiles(df_r, bins, labels, ref_outdir)
 
-        logger.info("R4: Ref z-score profiles …")
-        plot_ref_zscore_profiles(df_r, bins, labels, ref_outdir)
-
         logger.info("R5: Ref-corrected signal hierarchy …")
         plot_ref_signal_hierarchy(df_r, ref_outdir)
-
-        logger.info("R6: Ref albedo-decoupled exp_intercept residuals …")
-        plot_ref_alb_decoupled_exp(df_r, bins, labels, ref_outdir)
-
-        logger.info("R7: Obs vs ref scatter …")
-        plot_obs_vs_ref_scatter(df_r, ref_outdir)
-
-        logger.info("R8: Multi-variable delta comparison …")
-        plot_ref_delta_multivar(df_r, bins, labels, ref_outdir)
-
-        logger.info("R9: Cross-band delta coherence …")
-        plot_ref_cross_band_delta(df_r, ref_outdir)
 
         logger.info("R10: Delta decay length scale …")
         plot_ref_delta_decay(df_r, bins, labels, ref_outdir)
 
-        logger.info("R11: Delta vs XCO2 BC anomaly …")
-        plot_ref_delta_vs_xco2(df_r, ref_outdir)
-
-        logger.info("R12: Partial correlation of delta vs XCO2 anomaly …")
-        plot_ref_delta_partial_xco2(df_r, ref_outdir)
-
         logger.info("R14: Ref-corrected profiles by footprint area quintile …")
         plot_ref_corrected_profiles_by_fp_area(df_r, bins, labels, ref_outdir)
+
+        if args.legacy_full:
+            # Exploratory set retained for --legacy-full: hexbin scatters
+            # (R0/R7), rescaled profiles (R4), and the pairwise/partial
+            # target-definition diagnostics (R6/R8/R9/R11/R12).
+            logger.info("R0: fp − ref scatter vs cloud distance …")
+            plot_ref_diff_vs_cld_dist(df_r, ref_outdir)
+
+            logger.info("R4: Ref z-score profiles …")
+            plot_ref_zscore_profiles(df_r, bins, labels, ref_outdir)
+
+            logger.info("R6: Ref albedo-decoupled exp_intercept residuals …")
+            plot_ref_alb_decoupled_exp(df_r, bins, labels, ref_outdir)
+
+            logger.info("R7: Obs vs ref scatter …")
+            plot_obs_vs_ref_scatter(df_r, ref_outdir)
+
+            logger.info("R8: Multi-variable delta comparison …")
+            plot_ref_delta_multivar(df_r, bins, labels, ref_outdir)
+
+            logger.info("R9: Cross-band delta coherence …")
+            plot_ref_cross_band_delta(df_r, ref_outdir)
+
+            logger.info("R11: Delta vs XCO2 BC anomaly …")
+            plot_ref_delta_vs_xco2(df_r, ref_outdir)
+
+            logger.info("R12: Partial correlation of delta vs XCO2 anomaly …")
+            plot_ref_delta_partial_xco2(df_r, ref_outdir)
 
         logger.info(f"All ref-corrected figures written to {ref_outdir}")
         del df_r
@@ -699,107 +744,9 @@ def main():
     else:
         logger.warning("No ref_* columns found — skipping Sections R1–R7")
 
-    # ── Sections R1–R7 (r15 reference, min_cld_dist=15 km) ───────────────────
-    if 0:#_has_r15_data(df):
-        r15_outdir = str(result_dir / 'figures' / analysis_dir / 'r15_corrected')
-        logger.info("Adding r15-corrected anomaly columns …")
-        df_r15 = add_r15_anomalies(df)
-
-        logger.info("R0 [r15]: fp − r15 scatter vs cloud distance …")
-        plot_ref_diff_vs_cld_dist(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R1 [r15]: r15 coverage bias analysis …")
-        plot_ref_coverage_bias(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R2 [r15]: r15 std profiles (scene heterogeneity) …")
-        plot_ref_std_profiles(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R3 [r15]: r15-corrected anomaly profiles …")
-        plot_ref_corrected_profiles(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R4 [r15]: r15 z-score profiles …")
-        plot_ref_zscore_profiles(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R5 [r15]: r15-corrected signal hierarchy …")
-        plot_ref_signal_hierarchy(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R6 [r15]: r15 albedo-decoupled exp_intercept residuals …")
-        plot_ref_alb_decoupled_exp(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R7 [r15]: Obs vs r15 scatter …")
-        plot_obs_vs_ref_scatter(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R8 [r15]: Multi-variable delta comparison …")
-        plot_ref_delta_multivar(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R9 [r15]: Cross-band delta coherence …")
-        plot_ref_cross_band_delta(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R10 [r15]: Delta decay length scale …")
-        plot_ref_delta_decay(df_r15, bins, labels, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R11 [r15]: Delta vs XCO2 BC anomaly …")
-        plot_ref_delta_vs_xco2(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info("R12 [r15]: Partial correlation of delta vs XCO2 anomaly …")
-        plot_ref_delta_partial_xco2(df_r15, r15_outdir, pairs=_R15_PAIRS, tag='r15')
-
-        logger.info(f"All r15-corrected figures written to {r15_outdir}")
-        del df_r15
-        gc.collect()
-    else:
-        logger.warning("No r15_* columns found — skipping r15 Sections R1–R7")
-
-    # ── Sections R1–R7 (r05 reference, min_cld_dist=5 km) ────────────────────
-    if 0:#_has_r05_data(df):
-        r05_outdir = str(result_dir / 'figures' / analysis_dir / 'r05_corrected')
-        logger.info("Adding r05-corrected anomaly columns …")
-        df_r05 = add_r05_anomalies(df)
-
-        logger.info("R0 [r05]: fp − r05 scatter vs cloud distance …")
-        plot_ref_diff_vs_cld_dist(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R1 [r05]: r05 coverage bias analysis …")
-        plot_ref_coverage_bias(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R2 [r05]: r05 std profiles (scene heterogeneity) …")
-        plot_ref_std_profiles(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R3 [r05]: r05-corrected anomaly profiles …")
-        plot_ref_corrected_profiles(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R4 [r05]: r05 z-score profiles …")
-        plot_ref_zscore_profiles(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R5 [r05]: r05-corrected signal hierarchy …")
-        plot_ref_signal_hierarchy(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R6 [r05]: r05 albedo-decoupled exp_intercept residuals …")
-        plot_ref_alb_decoupled_exp(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R7 [r05]: Obs vs r05 scatter …")
-        plot_obs_vs_ref_scatter(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R8 [r05]: Multi-variable delta comparison …")
-        plot_ref_delta_multivar(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R9 [r05]: Cross-band delta coherence …")
-        plot_ref_cross_band_delta(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R10 [r05]: Delta decay length scale …")
-        plot_ref_delta_decay(df_r05, bins, labels, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R11 [r05]: Delta vs XCO2 BC anomaly …")
-        plot_ref_delta_vs_xco2(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info("R12 [r05]: Partial correlation of delta vs XCO2 anomaly …")
-        plot_ref_delta_partial_xco2(df_r05, r05_outdir, pairs=_R05_PAIRS, tag='r05')
-
-        logger.info(f"All r05-corrected figures written to {r05_outdir}")
-        del df_r05
-        gc.collect()
-    else:
-        logger.warning("No r05_* columns found — skipping r05 Sections R1–R7")
+    # (r15/r05-reference R-suites removed 2026-07-08 — they had been disabled
+    #  with `if 0:` since the r10 reference became canonical; the r15/r05
+    #  registries live on in ref_corrected.py for ad-hoc use.)
 
     # ── surface-type loop: process ocean then land sequentially ───────────────
     if 'sfc_type' in df.columns:
@@ -823,25 +770,37 @@ def main():
             sfc_name,
             sfc_outdir,
             analysis_profile=args.analysis_profile,
+            legacy_full=args.legacy_full,
         )
         del sdf
         gc.collect()
 
-    # ── footprint loop: fp_0 .. fp_7 (same suite as per-surface) ────────────
+    # ── footprint analysis: overlay by default; legacy fp_0..7 loop opt-in ──
     if args.disable_footprint:
-        logger.info("Skipping footprint loop (--disable-footprint)")
+        logger.info("Skipping footprint analysis (--disable-footprint)")
     elif args.analysis_profile != 'full':
-        logger.info("Skipping footprint loop for non-full profile")
-    else:
+        logger.info("Skipping footprint analysis for non-full profile")
+    elif args.legacy_full:
         run_footprint_analysis(
             df, bins, labels, result_dir, _run_subset_analysis,
             logger=logger, analysis_subdir=analysis_dir,
             analysis_profile=args.analysis_profile,
+            legacy_full=True,
         )
+    else:
+        for sfc_name, sfc_code in sfc_codes.items():
+            sdf = df[df['sfc_type'] == sfc_code] if sfc_code is not None else df
+            fp_outdir = str(result_dir / 'figures' / analysis_dir
+                            / 'footprints' / sfc_name)
+            logger.info(f"Footprint overlay for {sfc_name.upper()} …")
+            run_footprint_overlay(sdf, bins, labels, fp_outdir, logger=logger)
+            del sdf
+            gc.collect()
 
-    # ── Ocean vs Land XCO2 boxplots for all targets (uses full df) ───────────
+    # ── Ocean vs Land XCO2 boxplots (primary target; all under legacy) ──────
     combined_outdir = str(result_dir / 'figures' / analysis_dir)
-    for _col, _lbl, _ in _XCO2_TARGET_CONFIG:
+    _targets = _XCO2_TARGET_CONFIG if args.legacy_full else _XCO2_TARGET_CONFIG[:1]
+    for _col, _lbl, _ in _targets:
         logger.info(f"Plotting {_col} ocean vs land boxplot …")
         plot_xco2_anomaly_ocean_land(df, bins, labels, combined_outdir,
                                      col=_col, label=_lbl)
@@ -860,14 +819,23 @@ if __name__ == '__main__':
 # 2) Intermediate diagnosis (land + ocean, moderate figure set):
 #    python src/combined_analyze.py --analysis-profile core --surface all --disable-footprint
 #
-# 3) Full production run (all sections, footprints enabled):
-#    python src/combined_analyze.py --analysis-profile full --surface all
+# 3) Full production run (trimmed suite: overlays, primary target, ~200 figs):
+#    python src/analysis/run_all.py --analysis-profile full --surface all
+#
+# 3b) Legacy exhaustive suite (fp_0..7 loop, per-stratum trees, ~20k figs):
+#    python src/analysis/run_all.py --analysis-profile full --legacy-full
 #
 # 4) Use weighted cloud distance instead of cld_dist_km:
 #    python src/combined_analyze.py --distance-col weighted_cloud_dist_km
 #
 # 5) Specify a particular parquet file from results/csv_collection:
 #    python src/combined_analyze.py --parquet-fname combined_2016_2020_dates.parquet
+#
+# 6) IGBP land-cover-stratified spec-feature analysis only (needs MCD12C1 HDFs):
+#    python src/analysis/run_all.py --land-class-only \
+#        --parquet-fname combined_2016_2020_dates.parquet
+#    → results/figures/<analysis_dir>/land_class/  (overlay profiles,
+#      landclass_effect_sizes.csv, effect heatmap, count matrix)
 #
 # CSV diagnostics written automatically:
 # - Overall summary:
