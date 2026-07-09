@@ -68,21 +68,32 @@ Standalone CLI; outputs under `results/figures/cld_dist_analysis/spec_sensitivit
 - `spec_case_figure.py` — per case: Aqua true-color RGB from **NASA GIBS WMS**
   (no login; A-Train ⇒ the daily composite at the overpass IS the matching
   granule; cached under `rgb_cache/`) with footprints colored by cld_dist
-  (overview + ±15 km zoom), fp×along-track cross-band Δk1 z heatmap
-  ("spectra-only cloud localization"), then along-track traces vs per-fp
-  clear baselines: Δk1/Δk2/Δ(exp int−alb)/continuum ratio/Δalbedo/ΔXCO2/cld.
-- **102 cases rendered** (56 land / 46 ocean, deduplicated by overpass;
-  index with metadata: `case_index.{md,csv}` alongside the figures) —
-  awaiting hand-pick. Reading key: real cloud = white in zoom RGB + all-band
-  Δk1/Δk2 + continuum/exp-int + XCO2 response; surface feature (river,
-  vegetation, bright soil) = Δalbedo & continuum move together, Δk1 quiet —
-  valuable as "correction tolerates surface variance" exhibits; RGB-clean +
-  spectra-quiet = MYD35 false positive (selectivity exhibit).
-- Vetted so far: **Tasman Sea 2018-05-01** (isolated popcorn cumulus,
-  brightening + −1.4 ppm) and **N Pacific 2019-02-01** (cloud-street
-  approach, continuum ×20, −5 ppm) are showcase-grade; Botswana 2019-08-01
-  is a MYD35 **false positive** (dark vegetation patch, no cloud, spectra
-  quiet: a selectivity demo in itself).
+  (overview + ±15 km zoom with 5 km scale bar), then along-track traces vs
+  per-fp clear baselines: Δk1/Δk2/Δ(exp int−alb)/continuum ratio/Δalbedo/
+  absolute X_CO2 BC (robust ±8 ppm y-clamp, clear-median dashline; NOT deltas —
+  some fps lack anomaly values)/cld. Journal-figure revision 2026-07-08:
+  Okabe-Ito CVD-safe band colors, panel letters (a)–(i), legends outside the
+  boxes; the fp×track cross-band Δk1 z heatmap is now opt-in
+  (`--with-heatmap`, exploration only). `--fmt pdf` for submission.
+- **102 cases rendered + hand-vetted** (56 land / 46 ocean; metadata index
+  `case_index.{md,csv}` alongside the figures). Reading key: real cloud =
+  white in zoom RGB + all-band Δk1/Δk2 + continuum/exp-int + XCO2 response;
+  surface feature (river, vegetation, bright soil) = Δalbedo & continuum move
+  together, Δk1 quiet — "correction tolerates surface variance" exhibits;
+  RGB-clean + spectra-quiet = MYD35 false positive (selectivity exhibit).
+- **Shortlist picked (user, 2026-07-08):** 7 good land + 5 good ocean +
+  5 MYD35 false positives + 2 clouds-without-bias →
+  `workspace/spec_case_study/shortlist_2026-07-08.csv` (also mirrored as
+  `case_shortlist.md` next to the figures). Strongest numbers: land
+  2019-10-01 −7.8 ppm; ocean 2016-05-01 −5.7 ppm; Tasman 2018-05-01 −2.0 ppm.
+- `spec_case_atlas.py` — **appendix atlas**: one figure per category, one
+  column per case, 4 compact rows (zoom RGB / Δk1 / continuum ratio /
+  absolute X_CO2 BC with peak-Δ annotation inside the near-cloud shading);
+  ≤4 columns per page. 7 pages rendered (`atlas_{category}[_N].png`).
+  Appendix plan: one full-detail exemplar (Tasman 2018-05-01) + the three
+  category atlases; categories ARE the argument (respond to real
+  perturbations / stay quiet on mask false alarms / MODIS proximity alone
+  over-predicts bias).
 - Outputs: `results/figures/cld_dist_analysis/spec_case_study/`.
 
 ### run_all.py figure-suite trim
