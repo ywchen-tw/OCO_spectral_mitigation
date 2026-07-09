@@ -1,12 +1,17 @@
 # Pre-registered predictions — land-class × spec-feature analysis (full parquet)
 
-**Date frozen:** 2026-07-08, BEFORE submitting the full-combined-parquet run
-(`sbatch curc_shell_blanca_combined_analysis.sh`, which regenerates
-`run_all.py --land-class` + `spec_sensitivity.py` on
-`combined_2016_2020_dates.parquet`, 17.8 M soundings).
-The git commit containing this file predates the run; that hash is the
-timestamp. Predictions may NOT be edited after submission — score them as
-written. (TODO_ACCOMPLISH §2-2.)
+**Date frozen:** 2026-07-08 (commit `543d6cf`). **Timeline correction (same
+day, before scoring):** the full-parquet CURC run had in fact ALREADY
+completed and been downloaded to `results/figures/cld_dist_analysis/` when
+these predictions were committed — so this is a **pre-inspection**
+registration, not a pre-run one: the predictions were written and committed
+before any person or tool read `landclass_effect_sizes.csv`, the effect
+heatmap, or any per-class profile from that run (only directory listings and
+the bin-count totals were touched to establish scale). The only stratified
+result known when P1–P5 were written was the earlier subset-scale first look
+(forest-vs-bright-surface flip), disclosed below as P1's provenance.
+Predictions may NOT be edited after this note — score them as written.
+(TODO_ACCOMPLISH §2-2.)
 
 **Scored against:** `land_class` outputs `*_effect_sizes.csv` /
 `*_effect_heatmap.png` — near-cloud (0–5 km) − far (20–50 km) effects per
