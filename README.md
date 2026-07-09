@@ -101,7 +101,7 @@ oco_fp_analysis/
 
 ## Key documents
 
-- `log/PROJECT_REVIEW_2026-07-03.md` — scientist/reviewer critique + status of fixes
+- `log/PROJECT_REVIEW.md` — scientist/reviewer critique + status of fixes
 - `log/NOTES.md` — architecture reference
 - `log/CRITICAL_FIXES.md` — pipeline bug ledger
 - `src/spectral/FITTING_DERIVATION.md` — k1/k2 physics

@@ -1,7 +1,7 @@
 # Manuscript Readiness Tracker — Done / To-Do / Storyline
 
 **Created:** 2026-07-08 (from the advisor-style readiness assessment)
-**Companions:** `log/PROJECT_REVIEW_2026-07-03.md` (reviewer concerns M1–M9, engineering §7),
+**Companions:** `log/PROJECT_REVIEW.md` (reviewer concerns M1–M9, engineering §7),
 `log/SPEC_EMPHASIS_STATUS_2026-07-08.md` (spec-feature repositioning),
 `log/TCCON_PAPERS_AND_ML_IDEAS_2026-07-03.md` (bibliography + ML ideas).
 **Verdict (2026-07-08):** the core TCCON-validated result is manuscript-ready;

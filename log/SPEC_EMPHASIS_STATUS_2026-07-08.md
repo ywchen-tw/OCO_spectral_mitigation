@@ -8,7 +8,7 @@ showed the spectral cumulant group is TCCON-parsimony-droppable (no_spec
 load. This effort repositions the spec features on their real strengths —
 mechanism evidence, correction safety, MODIS-independent cloud sensitivity —
 and rebuilds the phenomenology analysis (`src/analysis/run_all.py`) to be
-diagnosable. Companion review: `log/PROJECT_REVIEW_2026-07-03.md` (M1).
+diagnosable. Companion review: `log/PROJECT_REVIEW.md` (M1).
 
 **Framing (for the manuscript):** the cumulants establish that the bias is a
 photon path-length effect and bound what the correction may touch; the

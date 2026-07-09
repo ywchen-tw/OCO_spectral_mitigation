@@ -3,7 +3,7 @@ Single source of truth for numeric constants shared across the pipeline
 ========================================================================
 
 Every value here was previously duplicated (with drift) across 2-4 call
-sites; see log/PROJECT_REVIEW_2026-07-03.md §7.4. Import from this module
+sites; see log/PROJECT_REVIEW.md §7.4. Import from this module
 instead of re-declaring literals, and have docstrings reference the
 constant name rather than repeating the number.
 """

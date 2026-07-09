@@ -1,7 +1,7 @@
 # Linear-regression & XGBoost baseline comparison vs production DE — implementation plan
 
 **Date:** 2026-07-07 · **Status:** PLAN (not started) · **For:** implementing agent
-**Companion docs:** `PROJECT_REVIEW_2026-07-03.md` (§2.5 baselines row), `TCCON_PAPERS_AND_ML_IDEAS_2026-07-03.md` §2.5/§2.8-item-7, `TCCON_BIAS_MODEL_IMPROVEMENT_PLAN_2026-07-06.md` (metric caveats + regenerated model table).
+**Companion docs:** `PROJECT_REVIEW.md` (§2.5 baselines row), `TCCON_PAPERS_AND_ML_IDEAS_2026-07-03.md` §2.5/§2.8-item-7, `TCCON_BIAS_MODEL_IMPROVEMENT_PLAN_2026-07-06.md` (metric caveats + regenerated model table).
 
 ## Goal
 

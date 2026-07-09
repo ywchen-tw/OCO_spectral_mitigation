@@ -6,7 +6,7 @@
 
 ## 2026-07-04/06 — DE production config, engineering hardening, validation chains (summary)
 
-Full detail in `log/PROJECT_REVIEW_2026-07-03.md` (§7 status blocks + the 2026-07-06 header update); highlights:
+Full detail in `log/PROJECT_REVIEW.md` (§7 status blocks + the 2026-07-06 header update); highlights:
 
 - **Engineering hardening** (commits `7809fe9`, `223b2cb`): atomic/verified/resumable downloads (§7.1); exact lstsq/BVLS cumulant fit (×14, float32+gzip outputs, `--fit-workers`) (§7.2); shared trainer `train_common.py` + `TrainConfig`, `training_dates.json` manifest per run (§7.3); `src/constants.py` single source of pipeline numbers; `fitting.py` → `cumulant_fit/orbit_data/anomaly/fit_plots` + facade, `oco_modis_cloud_distance.py` → `pipeline_utils/pipeline_phases` (§7.4). All verified bit-for-bit.
 - **No-SG default** (`d9c62cb`): spectroscopy k-features default to the no-Savitzky-Golay dual fit (`pipeline._USE_NOSG_K`); SG twins kept for robustness.

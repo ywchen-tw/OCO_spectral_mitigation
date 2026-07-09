@@ -1,7 +1,7 @@
 # ATom ocean-glint pseudo-column comparison
 
 Independent **in-situ ocean anchor** for the near-cloud XCO2 correction
-(PROJECT_REVIEW_2026-07-03.md → M7-3, resolution item **#3**).
+(PROJECT_REVIEW.md → M7-3, resolution item **#3**).
 
 ATom flew four seasonal Pacific/Atlantic circuits of continuous 0.2–12 km vertical
 profiles (2016–2018), overlapping our OCO-2 data years. The goal is to build XCO2

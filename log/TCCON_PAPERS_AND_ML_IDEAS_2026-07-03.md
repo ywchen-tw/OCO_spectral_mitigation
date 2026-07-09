@@ -1,7 +1,7 @@
 # TCCON Comparison Bibliography + ML Model Improvement Ideas
 
 **Date:** 2026-07-03
-**Companion to:** `log/PROJECT_REVIEW_2026-07-03.md`
+**Companion to:** `log/PROJECT_REVIEW.md`
 **Updated 2026-07-08:** Cluster 8 added (Nassar power-plant plume papers — now load-bearing: the M1 plume negative controls ran against their overpass catalog; both DOIs Crossref-verified 2026-07-08) plus MCD12C1/GIBS data citations. Cluster 9 added (MODIS cloud-mask accuracy — backing for the product-dependence Discussion paragraph; 6 entries, DOIs verified). Part 2: the baseline-table item (§2.5 / §2.8-7) is DONE via the 5-model same-protocol comparison; §2.7 extended with the spec-feature predictive-redundancy verdict (QF ablation).
 
 ---
