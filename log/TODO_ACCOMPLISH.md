@@ -73,11 +73,27 @@ not be quoted until the full-parquet regeneration (§2-2) lands. Scoop risk
    but leaves the case bias untouched (|bias| 1.26 → 1.20–1.24 vs DE 0.81 ppm);
    fp-RMSE DE 1.19 < smoother 1.34–1.52 ppm. Figure:
    `smoother_null/smoother_null_r100km.png` (`workspace/smoother_null_figure.py`).
-2. [~] **Regenerate land-class + spec-sensitivity on the full combined parquet.**
-   Pre-registration WRITTEN 2026-07-08 (`log/PREREGISTRATION_LANDCLASS_2026-07-08.md`:
-   P1 SCO2 sign flip, P2 O2A no-flip, P3 Spearman contrast ordering, P4 k2 ≥ 0,
-   P5 WCO2 intermediate; scored against `*_effect_sizes.csv`). REMAINING: commit,
-   then user submits `sbatch curc_shell_blanca_combined_analysis.sh` on CURC.
+2. [x] **Full-parquet land-class + spec-sensitivity: RAN AND SCORED 2026-07-08.**
+   The CURC job had already completed (downloaded to
+   `results/figures/cld_dist_analysis/`; 2.44 M binned land rows, classifier
+   n_train 2 M/surface — full scale). Pre-registration
+   (`log/PREREGISTRATION_LANDCLASS_2026-07-08.md`) was therefore corrected to
+   a PRE-INSPECTION registration (committed before anyone read the effect
+   sizes) and scored as written: **P1 FAIL as written (the vegetated-vs-barren
+   flip is real but lives in WCO2 — dk1_wco2 savanna +0.43σ vs barren −0.40σ —
+   not SCO2; forest dk1_sco2/dexp_sco2 CI-significantly sign-reversed);
+   P2 PARTIAL (urban −0.26σ fails; others hold); P3 FAIL formally (Spearman
+   n.s. all bands; salvage: in WCO2, where measured albedos actually straddle
+   the cloud albedo — barren 0.61 vs 0.50 — the SIGN of dk1 follows the sign
+   of the measured contrast for every non-urban class); P4 FAIL (dk2_wco2
+   barren −0.37σ, urban negative everywhere); P5 FAIL (WCO2 has the LARGEST
+   spread, not intermediate).** Manuscript consequence: present the
+   stratification as a sign rule valid where the contrast changes sign
+   (WCO2), reject the naive per-band ordering, name band-dependent
+   measurement sensitivity as co-determinant, flag urban as anomalous
+   (n = 3.5 k, aerosol/3D-structure confound). Independently robust at scale:
+   spec-only classifier AUC land 0.718 / ocean 0.664; sub-pixel monotonicity
+   + shadow/brightening branches regenerated.
 3. [x] **Training-date leakage guard. DONE 2026-07-08.** `src/models/leakage_guard.py`
    (manifest union train+calib; filename-label date identity, time-column
    fallback; refuse by default, `--allow-train-overlap` loud override; missing

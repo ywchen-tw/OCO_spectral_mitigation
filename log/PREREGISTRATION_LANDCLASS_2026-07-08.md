@@ -71,3 +71,51 @@ mechanism section reverts to the pooled (non-stratified) evidence only.
 the subset-scale first look (forest-vs-bright-surface flip), so P1 is a
 *confirmatory replication* at scale, while P3–P5 are novel orderings not yet
 inspected in any output.
+
+---
+
+## SCORED (2026-07-08, same day — full-parquet run, `landclass_effect_sizes.csv`)
+
+Scored on the ref-corrected Δ-variables as pledged (dk1_*/dk2_*/dexp_*,
+z-units, 95 % CI); class-median clear-sky band albedos measured from 40 local
+date parquets (1.15 M clear land soundings, MCD12C1 v061 classes):
+forest/savanna dark → barren bright in SWIR (alb_wco2 0.15/0.20 → 0.61;
+alb_sco2 0.06/0.11 → 0.59), exactly the premise — and barren is the only
+class whose WCO2 albedo EXCEEDS the assumed cloud albedo (0.61 > 0.50),
+i.e. the contrast changes sign in WCO2, not SCO2.
+
+- **P1 — FAIL as written.** The vegetated-vs-barren sign flip is real but
+  lives in **WCO2**, not SCO2: dk1_wco2 savanna +0.43σ / grassland +0.27 /
+  shrubland +0.23 / forest +0.09 vs barren **−0.40** (all CI-significant).
+  In SCO2 the effects are an order weaker and partly reversed (forest
+  −0.029 ± 0.025 — CI-significant with the WRONG sign; barren −0.021).
+  dexp_sco2 is also sign-reversed vs prediction (forest −0.41, barren +0.06).
+- **P2 — PARTIAL.** dk1_o2a ≥ 0 (CI) for savanna/shrubland/grassland/
+  cropland/barren; forest consistent with zero; **urban fails** (−0.26,
+  CI-significant; urban is anomalous in every variable — n_near = 3555,
+  likely aerosol/3D-structure confound — but it was not exempted, so P2
+  is a partial fail as written).
+- **P3 — FAIL formally.** Spearman(effect_z, α_cloud − α_class): O2A +0.25
+  (p = 0.59), WCO2 +0.07 (p = 0.88), SCO2 −0.04 (p = 0.94), n = 7 — none
+  positive-significant. Salvage worth reporting: in WCO2 the **sign** of
+  dk1 follows the sign of the measured contrast for every non-urban class
+  (barren is the only negative-contrast class and the only negative dk1),
+  but magnitudes do not rank with contrast within or across bands.
+- **P4 — FAIL.** dk2 is strongly class-signed, mirroring dk1: dk2_wco2
+  vegetated +0.10…+0.44 vs barren **−0.37** and urban −0.86 (CI-significant
+  negatives); small significant negatives also in forest o2a/sco2. Added
+  path-length *variance* is not non-negative for bright surfaces.
+- **P5 — FAIL.** WCO2 has the LARGEST class spread (it is where the
+  contrast changes sign), not an intermediate one; SCO2 is weak.
+
+**Interpretation for the manuscript (per the falsification clause):** the
+stratified evidence supports the qualitative albedo-contrast mechanism only
+as a *sign* rule, and only where the measured surface albedo actually
+straddles the cloud albedo (WCO2). The naive per-band contrast-ordering
+model is rejected: SCO2 — where the contrast is most negative over barren —
+shows almost no k1 response, so band-dependent measurement sensitivity
+(SNR/absorption depth) must co-determine magnitudes. Report P1–P5 as
+scored; do not soften. Full-scale spec-sensitivity survives independently:
+spec-only near-cloud classifier AUC land 0.718 / ocean 0.664 (HGB,
+full_spec; n_train 2 M per surface), sub-pixel monotonicity and
+shadow/brightening branches regenerated at scale.
