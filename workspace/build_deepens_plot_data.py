@@ -53,7 +53,13 @@ import xgboost as xgb
 
 from models.pipeline import FeaturePipeline, _ensure_derived_features
 from models.deep_ensemble import GaussianMLP, _member_predict
+from models.leakage_guard import check_training_overlap
 from apply.apply_deep_ensemble import _check_required_columns, _domain_report
+
+import sys
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from smoother_null import add_smoother_columns, DEFAULT_WINDOWS_S  # noqa: E402
 
 CORR_COL = 'deep_ensemble_corrected_xco2'              # (1) full mu          xco2_bc - mu
 CORR_COL_PNEAR = 'deepens_pnear_corrected_xco2'        # (2) P(near)*mu       xco2_bc - P*mu
@@ -311,6 +317,16 @@ def main():
                          "per footprint) for the EXACT case-level epistemic term in the "
                          "uncertainty-aware TCCON comparison. Off by default (keeps file "
                          "size unchanged); enable for the uncertainty runs.")
+    ap.add_argument('--allow-train-overlap', action='store_true',
+                    help="Downgrade the training-date leakage guard from refusal "
+                         "to a loud warning (deliberate in-sample diagnostics "
+                         "only — never for validation numbers).")
+    ap.add_argument('--smoother-windows-s', default=','.join(
+                        f'{w:g}' for w in DEFAULT_WINDOWS_S),
+                    help="Pure-smoother null (M4): also emit feature-free "
+                         "smoother_w{W}_corrected_xco2 columns, W = running-mean "
+                         "half-width in seconds over the orbit segment (see "
+                         "smoother_null.py). Comma-separated; '' disables.")
     ap.add_argument('--correction-base', choices=('bc', 'raw'), default='bc',
                     help="XCO2 column the predicted anomaly is subtracted from: 'bc' "
                          "(xco2_bc, for models trained on xco2_bc_anomaly*) or 'raw' "
@@ -338,6 +354,14 @@ def main():
     df = pd.concat([pd.read_parquet(p) for p in args.input], ignore_index=True)
     print(f"  read {len(df):,} rows from {len(args.input)} file(s)")
 
+    # Training-date leakage guard: refuse when an evaluation date appears in
+    # any model dir's training/calibration manifest (training_dates.json).
+    for md, sfc, cmd in surfaces:
+        check_training_overlap(
+            list(md) + list(cmd or ()), input_paths=args.input,
+            times=df['time'].to_numpy() if 'time' in df.columns else None,
+            allow=args.allow_train_overlap, tag=f'sfc{sfc}')
+
     max_abs_anom = args.max_abs_anomaly if args.max_abs_anomaly > 0 else None
     parts = [p for p in (_build_surface(df, md, sfc, dk=dk,
                                         clim_max_ppm=args.climatology_max_ppm,
@@ -350,6 +374,15 @@ def main():
     if not parts:
         raise SystemExit("no soundings predicted on any surface")
     out = pd.concat(parts, ignore_index=True)
+
+    # Pure-smoother null columns (M4): feature-free running-mean "corrections"
+    # the TCCON report can be pointed at via --corr-col to show that merely
+    # smoothing XCO2 collapses footprint scatter but does not move the bias.
+    smoother_ws = [float(x) for x in args.smoother_windows_s.split(',') if x.strip()]
+    if smoother_ws:
+        out = add_smoother_columns(out, windows_s=smoother_ws, base_col=base_col,
+                                   clim_max_ppm=args.climatology_max_ppm)
+        print(f"  smoother-null columns added (±{smoother_ws} s, base {base_col})")
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(args.output, index=False)

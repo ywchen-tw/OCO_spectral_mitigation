@@ -38,6 +38,7 @@ import numpy as np
 import pandas as pd
 
 from models.pipeline import FeaturePipeline, _ensure_derived_features
+from models.leakage_guard import check_training_overlap
 from apply.apply_deep_ensemble import _check_required_columns, _domain_report
 
 KEEP_COLS = ('time', 'lon', 'lat', 'cld_dist_km', 'sfc_type',
@@ -165,6 +166,9 @@ def main():
     ap.add_argument('--climatology-max-ppm', type=float, default=50.0)
     ap.add_argument('--max-abs-anomaly', type=float, default=25.0)
     ap.add_argument('--correction-base', choices=('bc', 'raw'), default='bc')
+    ap.add_argument('--allow-train-overlap', action='store_true',
+                    help="Downgrade the training-date leakage guard from refusal to "
+                         "a loud warning (in-sample diagnostics only).")
     args = ap.parse_args()
     kind = args.model_kind
     corr_col = f'{kind}_corrected_xco2'
@@ -182,6 +186,12 @@ def main():
 
     df = pd.concat([pd.read_parquet(p) for p in args.input], ignore_index=True)
     print(f"  read {len(df):,} rows from {len(args.input)} file(s)  [kind={kind}]")
+
+    for md, sfc in surfaces:
+        check_training_overlap(
+            md, input_paths=args.input,
+            times=df['time'].to_numpy() if 'time' in df.columns else None,
+            allow=args.allow_train_overlap, tag=f'sfc{sfc}')
 
     max_abs_anom = args.max_abs_anomaly if args.max_abs_anomaly > 0 else None
     parts = [p for p in (_build_surface(df, md, sfc, kind, corr_col, dk=dk,
