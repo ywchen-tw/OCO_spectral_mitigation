@@ -163,8 +163,18 @@ not be quoted until the full-parquet regeneration (§2-2) lands. Scoop risk
 - [ ] **Data-recovery paragraph:** read QF1-recovery numbers straight off the
   production report's qf tables ("N% of QF1 near-cloud soundings usable
   post-correction"). The "so-what" for flux people.
-- [ ] Uncertainty-aware layer regen (`curc_shell_blanca_deepens_uncertainty.sh`
-  pending submit) → per-case error bars + TOST equivalence.
+- [x] **Uncertainty-aware layer: RAN AND READ 2026-07-08**
+  (`tccon_uncertainty_r{100,50}km.{csv,md}`, qf-tripled, downloaded from CURC).
+  DL random-effects D = corrected − AK TCCON: **−0.32 ± 0.10 ppm** (r100;
+  r50 −0.43 ± 0.08, qf0 −0.21 ± 0.10) = the known ~0.3 ppm anchoring offset
+  → globally consistent up to the documented absolute-scale chain.
+  Between-case τ = 0.29 (r50) → 0.60 ppm (r100), I² 23 → 61 %: the
+  unbudgeted systematic grows with radius ⇒ representation error (name as
+  u_rep). Whole-budget ⟨z²⟩ = 1.90/3.04 (r50/r100): per-case budgets
+  under-disperse ×1.4–1.7 because τ is missing; per-footprint σ already
+  calibrated vs the anomaly target (Phase 2b k(cld_dist)). TOST δ=0.5:
+  1/75 equivalent, 14/75 differ — quote the DL CI as the global statement,
+  not per-case equivalence. Full read in `log/PROJECT_REVIEW.md` §3.1.
 - [ ] Writing-time subsections: Ny-Ålesund/high-latitude; five worsening sites;
   M5 parallax/advection bound sentences; M9(f) convergence-radius caveat.
 

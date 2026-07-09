@@ -77,9 +77,26 @@ numbering, as the audit trail of how each was closed.
   cross-check (optional appendix), (f) convergence-radius caveat — writing time.
 - **Engineering:** Phase-3 per-sounding failure accounting; §7.1 efficiency
   (parallel downloads, listing memoization) — nice-to-have.
-- **Pending run:** uncertainty-aware layer regen
-  (`curc_shell_blanca_deepens_uncertainty.sh` — submit on CURC), which
-  populates per-case error bars + TOST equivalence.
+- ~~**Pending run:** uncertainty-aware layer regen~~ **DONE 2026-07-08
+  (CURC run downloaded; `tccon_uncertainty_r{100,50}km.{csv,md}`, qf-tripled).**
+  Read: (1) **global consistency** — DerSimonian–Laird random-effects mean
+  D = corrected − AK TCCON: **−0.32 ± 0.10 ppm** [−0.51, −0.12] at r100
+  (r50 −0.43 ± 0.08; qf0 −0.21 ± 0.10) — the same sign/magnitude as the
+  documented ~0.3 ppm B7→B11 direct-anchoring offset (M2), i.e. the
+  corrected product is globally consistent with TCCON up to the known
+  absolute-scale chain; (2) **between-case τ = 0.29 (r50) → 0.60 ppm (r100),
+  I² 23 % → 61 %** — the unbudgeted case-level systematic GROWS with
+  collocation radius ⇒ representation/regional error, name it as the u_rep
+  term; (3) **whole-budget ⟨z²⟩ = 1.90 (r50) / 3.04 (r100)** — the stated
+  per-case budgets under-disperse by ×1.4–1.7 exactly because τ is not in
+  them (adding τ closes the budget by construction — that is what the DL
+  model estimates); per-footprint σ itself was already calibrated vs the
+  anomaly target with the small k(cld_dist) inflation (Phase 2/2b);
+  (4) **TOST at δ = 0.5 ppm: 1/75 equivalent, 14/75 significantly
+  different** — per-case equivalence at ±0.5 ppm is NOT demonstrable
+  (u_D 0.3–1.0 ppm + the real −0.3 offset); the manuscript's global
+  statement is the DL CI, not per-case TOST. Writing-time: quote r50 as
+  the tighter-collocation robustness row.
 
 ### 3.2 Resolved / owned (audit trail, original numbering)
 
