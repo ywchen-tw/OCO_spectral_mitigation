@@ -34,10 +34,14 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_corrected_xco2 import (download_modis_rgb, _dominant_granule_date,
                                  _scatter_map, load_tccon, get_storage_dir)
+from plot_style import (apply_manuscript_style, panel_label, CMAPS,
+                        MEAN_L_LABEL, VAR_L_LABEL, station_extent)
 
-BANDS = [('o2a', 'O$_2$-A'), ('wco2', 'weak CO$_2$'), ('sco2', 'strong CO$_2$')]
-QUANTS = [('k1', '{b}_k1'), ('k2', '{b}_k2'),
-          ('exp_intercept−alb', '{b}_exp_intercept-alb')]
+BANDS = [('o2a', 'O$_2$A'), ('wco2', 'WCO$_2$'), ('sco2', 'SCO$_2$')]
+# k1/k2 shown by their physical meaning: mean / variance of the relative
+# photon path l' (caption defines k1 = <l'>, k2 = var(l')).
+QUANTS = [(MEAN_L_LABEL, '{b}_k1'), (VAR_L_LABEL, '{b}_k2'),
+          ('exp. intercept $-$ albedo', '{b}_exp_intercept-alb')]
 
 
 def main():
@@ -54,9 +58,17 @@ def main():
     ap.add_argument('--results-h5', default=None)
     ap.add_argument('--modis-auto', action='store_true')
     ap.add_argument('--modis-which', default='aqua', choices=['terra', 'aqua'])
-    ap.add_argument('--cmap', default='viridis')
-    ap.add_argument('--dpi', type=int, default=200)
+    ap.add_argument('--cmap', default=CMAPS['spec'])
+    ap.add_argument('--dpi', type=int, default=300)
+    ap.add_argument('--extent-radius-km', type=float, default=100.0,
+                    help='Map extent = TCCON station ± this radius (default '
+                         '100, the collocation radius). 0 → legacy '
+                         'lon/lat-range extent.')
+    ap.add_argument('--suptitle', action='store_true',
+                    help='Add the date suptitle (off by default — journal '
+                         'figures carry the date in the caption).')
     args = ap.parse_args()
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes
 
     storage = get_storage_dir()
     def _abs(p): return str(storage / p) if p and not Path(p).is_absolute() else p
@@ -73,9 +85,6 @@ def main():
         df = df[(df['lon'] >= args.lon_range[0]) & (df['lon'] <= args.lon_range[1])]
     if args.lat_range:
         df = df[(df['lat'] >= args.lat_range[0]) & (df['lat'] <= args.lat_range[1])]
-    print(f"  {len(df):,} footprints in box", flush=True)
-    lon = df['lon'].to_numpy(float); lat = df['lat'].to_numpy(float)
-
     # ── station marker ──
     tccon_lon = tccon_lat = None
     if args.tccon:
@@ -86,12 +95,20 @@ def main():
         except Exception as exc:
             print(f"  (TCCON marker skipped: {exc})", flush=True)
 
-    # ── view extent + MODIS background ──
+    # ── view extent (station ±radius > lon/lat ranges > data bounds) ──
     out_dir = Path(_abs(args.output_dir)); out_dir.mkdir(parents=True, exist_ok=True)
     view = None
-    if args.lon_range and args.lat_range:
+    if args.extent_radius_km > 0 and tccon_lon is not None:
+        view = station_extent(tccon_lon, tccon_lat, args.extent_radius_km)
+        # restrict the data to the view so the 2–98 % colour scaling
+        # reflects what is actually shown
+        df = df[(df['lon'] >= view[0]) & (df['lon'] <= view[1]) &
+                (df['lat'] >= view[2]) & (df['lat'] <= view[3])]
+    elif args.lon_range and args.lat_range:
         view = [args.lon_range[0], args.lon_range[1], args.lat_range[0], args.lat_range[1]]
-    elif len(lon):
+    print(f"  {len(df):,} footprints in box", flush=True)
+    lon = df['lon'].to_numpy(float); lat = df['lat'].to_numpy(float)
+    if view is None and len(lon):
         view = [lon.min(), lon.max(), lat.min(), lat.max()]
     bg_img = None
     if args.modis_auto and view is not None:
@@ -110,7 +127,9 @@ def main():
                 print(f"  MODIS bg failed ({exc})", flush=True)
 
     # ── 3×3 grid ──
-    fig, axes = plt.subplots(len(BANDS), len(QUANTS), figsize=(6 * len(QUANTS), 5 * len(BANDS)))
+    # smaller panels + base_size-10 fonts → readable at journal print scale
+    fig, axes = plt.subplots(len(BANDS), len(QUANTS),
+                             figsize=(4.4 * len(QUANTS), 3.9 * len(BANDS)))
     for i, (b, blabel) in enumerate(BANDS):
         for j, (qlabel, qpat) in enumerate(QUANTS):
             ax = axes[i, j]
@@ -125,12 +144,19 @@ def main():
             norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
             _scatter_map(ax, lon, lat, vals, f'{blabel}  {qlabel}', norm, args.cmap,
                          tccon_lon, tccon_lat, bg_img=bg_img, bg_extent=view,
-                         view_extent=view)
+                         view_extent=view, show_station_legend=(i == 0 and j == 0))
+            panel_label(ax, f'({chr(ord("a") + i * len(QUANTS) + j)})')
             sm = mcm.ScalarMappable(norm=norm, cmap=args.cmap); sm.set_array([])
             fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+            # interior panels drop repeated axis labels (shared geography)
+            if i < len(BANDS) - 1:
+                ax.set_xlabel('')
+            if j > 0:
+                ax.set_ylabel('')
 
     title_date = args.date_plot or ''
-    fig.suptitle(f'OCO-2 spectral-fit parameters {title_date}', fontsize=14, y=0.995)
+    if args.suptitle:
+        fig.suptitle(f'OCO-2 spectral-fit parameters {title_date}', y=0.995)
     fig.tight_layout(rect=[0, 0, 1, 0.99])
     out = out_dir / f'spectral_params_{title_date or "case"}.png'
     fig.savefig(out, dpi=args.dpi, bbox_inches='tight'); plt.close(fig)

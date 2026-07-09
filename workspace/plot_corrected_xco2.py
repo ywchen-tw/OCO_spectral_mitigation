@@ -2,13 +2,14 @@
 
 Reads plot_data.csv produced by apply_models.py and a TCCON NetCDF4 file.
 
-Figure layout (3 rows × n_models columns, n_models = number of active models ≥ 3):
-  Row 1 : lon/lat scatter maps — one panel per active model correction
-          (Ridge | MLP | FT | XGBoost | Hybrid — only present models shown)
-  Row 2 : lon/lat scatter maps — original XCO₂_bc | ideal-corrected | TCCON time series
-  Row 3 : histogram — all corrected XCO₂ distributions vs TCCON
-
-Shared colorbar covers all lon/lat map panels (rows 1–2, cols 0–2).
+Two manuscript figures per run (Arial, plasma XCO2 maps, panel letters):
+  corrected_xco2_vs_tccon.png       2×3 compact —
+      (a) Lite XCO2 | (b) ML-corrected XCO2 | (c) predicted sigma
+      (d) predicted correction mu | (e) histogram | (f) TCCON time series
+  corrected_xco2_vs_tccon_full.png  3×3 — adds ideal-corrected and
+      nearest-cloud-distance maps in a middle row.
+(a)+(b) share one horizontal XCO2 colorbar; map view extent defaults to the
+TCCON station ±100 km (--extent-radius-km, 0 = legacy lon/lat-range extent).
 
 Usage:
     python src/plot_corrected_xco2.py \\
@@ -48,8 +49,14 @@ import netCDF4 as nc4
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 from utils import get_storage_dir
 
+sys.path.insert(0, str(Path(__file__).parent))
+from plot_style import (apply_manuscript_style, panel_label, CMAPS,
+                        XCO2_LABEL, station_extent)
+
 # ── Styling constants ──────────────────────────────────────────────────────────
-_CMAP = 'jet'
+# Sequential XCO2 colormap (perceptually uniform, CVD-safe; AMT-friendly).
+# Overridable with --cmap (e.g. --cmap jet to reproduce legacy figures).
+_CMAP = CMAPS['xco2']
 
 _MODEL_CFGS = [
     ('Ridge',   'ridge_cond_corrected_xco2',   'ridge_corrected_xco2',   'orange'),
@@ -438,7 +445,8 @@ def render_modis_granule_rgb(myd021km_path, myd03_path, output_png,
 def _scatter_map(ax, lon, lat, values, title, norm, cmap,
                  tccon_lon=None, tccon_lat=None,
                  bg_img=None, bg_extent=None,
-                 view_extent=None):
+                 view_extent=None, show_station_legend=True,
+                 circle_km=None):
     """lon/lat scatter map coloured by *values*; optionally mark TCCON station.
 
     Parameters
@@ -447,6 +455,12 @@ def _scatter_map(ax, lon, lat, values, title, norm, cmap,
         If provided, the axes are locked to this range after all plotting,
         preventing the scatter from auto-expanding the view.  Derived in
         main() from bg_extent (GIBS/L1B) or --lon-range / --lat-range args.
+    show_station_legend : bool
+        Draw the 'TCCON station' legend box (the star marker is always drawn).
+        Multi-panel grids pass False on all but one panel to avoid repetition.
+    circle_km : float, optional
+        Draw a dashed circle of this great-circle radius around the TCCON
+        station (the collocation area used in the histogram/report analysis).
     """
     if bg_img is not None and bg_extent is not None:
         # extent=[lon_min, lon_max, lat_min, lat_max] → imshow wants [left, right, bottom, top]
@@ -455,24 +469,44 @@ def _scatter_map(ax, lon, lat, values, title, norm, cmap,
                   aspect='auto', origin='upper', zorder=0)
     valid = np.isfinite(values)
     ax.scatter(lon[valid], lat[valid], c=values[valid],
-               norm=norm, cmap=cmap, s=7.5, alpha=0.5, rasterized=True)
+               norm=norm, cmap=cmap, s=9, alpha=0.6, rasterized=True)
     if tccon_lon is not None and tccon_lat is not None:
-        ax.scatter([tccon_lon], [tccon_lat], c='red', s=80, marker='*',
+        ax.scatter([tccon_lon], [tccon_lat], c='red', s=90, marker='*',
+                   edgecolors='white', linewidths=0.6,
                    zorder=5, label='TCCON station')
-        ax.legend(fontsize=7, loc='lower left', markerscale=1.5)
-    ax.set_title(title, fontsize=9)
-    ax.set_xlabel('Lon (°E)', fontsize=8)
-    ax.set_ylabel('Lat (°N)', fontsize=8)
-    ax.tick_params(labelsize=7)
+        if circle_km is not None and circle_km > 0:
+            import matplotlib.patheffects as _pe
+            _th = np.linspace(0.0, 2.0 * np.pi, 361)
+            _clat = tccon_lat + circle_km / 111.195 * np.sin(_th)
+            _clon = (tccon_lon + circle_km
+                     / (111.195 * max(np.cos(np.radians(tccon_lat)), 0.05))
+                     * np.cos(_th))
+            ax.plot(_clon, _clat, ls='--', lw=1.2, color='white', zorder=4,
+                    path_effects=[_pe.Stroke(linewidth=2.4, foreground='black'),
+                                  _pe.Normal()],
+                    label=f'{circle_km:g} km radius')
+        if show_station_legend:
+            ax.legend(loc='lower left', markerscale=1.3)
+    ax.set_title(title)
+    ax.set_xlabel('Lon (°E)')
+    ax.set_ylabel('Lat (°N)')
     # Lock axis limits — must come after all plot calls so scatter doesn't override
     if view_extent is not None:
         ax.set_xlim(view_extent[0], view_extent[1])
         ax.set_ylim(view_extent[2], view_extent[3])
+        # geographic aspect (equal km in x and y) — keeps the collocation
+        # circle round regardless of the grid-cell shape
+        _mid_lat = 0.5 * (view_extent[2] + view_extent[3])
+        ax.set_aspect(1.0 / max(np.cos(np.radians(_mid_lat)), 0.05))
 
 
 def _tccon_panel(ax, tccon_df: pd.DataFrame, vmin: float, vmax: float, title: str,
-                 fp_times=None, oco_vals=None):
-    """Time series of TCCON XCO₂ with per-measurement error and monthly mean.
+                 fp_times=None):
+    """Time series of TCCON XCO₂ with per-measurement error shading.
+
+    The y-limits follow the TCCON ±1σ shading range (1st–99th percentile of
+    xco2 ∓/± xco2_error, with a 0.3 ppm margin); vmin/vmax are only the
+    fallback when no TCCON data exist.
 
     Parameters
     ----------
@@ -480,17 +514,13 @@ def _tccon_panel(ax, tccon_df: pd.DataFrame, vmin: float, vmax: float, title: st
         OCO-2 footprint observation times (after spatial filtering).
         Consecutive times are grouped into orbit passes (gap threshold: 30 min)
         and each pass is shaded as a vertical span.
-    oco_vals : array-like, optional
-        OCO-2 XCO₂ values used to set the y-axis limits (1st–99th percentile
-        with a 0.5 ppm margin).  Falls back to vmin/vmax when None.
     """
-    ax.set_title(title, fontsize=9)
-    ax.set_ylabel('XCO₂ (ppm)', fontsize=8)
-    ax.tick_params(labelsize=7)
+    ax.set_title(title)
+    ax.set_ylabel(f'{XCO2_LABEL} (ppm)')
 
     if len(tccon_df) == 0:
         ax.text(0.5, 0.5, 'No TCCON data', ha='center', va='center',
-                transform=ax.transAxes, fontsize=10)
+                transform=ax.transAxes)
         return
 
     t  = tccon_df['time']          # timezone-aware pandas Series
@@ -515,34 +545,25 @@ def _tccon_panel(ax, tccon_df: pd.DataFrame, vmin: float, vmax: float, title: st
 
     # Raw measurements + ±1σ shading
     ax.scatter(t, y, s=15, c='salmon', alpha=0.7, zorder=2, label='Measurements')
-    ax.fill_between(t, y - ye, y + ye, color='red', alpha=0.12, zorder=1)
+    ax.fill_between(t, y - ye, y + ye, color='red', alpha=0.12, zorder=1,
+                    label=r'$\pm 1\sigma$')
 
-    # Monthly mean (group by year+month to avoid resample API version issues)
-    tccon_df2 = tccon_df.copy()
-    tccon_df2['_ym'] = tccon_df2['time'].dt.year * 100 + tccon_df2['time'].dt.month
-    mon = (tccon_df2.groupby('_ym')
-                    .agg(xco2=('xco2', 'mean'), time=('time', 'mean'))
-                    .reset_index())
-    ax.plot(mon['time'], mon['xco2'], '-', color='darkred',
-            linewidth=1.2, zorder=3, label='Monthly mean')
-
-    if oco_vals is not None:
-        _v = np.asarray(oco_vals, dtype=float)
-        _v = _v[np.isfinite(_v)]
-        if len(_v) > 0:
-            _margin = 0.5
-            vmin = float(np.nanpercentile(_v, 1))  - _margin
-            vmax = float(np.nanpercentile(_v, 99)) + _margin
+    # y-limits from the TCCON ±1σ shading range
+    _lo = y - np.where(np.isfinite(ye), ye, 0.0)
+    _hi = y + np.where(np.isfinite(ye), ye, 0.0)
+    _margin = 0.3
+    vmin = float(np.nanpercentile(_lo, 1)) - _margin
+    vmax = float(np.nanpercentile(_hi, 99)) + _margin
     ax.set_ylim(vmin, vmax)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    plt.setp(ax.xaxis.get_majorticklabels(), rotation=35, ha='right', fontsize=6)
-    ax.legend(fontsize=7)
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=35, ha='right')
+    ax.legend(loc='lower right')
 
     mu, sigma = float(y.mean()), float(y.std())
     ax.text(0.02, 0.97,
             f'n={len(y):,}  μ={mu:.2f}  σ={sigma:.2f} ppm',
-            transform=ax.transAxes, va='top', fontsize=7,
+            transform=ax.transAxes, va='top',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
 
@@ -550,8 +571,8 @@ def _histogram_panel(ax, oco_df: pd.DataFrame, tccon_df: pd.DataFrame,
                      vmin: float, vmax: float):
     """Overlapping density histograms: original, each model correction, TCCON.
 
-    Ideal-corrected XCO₂ is drawn on a twinx right-hand axis so its density
-    scale is independent of the model-correction curves.
+    TCCON is drawn on a twinx right-hand axis so its density scale is
+    independent of the model-correction curves.
     """
     bins = np.linspace(vmin, vmax, 120)
 
@@ -572,24 +593,23 @@ def _histogram_panel(ax, oco_df: pd.DataFrame, tccon_df: pd.DataFrame,
     for name, col, color in _resolve_model_cfgs(oco_df):
         if col in oco_df.columns:
             _draw(ax, oco_df[col], f'{name} corrected', color)
-    ax.set_xlabel('XCO₂ (ppm)', fontsize=9)
-    ax.set_ylabel('Density', fontsize=9)
-    ax.set_title('XCO₂ distribution — OCO-2 corrected vs TCCON ground station',
-                 fontsize=10)
+    ax.set_xlabel(f'{XCO2_LABEL} (ppm)')
+    ax.set_ylabel('Density')
+    ax.set_title(f'{XCO2_LABEL} distribution vs TCCON')
 
-    # ── Ideal-corrected + TCCON on twin right-hand axis ───────────────────────
+    # ── TCCON on twin right-hand axis ─────────────────────────────────────────
     ax_twin = ax.twinx()
-    if 'ideal_corrected_xco2' in oco_df.columns:
-        _draw(ax_twin, oco_df['ideal_corrected_xco2'], 'Ideal corrected', 'gray')
     if len(tccon_df) > 0:
         _draw(ax_twin, tccon_df['xco2'], 'TCCON (ground)', 'red', lw=1.5)
-    ax_twin.set_ylabel('Density (ideal / TCCON)', fontsize=9, color='dimgray')
-    ax_twin.tick_params(axis='y', labelcolor='dimgray', labelsize=7)
+    ax_twin.set_ylabel('Density (TCCON)', color='dimgray')
+    ax_twin.tick_params(axis='y', labelcolor='dimgray')
 
-    # Merge legends from both axes
+    # Legend placement is the caller's job (compact puts it in the grid cell
+    # right below this panel; full uses a figure-bottom legend) — return the
+    # merged handles/labels from both axes.
     h1, l1 = ax.get_legend_handles_labels()
     h2, l2 = ax_twin.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, fontsize=12, ncol=2, loc='upper left')
+    return h1 + h2, l1 + l2
 
 
 def _save_poster_comparison_figure(
@@ -706,18 +726,18 @@ def _save_poster_comparison_figure(
     cbar_ax = fig.add_subplot(gs[0, 2])
     ax_hist = fig.add_subplot(gs[0, 4])
 
-    _draw_map(ax_orig, oco_df['xco2_bc'].values, 'OCO-2 XCO$_2$_bc')
+    _draw_map(ax_orig, oco_df['xco2_bc'].values, 'OCO-2 Lite $X_{\mathrm{CO2}}$')
     _draw_map(
         ax_corr,
         oco_df[model_col].values,
-        'Model Corrected XCO$_2$',
+        'ML-corrected $X_{\mathrm{CO2}}$',
         show_ylabel=False,
     )
 
     sm = mcm.ScalarMappable(norm=norm, cmap=_CMAP)
     sm.set_array([])
     cbar = fig.colorbar(sm, cax=cbar_ax)
-    cbar.set_label('XCO$_2$ (ppm)', fontsize=20, labelpad=16)
+    cbar.set_label('$X_{\mathrm{CO2}}$ (ppm)', fontsize=20, labelpad=16)
     cbar.ax.tick_params(labelsize=16)
 
     bins = np.linspace(vmin, vmax, 80)
@@ -742,13 +762,13 @@ def _save_poster_comparison_figure(
         )
         ax_hist.axvline(mu, color=color, linewidth=3.0, alpha=0.95)
 
-    _draw_hist(hist_df['xco2_bc'].values, 'OCO-2 XCO$_2$_bc', 'black')
-    _draw_hist(hist_df[model_col].values, 'Corrected XCO$_2$', 'green')
+    _draw_hist(hist_df['xco2_bc'].values, 'OCO-2 Lite $X_{\mathrm{CO2}}$', 'black')
+    _draw_hist(hist_df[model_col].values, 'Corrected $X_{\mathrm{CO2}}$', 'green')
     if len(tccon_df) > 0:
-        _draw_hist(tccon_df['xco2'].values, 'TCCON XCO$_2$', 'coral', linestyle='--')
+        _draw_hist(tccon_df['xco2'].values, 'TCCON $X_{\mathrm{CO2}}$', 'coral', linestyle='--')
 
-    ax_hist.set_title('XCO$_2$ distributions', fontsize=23, weight='bold', pad=14)
-    ax_hist.set_xlabel('XCO$_2$ (ppm)', fontsize=18)
+    ax_hist.set_title('$X_{\mathrm{CO2}}$ distributions', fontsize=23, weight='bold', pad=14)
+    ax_hist.set_xlabel('$X_{\mathrm{CO2}}$ (ppm)', fontsize=18)
     ax_hist.set_ylabel('Density', fontsize=18)
     ax_hist.tick_params(labelsize=16)
     ax_hist.grid(alpha=0.22, linewidth=0.7)
@@ -775,9 +795,165 @@ def _save_poster_comparison_figure(
     plt.close(fig)
 
 
+def _compose_case_figure(*, full, oco, oco_hist, tccon, active,
+                         lon_arr, lat_arr, norm, vmin, vmax,
+                         tccon_lon, tccon_lat, bg_img, bg_extent,
+                         map_extent, fp_times, radius_km, out_path, dpi):
+    """Manuscript case figure.
+
+    Compact (full=False):
+        (a) OCO-2 Lite XCO2 | (b) ML-corrected XCO2 | (c) predicted sigma
+        (d) predicted correction mu | (e) histogram | (f) TCCON time series
+    Full (full=True) adds a middle map row:
+        (d) mu | (e) ideal-corrected | (f) nearest-cloud distance
+        (g) histogram (2 cols) | (h) TCCON time series
+
+    Every map panel has its own horizontal colorbar in a dedicated thin grid
+    row ((a)/(b) share the same normalisation but separate bars) so all
+    overlaid maps render at identical size.  A dashed circle marks the
+    ±radius_km TCCON collocation area the histogram/report analysis uses.
+    """
+    primary = next(((nm, col) for nm, col, _ in active if 'deep_ensemble' in col),
+                   (active[0][0], active[0][1]) if active else None)
+
+    if full:
+        fig = plt.figure(figsize=(13.0, 14.2), layout='constrained')
+        gs = fig.add_gridspec(5, 3, height_ratios=[1, 0.07, 1, 0.07, 0.85])
+    else:
+        fig = plt.figure(figsize=(13.0, 9.6), layout='constrained')
+        gs = fig.add_gridspec(4, 3, height_ratios=[1, 0.07, 1, 0.07])
+
+    import string as _string
+    _tags = iter(f'({c})' for c in _string.ascii_lowercase)
+    _cb_snap = []   # (map_ax, cbar_ax) pairs — widths matched after layout
+
+    def _map_panel(cell, cax_cell, values, title, norm_, cmap_, cbar_label,
+                   legend=False):
+        ax = fig.add_subplot(cell)
+        _scatter_map(ax, lon_arr, lat_arr, np.asarray(values, dtype=float),
+                     title, norm_, cmap_, tccon_lon, tccon_lat,
+                     bg_img=bg_img, bg_extent=bg_extent,
+                     view_extent=map_extent, show_station_legend=legend,
+                     circle_km=radius_km)
+        panel_label(ax, next(_tags))
+        sm = mcm.ScalarMappable(norm=norm_, cmap=cmap_)
+        sm.set_array([])
+        cax = fig.add_subplot(cax_cell)
+        fig.colorbar(sm, cax=cax, orientation='horizontal').set_label(cbar_label)
+        _cb_snap.append((ax, cax))
+        return ax
+
+    def _text_panel(cell, msg, title):
+        ax = fig.add_subplot(cell)
+        ax.text(0.5, 0.5, msg, ha='center', va='center', transform=ax.transAxes)
+        ax.set_title(title)
+        return ax
+
+    xco2_ppm = f'{XCO2_LABEL} (ppm)'
+
+    # ── Row 0: Lite | ML-corrected | predicted σ (all bars horizontal) ───────
+    if 'xco2_bc' in oco.columns:
+        _map_panel(gs[0, 0], gs[1, 0], oco['xco2_bc'].values,
+                   f'OCO-2 Lite {XCO2_LABEL}', norm, _CMAP, xco2_ppm,
+                   legend=True)
+    else:
+        _text_panel(gs[0, 0], 'xco2_bc not in plot_data',
+                    f'OCO-2 Lite {XCO2_LABEL}')
+    if primary is not None:
+        _map_panel(gs[0, 1], gs[1, 1], oco[primary[1]].values,
+                   f'ML-corrected {XCO2_LABEL}', norm, _CMAP, xco2_ppm)
+    else:
+        _text_panel(gs[0, 1], 'no corrected-XCO2 column',
+                    f'ML-corrected {XCO2_LABEL}')
+
+    sigma_col = next((c for c in ('sigma', 'corrected_xco2_sigma', 'pred_sigma')
+                      if c in oco.columns), None)
+    if sigma_col is not None:
+        _sig = oco[sigma_col].to_numpy(dtype=float)
+        _fin = _sig[np.isfinite(_sig)]
+        _smax = float(np.nanpercentile(_fin, 98)) if len(_fin) else 1.0
+        _map_panel(gs[0, 2], gs[1, 2], _sig, 'Predicted uncertainty',
+                   mcolors.Normalize(vmin=0.0, vmax=max(_smax, 1e-3)),
+                   CMAPS['sigma'], 'σ (ppm)')
+    else:
+        _text_panel(gs[0, 2], 'no σ column', 'Predicted uncertainty')
+
+    # ── μ map (predicted correction, diverging) ──────────────────────────────
+    if primary is not None and 'xco2_bc' in oco.columns:
+        _mu = (oco['xco2_bc'].to_numpy(dtype=float)
+               - oco[primary[1]].to_numpy(dtype=float))
+        _fin = np.abs(_mu[np.isfinite(_mu)])
+        _mmax = max(float(np.nanpercentile(_fin, 98)) if len(_fin) else 1.0, 1e-3)
+        _map_panel(gs[2, 0], gs[3, 0], _mu, 'Predicted correction',
+                   mcolors.Normalize(vmin=-_mmax, vmax=_mmax),
+                   CMAPS['mu'], 'μ (ppm)')
+    else:
+        _text_panel(gs[2, 0], 'correction not available', 'Predicted correction')
+
+    if full:
+        # ── Full variant: ideal-corrected + cloud distance ────────────────────
+        if 'ideal_corrected_xco2' in oco.columns:
+            _map_panel(gs[2, 1], gs[3, 1], oco['ideal_corrected_xco2'].values,
+                       f'Ideal-corrected {XCO2_LABEL}', norm, _CMAP, xco2_ppm)
+        else:
+            _text_panel(gs[2, 1], 'xco2_bc_anomaly not available',
+                        f'Ideal-corrected {XCO2_LABEL}')
+
+        _cld_col = next((c for c in ('cld_dist_km', 'nearest_cloud_dist_km',
+                                     'cloud_dist_km', 'min_cloud_dist_km')
+                         if c in oco.columns), None)
+        if _cld_col is not None:
+            _cld = oco[_cld_col].to_numpy(dtype=float)
+            _fin = _cld[np.isfinite(_cld)]
+            _cmax = float(np.nanpercentile(_fin, 95)) if len(_fin) else 100.0
+            _map_panel(gs[2, 2], gs[3, 2], _cld, 'Nearest-cloud distance',
+                       mcolors.Normalize(vmin=0.0, vmax=_cmax),
+                       CMAPS['cld_dist'], 'km')
+        else:
+            _text_panel(gs[2, 2], 'no cloud-distance column',
+                        'Nearest-cloud distance')
+
+        ax_h = fig.add_subplot(gs[4, :2])
+        ax_t = fig.add_subplot(gs[4, 2])
+    else:
+        ax_h = fig.add_subplot(gs[2, 1])
+        ax_t = fig.add_subplot(gs[2, 2])
+
+    _hh, _ll = _histogram_panel(ax_h, oco_hist, tccon, vmin, vmax)
+    panel_label(ax_h, next(_tags))
+    _tccon_panel(ax_t, tccon, vmin, vmax, f'TCCON {XCO2_LABEL}',
+                 fp_times=fp_times)
+    panel_label(ax_t, next(_tags))
+
+    # histogram legend: compact → the empty grid cell directly below the
+    # histogram; full → figure bottom (directly below the spanning histogram)
+    if full:
+        fig.legend(_hh, _ll, ncol=1, loc='outside lower center', frameon=False)
+    else:
+        lax = fig.add_subplot(gs[3, 1])
+        lax.axis('off')
+        lax.legend(_hh, _ll, ncol=1, loc='upper center',
+                   bbox_to_anchor=(0.5, 1.0), frameon=False)
+
+    # Solve the constrained layout, then freeze it and snap every horizontal
+    # colorbar to the width of its (aspect-locked) map panel.
+    fig.canvas.draw()
+    fig.set_layout_engine('none')
+    for _ax, _cax in _cb_snap:
+        _p = _ax.get_position()
+        _c = _cax.get_position()
+        _cax.set_position([_p.x0, _c.y0, _p.width, _c.height])
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=dpi, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Figure saved → {out_path}", flush=True)
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
+    global _CMAP
     parser = argparse.ArgumentParser(
         description='Plot OCO-2 model-corrected XCO2 vs TCCON ground station.'
     )
@@ -840,7 +1016,18 @@ def main():
                         help='Half-width (minutes) of the TCCON time window around the OCO-2 '
                              'footprint pass: TCCON is kept within [first footprint − W, '
                              'last footprint + W]. Default: 60.')
+    parser.add_argument('--extent-radius-km', type=float, default=100.0,
+                        help='Map view (and GIBS download) extent = TCCON station '
+                             '± this radius, matching the collocation radius '
+                             '(default 100). 0 disables → legacy lon/lat-range extent.')
+    parser.add_argument('--cmap', default=_CMAP,
+                        help=f"XCO2 colormap for the map panels (default {_CMAP}; "
+                             "'jet' reproduces the legacy figures).")
+    parser.add_argument('--dpi', type=int, default=300,
+                        help='Main-figure DPI (default 300, manuscript-ready).')
     args = parser.parse_args()
+    _CMAP = args.cmap
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
 
     storage_dir = get_storage_dir()
 
@@ -914,7 +1101,7 @@ def main():
         plt.plot(oco_dt, oco['xco2_bc'], '.', label='OCO-2 original', markersize=1)
         plt.scatter(tccon['time'], tccon['xco2'], c='red', s=10, label='TCCON', alpha=0.6)
         plt.xlabel('Time (UTC)')
-        plt.ylabel('XCO₂ (ppm)')
+        plt.ylabel('$X_{\mathrm{CO2}}$ (ppm)')
         # set x_axis as HH:MM and rotate labels
         plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator())
@@ -954,6 +1141,15 @@ def main():
     tccon_lat = float(tccon['lat'].median()) if len(tccon) > 0 else None
     if tccon_lon is not None:
         print(f"  TCCON station: lon={tccon_lon:.3f}  lat={tccon_lat:.3f}", flush=True)
+
+    # Station-centred view extent (± collocation radius) — wins over lon/lat
+    # ranges for the MAP VIEW only (data filters above are unchanged).
+    station_ext = None
+    if args.extent_radius_km and args.extent_radius_km > 0 and tccon_lon is not None:
+        station_ext = station_extent(tccon_lon, tccon_lat, args.extent_radius_km)
+        print(f"  View extent: station ±{args.extent_radius_km:g} km → "
+              f"lon [{station_ext[0]:.2f}, {station_ext[1]:.2f}] "
+              f"lat [{station_ext[2]:.2f}, {station_ext[3]:.2f}]", flush=True)
 
     # ── Shared colour range ───────────────────────────────────────────────────
     _pool = []
@@ -1037,9 +1233,12 @@ def main():
                       "— skipping MODIS RGB.", flush=True)
             else:
                 # Compute the GIBS download extent.
-                # Explicit --lon-range / --lat-range always win; otherwise derive
-                # from the granule's soundings (±20 min), falling back to all data.
-                if args.lon_range and args.lat_range:
+                # Station ±radius wins; then explicit --lon-range / --lat-range;
+                # otherwise derive from the granule's soundings (±20 min),
+                # falling back to all data.
+                if station_ext is not None:
+                    gibs_extent = list(station_ext)
+                elif args.lon_range and args.lat_range:
                     gibs_extent = [args.lon_range[0], args.lon_range[1],
                                    args.lat_range[0], args.lat_range[1]]
                 elif args.lon_range:
@@ -1050,7 +1249,8 @@ def main():
                                    args.lat_range[0], args.lat_range[1]]
                 else:
                     gibs_extent = rgb_extent
-                _explicit_range = bool(args.lon_range or args.lat_range)
+                _explicit_range = bool(station_ext is not None
+                                       or args.lon_range or args.lat_range)
                 if not _explicit_range and granule_ts is not None and 'time' in oco.columns:
                     _ot = pd.to_datetime(oco['time'], unit='s', utc=True, errors='coerce')
                     _win = pd.Timedelta(minutes=20)
@@ -1161,8 +1361,10 @@ def main():
                           "scatter maps will have no background.", flush=True)
 
     # ── Map view extent ───────────────────────────────────────────────────────
-    # Priority: --lon-range / --lat-range (explicit) > bg_extent (auto) > None
-    if args.lon_range and args.lat_range:
+    # Priority: station ±radius > --lon-range/--lat-range > bg_extent > None
+    if station_ext is not None:
+        map_extent = list(station_ext)
+    elif args.lon_range and args.lat_range:
         map_extent = [args.lon_range[0], args.lon_range[1],
                       args.lat_range[0], args.lat_range[1]]
     elif args.lon_range:
@@ -1176,152 +1378,6 @@ def main():
     else:
         map_extent = None
 
-    # ── Cloud probability column (from apply_model_with_cld.py output) ───────
-    _cld_prob_col = next(
-        (c for c in ('cld_prob', 'cld_prob_ft_clf', 'cld_prob_mlp_clf', 'cld_prob_lr')
-         if c in oco.columns),
-        None,
-    )
-    if _cld_prob_col is not None:
-        print(f"  Cloud probability column detected: {_cld_prob_col}", flush=True)
-
-    # ── Figure ────────────────────────────────────────────────────────────────
-    # n_map_cols: enough columns for all active models; row 2 always needs ≥3;
-    # bump to ≥4 when a cloud probability panel is available (col 3).
-    n_map_cols = max(len(active), 3)
-    if _cld_prob_col is not None:
-        n_map_cols = max(n_map_cols, 4)
-    fig = plt.figure(figsize=(6 * n_map_cols + 2, 16))
-    gs  = fig.add_gridspec(3, n_map_cols + 1, hspace=0.50, wspace=0.30,
-                            height_ratios=[1.0, 1.0, 0.75],
-                            width_ratios=[1.0] * n_map_cols + [0.07])
-    cbar_ax = fig.add_subplot(gs[0:2, n_map_cols])   # dedicated colorbar column
-
-    map_axes = []   # collect lon/lat map axes for the shared colorbar
-
-    # Row 1: model-corrected maps
-    for j, (name, col, _) in enumerate(active[:n_map_cols]):
-        ax = fig.add_subplot(gs[0, j])
-        vals = oco[col].values
-        _scatter_map(ax, lon_arr, lat_arr, vals,
-                     f'{name}-corrected XCO₂ (ppm)',
-                     norm, _CMAP, tccon_lon, tccon_lat,
-                     bg_img=bg_img, bg_extent=bg_extent,
-                     view_extent=map_extent)
-        map_axes.append(ax)
-    # Row 1, next free column: ensemble standard-deviation map (σ of the corrected XCO₂)
-    sigma_col = next((c for c in ('sigma', 'corrected_xco2_sigma', 'pred_sigma')
-                      if c in oco.columns), None)
-    sigma_j = len(active)
-    if sigma_col is not None and sigma_j < n_map_cols:
-        ax_sig = fig.add_subplot(gs[0, sigma_j])
-        _sig = oco[sigma_col].to_numpy(dtype=float)
-        _sig_finite = _sig[np.isfinite(_sig)]
-        _sig_vmax = float(np.nanpercentile(_sig_finite, 98)) if len(_sig_finite) else 1.0
-        _sig_norm = mcolors.Normalize(vmin=0.0, vmax=max(_sig_vmax, 1e-3))
-        _scatter_map(ax_sig, lon_arr, lat_arr, _sig,
-                     'Corrected XCO₂ σ (ppm)\n(ensemble std)',
-                     _sig_norm, 'magma', tccon_lon, tccon_lat,
-                     bg_img=bg_img, bg_extent=bg_extent,
-                     view_extent=map_extent)
-        _sm_sig = mcm.ScalarMappable(norm=_sig_norm, cmap='magma')
-        _sm_sig.set_array([])
-        plt.colorbar(_sm_sig, ax=ax_sig, fraction=0.046, pad=0.04).set_label('σ (ppm)', fontsize=7)
-        sigma_j += 1
-    for j in range(sigma_j, n_map_cols):   # hide remaining unused slots
-        fig.add_subplot(gs[0, j]).set_visible(False)
-
-    # Row 2 col 0: original XCO₂_bc
-    ax20 = fig.add_subplot(gs[1, 0])
-    if 'xco2_bc' in oco.columns:
-        _scatter_map(ax20, lon_arr, lat_arr, oco['xco2_bc'].values,
-                     'Original XCO₂_bc (ppm)',
-                     norm, _CMAP, tccon_lon, tccon_lat,
-                     bg_img=bg_img, bg_extent=bg_extent,
-                     view_extent=map_extent)
-        map_axes.append(ax20)
-    else:
-        ax20.text(0.5, 0.5, 'xco2_bc not in plot_data.csv',
-                  ha='center', va='center', transform=ax20.transAxes)
-        ax20.set_title('Original XCO₂_bc', fontsize=9)
-
-    # Row 2 col 1: ideal-corrected (xco2_bc − anomaly)
-    ax21 = fig.add_subplot(gs[1, 1])
-    if 'ideal_corrected_xco2' in oco.columns:
-        _scatter_map(ax21, lon_arr, lat_arr, oco['ideal_corrected_xco2'].values,
-                     'Ideal-corrected XCO₂ (ppm)\n(xco2_bc − anomaly)',
-                     norm, _CMAP, tccon_lon, tccon_lat,
-                     bg_img=bg_img, bg_extent=bg_extent,
-                     view_extent=map_extent)
-        map_axes.append(ax21)
-    else:
-        ax21.text(0.5, 0.5, 'xco2_bc_anomaly not available\n(ideal-corrected cannot be computed)',
-                  ha='center', va='center', transform=ax21.transAxes, fontsize=9)
-        ax21.set_title('Ideal-corrected XCO₂', fontsize=9)
-
-    # Row 2 cols 3+: hide any extra slots not used by fixed panels
-    # (col 3 is reserved for cloud probability when the column is present)
-    for j in range(3, n_map_cols):
-        if j == 3 and _cld_prob_col is not None:
-            continue   # filled below
-        fig.add_subplot(gs[1, j]).set_visible(False)
-
-    # Row 2 col 2: nearest-cloud distance scatter
-    ax22 = fig.add_subplot(gs[1, 2])
-    _cld_col = next((c for c in ('cld_dist_km', 'nearest_cloud_dist_km', 'cloud_dist_km', 'min_cloud_dist_km')
-                     if c in oco.columns), None)
-    if _cld_col:
-        _cld_vals = oco[_cld_col].values.astype(float)
-        _cld_finite = _cld_vals[np.isfinite(_cld_vals)]
-        _cld_vmax = float(np.nanpercentile(_cld_finite, 95)) if len(_cld_finite) > 0 else 100.0
-        _cld_norm = mcolors.Normalize(vmin=0.0, vmax=_cld_vmax)
-        _scatter_map(ax22, lon_arr, lat_arr, _cld_vals,
-                     'Nearest-cloud distance (km)',
-                     _cld_norm, 'viridis', tccon_lon, tccon_lat,
-                     bg_img=bg_img, bg_extent=bg_extent,
-                     view_extent=map_extent)
-        _sm_cld = mcm.ScalarMappable(norm=_cld_norm, cmap='viridis')
-        _sm_cld.set_array([])
-        plt.colorbar(_sm_cld, ax=ax22, fraction=0.046, pad=0.04).set_label('km', fontsize=7)
-    else:
-        ax22.text(0.5, 0.5, 'Cloud distance not available\n(no nearest_cloud_dist_km column)',
-                  ha='center', va='center', transform=ax22.transAxes, fontsize=9)
-        ax22.set_title('Nearest-cloud distance', fontsize=9)
-
-    # Row 2 col 3: cloud proximity probability — continuous RdBu_r scale
-    if _cld_prob_col is not None:
-        ax23 = fig.add_subplot(gs[1, 3])
-        _prob   = oco[_cld_prob_col].values.astype(float)
-        _finite = np.isfinite(_prob)
-        _prob_norm = mcolors.Normalize(vmin=0.0, vmax=1.0)
-        sc23 = ax23.scatter(
-            lon_arr[_finite], lat_arr[_finite], c=_prob[_finite],
-            cmap='RdBu_r', norm=_prob_norm,
-            s=5, alpha=0.6, rasterized=True,
-        )
-        _cb23 = plt.colorbar(sc23, ax=ax23, fraction=0.046, pad=0.04)
-        _cb23.set_label('P(cld_dist < 10 km)', fontsize=7)
-        _cb23.ax.tick_params(labelsize=6)
-        _cb23.ax.axhline(0.5, color='k', linewidth=1.0, linestyle='--')  # threshold line
-        # Count above/below threshold
-        _n_cld   = int((_finite & (_prob > 0.5)).sum())
-        _n_clear = int((_finite & (_prob <= 0.5)).sum())
-        ax23.set_title(
-            f'Cloud proximity probability\n({_cld_prob_col})\n'
-            f'P>0.5: {_n_cld:,}  P≤0.5: {_n_clear:,}',
-            fontsize=8,
-        )
-        if tccon_lon is not None and tccon_lat is not None:
-            ax23.scatter([tccon_lon], [tccon_lat], c='black', s=80, marker='*',
-                         zorder=5, label='TCCON station')
-            ax23.legend(fontsize=7, loc='lower left')
-        ax23.set_xlabel('Lon (°E)', fontsize=8)
-        ax23.set_ylabel('Lat (°N)', fontsize=8)
-        ax23.tick_params(labelsize=7)
-        if map_extent is not None:
-            ax23.set_xlim(map_extent[0], map_extent[1])
-            ax23.set_ylim(map_extent[2], map_extent[3])
-
     # ── Histogram subset: footprints within --hist-radius-km of TCCON station ──
     oco_hist = oco
     if args.hist_radius_km is not None and tccon_lon is not None and 'lon' in oco.columns:
@@ -1330,39 +1386,28 @@ def main():
         print(f"  Histogram restricted to ≤{args.hist_radius_km:g} km of TCCON: "
               f"{len(oco):,} → {len(oco_hist):,} footprints", flush=True)
 
-    # Row 3: histogram (left portion) | TCCON time series (rightmost map column)
-    ax3 = fig.add_subplot(gs[2, :n_map_cols - 1])
-    _histogram_panel(ax3, oco_hist, tccon, vmin, vmax)
-
-    ax3_tccon = fig.add_subplot(gs[2, n_map_cols - 1])
     fp_times = None
     if 'time' in oco.columns:
         fp_times = pd.to_datetime(
             oco['time'], unit='s', utc=True, errors='coerce'
         ).dropna()
-    _tccon_panel(ax3_tccon, tccon, vmin, vmax,
-                 'TCCON XCO₂ (ppm)\n(ground station)',
-                 fp_times=fp_times,
-                 oco_vals=oco['xco2_bc'].values if 'xco2_bc' in oco.columns else None)
 
-    # ── Shared colorbar for all lon/lat map panels ─────────────────────────────
-    if map_axes:
-        sm = mcm.ScalarMappable(norm=norm, cmap=_CMAP)
-        sm.set_array([])
-        cbar = fig.colorbar(sm, cax=cbar_ax)
-        cbar.set_label('XCO₂ (ppm)', fontsize=9)
-        cbar.ax.tick_params(labelsize=8)
-    else:
-        cbar_ax.set_visible(False)
-
-    # ── Save ──────────────────────────────────────────────────────────────────
+    # ── Figures: compact manuscript version + full (ideal + cloud distance) ──
     out_dir = (Path(output_dir) if output_dir
                else Path(plot_data_path).parent)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / 'corrected_xco2_vs_tccon.png'
-    fig.savefig(out_path, dpi=150, bbox_inches='tight')
-    plt.close(fig)
-    print(f"\nFigure saved → {out_path}", flush=True)
+    _fig_kw = dict(oco=oco, oco_hist=oco_hist, tccon=tccon, active=active,
+                   lon_arr=lon_arr, lat_arr=lat_arr, norm=norm,
+                   vmin=vmin, vmax=vmax,
+                   tccon_lon=tccon_lon, tccon_lat=tccon_lat,
+                   bg_img=bg_img, bg_extent=bg_extent, map_extent=map_extent,
+                   fp_times=fp_times, radius_km=args.hist_radius_km,
+                   dpi=args.dpi)
+    _compose_case_figure(full=False, out_path=out_dir / 'corrected_xco2_vs_tccon.png',
+                         **_fig_kw)
+    _compose_case_figure(full=True,
+                         out_path=out_dir / 'corrected_xco2_vs_tccon_full.png',
+                         **_fig_kw)
 
     if args.poster_model:
         model_name, model_col, model_color = _select_model_cfg(oco, args.poster_model)

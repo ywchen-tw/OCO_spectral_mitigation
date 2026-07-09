@@ -175,6 +175,33 @@ not be quoted until the full-parquet regeneration (§2-2) lands. Scoop risk
   calibrated vs the anomaly target (Phase 2b k(cld_dist)). TOST δ=0.5:
   1/75 equivalent, 14/75 differ — quote the DL CI as the global statement,
   not per-case equivalence. Full read in `log/PROJECT_REVIEW.md` §3.1.
+- [ ] **Manuscript figure pass (style LOCKED 2026-07-09; user-approved on 3
+  vetted samples: bu 2018-10-24, iz 2019-03-13, ra 2016-09-11).**
+  Shared module `workspace/plot_style.py`: Arial + Arial mathtext (AMT;
+  unicode ₂ has no Arial glyph → mathtext $X_{CO2}$ everywhere), base 10 pt,
+  CVD-safe maps (plasma XCO2/spec, magma σ, cividis cld-dist, RdBu_r μ),
+  spectral labels ⟨l′⟩ / var(l′) (caption defines k1/k2 = cumulants of
+  relative photon path). `plot_corrected_xco2.py` rebuilt: compact 2×3
+  (Lite | ML-corrected | σ / μ | histogram | TCCON) + `_full` 3×3 (adds
+  ideal-corrected + cloud-distance row) per run; per-map horizontal
+  colorbars width-snapped to the aspect-locked (equal-km) maps; separate
+  (a)/(b) bars sharing one norm; station ±100 km view extent
+  (`--extent-radius-km`) + dashed 100-km collocation circle
+  (`--hist-radius-km`); histogram legend in the cell below the panel, no
+  ideal in histogram, TCCON-shading-driven ylim, no monthly mean.
+  `plot_spectral_params.py` same conventions. **Remaining figure edits:**
+  - [ ] ATom figures → same style (`workspace/ATom_analysis/plot_atom_comparison.py`,
+        `atom_modis_overlay.py`, `atom_pseudo_column.py`)
+  - [ ] Ship figures (`workspace/Ship_analysis/plot_ship_comparison.py`,
+        `plot_ship_summary.py`)
+  - [ ] Arial/style pass on remaining manuscript producers:
+        `tccon_comparison_report.py`, `smoother_null_figure.py`,
+        `spec_case_study` figure tools, `run_all.py` figures used in the paper
+  - [ ] Batch re-render all 75 TCCON cases locally:
+        `SKIP_BUILD=1 bash curc_shell_blanca_plot_corr_xco2_deepens.sh`
+        (SKIP_BUILD guards the synced mu_XX member columns)
+  - [ ] Pick compact vs `_full` per manuscript slot; poster figure still
+        legacy styling (only relabeled to $X_{CO2}$)
 - [ ] Writing-time subsections: Ny-Ålesund/high-latitude; five worsening sites;
   M5 parallax/advection bound sentences; M9(f) convergence-radius caveat.
 
@@ -259,10 +286,23 @@ TCCON, aircraft, and shipborne observations."*
    sensitivity, parallax/advection bounds (M5 sentences); Cloudy-only rerun
    only if time permits (§3).
    (c) Label circularity/selection (M1 residuals), land-driven TCCON weighting.
+   (d) **Future validation of the PPDF with a Monte Carlo model (user,
+   2026-07-09):** the cumulant fit *interprets* k1/k2 as mean and variance of
+   the photon path-length distribution function, but the paper never verifies
+   that the fitted moments equal the physical ones — a 3D Monte Carlo RT model
+   (EaR3T; Chen et al. 2025) can tally the actual per-photon path-length
+   histogram in a cloud-adjacent scene, generate the synthetic OCO-2 spectra
+   from the same photon ensemble, and compare the spectrum-fitted k1/k2
+   against the directly tallied MC moments — closing the loop between the Laplace-transform
+   derivation and the retrieval. Same machinery doubles as the plume OSSE
+   (inject ΔCO2, verify k1/k2 invariance rigorously). State as future work in
+   the Discussion (deferred to a follow-up paper per §4; one paragraph +
+   citation here, not a result).
 9. **Data recovery and applications.** QF1 near-cloud recovery numbers;
    throughput in the cloudy tropics → flux-inversion relevance; OCO-3 /
    GOSAT-GW / CO2M transferability; post-2022 NoMODIS-era deployability.
-10. **Conclusions.**
+10. **Conclusions.** Close with the outlook sentence pair: MC/PPDF validation
+    (§8d) and transfer to imager-free correction for OCO-3 / GOSAT-GW / CO2M.
 
 **Main-figure budget (~9):** (1) collocation/geometry schematic + decay curves,
 (2) land-cover effect-size heatmap, (3) shadow/brightening split,
