@@ -1,161 +1,288 @@
-"""Publication figure for the deep-ensemble MLP + conformal model (deep_ensemble.py).
+"""Publication schematic for the deep-ensemble MLP + conformal model.
 
-Draws a two-panel schematic:
-  (a) a single Gaussian-head MLP member
-  (b) the M-member ensemble mixture + conformal calibration pipeline
+The figure mirrors ``deep_ensemble.py`` and writes manuscript-ready vector and
+raster outputs using the shared AMT style (Arial text and Arial mathtext).
 
-Two variants are written to results/figures/ (vector PDF + 300-DPI PNG):
-  deep_ensemble_architecture            — with the optional multi-task cloud head
-  deep_ensemble_architecture_no_cloud   — single-task head only (the model actually used)
+Default outputs in ``results/figures``:
+  deep_ensemble_architecture.pdf/.png
+  deep_ensemble_architecture_no_cloud.pdf/.png
 
-Run:  python -m src.models.make_deep_ensemble_figure
+Run:
+  python -m src.models.make_deep_ensemble_figure
 """
+from __future__ import annotations
+
+import argparse
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
-# ── style: manuscript-friendly, serif, muted palette ────────────────────────
-plt.rcParams.update({
-    "font.family": "serif",
-    "font.size": 8.5,
-    "mathtext.fontset": "cm",
-    "axes.linewidth": 0.8,
-})
 
-C_IN = "#dfe7f0"      # inputs
-C_HID = "#c7dbe6"     # hidden layers
-C_HEAD = "#f6d9b0"    # heads
-C_ENS = "#cfe6d4"     # ensemble / mixture
-C_CONF = "#f3ccd0"    # conformal
-C_OUT = "#e8e2f0"     # outputs
-C_STAR = "#fbe9b0"    # headline output
-EDGE = "#333333"
-BSTYLE = "round,pad=0.02,rounding_size=0.05"
+ROOT = Path(__file__).resolve().parents[2]
+WORKSPACE = ROOT / "workspace"
+if str(WORKSPACE) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE))
+
+from plot_style import apply_manuscript_style, panel_label  # noqa: E402
 
 
-def box(ax, x, y, w, h, text, fc, fontsize=8.5):
-    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle=BSTYLE,
-                                linewidth=0.9, edgecolor=EDGE, facecolor=fc,
-                                mutation_aspect=1))
-    ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=fontsize)
+# Muted, print-friendly colors.  The palette uses hue changes as well as lightness
+# changes so the schematic remains legible when printed in grayscale.
+C_INPUT = "#e7edf3"
+C_BODY = "#d9e8d4"
+C_HEAD = "#f6e0b8"
+C_ENSEMBLE = "#cfe5ee"
+C_CALIB = "#ead5e7"
+C_OUTPUT = "#f4f4f4"
+C_HEADLINE = "#fff0b8"
+C_NOTE = "#555555"
+EDGE = "#2f2f2f"
+ARROW = "#333333"
+BOXSTYLE = "round,pad=0.025,rounding_size=0.055"
 
 
-def arrow(ax, x0, y0, x1, y1, lw=1.0, ls="-", color=EDGE):
-    ax.add_patch(FancyArrowPatch((x0, y0), (x1, y1), arrowstyle="-|>",
-                                 mutation_scale=9, lw=lw, linestyle=ls, color=color))
+def _box(ax, x, y, w, h, text, facecolor, *, fontsize=6.4, lw=0.8,
+         linestyle="-", fontweight="normal"):
+    patch = FancyBboxPatch(
+        (x, y), w, h,
+        boxstyle=BOXSTYLE,
+        linewidth=lw,
+        edgecolor=EDGE,
+        facecolor=facecolor,
+        linestyle=linestyle,
+        mutation_aspect=1,
+        zorder=2,
+    )
+    ax.add_patch(patch)
+    ax.text(
+        x + w / 2,
+        y + h / 2,
+        text,
+        ha="center",
+        va="center",
+        fontsize=fontsize,
+        fontweight=fontweight,
+        linespacing=1.15,
+        zorder=3,
+    )
+    return patch
 
 
-def panel_member(axA, show_cloud_head=True):
-    """Panel (a): a single Gaussian-head MLP member."""
-    axA.set_title("(a) One ensemble member", fontsize=9, loc="left", pad=4)
+def _arrow(ax, x0, y0, x1, y1, *, lw=0.8, linestyle="-", color=ARROW,
+           mutation_scale=7.5, connectionstyle="arc3"):
+    ax.add_patch(FancyArrowPatch(
+        (x0, y0),
+        (x1, y1),
+        arrowstyle="-|>",
+        mutation_scale=mutation_scale,
+        lw=lw,
+        linestyle=linestyle,
+        color=color,
+        connectionstyle=connectionstyle,
+        shrinkA=1.5,
+        shrinkB=1.5,
+        zorder=1,
+    ))
 
-    box(axA, 0.05, 4.15, 1.8, 1.7, "input\nfeatures\n$x$", C_IN, fontsize=7.6)
-    box(axA, 2.55, 4.15, 1.8, 1.7, "Linear 64\nReLU", C_HID, fontsize=7.4)
-    box(axA, 5.05, 4.15, 1.8, 1.7, "Linear 32\nReLU", C_HID, fontsize=7.4)
-    arrow(axA, 1.85, 5.0, 2.55, 5.0)                  # input -> Linear 64
-    arrow(axA, 4.35, 5.0, 5.05, 5.0)                  # Linear 64 -> Linear 32
+
+def _small_note(ax, x, y, text, *, ha="left", va="top", fontsize=6.2):
+    ax.text(x, y, text, ha=ha, va=va, fontsize=fontsize,
+            color=C_NOTE, linespacing=1.18)
+
+
+def _member_panel(ax, show_cloud_head: bool) -> None:
+    panel_label(ax, "(a)", size=9.0, dx=0.0, dy=1.01)
+    ax.text(0.06, 9.55, "One Gaussian-head MLP member",
+            fontsize=8.6, fontweight="bold", ha="left", va="top")
+
+    _box(ax, 0.15, 5.15, 1.62, 1.25, "input\nfeatures", C_INPUT,
+         fontsize=6.0)
+    _box(ax, 2.25, 5.15, 1.62, 1.25, "Linear 64\nReLU", C_BODY,
+         fontsize=6.1)
+    _box(ax, 4.35, 5.15, 1.62, 1.25, "Linear 32\nReLU", C_BODY,
+         fontsize=6.1)
+    _arrow(ax, 1.77, 5.78, 2.25, 5.78)
+    _arrow(ax, 3.87, 5.78, 4.35, 5.78)
+
+    ax.text(6.26, 6.08, r"$h$", fontsize=8.0, fontstyle="italic",
+            ha="center", va="center")
 
     if show_cloud_head:
-        box(axA, 7.65, 6.35, 1.9, 1.25, "head\n(Linear$\\to$2)", C_HEAD, fontsize=7.2)
-        box(axA, 7.65, 2.55, 1.9, 1.25, "cloud head\n(Linear$\\to$1)", C_HEAD, fontsize=6.9)
-        arrow(axA, 6.85, 5.0, 7.65, 6.95, lw=1.2)     # body -> main head
-        arrow(axA, 6.85, 5.0, 7.65, 3.1, lw=1.2, ls=(0, (4, 3)))  # -> cloud head
-        axA.text(7.0, 6.2, "$h$", fontsize=9.5, style="italic", ha="center", va="center",
-                 bbox=dict(boxstyle="round,pad=0.12", fc="white", ec="none"))
-        # main-head outputs
-        arrow(axA, 9.55, 7.15, 10.05, 7.15)
-        arrow(axA, 9.55, 6.75, 10.05, 6.75)
-        axA.text(10.2, 7.15, r"$\mu$", ha="left", va="center", fontsize=9)
-        axA.text(10.2, 6.72, r"$\log\sigma^2$", ha="left", va="center", fontsize=7.0)
-        # cloud-head output
-        arrow(axA, 9.55, 3.15, 10.05, 3.15, ls=(0, (4, 3)))
-        axA.text(10.2, 3.15, "cloud\nlogit", ha="left", va="center", fontsize=6.4)
-        axA.text(0.3, 1.55, "— solid: single-task path (default)\n"
-                            "-- dashed: optional multi-task cloud head\n"
-                            r"$\log\sigma^2\!\to\!\log$-scale for Student-$t$ loss",
-                 fontsize=6.4, va="top", color="#444444")
+        _box(ax, 6.90, 6.55, 1.78, 0.95, "main head\nLinear -> 2",
+             C_HEAD, fontsize=5.8)
+        _box(ax, 6.90, 3.95, 1.78, 0.95, "cloud head\nLinear -> 1",
+             C_HEAD, fontsize=5.8, linestyle=(0, (3, 2)))
+        _arrow(ax, 5.97, 5.78, 6.90, 7.02, lw=0.95)
+        _arrow(ax, 5.97, 5.78, 6.90, 4.43, lw=0.9, linestyle=(0, (3, 2)))
+        _box(ax, 9.55, 6.88, 1.36, 0.47, r"$\mu_m$", C_OUTPUT,
+             fontsize=6.2)
+        _box(ax, 9.55, 6.24, 1.36, 0.47, r"$\log\sigma_m^2$", C_OUTPUT,
+             fontsize=5.5)
+        _box(ax, 9.55, 4.18, 1.36, 0.47, "near-cloud\nlogit", C_OUTPUT,
+             fontsize=4.7, linestyle=(0, (3, 2)))
+        _arrow(ax, 8.68, 7.03, 9.55, 7.12)
+        _arrow(ax, 8.68, 6.75, 9.55, 6.47)
+        _arrow(ax, 8.68, 4.43, 9.55, 4.43, linestyle=(0, (3, 2)))
+        _small_note(
+            ax,
+            0.15,
+            2.55,
+            "Dashed path: optional auxiliary near-cloud classifier\n"
+            "enabled only when --cloud_aux_weight > 0.",
+        )
     else:
-        # single head, centred on the body mid-line
-        box(axA, 7.65, 4.375, 1.9, 1.25, "head\n(Linear$\\to$2)", C_HEAD, fontsize=7.2)
-        arrow(axA, 6.85, 5.0, 7.65, 5.0, lw=1.2)      # body -> head
-        axA.text(7.25, 5.55, "$h$", fontsize=9.5, style="italic", ha="center", va="center",
-                 bbox=dict(boxstyle="round,pad=0.12", fc="white", ec="none"))
-        arrow(axA, 9.55, 5.25, 10.05, 5.25)
-        arrow(axA, 9.55, 4.75, 10.05, 4.75)
-        axA.text(10.2, 5.25, r"$\mu$", ha="left", va="center", fontsize=9)
-        axA.text(10.2, 4.72, r"$\log\sigma^2$", ha="left", va="center", fontsize=7.0)
-        axA.text(0.3, 2.2, r"$\log\sigma^2\!\to\!\log$-scale for Student-$t$ loss",
-                 fontsize=6.4, va="top", color="#444444")
+        _box(ax, 6.90, 5.30, 1.78, 0.95, "head\nLinear -> 2",
+             C_HEAD, fontsize=5.8)
+        _arrow(ax, 5.97, 5.78, 6.90, 5.78, lw=0.95)
+        _box(ax, 9.55, 6.03, 1.36, 0.47, r"$\mu_m$", C_OUTPUT,
+             fontsize=6.2)
+        _box(ax, 9.55, 5.38, 1.36, 0.47, r"$\log\sigma_m^2$", C_OUTPUT,
+             fontsize=5.5)
+        _arrow(ax, 8.68, 5.88, 9.55, 6.17)
+        _arrow(ax, 8.68, 5.66, 9.55, 5.61)
+
+    _small_note(
+        ax,
+        0.15,
+        1.45,
+        "The second head output is clamped to [-10, 10].\n"
+        "For Student-t loss it is interpreted as log scale;\n"
+        "otherwise it is log variance.",
+    )
 
 
-def panel_ensemble(axB):
-    """Panel (b): ensemble mixture + conformal calibration (identical in both variants)."""
-    axB.set_title("(b) Ensemble mixture + conformal calibration",
-                  fontsize=9, loc="left", pad=4)
+def _ensemble_panel(ax) -> None:
+    panel_label(ax, "(b)", size=9.0, dx=0.0, dy=1.01)
+    ax.text(0.06, 9.55, "Ensemble mixture and conformal calibration",
+            fontsize=8.6, fontweight="bold", ha="left", va="top")
 
-    # stacked members
-    for i, dy in enumerate([0.0, 0.26, 0.52]):
-        box(axB, 0.4 + dy, 6.9 - dy, 1.85, 1.05,
-            "MLP\nmember" if i == 2 else "", C_HID, fontsize=7.2)
-    axB.text(1.3, 6.05, r"$m=1\ldots M$", ha="center", fontsize=6.8, color="#444")
-    axB.text(0.35, 8.75, "independent seeds\n(optional diverse archs)",
-             fontsize=6.5, va="bottom", color="#444444")
+    # Member stack.
+    for i, offset in enumerate((0.36, 0.18, 0.0)):
+        _box(ax, 0.35 + offset, 6.85 + offset, 1.58, 0.82,
+             "MLP\nmember" if i == 2 else "", C_BODY, fontsize=5.8)
+    ax.text(1.18, 6.50, r"$m = 1,\ldots,M$", fontsize=6.5,
+            color=C_NOTE, ha="center")
+    _small_note(ax, 0.22, 8.77, "independent seeds\noptional DE++ widths",
+                fontsize=5.9)
 
-    # mixture
-    box(axB, 3.15, 7.05, 1.95, 1.25, "Gaussian\nmixture", C_ENS, fontsize=8)
-    arrow(axB, 2.55, 7.55, 3.15, 7.55)
+    _box(ax, 2.72, 7.00, 1.58, 1.05, "Gaussian\nmixture", C_ENSEMBLE,
+         fontsize=6.0)
+    _arrow(ax, 2.06, 7.48, 2.72, 7.52)
 
-    # mixture output (point pred + variance)
-    box(axB, 5.85, 7.0, 3.85, 1.35,
-        r"$\mu^{\ast}=\overline{\mu_m}$" "\n"
-        r"$\sigma^{\ast 2}=\overline{\sigma_m^2+\mu_m^2}-\mu^{\ast 2}$",
-        C_OUT, fontsize=7.6)
-    arrow(axB, 5.1, 7.65, 5.85, 7.65)
-    axB.text(7.77, 6.72, r"point prediction $\hat y=\mu^{\ast}$",
-             ha="center", va="top", fontsize=6.6, color="#444")
+    _box(
+        ax,
+        4.72,
+        6.83,
+        4.18,
+        1.38,
+        r"$\mu^* = M^{-1}\sum_m \mu_m$" "\n"
+        r"$\sigma^{*2}=M^{-1}\sum_m(\sigma_m^2+\mu_m^2)-\mu^{*2}$",
+        C_OUTPUT,
+        fontsize=5.0,
+    )
+    _arrow(ax, 4.30, 7.53, 4.72, 7.53)
+    _small_note(ax, 6.80, 6.58, r"point correction $\hat{y}=\mu^*$",
+                ha="center", fontsize=5.6)
 
-    # calibration block feeding conformal
-    box(axB, 3.05, 4.15, 2.15, 1.15, "calibration\nblock (held-out)", C_IN, fontsize=7.2)
+    _box(ax, 1.62, 4.23, 1.95, 0.95, "calibration\nblock", C_INPUT,
+         fontsize=6.1)
+    _box(ax, 4.72, 3.95, 2.20, 1.30, "conformal\nrecalibration", C_CALIB,
+         fontsize=6.3)
+    _arrow(ax, 6.65, 6.83, 6.65, 5.25)
+    _arrow(ax, 3.52, 4.70, 4.72, 4.70)
 
-    # conformal
-    box(axB, 5.85, 3.9, 2.4, 1.55, "conformal\nrecalibration", C_CONF, fontsize=8)
-    arrow(axB, 7.05, 7.0, 7.05, 5.45)                 # mu*,sigma* -> conformal
-    arrow(axB, 5.2, 4.7, 5.85, 4.7)                   # calib -> conformal
+    _box(ax, 7.78, 4.82, 2.35, 0.58, "raw Gaussian", C_OUTPUT,
+         fontsize=5.6)
+    _box(ax, 7.78, 3.96, 2.35, 0.58, "split conformal", C_OUTPUT,
+         fontsize=5.6)
+    _box(ax, 7.78, 3.10, 2.35, 0.58, "Mondrian bins", C_HEADLINE,
+         fontsize=5.6, fontweight="bold")
+    _arrow(ax, 6.92, 4.78, 7.78, 5.11)
+    _arrow(ax, 6.92, 4.60, 7.78, 4.25)
+    _arrow(ax, 6.92, 4.42, 7.78, 3.39)
 
-    # three interval outputs
-    labels = [("raw Gaussian", C_OUT),
-              ("split conformal", C_OUT),
-              (r"Mondrian (per-bin) $\star$", C_STAR)]
-    ys = [2.55, 1.6, 0.65]
-    arrow(axB, 7.05, 3.9, 7.05, 3.35)
-    for (lab, fc), yy in zip(labels, ys):
-        box(axB, 5.55, yy, 3.9, 0.72, lab, fc, fontsize=7.2)
-    axB.text(5.5, 0.25, r"90% intervals (share $\mu^{\ast}$);  $\star$ = headline",
-             fontsize=6.5, va="top", color="#444444")
+    _small_note(
+        ax,
+        0.22,
+        1.72,
+        "All interval variants share the same ensemble mean.\n"
+        "Mondrian conformal uses per-bin residual quantiles\n"
+        "from predicted mean deciles or a physical column such as cloud distance.",
+        fontsize=6.2,
+    )
 
 
-def build(show_cloud_head, basename):
-    fig, (axA, axB) = plt.subplots(1, 2, figsize=(8.0, 3.4),
-                                   gridspec_kw={"width_ratios": [1.2, 1.2]})
-    for ax in (axA, axB):
-        ax.set_xlim(0, 10)
-        ax.set_ylim(0, 10)
+def build(show_cloud_head: bool, basename: str, out_dir: Path, *, dpi: int,
+          formats: tuple[str, ...]) -> list[Path]:
+    apply_manuscript_style(base_size=8.0)
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(8.05, 3.55),
+        gridspec_kw={"width_ratios": [1.15, 1.0], "wspace": 0.10},
+    )
+    axes[0].set_xlim(0, 11.15)
+    axes[1].set_xlim(0, 10.35)
+    for ax in axes:
+        ax.set_ylim(0.8, 9.85)
         ax.axis("off")
-    axA.set_xlim(0, 11)   # extra room so the body→head arrows have length
-    panel_member(axA, show_cloud_head=show_cloud_head)
-    panel_ensemble(axB)
-    fig.tight_layout(pad=0.5)
 
-    out_dir = Path("results/figures")
+    _member_panel(axes[0], show_cloud_head=show_cloud_head)
+    _ensemble_panel(axes[1])
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
+    written = []
+    for ext in formats:
         path = out_dir / f"{basename}.{ext}"
-        fig.savefig(path, dpi=300, bbox_inches="tight")
+        fig.savefig(path, dpi=dpi, bbox_inches="tight", pad_inches=0.03)
+        written.append(path)
         print(f"wrote {path}")
     plt.close(fig)
+    return written
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Draw the deep-ensemble architecture schematic."
+    )
+    parser.add_argument("--out-dir", type=Path, default=Path("results/figures"),
+                        help="Output directory.")
+    parser.add_argument("--dpi", type=int, default=300,
+                        help="Raster DPI for PNG/TIFF outputs.")
+    parser.add_argument("--formats", default="pdf,png",
+                        help="Comma-separated output formats, e.g. pdf,png,tiff.")
+    parser.add_argument("--only", choices=["both", "cloud", "no-cloud"],
+                        default="both",
+                        help="Which schematic variant to write.")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+    formats = tuple(f.strip().lower().lstrip(".") for f in args.formats.split(",")
+                    if f.strip())
+    if not formats:
+        raise ValueError("--formats must include at least one file extension")
+
+    if args.only in ("both", "cloud"):
+        build(
+            show_cloud_head=True,
+            basename="deep_ensemble_architecture",
+            out_dir=args.out_dir,
+            dpi=args.dpi,
+            formats=formats,
+        )
+    if args.only in ("both", "no-cloud"):
+        build(
+            show_cloud_head=False,
+            basename="deep_ensemble_architecture_no_cloud",
+            out_dir=args.out_dir,
+            dpi=args.dpi,
+            formats=formats,
+        )
 
 
 if __name__ == "__main__":
-    build(show_cloud_head=True, basename="deep_ensemble_architecture")
-    build(show_cloud_head=False, basename="deep_ensemble_architecture_no_cloud")
+    main()

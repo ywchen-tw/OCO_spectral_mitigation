@@ -46,24 +46,12 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# ── paper-figure house style (matches src/models/make_deep_ensemble_figure.py) ──
-# Manuscript-friendly serif; every figure below is a SINGLE panel (item 1), with
-# no descriptive titles (item 4) — multi-panel stacks get bold "(a)/(b)…" tags via
-# _panel_label().  NOTE: iteration uses a low --dpi; render final figures at 300.
-plt.rcParams.update({
-    "font.family": "serif",
-    "font.size": 8.5,
-    "mathtext.fontset": "cm",
-    "axes.linewidth": 0.8,
-})
-
 # Bias-panel style variants (item 3); --bias-style picks the production one and the
 # 4-file low-dpi test set is always emitted for the headline all-cases view.
 BIAS_STYLES = ('scatter_clddist', 'dumbbell_clddist', 'dumbbell_nolabel', 'dumbbell_label')
 
-XCO2 = r'$X_{\mathrm{CO}_2}$'   # manuscript XCO₂ rendering used in all figure text (item 5)
-
 sys.path.insert(0, str(Path(__file__).parent))
+from plot_style import XCO2_LABEL, apply_manuscript_style, panel_label
 from plot_corrected_xco2 import load_tccon, get_storage_dir
 from tccon_collocate import collocate, find_plotdata
 from ak_harmonize import (find_lite_file, ak_adjusted_ref,
@@ -74,6 +62,9 @@ try:
     from constants import AQUA_FREE_DRIFT_YEAR
 except Exception:                       # noqa: BLE001 — run without PYTHONPATH=src
     AQUA_FREE_DRIFT_YEAR = 2022
+
+apply_manuscript_style()
+XCO2 = XCO2_LABEL
 
 CORR = 'deep_ensemble_corrected_xco2'   # overridable with --corr-col (e.g. tabm_corrected_xco2)
 
@@ -128,12 +119,8 @@ def _z_to_p(z):
 
 
 def _panel_label(ax, tag):
-    """Bold panel tag (e.g. '(a)' or '(a) ocean') at the top-left, outside the axes.
-    Paper convention lifted from src/models/make_deep_ensemble_figure.py; no title.
-    No-op when ``tag`` is falsy (single-panel figures need no letter)."""
-    if tag:
-        ax.text(0.0, 1.02, tag, transform=ax.transAxes, fontsize=10,
-                fontweight='bold', va='bottom', ha='left')
+    """Shared manuscript panel tag; no-op for single-panel figures."""
+    panel_label(ax, tag)
 
 
 def _mse_aggregate(g, series=('raw', 'before', 'after')):
@@ -633,8 +620,7 @@ def main():
                          "far. Emits tccon_comparison_by_cld{,_by_surface}.")
     ap.add_argument('--dpi', type=int, default=150,
                     help='Figure DPI (default 150 for iteration; use 300 for the final '
-                         'manuscript figures). The 4-file bias-style test set always '
-                         'renders at a fixed low DPI regardless of this value.')
+                         'manuscript figures). Also used for the bias-style test set.')
     ap.add_argument('--bias-style', default='scatter_clddist', choices=BIAS_STYLES,
                     help="Bias-panel style used for the production *_bias figures "
                          "(default 'scatter_clddist' = bias vs nearest-cloud distance). "
@@ -1313,7 +1299,7 @@ def main():
             for qf in qf_labels:               # all (QF0+1) + qf0 + qf1
                 _emit_figures(ref, qf)
 
-        # ── 4-style bias test set (low DPI) for the all-cases view (item 3) ──
+        # ── 4-style bias test set for the all-cases view (item 3) ───────────
         # Emit for every active reference so 'direct' gets its dumbbell variants too.
         # Only the pooled QF (all) group — this is a one-off style-picking aid.
         for ref0 in (('ak', 'direct') if args.ak_harmonize else ('direct',)):
@@ -1321,7 +1307,7 @@ def main():
             if len(allc0):
                 for st in BIAS_STYLES:
                     _one(lambda ax, allc0=allc0, st=st: _draw_bias(ax, allc0, st),
-                         out_dir / f'tccon_{ref0}_bias_{st}{sfx}.png', dpi=85)
+                         out_dir / f'tccon_{ref0}_bias_{st}{sfx}.png')
 
     # ── AK-vs-direct overlay + reference-shift, split into two single-panel files ──
     # One pair per quality-flag group (all/qf0/qf1); QF suffix keeps the 'all' names.

@@ -139,11 +139,18 @@ run_case() {
     mkdir -p "$outdir"
 
     # (4) apply deep ensemble → plot_data.parquet
-    local model_args=()
-    [[ "$surf" == both || "$surf" == ocean ]] && model_args+=(--ocean-model-dir "${OCEAN_MODEL_DIRS[@]}" --ocean-cloud-model-dir "${OCEAN_CLOUD_DIRS[@]}")
-    [[ "$surf" == both || "$surf" == land  ]] && model_args+=(--land-model-dir  "${LAND_MODEL_DIRS[@]}" --land-cloud-model-dir "${LAND_CLOUD_DIRS[@]}")
-    python workspace/build_deepens_plot_data.py \
-        "${model_args[@]}" --input "$input" --output "$plotdata" || { echo "  build failed"; return; }
+    # SKIP_BUILD=1 (env) → reuse an existing plot_data.parquet and only redo the
+    # plots — for local re-plotting (e.g. MODIS/GIBS overlays) against plot_data
+    # freshly synced from CURC.  Falls through to a build when the file is absent.
+    if [[ "${SKIP_BUILD:-0}" == 1 && -f "$plotdata" ]]; then
+        echo "  SKIP build (SKIP_BUILD=1) — reusing $plotdata"
+    else
+        local model_args=()
+        [[ "$surf" == both || "$surf" == ocean ]] && model_args+=(--ocean-model-dir "${OCEAN_MODEL_DIRS[@]}" --ocean-cloud-model-dir "${OCEAN_CLOUD_DIRS[@]}")
+        [[ "$surf" == both || "$surf" == land  ]] && model_args+=(--land-model-dir  "${LAND_MODEL_DIRS[@]}" --land-cloud-model-dir "${LAND_CLOUD_DIRS[@]}")
+        python workspace/build_deepens_plot_data.py \
+            "${model_args[@]}" --input "$input" --output "$plotdata" || { echo "  build failed"; return; }
+    fi
 
     # (5) plot — OCO-2 corrected XCO2 vs TCCON, with the SAME-DAY Aqua image as a
     #     background reference only (--modis-date "$date" pins the composite to the

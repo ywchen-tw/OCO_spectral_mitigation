@@ -1,16 +1,28 @@
-# Deep Ensemble MLP — Model Structure
+# Deep Ensemble MLP Architecture
 
-Visual reference for [`deep_ensemble.py`](deep_ensemble.py). Reference: Lakshminarayanan et al. 2017, *Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles* (NeurIPS).
+Source of truth: [`deep_ensemble.py`](deep_ensemble.py).  Manuscript schematic:
+[`make_deep_ensemble_figure.py`](make_deep_ensemble_figure.py), which uses the
+shared AMT figure style from `workspace/plot_style.py` (Arial text/mathtext,
+thin lines, 300 dpi raster output plus vector PDF).
 
-The model does two jobs:
-1. **Point prediction** — a corrected XCO2 anomaly `mu*` (RMSE / R² leader).
-2. **Calibrated intervals** — a 90% prediction interval that is honest even in the near-cloud tail, via conformal recalibration.
+The model predicts an OCO-2 bias correction and its uncertainty:
+
+1. **Point correction**: ensemble mean `mu*`.
+2. **Predictive spread**: mixture variance from aleatoric head variance plus
+   epistemic member disagreement.
+3. **Calibrated 90% intervals**: raw Gaussian, global split conformal, and
+   Mondrian conformal intervals written from the same `mu*`.
+
+Reference: Lakshminarayanan et al. 2017, *Simple and Scalable Predictive
+Uncertainty Estimation using Deep Ensembles*.
 
 ---
 
-## 1. One member — `GaussianMLP`
+## 1. One Member: `GaussianMLP`
 
-Each member is a small MLP with a **Gaussian head**: it predicts a mean *and* a variance, trained by negative log-likelihood (not MSE), so it says how unsure it is per-sounding.
+Each member is a small feed-forward network with a two-output probabilistic
+head.  The default body is `n_features -> 64 -> ReLU -> 32 -> ReLU`, controlled
+by `--hidden_dims`.
 
 ```mermaid
 flowchart LR
@@ -18,140 +30,201 @@ flowchart LR
     L1 --> R1["ReLU"]
     R1 --> L2["Linear 32"]
     L2 --> R2["ReLU"]
-    R2 -.->|shared body h| H(( ))
+    R2 --> H["shared hidden state h"]
 
-    H --> HEAD["head: Linear → 2"]
-    HEAD --> MU["mu<br/>(predicted mean)"]
-    HEAD --> RAW["raw2 → log_var<br/>(clamped ±10)"]
+    H --> HEAD["main head<br/>Linear -> 2"]
+    HEAD --> MU["mu_m"]
+    HEAD --> RAW["raw2<br/>clamped [-10,10]"]
 
-    H -. "aux_cloud only" .-> CH["cloud_head: Linear → 1"]
+    H -. optional .-> CH["cloud head<br/>Linear -> 1"]
     CH -.-> CL["near-cloud logit"]
-
-    style H fill:#eee,stroke:#999
-    style CL stroke-dasharray: 5 5
-    style CH stroke-dasharray: 5 5
 ```
 
-- **Body**: `n_features → 64 → ReLU → 32 → ReLU` (widths configurable via `--hidden_dims`, e.g. `128,64,32`).
-- **Main head** → `(mu, raw2)`. `raw2` is read as `log_var` (gaussian / beta_nll) or `log_scale` (student_t) depending on the loss — architecture is identical so checkpoints are interchangeable.
-- **Optional aux cloud head** (`--cloud_aux_weight > 0`): a second linear head off the *shared* body predicting the binary near-cloud label. Multi-task signal that injects cloud-contamination structure into the representation. When off, the state_dict is identical to the single-task model.
+Main-head interpretation depends on `--loss`:
 
-### Loss options (`--loss`)
-| Loss | Head output | Use |
-|------|-------------|-----|
-| `gaussian_nll` | log_var | default |
-| `beta_nll` (Seitzer 2022) | log_var | restores mean-fit gradient in high-variance near-cloud rows |
-| `student_t` | log_scale | heavy tails for the near-cloud residual tail |
+| Loss | Default? | `raw2` means | Purpose |
+|---|---:|---|---|
+| `beta_nll` | yes | `log_var` | Production loss; Seitzer-style variance weighting keeps mean fitting from being suppressed in high-variance rows. |
+| `gaussian_nll` | no | `log_var` | Plain Gaussian negative log-likelihood. |
+| `student_t` | no | `log_scale` | Heavy-tailed residual model; variance uses fixed `--nu` (>2). |
 
-Optional per-sample weighting `w` (`--near_cloud_weight`) tilts the objective toward near-cloud rows so the far-cloud majority (~81%) doesn't dominate the gradient.
+Optional regularization:
+
+| Option | Default | Effect |
+|---|---:|---|
+| `--dropout` | `0.0` | Dropout after each activation during training only. Inference does not use MC dropout; ensemble spread supplies epistemic uncertainty. |
+| `--norm` | `none` | Optional `layer` or `batch` normalization after each hidden linear layer. |
+| `--cloud_aux_weight` | `0.0` | Adds an auxiliary near-cloud classifier head and `lambda * BCE` loss. When zero, checkpoints/state dicts are identical to the single-task architecture. |
+
+Near-cloud rows are defined by `cld_dist_km <= --near_cloud_km` (default
+10 km).  `--near_cloud_weight > 1` upweights those rows in both proper-train
+and calibration batches used for early stopping.
 
 ---
 
-## 2. The ensemble — M independent members
+## 2. Ensemble Mixture
 
-`M` members (`--n_members`, default 5) are trained **independently** with different seeds (`seed + m`). Optionally heterogeneous architectures (`--member_archs`, "DE++") to decorrelate members further.
+`--n_members` independent members are trained with seeds `seed + m`.  By
+default all members share `--hidden_dims`.  `--member_archs` enables a DE++
+style heterogeneous ensemble by cycling through a semicolon-separated list of
+member widths, for example `64,32;128,64;256,128,64`.
 
 ```mermaid
 flowchart TB
-    X["X (features)"] --> M0["member 0<br/>seed 42"]
-    X --> M1["member 1<br/>seed 43"]
-    X --> M2["member 2<br/>seed 44"]
-    X --> Md["… member M-1"]
+    X["features"] --> M0["member 0"]
+    X --> M1["member 1"]
+    X --> M2["member 2"]
+    X --> MM["member M-1"]
 
-    M0 --> P0["mu₀, var₀"]
-    M1 --> P1["mu₁, var₁"]
-    M2 --> P2["mu₂, var₂"]
-    Md --> Pd["mu_m, var_m"]
+    M0 --> P0["mu_0, var_0"]
+    M1 --> P1["mu_1, var_1"]
+    M2 --> P2["mu_2, var_2"]
+    MM --> PM["mu_m, var_m"]
 
-    P0 & P1 & P2 & Pd --> MIX["Gaussian mixture"]
-    MIX --> OUT["mu* , sigma*"]
-
-    style MIX fill:#dff,stroke:#37a
+    P0 & P1 & P2 & PM --> MIX["Gaussian mixture"]
+    MIX --> OUT["mu*, sigma*"]
 ```
 
-**Mixture formulas** (`ensemble_predict`):
+`ensemble_predict` accumulates running moments rather than materializing an
+`[M, N]` prediction stack:
 
+```text
+mu*      = mean_m(mu_m)
+var*     = mean_m(var_m + mu_m^2) - mu*^2
+sigma*   = sqrt(max(var*, 1e-12))
+raw 90%  = mu* +/- 1.6448536269514722 * sigma*
 ```
-mu*   = mean_m( mu_m )
-var*  = mean_m( var_m + mu_m² ) − mu*²      # aleatoric + epistemic
-90% raw interval:  mu* ± 1.645 · sqrt(var*)  # Gaussian approx
-```
 
-- `mean(var_m)` → **aleatoric** (data noise, from each head).
-- spread of `mu_m` → **epistemic** (model disagreement).
-
-If members have cloud heads, `ensemble_cloud_prob` averages `sigmoid(logit)` → an ensemble near-cloud probability (AUC/AP reported).
+`mean_m(var_m)` is the aleatoric component.  Member disagreement in `mu_m` is
+the epistemic component.  If the optional cloud head exists, `ensemble_cloud_prob`
+averages `sigmoid(cloud_logit_m)` and reports near-cloud AUC/AP when truth is
+available.
 
 ---
 
-## 3. Conformal calibration — making intervals honest
+## 3. Inputs and Splits
 
-The raw Gaussian interval is not guaranteed to cover 90%. A **calibration block** carved from TRAIN (`--calib_frac`, date-split when possible) recalibrates the intervals. Three interval variants are produced from the *same* `mu*` (so RMSE/MAE/R² are identical across them — only the intervals differ):
+The end-to-end run uses:
+
+1. Load parquet/CSV data and filter by `sfc_type`.
+2. Keep snow by default; `--exclude_snow` removes snow/ice footprints.
+3. Resolve the target (`10km`, `15km`, or `5km`) and filter target outliers.
+4. Split into train and held-out data via `split_dataframe`.
+5. Carve `--calib_frac` (default 0.15) out of train as a calibration block,
+   preferring date splits when possible.
+6. Fit `FeaturePipeline` on proper-train only, then transform proper-train,
+   calibration, and held-out rows.
+
+Optional cloud-distance bin feature:
+
+| `--cloud_bin_feature` | Meaning |
+|---|---|
+| `none` | Default; no extra feature. |
+| `oracle` | Append true `cld_dist_km` bin one-hot: `[0,2)`, `[2,5)`, `[5,10)`, `[10,15)`, `[15,inf)` km. |
+| `predicted` | Train an internal GBDT classifier on the same features and append predicted cloud-distance bin one-hot. |
+
+The training-date manifest (`training_dates.json`) is written for downstream
+TCCON leakage checks.
+
+---
+
+## 4. Training
+
+Each member is trained by `_train_member` through `train_common.train_model`:
+
+| Component | Current behavior |
+|---|---|
+| Optimizer/schedule | Defined in `train_common`: AdamW, OneCycleLR, gradient clipping, early stopping. |
+| Early stopping validation | The calibration block, held out from proper training. |
+| Platform defaults | Resolved by `TrainConfig` (for example Darwin favors smaller epoch/batch defaults than Linux). |
+| Device | Auto-selection through `train_common.select_device` (CUDA, MPS, then CPU). |
+| GPU residency | `--gpu_resident auto/on/off` controls whether tensors stay resident on device. |
+
+---
+
+## 5. Conformal Calibration
+
+All interval variants share the same `mu*`; only interval widths differ.
 
 ```mermaid
 flowchart TB
-    subgraph data["Data splits"]
-      TR["proper-train"] --> FIT["train M members"]
-      CAL["calibration block<br/>(held out of training)"]
-      TE["held-out test"]
-    end
+    TR["proper train"] --> FIT["train M members"]
+    CAL["calibration block"] --> ENS["ensemble mu*, sigma*"]
+    FIT --> ENS
+    HELD["held-out rows"] --> ENS
 
-    FIT --> ENS["ensemble mu*, sigma*"]
-    CAL --> ENS
-    TE --> ENS
-
-    ENS --> RAW["① de_raw<br/>mu* ± 1.645·sigma*"]
-    ENS --> SPLIT["② de_split<br/>global split conformal"]
-    ENS --> MOND["③ de_mondrian ★<br/>per-bin (mu-decile or<br/>cld_dist_km) conformal"]
-
-    style MOND fill:#fe8,stroke:#a70
-    style RAW stroke:#999
-    style SPLIT stroke:#999
+    ENS --> RAW["de_raw_<split><br/>Gaussian interval"]
+    ENS --> SPLIT["de_split_<split><br/>global split conformal"]
+    ENS --> MOND["de_mondrian_<split><br/>per-bin Mondrian conformal"]
 ```
 
-| Tag | Method | Notes |
-|-----|--------|-------|
-| `de_raw_<split>` | raw Gaussian mixture | no recalibration |
-| `de_split_<split>` | global split conformal | one quantile `q` for all rows |
-| **`de_mondrian_<split>`** | Mondrian (binned) conformal ★ | **headline** — per-bin `q`, bins by `--mondrian_col` (`mu` deciles, or a physical proxy like `cld_dist_km` / `aod_total`) |
+| Output tag | Method | Notes |
+|---|---|---|
+| `de_raw_<split>` | Raw Gaussian mixture | `mu* +/- Z90 * sigma*`; no recalibration. |
+| `de_split_<split>` | Split conformal | One residual quantile for all rows. |
+| `de_mondrian_<split>` | Mondrian conformal | Per-bin residual quantiles; default bins are predicted-mean deciles (`--mondrian_col mu`). |
 
-Mondrian bins let the near-cloud regime get its own quantile. `--near_cloud_target` can raise coverage in the near-cloud bins only (over-cover the outcome-defined tail). All intervals are monotone by construction (`crossing_rate = 0`).
+`--mondrian_col` can use an observable physical column such as `cld_dist_km` or
+`aod_total`.  `--near_cloud_target` raises coverage only in near-cloud Mondrian
+bins and therefore requires `--mondrian_col cld_dist_km`.
+
+All intervals are monotone by construction (`crossing_rate = 0`).
 
 ---
 
-## 4. End-to-end run flow (`main`)
+## 6. Artifacts
 
-```mermaid
-flowchart TB
-    P["parquet<br/>combined_*.parquet"] --> F["filter: sfc_type, snow_flag,<br/>target outliers"]
-    F --> SPLIT["split_dataframe →<br/>train / held-out"]
-    SPLIT --> CARVE["carve calibration block<br/>from train (date split)"]
-    CARVE --> PIPE["FeaturePipeline.fit<br/>(normalize, feature_set)"]
-    PIPE --> XPREP["transform → X_tr, X_cal, X_te"]
+Each run writes the model, predictions, diagnostics, and metadata under
+`results/model_deep_ensemble/<suffix>` or `results/model_deep_ensemble`.
 
-    XPREP -.->|optional| CB["+ cloud-bin one-hot<br/>(oracle / predicted GBDT)"]
-    CB --> TRAIN
-    XPREP --> TRAIN["train M members<br/>(AdamW + OneCycleLR,<br/>early stop on calib, patience 50)"]
-
-    TRAIN --> PRED["ensemble_predict on cal & test"]
-    PRED --> CONF["3 conformal interval sets"]
-    CONF --> METRICS["diagnostics: RMSE/R²/cov90/width<br/>+ stratified + correction-vs-cloud-dist"]
-
-    METRICS --> ART["artifacts:<br/>member_*.pt, pipeline.pkl, meta.pkl,<br/>held_out_predictions.parquet,<br/>*_metrics.json, run_summary.json"]
-```
-
-**Key training config**: optimizer `AdamW` (lr 1e-3, wd 1e-4), `OneCycleLR` schedule, grad-clip 1.0, early stopping on the calibration block (patience 50). Platform defaults: Darwin 100 epochs / batch 2048, Linux 500 / 4096. Device auto: CUDA → MPS → CPU.
+| Artifact | Purpose |
+|---|---|
+| `member_*.pt` | Trained PyTorch member checkpoints. |
+| `deep_ensemble_pipeline.pkl` | Fitted feature pipeline. |
+| `deep_ensemble_meta.pkl` | Feature count, member count, conformal quantiles/edges, loss, cloud options, member architectures, and train config. |
+| `training_dates.json` | Train/calibration/held-out date manifest for leakage checks. |
+| `held_out_predictions.parquet` | Held-out `y_true`, `mu`, `sigma`, Mondrian interval, and selected physical columns. |
+| `de_*_<split>_metrics.json` | Global diagnostics for raw/split/Mondrian intervals. |
+| `de_*_<split>_stratified.csv` | Stratified diagnostics from `diagnostics.stratified_metrics`. |
+| `de_correction_clddist_<split>.csv` | Correction effectiveness by cloud-distance bin. |
+| `run_summary.json` | Tracking summary with primary/secondary metrics and config. |
 
 ---
 
-## Quick glossary
+## 7. Manuscript Figure
+
+Generate AMT/manuscript-ready schematics with Arial text/mathtext:
+
+```bash
+python -m src.models.make_deep_ensemble_figure --dpi 300 --formats pdf,png
+```
+
+Default outputs:
+
+| File stem | Meaning |
+|---|---|
+| `deep_ensemble_architecture` | Full schematic including the optional auxiliary cloud head. |
+| `deep_ensemble_architecture_no_cloud` | Single-task schematic matching runs with `--cloud_aux_weight 0`. |
+
+The script exposes:
+
+| Option | Default | Meaning |
+|---|---:|---|
+| `--out-dir` | `results/figures` | Output directory. |
+| `--dpi` | `300` | Raster DPI for PNG/TIFF outputs. |
+| `--formats` | `pdf,png` | Comma-separated formats. |
+| `--only` | `both` | `both`, `cloud`, or `no-cloud`. |
+
+---
+
+## Glossary
 
 | Symbol | Meaning |
-|--------|---------|
-| `mu*` | ensemble mean prediction (the correction) |
-| `sigma*` | ensemble predictive std (aleatoric + epistemic) |
-| `raw2` | head's 2nd output → `log_var` or `log_scale` |
-| `M` | number of ensemble members (`--n_members`) |
-| aleatoric | irreducible data noise (per-head variance) |
-| epistemic | model uncertainty (member disagreement) |
-| Mondrian | conformal with a separate quantile per bin |
+|---|---|
+| `mu_m` | Mean prediction from ensemble member `m`. |
+| `var_m` | Predictive variance from member `m` after converting `raw2`. |
+| `mu*` | Ensemble mean correction. |
+| `sigma*` | Ensemble predictive standard deviation. |
+| aleatoric | Data/noise uncertainty represented by per-member variance heads. |
+| epistemic | Model uncertainty represented by member disagreement. |
+| Mondrian conformal | Split conformal calibration with a separate quantile per bin. |
