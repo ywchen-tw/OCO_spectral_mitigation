@@ -28,7 +28,8 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
                          lat_thres=ANOMALY_LAT_THRES_DEG,
                          std_thres=ANOMALY_STD_THRES_PPM,
                          min_cld_dist=ANOMALY_MIN_CLD_DIST_KM,
-                         chunk_size=128, extra_vars=None):
+                         chunk_size=128, extra_vars=None,
+                         return_ref_stats=False):
     """XCO2 anomaly relative to nearby clear-sky soundings.
 
     For each footprint i, the reference set is all footprints within ±lat_thres°
@@ -50,6 +51,12 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
                   Optional additional [N] arrays whose mean and std over the
                   same clear-sky reference window are returned alongside the
                   anomaly.  When provided, returns (anomaly, means, stds).
+    return_ref_stats : bool
+                  When True, additionally return the per-sounding XCO2
+                  reference statistics (ref_mean, ref_std, n_ref) — used by
+                  the label-noise-ceiling analysis (ref_std/√n_ref is the
+                  reference-mean sampling error of the anomaly target).
+                  Appended after the extra_vars outputs when both are set.
 
     Returns
     -------
@@ -57,12 +64,17 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
     If extra_vars is not None, also returns:
     extra_means : dict[str, [N] float array]  per-sounding reference mean
     extra_stds  : dict[str, [N] float array]  per-sounding reference std
+    If return_ref_stats, also returns:
+    ref_mean, ref_std : [N] float arrays (NaN where anomaly is NaN)
+    n_ref             : [N] int array of clear-sky reference-set sizes
+                        (0 where anomaly is NaN)
     """
     N          = len(fp_lat)
     chunk_size = int(chunk_size)   # guard against float passed via **kwargs
     anomaly  = np.full(N, np.nan)
     ref_mean = np.full(N, np.nan)
     ref_std  = np.full(N, np.nan)
+    n_ref    = np.zeros(N, dtype=np.int64)
 
     valid_lat  = ~np.isnan(fp_lat)
     clear_mask = valid_lat & (cld_dist_km > min_cld_dist) & ~np.isnan(xco2)  # [N] bool
@@ -110,6 +122,7 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
 
         ref_mean[start:end] = chunk_mean
         ref_std[start:end]  = chunk_std
+        n_ref[start:end]    = n_refs
 
         # Only populate extra vars for soundings whose XCO2 background is stable
         # (chunk_std <= std_thres).  Noisy-ref soundings keep NaN in-loop rather
@@ -130,11 +143,20 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
 
     valid = valid_lat & ~np.isnan(ref_mean) & (ref_std <= std_thres)
     anomaly[valid] = xco2[valid] - ref_mean[valid]
+    not_valid = ~valid
     if extra_vars is not None:
-        not_valid = ~valid
         for k in extra_mean_out:
             extra_mean_out[k][not_valid] = np.nan
             extra_std_out[k][not_valid]  = np.nan
+    if return_ref_stats:
+        ref_mean = ref_mean.copy(); ref_std = ref_std.copy()
+        ref_mean[not_valid] = np.nan
+        ref_std[not_valid]  = np.nan
+        n_ref = np.where(valid, n_ref, 0)
+        if extra_vars is not None:
+            return anomaly, extra_mean_out, extra_std_out, ref_mean, ref_std, n_ref
+        return anomaly, ref_mean, ref_std, n_ref
+    if extra_vars is not None:
         return anomaly, extra_mean_out, extra_std_out
     return anomaly
 

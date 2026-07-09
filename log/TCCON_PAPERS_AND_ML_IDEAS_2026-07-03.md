@@ -2,6 +2,7 @@
 
 **Date:** 2026-07-03
 **Companion to:** `log/PROJECT_REVIEW_2026-07-03.md`
+**Updated 2026-07-08:** Cluster 8 added (Nassar power-plant plume papers — now load-bearing: the M1 plume negative controls ran against their overpass catalog; both DOIs Crossref-verified 2026-07-08) plus MCD12C1/GIBS data citations. Cluster 9 added (MODIS cloud-mask accuracy — backing for the product-dependence Discussion paragraph; 6 entries, DOIs verified). Part 2: the baseline-table item (§2.5 / §2.8-7) is DONE via the 5-model same-protocol comparison; §2.7 extended with the spec-feature predictive-redundancy verdict (QF ablation).
 
 ---
 
@@ -75,6 +76,24 @@ All DOIs verified against Crossref / journal landing pages (2026-07-03). 45 entr
 - **Hedelius, J. K., et al. (2016).** Errors and biases in retrievals from a 0.5 cm⁻¹ resolution solar-viewing spectrometer. *AMT*, 9, 3527–3546. DOI: 10.5194/amt-9-3527-2016 — EM27/SUN error budget.
 - **Yoshida, Y., et al. (2013).** Improved GOSAT SWIR XCO2/XCH4 retrieval and TCCON validation. *AMT*, 6, 1533–1547. DOI: 10.5194/amt-6-1533-2013 — Canonical GOSAT-vs-TCCON precedent.
 - **Suto, H., et al. (2021).** TANSO-FTS-2 on GOSAT-2 during its first year in orbit. *AMT*, 14, 2013–2039. DOI: 10.5194/amt-14-2013-2021 — GOSAT-2 instrument reference.
+
+### Cluster 8 — Power-plant plume quantification + analysis data citations (added 2026-07-08)
+
+- **Nassar, R., et al. (2017).** Quantifying CO2 emissions from individual power plants from space. *GRL*, 44, 10045–10053. DOI: 10.1002/2017GL074702 — First OCO-2 single-plant emission quantification; origin of the overpass-case methodology behind the M1 plume-preservation tests. **MUST-CITE** (M1 controls)
+- **Nassar, R., et al. (2021).** Advances in quantifying power plant CO2 emissions with OCO-2. *RSE*, 264, 112579. DOI: 10.1016/j.rse.2021.112579 — 20+ overpasses of 14 plants; the plant/overpass catalog `workspace/Nassar_plume_analysis/` screens against, and the emission-rate table needed for the (open) dose-response check. **MUST-CITE** (M1 controls)
+- **Friedl, M., & Sulla-Menashe, D. (2022).** MCD12C1 MODIS/Terra+Aqua Land Cover Type Yearly L3 Global 0.05° CMG, Version 061. NASA LP DAAC. DOI: 10.5067/MODIS/MCD12C1.061 — dataset citation for the land-cover-stratified spec analysis (standard LP DAAC DOI pattern; confirm resolves at citation time). Note for methods: v061 is current; v006 is the deprecated version.
+- Appendix imagery credit: NASA Worldview / **GIBS** (Global Imagery Browse Services) for the Aqua-MODIS true-color case-study backgrounds — cite per NASA Earthdata citation guidance (acknowledgment, not a reference-list entry).
+
+### Cluster 9 — MODIS cloud-mask accuracy / product sensitivity (added 2026-07-08; DOIs Crossref/journal-verified)
+
+Backing for the Discussion paragraph on cloud-product dependence (storyline §8b in `log/TODO_ACCOMPLISH.md`): the diagnosed bias curves and label construction inherit MYD35's cloud definition; these papers quantify what that definition is worth. If the Cloudy-only sensitivity rerun is skipped for time, this literature + the structural argument (distance never a model input; validation MODIS-independent) + our own MYD35 false-positive case studies carry the paragraph.
+
+- **Ackerman, S. A., et al. (1998).** Discriminating clear sky from clouds with MODIS. *JGR-Atmos*, 103(D24), 32141–32157. DOI: 10.1029/1998JD200032 — The MOD35 algorithm paper; cite for what the mask tests actually detect (and the Cloudy/Uncertain/ProbClear/Clear confidence semantics behind our bit-unpacking). **MUST-CITE** (methods)
+- **Frey, R. A., et al. (2008).** Cloud detection with MODIS. Part I: Improvements in the MODIS cloud mask for Collection 5. *JTECH*, 25, 1057–1072. DOI: 10.1175/2008JTECHA1052.1 — Collection-5 mask revisions; documents regime-dependent detection changes (night/polar/sunglint) — sunglint is our viewing geometry.
+- **Ackerman, S. A., et al. (2008).** Cloud detection with MODIS. Part II: Validation. *JTECH*, 25, 1073–1086. DOI: 10.1175/2007JTECHA1053.1 — The mask's own validation: ~85–90 % agreement with lidar, weakest for thin cirrus and small/sub-pixel cumulus — exactly the clouds nearest our footprints. **MUST-CITE** (discussion)
+- **Holz, R. E., et al. (2008).** Global MODIS cloud detection and height evaluation using CALIOP. *JGR-Atmos*, 113, D00A19. DOI: 10.1029/2008JD009837 — Global CALIOP benchmark (87 % cloudy agreement; height low by 1.4 ± 2.9 km) — the height number also feeds the parallax bound (M5).
+- **Stubenrauch, C. J., et al. (2013).** Assessment of global cloud datasets from satellites (GEWEX Radiation Panel). *BAMS*, 94, 1031–1049. DOI: 10.1175/BAMS-D-12-00117.1 — Product-to-product spread in cloud amount/detection across 12 datasets; the citation for "a different cloud product would shift the distance axis."
+- **Platnick, S., et al. (2017).** The MODIS cloud optical and microphysical products: Collection 6 updates. *IEEE TGRS*, 55, 502–525. DOI: 10.1109/TGRS.2016.2610522 — MYD06 reference (optical properties / cloud-top); cite when discussing MYD06 as the alternative-product / parallax route. (Note: MYD04 is the *aerosol* product — relevant only to the far-field Δk1-vs-aerosol caveat, not as an alternative cloud mask.)
 
 ### MUST-CITE shortlist (reviewer expectations)
 
@@ -158,6 +177,7 @@ The `std_thres` filter drops label-less soundings — disproportionately the har
 - **FT-Transformer / tabular ResNet** (Gorishniy et al. 2021): worth one run each as baselines; literature and this project's own evidence (TabM ≈ MLP) suggest parity, not wins.
 - **TabPFN v2:** in-context prior-fitted network, strong on ≤10k-row problems. Not viable for the full dataset, but interesting for per-region/per-season few-shot fits and as a fast sanity baseline on the near-cloud subset.
 - **GBDT with the new features** (neighborhood aggregates from 2.1, embeddings from 2.2): XGBoost remains the honesty check for any feature-level idea.
+- **STATUS (2026-07-08) — the reviewer-proof baseline table RAN** (same features, same folds, same TCCON chain): **DE > XGBoost-mean > Ridge**, decided in the near-cloud land tail (fp-RMSE 1.30 < 1.68 < 2.37 ppm); XGB-mean is the parsimony option. TabM ≈ DE globally (TCCON pooled RMSE DE 1.32 / TabM 1.38) but clearly worse in the same tail; on ocean (ATom) TabM ≈ DE — the land-tail weakness doesn't carry over. 5-model land+ocean writeup: `results/model_comparison/MODEL_COMPARISON_land_ocean_2026-07-08.md` (land TCCON pooled RMSE: DE 1.20 < Structured 1.38 < XGB 1.44 < TabM 1.71 < LinReg 2.24). FT-Transformer / TabPFN judged redundant given TabM parity — skipped.
 
 ### 2.6 Uncertainty (already good — minor options)
 
@@ -168,6 +188,7 @@ Mondrian conformal on the DE is solid. Cheaper epistemic alternatives if compute
 - More HPO on TabM/MLP (flat landscape; default TabM beat tuned ones).
 - Bigger ensembles (M=10 tied M=5) and heterogeneous member architectures (tied homogeneous at scale).
 - `snow_flag` as a feature (neutral); κ = k1²/k2 feature (slightly hurts).
+- **Chasing a *predictive* win for the spectral cumulants (verdict 2026-07-08):** the QF-grouped feature-set ablation shows `no_spec` is TCCON-neutral (−0.006 ppm pooled) and held-out CV over-credits the spec block — `xco2_raw − apriori` already contains the radiative perturbation the cumulants measure, and a flexible model needs only one copy. The conditional information is real (without the xco2 block, dropping spec costs land near-cloud RMSE 1.040 → 1.156), so keep `full` in production, but do not spend more compute trying to make spec win on TCCON; their value is mechanism / plume-safety / MODIS-free sensitivity (`log/SPEC_EMPHASIS_STATUS_2026-07-08.md` §3). If spec ever earns a predictive keep it will be NoMODIS-era QC/flagging or QF=1 recovery, not global RMSE.
 - **Sun–Earth distance / solar-cycle (11-yr) features (evaluated and rejected 2026-07-07):** both are identical for a sounding and its same-orbit clear-sky reference neighbors, so they cancel *exactly* in the within-orbit anomaly target — zero direct explanatory power; the only channel is as a smooth date proxy, precisely the confound date_kfold guards against (neutral at best in CV, extrapolation risk into new solar-cycle phases/drift era). The radiometric side is already handled: per-sounding solar-rest-frame irradiance (`solar.h5`, Doppler chain), and the annual ±3.4 % irradiance scaling is a continuum-level effect absorbed by the cumulant fit's intercept. Also irrelevant to the direct-vs-AK station-bias gap, which is an absolute-offset/reference-side issue no per-sounding anomaly feature can move.
 
 ### 2.8 Suggested experiment order
@@ -180,6 +201,6 @@ Mondrian conformal on the DE is solid. Cheaper epistemic alternatives if compute
 | 4 | Along-track sequence model (8×N grid CNN/transformer) | 1–2 wks | MODIS-free correction (headline capability) |
 | 5 | Hybrid residual-curve encoder | 1–2 wks | Tests cumulant-fit sufficiency; paper ablation |
 | 6 | Self-supervised pretraining on unlabeled rows | 1–2 wks | Coverage of hardest scenes (answers review M1 selection effect) |
-| 7 | FT-Transformer / TabPFN baselines | days | Reviewer-proof baseline table |
+| 7 | FT-Transformer / TabPFN baselines | days | ~~Reviewer-proof baseline table~~ **DONE 2026-07-08** via Ridge/XGB/TabM/structured same-protocol table (§2.5 status); FT-T/TabPFN skipped as redundant |
 
 All of the above under **date_kfold + orbit-blocked CV**, evaluated globally *and* on near-cloud / bottom-5% tail slices, with the TCCON chain as the final arbiter (per project policy).
