@@ -101,14 +101,23 @@ not be quoted until the full-parquet regeneration (§2-2) lands. Scoop risk
    (`build_deepens/baseline/tabm/structured_residual_plot_data.py`). Verified:
    all 77 TCCON eval dates ∩ 116 manifest dates = ∅ for BOTH production
    surfaces — the paper's one-sentence guarantee now runs on every `run_case`.
-4. [~] **Label-noise ceiling.** `src/analysis/label_noise_ceiling.py` +
-   `compute_xco2_anomaly(..., return_ref_stats=True)`; recomputed per-sounding
-   ref stats reproduce the stored anomaly to ≤1e-6 ppm (grouped by orbit_id).
-   Three bracketing ceilings: ref-only (weak), ref+retrieval-σ (headline),
-   empirical far-field (no error model). Single-date check: land r15 all-rows
-   ceiling ≈ 0.55 (achieved 0.39 → decent headroom framing TBD), ref+ret ≈
-   empirical far-field on land (posterior σ explains the far-field variance).
-   RUNNING: 140-local-date aggregate → `results/label_noise_ceiling_140dates.csv`.
+4. [x] **Label-noise ceiling. DONE 2026-07-08.** `src/analysis/label_noise_ceiling.py`
+   + `compute_xco2_anomaly(..., return_ref_stats=True)`; recomputed reference
+   stats reproduce the stored anomaly to ≤ 4e-6 ppm (≤ 0.02 ppm worst single
+   row on ocean r05, from the extra-vars reference-pool screening at build
+   time — negligible for variance statistics). 21.5 M soundings / 140 dates →
+   `results/label_noise_ceiling_140dates.csv`. **Production-target ceilings
+   (max R² = 1 − E[σ²_noise]/Var(y); bracket = [empirical far-field,
+   ref + retrieval-σ]):** ocean r05 all-rows **[0.52, 0.60]** vs achieved
+   date-kfold ≈ 0.53 — **at the ceiling**; land r15 all-rows **[0.46, 0.61]**
+   vs achieved ≈ 0.39 — 64–84 % of it. Near-cloud (< 10 km) ceilings are much
+   higher (ocean 0.70, land 0.88–0.89) because signal variance dominates
+   there: the global R² is noise-limited, not model-limited, and the headroom
+   sits exactly where the signal is. Reference-mean sampling error
+   (ref_std²/n_ref ≈ 0.003–0.014 ppm²) is negligible next to the retrieval
+   posterior (σ² ≈ 0.20 ocean / 0.26–0.33 land ppm²). Manuscript sentence:
+   "the date-blocked R² of 0.53/0.39 should be read against a label-noise
+   ceiling of ≈ 0.5–0.6, not against 1."
 5. [x] **M2 polish. DONE 2026-07-08 (except the manuscript sentence placement).**
    (a) Coincidence table `coincidence_sensitivity/coincidence_sensitivity.{csv,md}`
    (3 radii × 3 windows, rerun after the coordinate change): improvement

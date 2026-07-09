@@ -61,10 +61,13 @@ numbering, as the audit trail of how each was closed.
 
 ### 3.1 Open residue
 
-- **M1 residue:** label-noise ceiling 140-date aggregate finishing
-  (`results/label_noise_ceiling_140dates.csv`; tool validated to ≤ 1e-6 ppm);
-  land far-cloud / TCCON clear-day stratification (cheap, optional); transport-
-  model regression + EaR3T OSSE explicitly DEFERRED (TODO_ACCOMPLISH §4).
+- **M1 residue:** ~~label-noise ceiling~~ **DONE 2026-07-08** (21.5 M soundings
+  / 140 dates: production-target ceilings ocean r05 [0.52, 0.60] vs achieved
+  ≈ 0.53 — at the ceiling; land r15 [0.46, 0.61] vs ≈ 0.39; near-cloud
+  ceilings 0.70/0.89 — the headroom sits where the signal is; see
+  TODO_ACCOMPLISH §2-4). Remaining: land far-cloud / TCCON clear-day
+  stratification (cheap, optional); transport-model regression + EaR3T OSSE
+  explicitly DEFERRED (TODO_ACCOMPLISH §4).
 - **M3 residue:** per-site worsening-sites paragraph — writing time.
 - **M5 residue:** two pre-emptive bound sentences — writing time; Cloudy-only
   vs pooled rerun time-permitting only (TODO_ACCOMPLISH §3).
