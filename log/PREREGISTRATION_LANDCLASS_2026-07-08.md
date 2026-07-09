@@ -119,3 +119,15 @@ scored; do not soften. Full-scale spec-sensitivity survives independently:
 spec-only near-cloud classifier AUC land 0.718 / ocean 0.664 (HGB,
 full_spec; n_train 2 M per surface), sub-pixel monotonicity and
 shadow/brightening branches regenerated at scale.
+
+**Post-scoring methodological note (raw vs ref-corrected — explains the
+first look):** at full scale the RAW far-baselined variables reproduce the
+subset first look (wco2_k1: forest −0.20σ, barren +0.17σ) while the
+ref-corrected deltas show the OPPOSITE class signs (dk1_wco2: forest +0.09,
+savanna +0.43, barren −0.40). The raw near−far contrast within a class is
+confounded by population shift (near-cloud forest scenes differ in
+region/season/moisture from far-cloud forest scenes); the per-sounding
+clear-sky-neighbor deltas remove that scene baseline and are the
+defensible cloud response — they are what the prereg pledged and what the
+manuscript should use. The subset "first look" direction was an artifact
+of raw baselining, which is itself worth one manuscript sentence.
