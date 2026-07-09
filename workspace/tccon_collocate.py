@@ -23,6 +23,37 @@ from plot_corrected_xco2 import load_tccon, _haversine_km, get_storage_dir  # no
 
 GUARD_COLS = ('clim_guard', 'anomaly_guard')
 
+# Published TCCON station coordinates (lon, lat), keyed by the 2-letter site
+# code (= first two characters of the GGG2020 file name).  Values are the
+# constant per-spectrum lat/long metadata of the GGG2020 .public.qc.nc files
+# (site coordinates as published by the PIs; file precision 0.01° ≈ 1 km,
+# negligible against the 50–100 km collocation radii).  collocate() prefers
+# these over the median-observation fallback (M2 polish, 2026-07-08): a fixed
+# table is deterministic across file updates and immune to files whose
+# coordinate variables are unreadable (e.g. pre-qc 'ae').
+SITE_COORDS = {
+    'an': (126.3300, 36.5400),   # Anmyeondo
+    'bu': (120.6500, 18.5300),   # Burgos
+    'ci': (-118.1300, 34.1400),  # Caltech (Pasadena)
+    'db': (130.9300, -12.4600),  # Darwin
+    'df': (-117.8800, 34.9600),  # Edwards (Dryden/Armstrong)
+    'et': (-104.9900, 54.3500),  # East Trout Lake
+    'hf': (117.1700, 31.9100),   # Hefei
+    'iz': (-16.5000, 28.3100),   # Izaña
+    'js': (130.2900, 33.2400),   # Saga
+    'ka': (8.4400, 49.1000),     # Karlsruhe
+    'ma': (-60.6000, -3.2100),   # Manaus
+    'ny': (11.9200, 78.9200),    # Ny-Ålesund
+    'oc': (-97.4900, 36.6000),   # Lamont (Oklahoma)
+    'or': (2.1100, 47.9600),     # Orléans
+    'pa': (-90.2700, 45.9400),   # Park Falls
+    'pr': (2.3600, 48.8500),     # Paris
+    'ra': (55.4800, -20.9000),   # Réunion (St-Denis)
+    'rj': (143.7700, 43.4600),   # Rikubetsu
+    'wg': (150.8800, -34.4100),  # Wollongong
+    'xh': (116.9600, 39.8000),   # Xianghe
+}
+
 
 def find_plotdata(base, date, site):
     """Locate the build_deepens_plot_data.py output for one case under *base*
@@ -36,7 +67,8 @@ def find_plotdata(base, date, site):
     return None
 
 
-def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0):
+def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0,
+              site=None):
     """Collocate one case's OCO-2 footprints to its TCCON station.
 
     Parameters
@@ -47,6 +79,9 @@ def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0):
     radius_km, window_min : collocation thresholds (spatial, temporal).
     sanity_ppm : drop footprints whose xco2_bc is >this from the TCCON mean
                  (gross retrieval failures); None to disable.
+    site : 2-letter TCCON site code; when it resolves in SITE_COORDS the
+           published station coordinate is used (median-observation lat/lon
+           remains the fallback, with a warning if the two disagree > 5 km).
 
     Returns dict:
       near       : footprints in box AND ≤radius of station (guarded KEPT),
@@ -58,8 +93,23 @@ def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0):
     sel = ((oco['lon'] >= lonmin) & (oco['lon'] <= lonmax) &
            (oco['lat'] >= latmin) & (oco['lat'] <= latmax))
     oco = oco[sel]
-    st_lon = float(tccon['lon'].median()) if len(tccon) else np.nan
-    st_lat = float(tccon['lat'].median()) if len(tccon) else np.nan
+    med_lon = float(tccon['lon'].median()) if len(tccon) else np.nan
+    med_lat = float(tccon['lat'].median()) if len(tccon) else np.nan
+    pub = SITE_COORDS.get(str(site).lower()[:2]) if site else None
+    if pub is not None:
+        st_lon, st_lat = pub
+        if np.isfinite(med_lon):
+            d_km = float(_haversine_km(np.array([med_lon]), np.array([med_lat]),
+                                       st_lon, st_lat)[0])
+            if d_km > 5.0:
+                print(f"  ⚠ collocate[{site}]: published station coordinate is "
+                      f"{d_km:.1f} km from the median-observation position — "
+                      f"check the site table / file pairing")
+    else:
+        if site:
+            print(f"  ⚠ collocate[{site}]: site not in SITE_COORDS — falling "
+                  f"back to median-observation lat/lon")
+        st_lon, st_lat = med_lon, med_lat
     out = dict(near=oco.iloc[0:0].copy(), tccon_ref=np.nan, tccon_sd=np.nan,
                n_tccon=0, tccon_err_mean=np.nan, st_lon=st_lon, st_lat=st_lat)
     if not len(oco) or not np.isfinite(st_lon):

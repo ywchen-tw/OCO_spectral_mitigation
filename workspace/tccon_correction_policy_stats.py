@@ -107,7 +107,8 @@ def match_case(case, plotdata, radius_km=100.0, window_min=60.0):
     tcc = load_tccon(TCCON_DIR / case['tccon'])
     col = collocate(oco, tcc,
                     box=(case['lon'][0], case['lon'][1], case['lat'][0], case['lat'][1]),
-                    radius_km=radius_km, window_min=window_min)
+                    radius_km=radius_km, window_min=window_min,
+                    site=str(case['tccon'])[:2])
     near = col['near']
     if not len(near) or not np.isfinite(col['tccon_ref']):
         return None

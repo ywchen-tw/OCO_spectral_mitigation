@@ -820,7 +820,8 @@ def main():
         # SHARED collocation (box → ≤radius → ±50 ppm sanity; guarded KEPT + flagged)
         col = collocate(oco, tccon_df(c['tccon']),
                         box=(c['lonmin'], c['lonmax'], c['latmin'], c['latmax']),
-                        radius_km=args.radius_km, window_min=args.window_min)
+                        radius_km=args.radius_km, window_min=args.window_min,
+                        site=c['tccon'][:2])
         near = col['near']; tmu = col['tccon_ref']; tsd = col['tccon_sd']; n_tc = col['n_tccon']
         if not len(near):
             continue
