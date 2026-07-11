@@ -24,7 +24,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
-from plot_style import apply_manuscript_style, panel_label
+from plot_style import (MEAN_L_LABEL, VAR_L_LABEL, apply_manuscript_style,
+                        panel_label)
 
 FI_DIR = Path(__file__).parents[1] / "results/model_comparison/feature_importance"
 
@@ -43,11 +44,62 @@ BLOCK_LABELS = {
 }
 
 
+# Manuscript display names.  Policy: physical labels for THIS WORK's constructs
+# (cumulants -> band <l'>/var(l') per plot_style, EOF scores, derived ratios);
+# operational ACOS/Lite variable names (co2_grad_del, dpfrac, dp_abp, ...) stay
+# verbatim — they are the community vocabulary of the B11 bias-correction
+# literature and referees recognize them as-is.
+DISPLAY_NAMES = {
+    "xco2_raw_minus_apriori":
+        r"$X_{\mathrm{CO2}}^{\mathrm{raw}}-X_{\mathrm{CO2}}^{\mathrm{prior}}$",
+    # spectral cumulants: k1 = mean, k2 = variance of relative photon path l'
+    "o2a_k1":  f"O2A {MEAN_L_LABEL}",  "o2a_k2":  f"O2A {VAR_L_LABEL}",
+    "wco2_k1": f"WCO2 {MEAN_L_LABEL}", "wco2_k2": f"WCO2 {VAR_L_LABEL}",
+    "wco2_k3": r"WCO2 $k_3$",
+    "sco2_k1": f"SCO2 {MEAN_L_LABEL}", "sco2_k2": f"SCO2 {VAR_L_LABEL}",
+    "exp_o2a_intercept":     r"O2A $\gamma$ (exp intercept)",
+    "o2a_exp_intercept-alb": r"O2A $\gamma$ $-$ albedo",
+    "wco2_exp_intercept-alb": r"WCO2 $\gamma$ $-$ albedo",
+    "alb_sco2_over_wco2":    "SCO2/WCO2 albedo ratio",
+    # geometry
+    "cos_glint_angle": "cos(glint angle)",
+    "1_over_cos_sza": "1/cos(SZA)", "1_over_cos_vza": "1/cos(VZA)",
+    "sin_raa": "sin(RAA)", "pol_ang_rad": "polarization angle",
+    "fp_area_km2": "footprint area",
+    # met / surface
+    "dp_psfc_prior_ratio": r"$\Delta p\,/\,p_{\mathrm{surf}}^{\mathrm{prior}}$",
+    "log_P": r"log $p_{\mathrm{surf}}$", "delT": r"$\Delta T$",
+    "tcwv": "TCWV", "t700": r"$T_{700}$",
+    # profile-EOF / tropopause block
+    "tropopause_temp": "tropopause T", "tropopause_sigma": r"tropopause $\sigma$",
+    # contamination block (physical where unambiguous)
+    "aod_water": "water-cloud AOD", "aod_ice": "ice-cloud AOD",
+    "aod_dust": "dust AOD", "aod_oc": "organic-carbon AOD",
+    "aod_seasalt": "sea-salt AOD", "aod_sulfate": "sulfate AOD",
+    "aod_strataer": "strat.-aerosol AOD",
+    "dust_height": "dust height", "ice_height": "ice height",
+    "water_height": "water height",
+    "max_declock_wco2": "WCO2 max. declocking",
+    "h_cont_o2a": "O2A continuum level", "h_cont_wco2": "WCO2 continuum level",
+    "h_cont_sco2": "SCO2 continuum level",
+    "csnr_o2a": "O2A color-slice SNR", "csnr_sco2": "SCO2 color-slice SNR",
+    "fs_rel_0": "relative fluorescence (fs_rel)",
+}
+_EOF_STEMS = {"t": "T-profile", "q": "q-profile", "co2prior": "CO2-prior"}
+
+
 def _disp(name: str) -> str:
-    """Display name: hide the no-Savitzky-Golay suffix on the spec k-features
-    (the no-SG fit is the production default — the suffix is an internal
-    parquet-column detail, not manuscript vocabulary)."""
-    return name.replace("_nosg", "")
+    """Manuscript display name; unmapped names fall through verbatim (they are
+    the operational ACOS/Lite identifiers, kept deliberately)."""
+    base = name.replace("_nosg", "")   # no-SG fit is the production default
+    if base in DISPLAY_NAMES:
+        return DISPLAY_NAMES[base]
+    for stem, label in _EOF_STEMS.items():      # t_pc01 -> T-profile EOF 1
+        if base.startswith(f"{stem}_pc"):
+            return f"{label} EOF {int(base.split('_pc')[1])}"
+    if base.startswith("fp_") and base[3:].isdigit():
+        return f"footprint {int(base[3:]) + 1}"    # fp index 0-7 -> 1-8
+    return base
 
 
 def _load(surface: str, model: str) -> pd.DataFrame:
