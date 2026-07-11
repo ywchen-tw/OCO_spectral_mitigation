@@ -59,8 +59,48 @@ def station_extent(lon0: float, lat0: float, radius_km: float = 100.0) -> list:
     return [lon0 - dlon, lon0 + dlon, lat0 - dlat, lat0 + dlat]
 
 
+def _register_local_fonts() -> None:
+    """Register .ttf files from <repo>/fonts/ and ~/.fonts/ with matplotlib.
+
+    Arial and Times New Roman are macOS/Windows fonts; on a bare Linux node
+    (CURC) matplotlib silently substitutes DejaVu.  Copy the six .ttf files
+    (Arial, Arial Bold, Arial Italic, Arial Bold Italic, Times New Roman,
+    Times New Roman Italic — e.g. from macOS /System/Library/Fonts/
+    Supplemental/) into <repo>/fonts/ (gitignored: proprietary) and this
+    picks them up.  Idempotent; missing dirs are fine.
+    """
+    from pathlib import Path
+    from matplotlib import font_manager
+    for d in (Path(__file__).resolve().parents[1] / "fonts",
+              Path.home() / ".fonts"):
+        if d.is_dir():
+            for ttf in sorted(d.glob("*.[tT][tT][fF]")):
+                try:
+                    font_manager.fontManager.addfont(str(ttf))
+                except Exception:   # unreadable/duplicate font — not fatal
+                    pass
+
+
+def fonts_available() -> bool:
+    """True if BOTH manuscript fonts (Arial, Times New Roman) resolve to real
+    files — the launcher preflight, so a 24 h CURC run cannot silently render
+    the whole suite in DejaVu."""
+    from pathlib import Path
+    from matplotlib import font_manager
+    _register_local_fonts()
+    ok = True
+    for fam in ("Arial", "Times New Roman"):
+        path = font_manager.findfont(
+            font_manager.FontProperties(family=fam), fallback_to_default=True)
+        found = fam.split()[0].lower() in Path(path).name.lower()
+        print(f"[plot_style] {fam}: {'OK  ' if found else 'MISSING'} ({path})")
+        ok &= found
+    return ok
+
+
 def apply_manuscript_style(base_size: float = 10.0) -> None:
     """Set journal rcParams: Arial text + Arial mathtext, thin axes, 300 dpi."""
+    _register_local_fonts()
     mpl.rcParams.update({
         "font.family": "sans-serif",
         "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],

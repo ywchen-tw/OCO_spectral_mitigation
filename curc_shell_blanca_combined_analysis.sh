@@ -33,8 +33,29 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 
 cd /projects/yuch8913/OCO_spectral_mitigation
+export PYTHONPATH=src:${PYTHONPATH:-}
 
+# ── Font preflight (manuscript style needs Arial + Times New Roman) ──────────
+# The 2026-07-10/11 style pass renders every figure in Arial with the photon
+# path symbol l' in Times New Roman italic (workspace/plot_style.py).  Neither
+# font ships with Linux: copy the six .ttf files from macOS
+#   /System/Library/Fonts/Supplemental/{Arial,Arial Bold,Arial Italic,
+#   Arial Bold Italic,Times New Roman,Times New Roman Italic}.ttf
+# into <repo>/fonts/ (gitignored).  FAIL FAST rather than render 24 h of
+# figures in the DejaVu fallback.
+python - <<'PYEOF'
+import sys
+sys.path.insert(0, 'workspace')
+from plot_style import fonts_available
+sys.exit(0 if fonts_available() else 1)
+PYEOF
 
 python src/analysis/run_all.py --distance-col cld_dist_km --land-class
 python src/analysis/spec_sensitivity.py    # defaults to combined_2016_2020_dates.parquet
+
+# Savgol A/B (M9a, appendix A5) — reads the dual-fit fitting_details h5s.
+python src/spectral/compare_savgol_fits.py \
+    --fitting-dir results/fitting_details \
+    --output-dir results/model_comparison/savgol_ab
+
 # python src/analysis/run_all.py --distance-col weighted_cloud_dist_km
