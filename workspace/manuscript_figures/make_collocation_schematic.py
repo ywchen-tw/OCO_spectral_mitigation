@@ -9,7 +9,7 @@ distance labelled.  A small inset shows the whole granule track for context.
 
 Usage (from repo root or anywhere):
     python3 workspace/manuscript_figures/make_collocation_schematic.py
-    ... [--granule 29252a_GL] [--date 2020-01-01] [--annotate-sid SID]
+    ... [--granule 29265a_GL] [--date 2020-01-01] [--annotate-sid SID]
     ... [--extent LON0 LON1 LAT0 LAT1] [--out results/figures/manuscript/...]
 """
 from __future__ import annotations
@@ -65,13 +65,13 @@ def load_granule(proc_dir: Path, granule: str):
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--date", default="2020-01-01")
-    p.add_argument("--granule", default="29252a_GL")
+    p.add_argument("--granule", default="29265a_GL")
     p.add_argument("--extent", nargs=4, type=float, metavar=("LON0", "LON1", "LAT0", "LAT1"),
-                   default=[-169.9, -166.9, 22.0, 25.5],
+                   default=[-122.9, -120.6, -12.0, -9.6],
                    help="zoom box [lon_min lon_max lat_min lat_max]")
-    p.add_argument("--annotate-sid", type=int, default=2020010100261101,
+    p.add_argument("--annotate-sid", type=int, default=2020010121413432,
                    help="sounding_id of the representative footprint")
-    p.add_argument("--vmax", type=float, default=40.0, help="colorbar upper bound (km)")
+    p.add_argument("--vmax", type=float, default=25.0, help="colorbar upper bound (km)")
     p.add_argument("--out", default=None,
                    help="output PNG path (default results/figures/manuscript/"
                         "fig01a_collocation_schematic.png); a .pdf twin is saved too")
