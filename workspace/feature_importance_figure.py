@@ -43,6 +43,13 @@ BLOCK_LABELS = {
 }
 
 
+def _disp(name: str) -> str:
+    """Display name: hide the no-Savitzky-Golay suffix on the spec k-features
+    (the no-SG fit is the production default — the suffix is an internal
+    parquet-column detail, not manuscript vocabulary)."""
+    return name.replace("_nosg", "")
+
+
 def _load(surface: str, model: str) -> pd.DataFrame:
     p = FI_DIR / surface / f"importance_{model}_{surface}_agg.csv"
     if not p.is_file():
@@ -129,10 +136,10 @@ def figure_features(surface: str, out_dir: Path, top: int,
         # sharey: the last panel's yticklabels win, so pass the same tagged
         # labels for both panels.
         if show_group:
-            labels = [f"{nm}  [{BLOCK_LABELS.get(grp.get(nm, ''), grp.get(nm, ''))}]"
+            labels = [f"{_disp(nm)}  [{BLOCK_LABELS.get(grp.get(nm, ''), grp.get(nm, ''))}]"
                       for nm in order]
         else:
-            labels = list(order)
+            labels = [_disp(nm) for nm in order]
         _grouped_barh(ax, order, per_model, labels)
         panel_label(ax, f"({'ab'[k]}) {surface}, {sub}", size=9.0)
         ax.set_xlabel(r"permutation $\Delta$RMSE (ppm)")
@@ -187,7 +194,7 @@ def figure_table(surface: str, out_dir: Path, top: int = 20) -> None:
         if r % 2 == 1:                          # zebra stripe under text cols
             ax.add_patch(plt.Rectangle((0, y0), col_x[2], row_h, fc="#f2f2f2",
                                        ec="none", transform=ax.transAxes))
-        ax.text(col_x[0] + 0.005, yc, f"{r + 1}. {nm}", fontsize=7.6,
+        ax.text(col_x[0] + 0.005, yc, f"{r + 1}. {_disp(nm)}", fontsize=7.6,
                 va="center", ha="left", transform=ax.transAxes)
         ax.text(col_x[1] + 0.005, yc, BLOCK_LABELS.get(grp.get(nm, ""), ""),
                 fontsize=7.2, color="#444444", va="center", ha="left",
