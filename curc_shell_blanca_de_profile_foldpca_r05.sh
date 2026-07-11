@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=4
-#SBATCH --mem=96G
+#SBATCH --mem=128G
 #SBATCH --time=16:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
@@ -113,6 +113,6 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_
 #       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
 #       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
 #       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
+# done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
