@@ -38,7 +38,7 @@ from .pipeline import (
     resolve_target_col,
 )
 from .regime_structured_residual import RegimeStructuredResidualNet
-from .splits import split_dataframe
+from .splits import split_dataframe, split_date_kfold_train_calib_test
 from .structured_residual import StructuredResidualNet
 from search.tracking import RunSummary, get_git_commit_hash
 from utils import get_storage_dir
@@ -330,21 +330,30 @@ def main() -> None:
         raise ValueError(f"target column {target_col!r} is absent from {data_path}")
     frame = filter_target_outliers(frame, target_col=target_col)
 
-    train_df, held_df = split_dataframe(
-        frame,
-        mode=args.val_split,
-        test_size=args.test_size,
-        random_state=args.seed,
-        n_folds=args.n_folds,
-        fold=args.fold,
-    )
+    if args.val_split == "date_kfold":
+        proper_df, calib_df, held_df = split_date_kfold_train_calib_test(
+            frame,
+            n_folds=args.n_folds,
+            fold=args.fold,
+            calib_frac=args.calib_frac,
+        )
+        train_df = None
+    else:
+        train_df, held_df = split_dataframe(
+            frame,
+            mode=args.val_split,
+            test_size=args.test_size,
+            random_state=args.seed,
+            n_folds=args.n_folds,
+            fold=args.fold,
+        )
+        proper_df, calib_df = _carve_calibration(
+            train_df,
+            fraction=args.calib_frac,
+            seed=args.seed,
+        )
     del frame
     gc.collect()
-    proper_df, calib_df = _carve_calibration(
-        train_df,
-        fraction=args.calib_frac,
-        seed=args.seed,
-    )
     del train_df
     gc.collect()
 

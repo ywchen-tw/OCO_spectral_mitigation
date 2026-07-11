@@ -41,7 +41,7 @@ import torch
 import torch.nn as nn
 
 from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
-from .splits import split_dataframe
+from .splits import split_dataframe, split_date_kfold_train_calib_test
 from . import conformal as cf
 from . import diagnostics as diag
 from . import train_common as tc
@@ -439,23 +439,32 @@ def main():
         raise ValueError(f"Target column '{target_col}' not in parquet; regenerate the combined parquet (spectral/fitting.py + build_feature_dataset.py) or pass --target 10km.")
     df = filter_target_outliers(df, target_col=target_col)
 
-    train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,
-                                        random_state=args.seed,
-                                        n_folds=args.n_folds, fold=args.fold)
-    del df; gc.collect()
+    if args.val_split == 'date_kfold':
+        proper_df, calib_df, held_df = split_date_kfold_train_calib_test(
+            df,
+            n_folds=args.n_folds,
+            fold=args.fold,
+            calib_frac=args.calib_frac,
+        )
+        train_df = None
+    else:
+        train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,
+                                            random_state=args.seed,
+                                            n_folds=args.n_folds, fold=args.fold)
 
-    # Carve a calibration block out of TRAIN (date split if dates allow, else random).
-    try:
-        if 'date' in train_df.columns and pd.to_datetime(
-                train_df['date'].astype(str).str.replace("b'", "").str.replace("'", "")
-                if train_df['date'].dtype == object else train_df['date']).nunique() >= 2:
-            proper_df, calib_df = split_dataframe(train_df, mode='date', test_size=args.calib_frac)
-        else:
+        # Carve a calibration block out of TRAIN (date split if dates allow, else random).
+        try:
+            if 'date' in train_df.columns and pd.to_datetime(
+                    train_df['date'].astype(str).str.replace("b'", "").str.replace("'", "")
+                    if train_df['date'].dtype == object else train_df['date']).nunique() >= 2:
+                proper_df, calib_df = split_dataframe(train_df, mode='date', test_size=args.calib_frac)
+            else:
+                proper_df, calib_df = split_dataframe(train_df, mode='random',
+                                                      test_size=args.calib_frac, random_state=args.seed)
+        except Exception:
             proper_df, calib_df = split_dataframe(train_df, mode='random',
                                                   test_size=args.calib_frac, random_state=args.seed)
-    except Exception:
-        proper_df, calib_df = split_dataframe(train_df, mode='random',
-                                              test_size=args.calib_frac, random_state=args.seed)
+    del df; gc.collect()
     del train_df; gc.collect()
 
     # Training-date manifest: the machine-readable leakage guard for the TCCON

@@ -39,7 +39,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
-from .splits import split_dataframe
+from .splits import split_dataframe, split_date_kfold_train_calib_test
 from .adapters import TabMAdapter
 from . import diagnostics as diag
 from . import conformal as cf
@@ -674,21 +674,32 @@ def main():
     df = filter_target_outliers(df, target_col=target_col)
 
     # ── Split the RAW dataframe FIRST (leakage discipline) ─────────────────────
-    train_df, held_df = split_dataframe(
-        df, mode=val_split,
-        test_size=float(run_cfg['split']['test_size']),
-        random_state=int(run_cfg['split']['random_state']),
-        n_folds=args.n_folds, fold=args.fold,
-    )
+    if val_split == 'date_kfold' and args.conformal:
+        proper_df, calib_df, held_df = split_date_kfold_train_calib_test(
+            df,
+            n_folds=args.n_folds,
+            fold=args.fold,
+            calib_frac=args.calib_frac,
+        )
+        train_df = None
+        train_rows = len(proper_df) + len(calib_df)
+    else:
+        train_df, held_df = split_dataframe(
+            df, mode=val_split,
+            test_size=float(run_cfg['split']['test_size']),
+            random_state=int(run_cfg['split']['random_state']),
+            n_folds=args.n_folds, fold=args.fold,
+        )
+        proper_df, calib_df = train_df, None
+        train_rows = len(train_df)
     del df
     gc.collect()
-    print(f"Split [{val_split}]: train={len(train_df):,}  held={len(held_df):,}")
+    print(f"Split [{val_split}]: train={train_rows:,}  held={len(held_df):,}")
 
     # ── (--conformal) carve a calibration block out of TRAIN (date split if dates
     # allow, else random); proper_df is what the model trains on.  Without --conformal
     # proper_df == train_df and there is no calibration set (behaviour unchanged). ──
-    proper_df, calib_df = train_df, None
-    if args.conformal:
+    if args.conformal and train_df is not None:
         try:
             if 'date' in train_df.columns and pd.to_datetime(
                     train_df['date'].astype(str).str.replace("b'", "").str.replace("'", "")
@@ -702,6 +713,7 @@ def main():
             proper_df, calib_df = split_dataframe(train_df, mode='random',
                                                   test_size=args.calib_frac,
                                                   random_state=int(run_cfg['split']['random_state']))
+    if args.conformal:
         print(f"  --conformal: proper={len(proper_df):,}  calib={len(calib_df):,}")
     del train_df
     gc.collect()

@@ -138,6 +138,109 @@ def _split_date_kfold(df: pd.DataFrame, n_folds: int, fold: int) -> tuple:
     return train_df, held_df
 
 
+def split_date_kfold_train_calib_test(
+        df: pd.DataFrame,
+        *,
+        n_folds: int,
+        fold: int,
+        calib_frac: float,
+        calib_side: str = "after_then_before") -> tuple:
+    """Return proper-train, calibration, and held-out frames for date_kfold.
+
+    The held-out dates are exactly the same contiguous block used by
+    ``split_dataframe(..., mode="date_kfold")``.  The calibration set is a
+    fold-local contiguous date block adjacent to the held-out block, with the
+    same date-count formula previously used when carving calibration from the
+    non-test dates: ``ceil(calib_frac * n_non_test_dates)``.  At least one
+    proper-training date is always retained.
+    """
+    if not 0.0 < calib_frac < 1.0:
+        raise ValueError(f"calib_frac must be in (0, 1), got {calib_frac}")
+    if calib_side not in {"after_then_before", "before_then_after", "after", "before"}:
+        raise ValueError(
+            "calib_side must be one of {'after_then_before', "
+            "'before_then_after', 'after', 'before'}, got "
+            f"{calib_side!r}"
+        )
+    if not isinstance(n_folds, int) or n_folds < 2:
+        raise ValueError(f"date_kfold needs n_folds >= 2, got {n_folds!r}")
+    if not isinstance(fold, int) or not (0 <= fold < n_folds):
+        raise ValueError(f"fold must be in [0, {n_folds}), got {fold!r}")
+
+    dates = _decode_dates(df)
+    unique_dates = np.sort(dates.unique())
+    n_dates = len(unique_dates)
+    if n_dates < n_folds:
+        raise ValueError(
+            f"date_kfold needs >= n_folds unique dates; found {n_dates} dates "
+            f"for n_folds={n_folds}.  Reduce --n_folds or use --val_split random."
+        )
+
+    blocks = np.array_split(unique_dates, n_folds)
+    held_block = blocks[fold]
+    n_test_dates = len(held_block)
+    n_non_test_dates = n_dates - n_test_dates
+    if n_non_test_dates < 2:
+        raise ValueError(
+            "date_kfold train/calib/test split needs at least two non-test "
+            f"dates; found {n_non_test_dates}."
+        )
+
+    n_calib = max(1, math.ceil(calib_frac * n_non_test_dates))
+    n_calib = min(n_calib, n_non_test_dates - 1)
+    test_start = sum(len(block) for block in blocks[:fold])
+    test_stop = test_start + n_test_dates
+
+    def after_block() -> np.ndarray | None:
+        if test_stop + n_calib <= n_dates:
+            return unique_dates[test_stop:test_stop + n_calib]
+        return None
+
+    def before_block() -> np.ndarray | None:
+        if test_start - n_calib >= 0:
+            return unique_dates[test_start - n_calib:test_start]
+        return None
+
+    selectors = {
+        "after_then_before": (after_block, before_block),
+        "before_then_after": (before_block, after_block),
+        "after": (after_block,),
+        "before": (before_block,),
+    }
+    calib_block = None
+    for selector in selectors[calib_side]:
+        calib_block = selector()
+        if calib_block is not None:
+            break
+    if calib_block is None:
+        raise ValueError(
+            "Could not place a contiguous fold-local calibration block adjacent "
+            f"to fold {fold}; n_dates={n_dates}, n_test_dates={n_test_dates}, "
+            f"n_calib={n_calib}, calib_side={calib_side!r}."
+        )
+
+    held_dates = set(held_block)
+    calib_dates = set(calib_block)
+    held_mask = dates.isin(held_dates).to_numpy()
+    calib_mask = dates.isin(calib_dates).to_numpy()
+    proper_mask = ~(held_mask | calib_mask)
+
+    proper_df = df.loc[proper_mask]
+    calib_df = df.loc[calib_mask]
+    held_df = df.loc[held_mask]
+    logger.info(
+        "date_kfold train/calib/test split: fold %d/%d — %d unique dates → "
+        "%d proper / %d calib / %d held rows (%d/%d/%d dates; held: %s … %s; "
+        "calib: %s … %s)",
+        fold, n_folds, n_dates,
+        len(proper_df.index), len(calib_df.index), len(held_df.index),
+        n_dates - n_test_dates - n_calib, n_calib, n_test_dates,
+        str(np.min(held_block))[:10], str(np.max(held_block))[:10],
+        str(np.min(calib_block))[:10], str(np.max(calib_block))[:10],
+    )
+    return proper_df, calib_df, held_df
+
+
 def split_dataframe(df: pd.DataFrame,
                     mode: str = "random",
                     *,

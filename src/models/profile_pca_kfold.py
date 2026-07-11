@@ -5,7 +5,7 @@ This module mirrors the model validation split used by
 
 1. filter target outliers;
 2. hold out one contiguous date-kfold block;
-3. carve the calibration date block from the remaining training dates;
+3. carve a fold-local adjacent calibration date block;
 4. fit ProfilePCA on the proper-training block only.
 
 The resulting artifacts can be passed to ``FeaturePipeline.fit`` via
@@ -22,7 +22,6 @@ import logging
 from pathlib import Path
 from typing import Union
 
-import numpy as np
 import pandas as pd
 
 from .pipeline import filter_target_outliers, resolve_target_col
@@ -31,7 +30,7 @@ from .profile_pca import (
     _PROFILE_GROUPS,
     _SCALAR_PASSTHROUGH,
 )
-from .splits import split_dataframe
+from .splits import split_date_kfold_train_calib_test
 from utils import get_storage_dir
 
 logger = logging.getLogger(__name__)
@@ -53,33 +52,6 @@ def _date_list(frame: pd.DataFrame) -> list[str]:
     if dates.dtype == object and len(dates) > 0 and isinstance(dates.iloc[0], bytes):
         dates = dates.str.decode("utf-8")
     return sorted(pd.to_datetime(dates).dt.strftime("%Y-%m-%d").unique().tolist())
-
-
-def _carve_calibration(
-    train_df: pd.DataFrame,
-    *,
-    fraction: float,
-    seed: int,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Match structured_dcn_ensemble's calibration carve."""
-    try:
-        if "date" in train_df.columns:
-            dates = train_df["date"]
-            if dates.dtype == object and len(dates) > 0 and isinstance(dates.iloc[0], bytes):
-                dates = dates.str.decode("utf-8")
-            if pd.to_datetime(dates).nunique() >= 2:
-                return split_dataframe(train_df, mode="date", test_size=fraction)
-    except (TypeError, ValueError):
-        logger.warning(
-            "Could not construct a date calibration block; falling back to random.",
-            exc_info=True,
-        )
-    return split_dataframe(
-        train_df,
-        mode="random",
-        test_size=fraction,
-        random_state=seed,
-    )
 
 
 def _read_profile_frame(data_path: Path, target_col: str) -> pd.DataFrame:
@@ -198,16 +170,11 @@ def main() -> None:
         raise ValueError(f"target column {target_col!r} is absent from {data_path}")
     frame = filter_target_outliers(frame, target_col=target_col)
 
-    train_df, held_df = split_dataframe(
+    proper_df, calib_df, held_df = split_date_kfold_train_calib_test(
         frame,
-        mode="date_kfold",
         n_folds=args.n_folds,
         fold=args.fold,
-    )
-    proper_df, calib_df = _carve_calibration(
-        train_df,
-        fraction=args.calib_frac,
-        seed=args.seed,
+        calib_frac=args.calib_frac,
     )
 
     groups = {prefix: dict(spec) for prefix, spec in _PROFILE_GROUPS.items()}
@@ -224,7 +191,7 @@ def main() -> None:
             out_dir=out_dir,
         )
 
-    with open(out_dir / "fold_dates.json", "w", encoding="utf-8") as stream:
+    with (out_dir / "fold_dates.json").open("w", encoding="utf-8") as stream:
         json.dump(
             {
                 "fold": args.fold,

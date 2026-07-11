@@ -40,7 +40,7 @@ import pandas as pd
 from sklearn.linear_model import Ridge
 
 from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
-from .splits import split_dataframe
+from .splits import split_dataframe, split_date_kfold_train_calib_test
 from . import diagnostics as diag
 from search.tracking import RunSummary, get_git_commit_hash
 from utils import get_storage_dir
@@ -138,12 +138,21 @@ def main():
             f"parquet (spectral/fitting.py + build_feature_dataset.py) or pass --target 10km.")
     df = filter_target_outliers(df, target_col=target_col)
 
-    # ── Split RAW first, then carve a calib block out of TRAIN ─────────────────
-    train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,
-                                        random_state=args.seed,
-                                        n_folds=args.n_folds, fold=args.fold)
+    # ── Split RAW first, then carve calibration without touching held-out dates ─
+    if args.val_split == 'date_kfold':
+        proper_df, calib_df, held_df = split_date_kfold_train_calib_test(
+            df,
+            n_folds=args.n_folds,
+            fold=args.fold,
+            calib_frac=args.calib_frac,
+        )
+        train_df = None
+    else:
+        train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,
+                                            random_state=args.seed,
+                                            n_folds=args.n_folds, fold=args.fold)
+        proper_df, calib_df = _carve_calib(train_df, args.calib_frac, args.seed)
     del df; gc.collect()
-    proper_df, calib_df = _carve_calib(train_df, args.calib_frac, args.seed)
 
     # Training-date manifest: the machine-readable leakage guard for the TCCON
     # validation chain (same schema as deep_ensemble.py).

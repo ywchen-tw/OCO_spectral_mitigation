@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
-from .splits import split_dataframe
+from .splits import split_dataframe, split_date_kfold_train_calib_test
 from . import diagnostics as diag
 from search.tracking import RunSummary, get_git_commit_hash
 from utils import get_storage_dir
@@ -350,21 +350,27 @@ def main():
                          "Drop --model lightgbm or use the default quantile objective.")
 
     # ── Split RAW first, fit pipeline on (proper-)train only ───────────────────
-    train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,
-                                        random_state=SEED,
-                                        n_folds=args.n_folds, fold=args.fold)
-    del df
-    gc.collect()
-
-    # Mean mode carves a calib block out of TRAIN for early stopping (mirrors
-    # deep_ensemble.py); the pipeline is fit on proper-train only.  Quantile mode
-    # keeps its original behavior (pipeline fit on full TRAIN, no calib block).
-    calib_df = None
-    if args.objective == 'mean':
-        proper_df, calib_df = _carve_calib(train_df, args.calib_frac, SEED)
+    if args.val_split == 'date_kfold' and args.objective == 'mean':
+        proper_df, calib_df, held_df = split_date_kfold_train_calib_test(
+            df,
+            n_folds=args.n_folds,
+            fold=args.fold,
+            calib_frac=args.calib_frac,
+        )
+        train_df = None
         fit_df = proper_df
     else:
-        fit_df = train_df
+        train_df, held_df = split_dataframe(df, mode=args.val_split, test_size=args.test_size,
+                                            random_state=SEED,
+                                            n_folds=args.n_folds, fold=args.fold)
+        calib_df = None
+        if args.objective == 'mean':
+            proper_df, calib_df = _carve_calib(train_df, args.calib_frac, SEED)
+            fit_df = proper_df
+        else:
+            fit_df = train_df
+    del df
+    gc.collect()
 
     # Training-date manifest: machine-readable leakage guard for the TCCON chain
     # (same schema as deep_ensemble.py; calib_dates empty for quantile mode).
