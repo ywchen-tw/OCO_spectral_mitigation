@@ -280,6 +280,60 @@ def figure_table(surface: str, out_dir: Path, top: int = 20) -> None:
     print(f"[fi] {out_dir}/fi_table_{surface}.png|pdf")
 
 
+def figure_table_permodel(surface: str, out_dir: Path, top: int = 20) -> None:
+    """Rendered per-model ranking table: one column per model, each listing that
+    model's OWN top-N features by its global ΔRMSE (no cross-reading needed).
+    Cell shading uses one scale across the whole table so magnitudes stay
+    comparable between columns."""
+    data = {mk: _load(surface, mk) for mk, _, _ in MODELS}
+    ranked = {}
+    for mk, _, _ in MODELS:
+        d = data[mk]
+        d = d[(d.stratum == "global") & (d.scope == "feature")]
+        ranked[mk] = (d.sort_values("delta_rmse", ascending=False)
+                      .head(top)[["name", "delta_rmse"]].to_numpy())
+    vmax = max(float(v[0][1]) for v in ranked.values())
+    cmap = plt.get_cmap("Blues")
+
+    fig, ax = plt.subplots(figsize=(7.4, 0.30 * top + 0.9))
+    ax.set_axis_off()
+    col_x = [0.00, 0.345, 0.69]
+    col_w = 0.31
+    row_h = 1.0 / (top + 1)
+
+    for j, (mk, label, color) in enumerate(MODELS):
+        ax.text(col_x[j], 1.0 - 0.5 * row_h, label, fontsize=8.2,
+                fontweight="bold", color=color, va="center", ha="left",
+                transform=ax.transAxes)
+    ax.plot([0, 1], [1.0 - row_h] * 2, color="#333333", lw=0.8,
+            transform=ax.transAxes, clip_on=False)
+
+    for r in range(top):
+        y0 = 1.0 - (r + 2) * row_h
+        yc = y0 + 0.5 * row_h
+        for j, (mk, _, _) in enumerate(MODELS):
+            nm, v = ranked[mk][r][0], float(ranked[mk][r][1])
+            ax.add_patch(plt.Rectangle(
+                (col_x[j], y0), col_w, row_h,
+                fc=cmap(0.55 * max(v, 0.0) / vmax), ec="white", lw=0.8,
+                transform=ax.transAxes))
+            ax.text(col_x[j] + 0.006, yc, f"{r + 1}. {_disp(nm)}",
+                    fontsize=7.0, va="center", ha="left",
+                    transform=ax.transAxes)
+            ax.text(col_x[j] + col_w - 0.006, yc, f"{v:.3f}", fontsize=7.0,
+                    va="center", ha="right", transform=ax.transAxes)
+
+    ax.set_title(f"Top {top} features per model — {surface}, all held "
+                 "soundings\n(each column ranked by that model's permutation "
+                 "$\\Delta$RMSE, ppm; median over 5 folds)",
+                 fontsize=8.6, loc="left", pad=10)
+    fig.tight_layout()
+    for ext in ("png", "pdf"):
+        fig.savefig(out_dir / f"fi_table_{surface}_permodel.{ext}")
+    plt.close(fig)
+    print(f"[fi] {out_dir}/fi_table_{surface}_permodel.png|pdf")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Feature-importance manuscript figures")
     parser.add_argument("--top", type=int, default=12,
@@ -292,6 +346,7 @@ def main() -> None:
         figure_features(surface, out_dir, args.top, show_group=True)
         figure_features(surface, out_dir, args.top, show_group=False)
         figure_table(surface, out_dir, top=20)
+        figure_table_permodel(surface, out_dir, top=20)
 
 
 if __name__ == "__main__":
