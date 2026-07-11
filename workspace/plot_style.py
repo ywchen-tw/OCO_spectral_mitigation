@@ -14,6 +14,15 @@ conventional top-left-outside position.
 Colormap policy (CVD-safe, AMT-friendly): sequential fields use
 perceptually-uniform maps — XCO2 'viridis', predictive sigma 'magma',
 nearest-cloud distance 'cividis' (CMAPS below).  No rainbow/jet.
+
+Photon path-length symbol l' (LOCKED 2026-07-11): always use
+MEAN_L_LABEL / VAR_L_LABEL, never retype the mathtext.  The symbol is
+typeset in Times New Roman italic via the repurposed ``\\mathcal`` slot
+plus a unicode prime (U+2032) — Arial's mathtext italic l renders as a
+bare slash and the ascii prime floats detached, and the STIX script ell
+was rejected on looks.  Times is a macOS/Windows font: rebuild
+manuscript figures locally (a bare Linux node warns and substitutes).
+If the paper's LaTeX uses $l'$, it matches this serif-italic face.
 """
 from __future__ import annotations
 
