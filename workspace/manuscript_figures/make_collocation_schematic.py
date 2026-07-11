@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Manuscript Fig. 1a — OCO-2 / MODIS collocation + nearest-cloud-distance
-geometry schematic, built from real pipeline output (test date 2018-10-18).
+geometry schematic, built from real pipeline output (analysis date 2020-01-01).
 
 Main panel: Aqua-MODIS MYD35 Cloudy/Uncertain pixels (grey) with the OCO-2
 glint track coloured by the Phase-4 nearest-cloud distance; one representative
@@ -9,7 +9,7 @@ distance labelled.  A small inset shows the whole granule track for context.
 
 Usage (from repo root or anywhere):
     python3 workspace/manuscript_figures/make_collocation_schematic.py
-    ... [--granule 22845a_GL] [--date 2018-10-18] [--annotate-sid SID]
+    ... [--granule 29252a_GL] [--date 2020-01-01] [--annotate-sid SID]
     ... [--extent LON0 LON1 LAT0 LAT1] [--out results/figures/manuscript/...]
 """
 from __future__ import annotations
@@ -64,12 +64,12 @@ def load_granule(proc_dir: Path, granule: str):
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--date", default="2018-10-18")
-    p.add_argument("--granule", default="22845a_GL")
+    p.add_argument("--date", default="2020-01-01")
+    p.add_argument("--granule", default="29252a_GL")
     p.add_argument("--extent", nargs=4, type=float, metavar=("LON0", "LON1", "LAT0", "LAT1"),
-                   default=[-170.9, -168.3, -29.2, -26.05],
+                   default=[-169.9, -166.9, 22.0, 25.5],
                    help="zoom box [lon_min lon_max lat_min lat_max]")
-    p.add_argument("--annotate-sid", type=int, default=2018101801004732,
+    p.add_argument("--annotate-sid", type=int, default=2020010100261101,
                    help="sounding_id of the representative footprint")
     p.add_argument("--vmax", type=float, default=40.0, help="colorbar upper bound (km)")
     p.add_argument("--out", default=None,
