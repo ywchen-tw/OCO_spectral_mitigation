@@ -127,7 +127,6 @@ def main() -> None:
     # --- protocol facts -------------------------------------------------------
     buffer_txt = (
         "Aqua-MODIS MYD35, $\\Delta t \\leq$ 10 min\n"
-        "($\\leq$ 20 min from 2022, Aqua drift)\n"
         "Cloudy + Uncertain pixels retained\n"
         "$d$ capped at 50 km"
     )
