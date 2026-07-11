@@ -32,10 +32,13 @@ CMAPS = {
 XCO2_LABEL = r"$X_{\mathrm{CO2}}$"
 # Spectral-fit cumulants shown with their physical meaning: k1 = mean and
 # k2 = variance of the relative photon path l' (k_n defined in the text).
-# Rendering: \ell (script ell, from the STIX fallback — Arial's italic l is a
-# bare slash) + unicode prime U+2032 (mathtext's ascii ' floats detached).
-MEAN_L_LABEL = "$\\langle \\ell′ \\rangle$"
-VAR_L_LABEL = "var($\\ell′$)"
+# Rendering: Arial's mathtext italic l is a bare slash and the ascii prime
+# floats detached, so l' is typeset via the otherwise-unused \mathcal slot,
+# mapped to Times New Roman italic in apply_manuscript_style, + unicode prime
+# U+2032 (tight).  If Times is missing (bare CURC node), matplotlib warns and
+# falls back — rebuild manuscript figures locally.
+MEAN_L_LABEL = "$\\langle \\mathcal{l}′ \\rangle$"
+VAR_L_LABEL = "var($\\mathcal{l}′$)"
 
 
 def station_extent(lon0: float, lat0: float, radius_km: float = 100.0) -> list:
@@ -64,6 +67,9 @@ def apply_manuscript_style(base_size: float = 10.0) -> None:
         "mathtext.rm": "Arial",
         "mathtext.it": "Arial:italic",
         "mathtext.bf": "Arial:bold",
+        # \mathcal slot repurposed as the serif-italic face for the photon
+        # path-length symbol l' (MEAN_L_LABEL/VAR_L_LABEL above).
+        "mathtext.cal": "Times New Roman:italic",
         "mathtext.fallback": "stixsans",
         "axes.linewidth": 0.8,
         "xtick.major.width": 0.8,
