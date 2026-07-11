@@ -87,8 +87,8 @@ oco_fp_analysis/
 │   │                             #    tccon_comparison_report / build_deepens_plot_data)
 │   ├── ATom_analysis/            # aircraft pseudo-column ocean validation
 │   └── Ship_analysis/            # shipborne EM27/SUN ocean validation
-├── prompts/                      # Step specifications and constraints
-├── log/                          # PROJECT_REVIEW, plans, notes (archive/ = historical)
+├── log/                          # PROJECT_REVIEW, plans, notes (archive/ = historical;
+│                                 #   original phase prompts: archive/PHASE_PROMPTS_HISTORICAL.md)
 ├── results/                      # parquets, model comparisons, figures
 ├── data/
 └── requirements.txt

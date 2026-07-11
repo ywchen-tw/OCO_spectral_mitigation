@@ -5,7 +5,7 @@ Reference: no external reference (standard ML validation methodology).
 Centralises the split logic shared by tabm.py, gbdt_baselines.py, and
 mlp_baseline.py so every model evaluates under the same regime.
 
-Hard rule (see TABM_PLAN.md "pipeline fitted on train split only"): always
+Hard rule (see log/archive/MODEL_PLANS_HISTORICAL.md "pipeline fitted on train split only"): always
 split the raw DataFrame *first*, then fit FeaturePipeline on the train split
 only.  Fitting the pipeline on the full dataset leaks scaler means/variances
 and quantile boundaries into the held-out set — for random splits this is
@@ -182,6 +182,6 @@ def split_dataframe(df: pd.DataFrame,
             )
         return _split_date_kfold(df, int(n_folds), int(fold))
     raise NotImplementedError(
-        f"split mode {mode!r} is a reserved follow-on (see TABM_PLAN.md "
+        f"split mode {mode!r} is a reserved follow-on (see log/archive/MODEL_PLANS_HISTORICAL.md "
         "Validation strategy); only 'random' and 'date' are implemented in v1."
     )

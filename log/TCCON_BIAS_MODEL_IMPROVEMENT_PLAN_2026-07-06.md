@@ -67,7 +67,7 @@ properties, not model error.
 
 ### Reviewer-proof baseline comparison: DE vs XGBoost-mean vs Ridge (2026-07-07)
 
-Same-protocol baselines from `log/LINREG_XGB_BASELINE_PLAN_2026-07-07.md`
+Same-protocol baselines from `log/archive/LINREG_XGB_BASELINE_PLAN_2026-07-07.md`
 (feature_set `full` + fold-specific ProfilePCA, ocean r05 / land r15, date_kfold
 5 folds, 2016–2020 combined parquet), judged by the identical TCCON chain
 (r100, AK-harmonized + direct, `--cld-edges 0,10,inf --exclude-sites ny`).

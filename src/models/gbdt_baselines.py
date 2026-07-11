@@ -5,7 +5,7 @@ Architecture reference: no single paper — cite the libraries used:
   Ke et al. "LightGBM: A Highly Efficient Gradient Boosting Decision Tree." NeurIPS 2017.
 
 This module deviates from a plain regressor as follows:
-  - One model is trained per quantile (q05, q50, q95) — see TABM_PLAN.md.
+  - One model is trained per quantile (q05, q50, q95) — see log/archive/MODEL_PLANS_HISTORICAL.md.
   - Quantile crossing (q05 ≥ q95 on some samples) is possible because the three
     models are independent; metrics are reported both as-is and after monotone
     rearrangement so the GBDT is not penalised where the neural monotonic head

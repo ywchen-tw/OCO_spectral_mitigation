@@ -18,7 +18,7 @@
 # TCCON + MODIS (plot_corrected_xco2.py, --poster-model linreg_corrected_xco2).
 # Identical run_case block / TCCON knobs to the tabm + deepens launchers, so the
 # aggregate reports resolve to the SAME 75-case coverage — only the model wiring
-# and MODEL_TAG differ.  See log/LINREG_XGB_BASELINE_PLAN_2026-07-07.md (Phase 4).
+# and MODEL_TAG differ.  See log/archive/LINREG_XGB_BASELINE_PLAN_2026-07-07.md (Phase 4).
 
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
 conda activate data

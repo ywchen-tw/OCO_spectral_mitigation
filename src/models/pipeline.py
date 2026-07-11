@@ -358,7 +358,7 @@ _FEATURES_SFC1 = [
 _FEATURE_MAP = {0: _FEATURES_SFC0, 1: _FEATURES_SFC1}
 _FP_COLS     = [f'fp_{i}' for i in range(8)]
 
-# ── Feature-set ablations (see src/models/TABM_PLAN.md "Feature set ablations") ──
+# ── Feature-set ablations (see log/archive/MODEL_PLANS_HISTORICAL.md "Feature set ablations") ──
 # Named groups of continuous features that can be dropped from _FEATURE_MAP[sfc_type]
 # before fitting.  Dropping is applied identically across all models (TabM,
 # FT-Transformer, GBDT baselines) so the active set is explicit and reproducible.

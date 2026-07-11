@@ -43,7 +43,7 @@ ARROW = "#333333"
 BOXSTYLE = "round,pad=0.025,rounding_size=0.055"
 
 
-def _box(ax, x, y, w, h, text, facecolor, *, fontsize=6.4, lw=0.8,
+def _box(ax, x, y, w, h, text, facecolor, *, fontsize=5.7, lw=0.8,
          linestyle="-", fontweight="normal"):
     patch = FancyBboxPatch(
         (x, y), w, h,
@@ -97,34 +97,34 @@ def _member_panel(ax, show_cloud_head: bool) -> None:
     ax.text(0.06, 9.55, "One Gaussian-head MLP member",
             fontsize=8.6, fontweight="bold", ha="left", va="top")
 
-    _box(ax, 0.15, 5.15, 1.62, 1.25, "input\nfeatures", C_INPUT,
-         fontsize=6.0)
-    _box(ax, 2.25, 5.15, 1.62, 1.25, "Linear 64\nReLU", C_BODY,
-         fontsize=6.1)
-    _box(ax, 4.35, 5.15, 1.62, 1.25, "Linear 32\nReLU", C_BODY,
-         fontsize=6.1)
-    _arrow(ax, 1.77, 5.78, 2.25, 5.78)
-    _arrow(ax, 3.87, 5.78, 4.35, 5.78)
+    _box(ax, 0.15, 5.15, 1.68, 1.25, "input\nfeatures", C_INPUT,
+         fontsize=5.4)
+    _box(ax, 2.32, 5.15, 1.68, 1.25, "Linear 64\nReLU", C_BODY,
+         fontsize=5.5)
+    _box(ax, 4.49, 5.15, 1.68, 1.25, "Linear 32\nReLU", C_BODY,
+         fontsize=5.5)
+    _arrow(ax, 1.83, 5.78, 2.32, 5.78)
+    _arrow(ax, 4.00, 5.78, 4.49, 5.78)
 
-    ax.text(6.26, 6.08, r"$h$", fontsize=8.0, fontstyle="italic",
+    ax.text(6.48, 6.08, r"$h$", fontsize=7.6, fontstyle="italic",
             ha="center", va="center")
 
     if show_cloud_head:
-        _box(ax, 6.90, 6.55, 1.78, 0.95, "main head\nLinear -> 2",
-             C_HEAD, fontsize=5.8)
-        _box(ax, 6.90, 3.95, 1.78, 0.95, "cloud head\nLinear -> 1",
-             C_HEAD, fontsize=5.8, linestyle=(0, (3, 2)))
-        _arrow(ax, 5.97, 5.78, 6.90, 7.02, lw=0.95)
-        _arrow(ax, 5.97, 5.78, 6.90, 4.43, lw=0.9, linestyle=(0, (3, 2)))
-        _box(ax, 9.55, 6.88, 1.36, 0.47, r"$\mu_m$", C_OUTPUT,
-             fontsize=6.2)
-        _box(ax, 9.55, 6.24, 1.36, 0.47, r"$\log\sigma_m^2$", C_OUTPUT,
-             fontsize=5.5)
-        _box(ax, 9.55, 4.18, 1.36, 0.47, "near-cloud\nlogit", C_OUTPUT,
-             fontsize=4.7, linestyle=(0, (3, 2)))
-        _arrow(ax, 8.68, 7.03, 9.55, 7.12)
-        _arrow(ax, 8.68, 6.75, 9.55, 6.47)
-        _arrow(ax, 8.68, 4.43, 9.55, 4.43, linestyle=(0, (3, 2)))
+        _box(ax, 7.02, 6.55, 1.98, 0.95, "main head\nLinear -> 2",
+             C_HEAD, fontsize=5.1)
+        _box(ax, 7.02, 3.95, 1.98, 0.95, "cloud head\nLinear -> 1",
+             C_HEAD, fontsize=5.1, linestyle=(0, (3, 2)))
+        _arrow(ax, 6.17, 5.78, 7.02, 7.02, lw=0.95)
+        _arrow(ax, 6.17, 5.78, 7.02, 4.43, lw=0.9, linestyle=(0, (3, 2)))
+        _box(ax, 9.88, 6.88, 1.48, 0.47, r"$\mu_m$", C_OUTPUT,
+             fontsize=5.7)
+        _box(ax, 9.88, 6.24, 1.48, 0.47, r"$\log\sigma_m^2$", C_OUTPUT,
+             fontsize=4.9)
+        _box(ax, 9.88, 4.18, 1.48, 0.47, "near-cloud\nlogit", C_OUTPUT,
+             fontsize=4.2, linestyle=(0, (3, 2)))
+        _arrow(ax, 9.00, 7.03, 9.88, 7.12)
+        _arrow(ax, 9.00, 6.75, 9.88, 6.47)
+        _arrow(ax, 9.00, 4.43, 9.88, 4.43, linestyle=(0, (3, 2)))
         _small_note(
             ax,
             0.15,
@@ -133,15 +133,15 @@ def _member_panel(ax, show_cloud_head: bool) -> None:
             "enabled only when --cloud_aux_weight > 0.",
         )
     else:
-        _box(ax, 6.90, 5.30, 1.78, 0.95, "head\nLinear -> 2",
-             C_HEAD, fontsize=5.8)
-        _arrow(ax, 5.97, 5.78, 6.90, 5.78, lw=0.95)
-        _box(ax, 9.55, 6.03, 1.36, 0.47, r"$\mu_m$", C_OUTPUT,
-             fontsize=6.2)
-        _box(ax, 9.55, 5.38, 1.36, 0.47, r"$\log\sigma_m^2$", C_OUTPUT,
-             fontsize=5.5)
-        _arrow(ax, 8.68, 5.88, 9.55, 6.17)
-        _arrow(ax, 8.68, 5.66, 9.55, 5.61)
+        _box(ax, 7.02, 5.30, 1.98, 0.95, "head\nLinear -> 2",
+             C_HEAD, fontsize=5.1)
+        _arrow(ax, 6.17, 5.78, 7.02, 5.78, lw=0.95)
+        _box(ax, 9.88, 6.03, 1.48, 0.47, r"$\mu_m$", C_OUTPUT,
+             fontsize=5.7)
+        _box(ax, 9.88, 5.38, 1.48, 0.47, r"$\log\sigma_m^2$", C_OUTPUT,
+             fontsize=4.9)
+        _arrow(ax, 9.00, 5.88, 9.88, 6.17)
+        _arrow(ax, 9.00, 5.66, 9.88, 5.61)
 
     _small_note(
         ax,
@@ -160,48 +160,48 @@ def _ensemble_panel(ax) -> None:
 
     # Member stack.
     for i, offset in enumerate((0.36, 0.18, 0.0)):
-        _box(ax, 0.35 + offset, 6.85 + offset, 1.58, 0.82,
-             "MLP\nmember" if i == 2 else "", C_BODY, fontsize=5.8)
+        _box(ax, 0.35 + offset, 6.85 + offset, 1.66, 0.82,
+             "MLP\nmember" if i == 2 else "", C_BODY, fontsize=5.2)
     ax.text(1.18, 6.50, r"$m = 1,\ldots,M$", fontsize=6.5,
             color=C_NOTE, ha="center")
     _small_note(ax, 0.22, 8.77, "independent seeds\noptional DE++ widths",
                 fontsize=5.9)
 
-    _box(ax, 2.72, 7.00, 1.58, 1.05, "Gaussian\nmixture", C_ENSEMBLE,
-         fontsize=6.0)
-    _arrow(ax, 2.06, 7.48, 2.72, 7.52)
+    _box(ax, 2.80, 7.00, 1.70, 1.05, "Gaussian\nmixture", C_ENSEMBLE,
+         fontsize=5.3)
+    _arrow(ax, 2.06, 7.48, 2.80, 7.52)
 
     _box(
         ax,
-        4.72,
+        4.88,
         6.83,
-        4.18,
+        4.24,
         1.38,
         r"$\mu^* = M^{-1}\sum_m \mu_m$" "\n"
         r"$\sigma^{*2}=M^{-1}\sum_m(\sigma_m^2+\mu_m^2)-\mu^{*2}$",
         C_OUTPUT,
-        fontsize=5.0,
+        fontsize=4.4,
     )
-    _arrow(ax, 4.30, 7.53, 4.72, 7.53)
+    _arrow(ax, 4.50, 7.53, 4.88, 7.53)
     _small_note(ax, 6.80, 6.58, r"point correction $\hat{y}=\mu^*$",
                 ha="center", fontsize=5.6)
 
-    _box(ax, 1.62, 4.23, 1.95, 0.95, "calibration\nblock", C_INPUT,
-         fontsize=6.1)
-    _box(ax, 4.72, 3.95, 2.20, 1.30, "conformal\nrecalibration", C_CALIB,
-         fontsize=6.3)
-    _arrow(ax, 6.65, 6.83, 6.65, 5.25)
-    _arrow(ax, 3.52, 4.70, 4.72, 4.70)
+    _box(ax, 1.62, 4.23, 2.06, 0.95, "calibration\nblock", C_INPUT,
+         fontsize=5.4)
+    _box(ax, 4.84, 3.95, 2.32, 1.30, "conformal\nrecalibration", C_CALIB,
+         fontsize=5.6)
+    _arrow(ax, 6.82, 6.83, 6.82, 5.25)
+    _arrow(ax, 3.68, 4.70, 4.84, 4.70)
 
-    _box(ax, 7.78, 4.82, 2.35, 0.58, "raw Gaussian", C_OUTPUT,
-         fontsize=5.6)
-    _box(ax, 7.78, 3.96, 2.35, 0.58, "split conformal", C_OUTPUT,
-         fontsize=5.6)
-    _box(ax, 7.78, 3.10, 2.35, 0.58, "Mondrian bins", C_HEADLINE,
-         fontsize=5.6, fontweight="bold")
-    _arrow(ax, 6.92, 4.78, 7.78, 5.11)
-    _arrow(ax, 6.92, 4.60, 7.78, 4.25)
-    _arrow(ax, 6.92, 4.42, 7.78, 3.39)
+    _box(ax, 8.00, 4.82, 2.42, 0.58, "raw Gaussian", C_OUTPUT,
+         fontsize=5.0)
+    _box(ax, 8.00, 3.96, 2.42, 0.58, "split conformal", C_OUTPUT,
+         fontsize=5.0)
+    _box(ax, 8.00, 3.10, 2.42, 0.58, "Mondrian bins", C_HEADLINE,
+         fontsize=5.0, fontweight="bold")
+    _arrow(ax, 7.16, 4.78, 8.00, 5.11)
+    _arrow(ax, 7.16, 4.60, 8.00, 4.25)
+    _arrow(ax, 7.16, 4.42, 8.00, 3.39)
 
     _small_note(
         ax,
@@ -220,11 +220,11 @@ def build(show_cloud_head: bool, basename: str, out_dir: Path, *, dpi: int,
     fig, axes = plt.subplots(
         1,
         2,
-        figsize=(8.05, 3.55),
-        gridspec_kw={"width_ratios": [1.15, 1.0], "wspace": 0.10},
+        figsize=(8.45, 3.55),
+        gridspec_kw={"width_ratios": [1.18, 1.05], "wspace": 0.10},
     )
-    axes[0].set_xlim(0, 11.15)
-    axes[1].set_xlim(0, 10.35)
+    axes[0].set_xlim(0, 11.60)
+    axes[1].set_xlim(0, 10.60)
     for ax in axes:
         ax.set_ylim(0.8, 9.85)
         ax.axis("off")

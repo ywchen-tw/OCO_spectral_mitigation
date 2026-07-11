@@ -1,5 +1,13 @@
 # Nassar Power-Plant Plume Test for M1
 
+> **ARCHIVED 2026-07-09 — verdict superseded.** This first-pass summary
+> concluded the diagnostic did "not yet" validate plume preservation. The
+> subsequent passes (control-region null, transects, channel attribution)
+> resolved it: the spec channel is plume-safe (≤0.21 ppm bound), 5/7 control
+> nulls pass, the 2 flags were real cloud (all-band k1 fingerprint). Current
+> record: `PROJECT_REVIEW.md` M1, `SPEC_EMPHASIS_STATUS_2026-07-08.md` §2, and
+> `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/nassar_plumes/`.
+
 Date: 2026-07-08
 
 ## Purpose

@@ -16,7 +16,7 @@
 #SBATCH --requeue
 
 # ── Ridge linear baseline (OCEAN, 5 km target) — SAME protocol as the production
-# DE, for the reviewer-proof baseline table (log/LINREG_XGB_BASELINE_PLAN_2026-07-07.md).
+# DE, for the reviewer-proof baseline table (log/archive/LINREG_XGB_BASELINE_PLAN_2026-07-07.md).
 # Mirrors curc_shell_blanca_de_profile_foldpca_r05.sh exactly except:
 #   - CPU-only (no --gres=gpu; Ridge is a closed-form solve, no CUDA)
 #   - module load drops cuda

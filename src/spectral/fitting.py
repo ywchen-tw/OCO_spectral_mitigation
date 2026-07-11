@@ -487,7 +487,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
         "p_profile":        profiles["p_profile"],
         "psurf_met":        profiles["psurf_met"],
         # Spectral-fit-quality diagnostics (Tier-A candidate features for the
-        # cloud-contamination tail; see TABM_PLAN "New-feature investigation").
+        # cloud-contamination tail; see log/archive/MODEL_PLANS_HISTORICAL.md §1.4).
         "chi2_o2a":     _lite("chi2_o2a"),
         "chi2_wco2":    _lite("chi2_wco2"),
         "chi2_sco2":    _lite("chi2_sco2"),

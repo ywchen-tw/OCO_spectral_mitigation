@@ -1,6 +1,12 @@
 # Linear-regression & XGBoost baseline comparison vs production DE — implementation plan
 
-**Date:** 2026-07-07 · **Status:** PLAN (not started) · **For:** implementing agent
+> **ARCHIVED 2026-07-09 — plan executed.** The Ridge + XGBoost-mean baselines
+> ran to completion: DE > XGBoost-mean > Ridge, decided in the near-cloud land
+> tail (fp-RMSE 1.30 < 1.68 < 2.37). Results:
+> `results/model_comparison/MODEL_COMPARISON_manuscript_DE_XGB_LinReg.md` and
+> the kfold aggregates; status ledger in `TODO_ACCOMPLISH.md` §1.
+
+**Date:** 2026-07-07 · **Status:** PLAN (executed; see banner) · **For:** implementing agent
 **Companion docs:** `PROJECT_REVIEW.md` (§2.5 baselines row), `TCCON_PAPERS_AND_ML_IDEAS_2026-07-03.md` §2.5/§2.8-item-7, `TCCON_BIAS_MODEL_IMPROVEMENT_PLAN_2026-07-06.md` (metric caveats + regenerated model table).
 
 ## Goal

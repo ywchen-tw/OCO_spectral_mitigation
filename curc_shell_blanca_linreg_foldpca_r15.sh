@@ -16,7 +16,7 @@
 #SBATCH --requeue
 
 # ── Ridge linear baseline (LAND, 15 km target) — SAME protocol as the production
-# DE, for the reviewer-proof baseline table (log/LINREG_XGB_BASELINE_PLAN_2026-07-07.md).
+# DE, for the reviewer-proof baseline table (log/archive/LINREG_XGB_BASELINE_PLAN_2026-07-07.md).
 # Land twin of curc_shell_blanca_linreg_foldpca_r05.sh: --sfc_type 1 --target 15km,
 # fold-specific ProfilePCA profile_pca_land.pkl.  Same-protocol comparison partner to
 #   de_land_beta_nll_prof_reg_foldpca_r15_f${F}.

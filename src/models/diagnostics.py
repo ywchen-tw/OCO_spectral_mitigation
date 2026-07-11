@@ -2,7 +2,7 @@
 
 Reference: no external reference (standard quantile-calibration diagnostics).
 
-Implements the diagnostic suite required by TABM_PLAN.md ("Uncertainty
+Implements the diagnostic suite required by log/archive/MODEL_PLANS_HISTORICAL.md ("Uncertainty
 diagnostics" + "Calibration success criteria") so TabM, the GBDT baselines,
 and the MLP baseline are all scored identically:
 
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 QUANTILES = (0.05, 0.5, 0.95)
 
 # Calibration pass/fail thresholds (chosen before experiments — see
-# TABM_PLAN.md "Calibration success criteria").
+# log/archive/MODEL_PLANS_HISTORICAL.md "Calibration success criteria").
 COVERAGE_GLOBAL_RANGE = (0.87, 0.93)
 COVERAGE_REGIME_MIN = 0.85          # near-cloud / high-AOD
 COVERAGE_LEFT_TAIL_MIN = 0.80       # bottom 10%

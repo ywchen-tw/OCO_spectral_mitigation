@@ -2,7 +2,7 @@
 
 Architecture reference: no external reference (regularized least squares).
 
-The reviewer-proof baseline table (log/LINREG_XGB_BASELINE_PLAN_2026-07-07.md)
+The reviewer-proof baseline table (log/archive/LINREG_XGB_BASELINE_PLAN_2026-07-07.md)
 asks: what does the production deep ensemble buy over a *linear* model trained on
 the *identical* protocol?  This module answers that for the linear leg.  It shares
 every non-model piece with the neural / GBDT baselines so the comparison is

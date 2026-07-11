@@ -1,5 +1,12 @@
 # Cloud-distance-grouped TCCON comparison
 
+> **ARCHIVED 2026-07-09 — feature landed, numbers superseded.** The near/far
+> cloud-distance grouping this doc introduced is now a standing feature of
+> `workspace/tccon_comparison_report.py`; the result tables below pre-date the
+> wet/dry AK-harmonization fix (`CRITICAL_FIXES.md` #11). Quote the regenerated
+> CSVs under
+> `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/` instead.
+
 **Date:** 2026-07-07 · **Commit:** `a1d700c` · **Models:** deep ensemble, TabM, structured residual
 
 > **AK-reference caveat (added later on 2026-07-07):** the numbers below were

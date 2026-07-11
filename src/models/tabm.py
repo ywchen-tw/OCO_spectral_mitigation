@@ -6,7 +6,7 @@ Architecture reference:
   Parameter-Efficient Ensembling." 2024.  arXiv:2410.24210.
 
 This implementation is a TabM-*inspired* variant and deviates from the
-reference as follows (see TABM_PLAN.md for the rationale):
+reference as follows (see log/archive/MODEL_PLANS_HISTORICAL.md for the rationale):
   - Shared input projection for all K members (vs. per-member projection);
     member diversity is deferred to the BatchEnsemble hidden r/s vectors.
   - Monotonic three-quantile output head (q05 ≤ q50 ≤ q95) via softplus deltas
@@ -162,7 +162,7 @@ class TabM(nn.Module):
 
     def init_from_targets(self, y_train: np.ndarray) -> None:
         """Initialise the head bias from the target distribution so the model
-        starts with a plausible interval (see TABM_PLAN.md init note).
+        starts with a plausible interval (see log/archive/MODEL_PLANS_HISTORICAL.md init note).
 
         head.linear.bias channels are (q50, dlo_raw, dhi_raw); softplus⁻¹(x) =
         log(exp(x) − 1) recovers the pre-softplus value for a target delta.

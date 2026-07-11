@@ -17,7 +17,7 @@
 
 # ── Plain XGBoost mean regression (OCEAN, 5 km target) — SAME protocol as the
 # production DE, for the reviewer-proof baseline table
-# (log/LINREG_XGB_BASELINE_PLAN_2026-07-07.md).
+# (log/archive/LINREG_XGB_BASELINE_PLAN_2026-07-07.md).
 # Mirrors curc_shell_blanca_de_profile_foldpca_r05.sh except:
 #   - CPU-only (tree_method=hist; no --gres=gpu)
 #   - python -m models.gbdt_baselines --objective mean (ONE reg:squarederror model,

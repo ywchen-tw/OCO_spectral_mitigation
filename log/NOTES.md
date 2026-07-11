@@ -48,7 +48,8 @@ spectra; trains per-surface deep ensembles to correct the near-cloud XCO2 anomal
   64→32→(mu, log_var), M=5, beta-NLL β=1.0, `--norm layer --dropout 0.1`,
   `--profile-pca`, split + cloud-Mondrian conformal (`--near_cloud_target 0.98`);
   tags `de_{ocean,land}_beta_nll_prof_reg_{r05,r15}`; docs in
-  `deep_ensemble_ARCHITECTURE.md`, plan status in `FINE_TUNE_PLAN.md`
+  `deep_ensemble_ARCHITECTURE.md`; tuning/TabM history in
+  `log/archive/MODEL_PLANS_HISTORICAL.md`
 - `src/models/train_common.py` — shared trainer/`TrainConfig` (all torch literals)
 - `src/models/tabm.py`, `xgb.py`, `gbdt_baselines.py`, `mlp_baseline.py` — comparison models
 - `src/models/profile_pca.py` — per-surface EOF compression of T/q/CO2 profiles
