@@ -287,8 +287,14 @@ def native_importance(model_key: str, model_dir: Path,
 # ─── Aggregation + comparison table ────────────────────────────────────────────
 
 def aggregate(out_dir: Path, surface: str, models: list) -> None:
-    """Mean ± sd across folds per model; write agg CSVs + the 3-model MD table."""
-    agg = {}
+    """Median ± sd across folds per model; write agg CSVs + the 3-model MD table.
+
+    MEDIAN, not mean (matching models.aggregate_folds): Ridge-land fold 2 has a
+    single OOD footprint that inflates its base RMSE to ~2500 ppm and zeroes its
+    deltas — the median gives the honest central estimate; poisoned folds
+    (base_rmse > 3x the fold median) are detected and footnoted in the table.
+    """
+    agg, outliers = {}, {}
     for mk in models:
         paths = sorted(out_dir.glob(f'importance_{mk}_{surface}_f*.csv'))
         if not paths:
@@ -296,11 +302,21 @@ def aggregate(out_dir: Path, surface: str, models: list) -> None:
             continue
         df = pd.concat([pd.read_csv(p).assign(fold=i)
                         for i, p in enumerate(paths)], ignore_index=True)
+        # Poisoned-fold detection per stratum (base_rmse is constant within one).
+        base = df[df.scope == 'group'].groupby(['stratum', 'fold'])['base_rmse'].first()
+        bad = []
+        for st in base.index.get_level_values(0).unique():
+            b = base.loc[st]
+            bad += [(st, int(f)) for f, v in b.items() if v > 3 * b.median()]
+        if bad:
+            outliers[mk] = bad
+            logger.warning("%s %s: outlier fold(s) %s — median aggregation "
+                           "keeps them from poisoning the table", mk, surface, bad)
         g = (df.groupby(['stratum', 'scope', 'name', 'group'], as_index=False)
-               .agg(delta_rmse=('delta_rmse', 'mean'),
+               .agg(delta_rmse=('delta_rmse', 'median'),
                     fold_sd=('delta_rmse', 'std'),
-                    delta_r2=('delta_r2', 'mean'),
-                    base_rmse=('base_rmse', 'mean'),
+                    delta_r2=('delta_r2', 'median'),
+                    base_rmse=('base_rmse', 'median'),
                     n_folds=('fold', 'nunique')))
         # share of summed per-feature ΔRMSE within (stratum) — relative
         # individual contribution
@@ -321,7 +337,7 @@ def aggregate(out_dir: Path, surface: str, models: list) -> None:
              f"(date_kfold held folds, {N_FOLDS} folds)",
              "",
              "ΔRMSE (ppm) = increase in held-fold RMSE when the feature/group is "
-             "permuted within the evaluated stratum; mean over folds (± sd across "
+             "permuted within the evaluated stratum; MEDIAN over folds (± sd across "
              "folds). share = fraction of the model's summed positive per-"
              "feature (or per-group) ΔRMSE. Groups are permuted jointly — the "
              "honest number under collinearity; per-feature rows give relative "
@@ -332,6 +348,11 @@ def aggregate(out_dir: Path, surface: str, models: list) -> None:
              "(contam, spec). Cross-reference the 6-set TCCON feature-set ablation "
              "before quoting any block as load-bearing.",
              ""]
+    for mk, bad in outliers.items():
+        lines += [f"> **Outlier fold(s) for {mk}** (base RMSE > 3× fold median): "
+                  f"{bad} — e.g. the known Ridge-land OOD footprint. The median "
+                  "keeps them out of the central estimate; the fold sd still "
+                  "reflects them.", ""]
 
     def _fmt(v, sd=None):
         if pd.isna(v):
@@ -369,7 +390,7 @@ def aggregate(out_dir: Path, surface: str, models: list) -> None:
                 lines.append(f"| {name} | {grp} | " + " | ".join(cells) + " |")
             base = ", ".join(f"{mk} {sub[mk]['base_rmse'].iloc[0]:.4f}"
                              for mk in sub if not sub[mk].empty)
-            lines += ["", f"Base held RMSE (ppm, fold mean): {base}", ""]
+            lines += ["", f"Base held RMSE (ppm, fold median): {base}", ""]
 
     out_md = out_dir / f'FEATURE_IMPORTANCE_TABLE_{surface}.md'
     out_md.write_text("\n".join(lines), encoding='utf-8')
