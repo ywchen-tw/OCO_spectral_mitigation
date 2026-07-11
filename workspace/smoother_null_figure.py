@@ -14,7 +14,7 @@ So the TCCON bias improvement cannot be an artifact of variance removal.
 
 Usage:
   python workspace/smoother_null_figure.py \
-      [--report-dir results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/smoother_null] \
+      [--report-dir results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atrain/smoother_null] \
       [--primary-window 30] [--fmt png]
 """
 from __future__ import annotations
@@ -40,7 +40,7 @@ XCO2 = r"$X_{\mathrm{CO}_2}$"
 C_DE = "#0072B2"        # Okabe-Ito blue
 C_SM = "#D55E00"        # Okabe-Ito vermillion
 DEFAULT_DIR = Path("results/model_comparison/deep_ensemble/"
-                   "de_beta_nll_prof_reg_o05l15_m5/smoother_null")
+                   "de_beta_nll_prof_reg_o05l15_m5/atrain/smoother_null")
 
 
 def load_cases(csv_path: Path) -> pd.DataFrame:

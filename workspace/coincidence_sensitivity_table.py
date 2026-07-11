@@ -11,7 +11,7 @@ Wilcoxon p.  Writes coincidence_sensitivity.{csv,md}.
 
 Usage:
   python workspace/coincidence_sensitivity_table.py \
-      [--dir results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/coincidence_sensitivity]
+      [--dir results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atrain/coincidence_sensitivity]
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 DEFAULT_DIR = Path("results/model_comparison/deep_ensemble/"
-                   "de_beta_nll_prof_reg_o05l15_m5/coincidence_sensitivity")
+                   "de_beta_nll_prof_reg_o05l15_m5/atrain/coincidence_sensitivity")
 
 
 def main():

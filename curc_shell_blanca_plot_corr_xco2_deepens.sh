@@ -88,8 +88,10 @@ LAND_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_land_f*)
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
 # OUT_BASE is namespaced by MODEL_TAG so each DE model version writes to its own
-# tree (e.g. .../deep_ensemble/de_beta_nll_prof_reg_m5/combined_<date>_<site>/).
-OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${MODEL_TAG}
+# tree, plus an 'atrain' leaf (mirroring the drift script's .../${MODEL_TAG}/drift)
+# so the A-Train-era cases + aggregate figures live in their own sub-folder
+# (e.g. .../deep_ensemble/de_.../atrain/combined_<date>_<site>/).
+OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${MODEL_TAG}/atrain
 
 # ─── TCCON collocation knobs (shared by per-case plot + aggregate reports) ─────
 # Keep these in sync across plot_corrected_xco2.py, tccon_comparison_report.py,

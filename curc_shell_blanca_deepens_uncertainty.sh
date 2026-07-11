@@ -65,10 +65,14 @@ OCEAN_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_ocean_f*)
 LAND_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_land_f*)
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
-OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${MODEL_TAG}
 
 # ─── knobs ────────────────────────────────────────────────────────────────────
 SRC_SCRIPT="${SRC_SCRIPT:-curc_shell_blanca_plot_corr_xco2_deepens.sh}"  # case-list source
+# Era leaf under MODEL_TAG follows the case-list source, matching the plot
+# scripts' output trees: atrain (A-Train era, the default deepens script) vs
+# drift (SRC_SCRIPT=…_deepens_drift.sh).
+OUT_LEAF=atrain; [[ "$SRC_SCRIPT" == *drift* ]] && OUT_LEAF=drift
+OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${MODEL_TAG}/${OUT_LEAF}
 RADIUS_KM="${RADIUS_KM:-100}"
 WINDOW_MIN="${WINDOW_MIN:-60}"
 DECORR_KM="${DECORR_KM:-15}"          # Side-A N_eff block size (the one free knob)

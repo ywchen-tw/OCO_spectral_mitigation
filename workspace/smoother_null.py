@@ -24,7 +24,7 @@ Two entry points:
     (atomic rewrite; idempotent unless --force):
 
     python workspace/smoother_null.py \
-        --base-dir results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5 \
+        --base-dir results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atrain \
         --windows-s 10,30,100
 """
 from __future__ import annotations
