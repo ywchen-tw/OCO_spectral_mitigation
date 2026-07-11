@@ -103,8 +103,13 @@ def figure_groups(out_dir: Path) -> None:
     print(f"[fi] {out_dir}/fi_groups.png|pdf")
 
 
-def figure_features(surface: str, out_dir: Path, top: int) -> None:
-    """Top-N per-feature panels (ranked by DE global ΔRMSE), global | near-cloud."""
+def figure_features(surface: str, out_dir: Path, top: int,
+                    show_group: bool = True) -> None:
+    """Top-N per-feature panels (ranked by DE global ΔRMSE), global | near-cloud.
+
+    show_group=False drops the [block] tag from the y labels (variant suffix
+    _nogroup) for a leaner supplement layout.
+    """
     data = {mk: _load(surface, mk) for mk, _, _ in MODELS}
     g0 = data["de"]
     order = (g0[(g0.stratum == "global") & (g0.scope == "feature")]
@@ -123,16 +128,97 @@ def figure_features(surface: str, out_dir: Path, top: int) -> None:
         ax = axes[k]
         # sharey: the last panel's yticklabels win, so pass the same tagged
         # labels for both panels.
-        labels = [f"{nm}  [{BLOCK_LABELS.get(grp.get(nm, ''), grp.get(nm, ''))}]"
-                  for nm in order]
+        if show_group:
+            labels = [f"{nm}  [{BLOCK_LABELS.get(grp.get(nm, ''), grp.get(nm, ''))}]"
+                      for nm in order]
+        else:
+            labels = list(order)
         _grouped_barh(ax, order, per_model, labels)
         panel_label(ax, f"({'ab'[k]}) {surface}, {sub}", size=9.0)
         ax.set_xlabel(r"permutation $\Delta$RMSE (ppm)")
     axes[0].legend(loc="lower right", frameon=False, handlelength=1.2)
+    stem = f"fi_features_{surface}" + ("" if show_group else "_nogroup")
     for ext in ("png", "pdf"):
-        fig.savefig(out_dir / f"fi_features_{surface}.{ext}")
+        fig.savefig(out_dir / f"{stem}.{ext}")
     plt.close(fig)
-    print(f"[fi] {out_dir}/fi_features_{surface}.png|pdf")
+    print(f"[fi] {out_dir}/{stem}.png|pdf")
+
+
+def figure_table(surface: str, out_dir: Path, top: int = 20) -> None:
+    """Rendered top-N table: features ranked by DE global ΔRMSE; one ΔRMSE ± sd
+    column per model, cells shaded by value (single-hue sequential, one scale
+    for the whole table so the three models are directly comparable)."""
+    data = {mk: _load(surface, mk) for mk, _, _ in MODELS}
+    g0 = data["de"]
+    order = (g0[(g0.stratum == "global") & (g0.scope == "feature")]
+             .sort_values("delta_rmse", ascending=False)["name"].tolist()[:top])
+    grp = (g0[g0.scope == "feature"].drop_duplicates("name")
+           .set_index("name")["group"].to_dict())
+    per_model = {}
+    for mk, _, _ in MODELS:
+        d = data[mk]
+        d = d[(d.stratum == "global") & (d.scope == "feature")]
+        per_model[mk] = {r["name"]: (r["delta_rmse"], r["fold_sd"])
+                         for _, r in d.iterrows()}
+
+    vals = np.array([[per_model[mk].get(nm, (np.nan, np.nan))[0]
+                      for mk, _, _ in MODELS] for nm in order])
+    vmax = np.nanmax(vals)
+    cmap = plt.get_cmap("Blues")
+
+    n_cols = 2 + len(MODELS)          # rank+feature | block | 3 models
+    fig, ax = plt.subplots(figsize=(7.0, 0.30 * top + 0.9))
+    ax.set_axis_off()
+    col_x = [0.00, 0.40, 0.58, 0.72, 0.86]      # left edges (axes fraction)
+    col_w = [0.40, 0.18, 0.14, 0.14, 0.14]
+    headers = ["feature", "block"] + [label for _, label, _ in MODELS]
+    row_h = 1.0 / (top + 1)
+
+    for c, h in enumerate(headers):
+        ax.text(col_x[c] + 0.005, 1.0 - 0.5 * row_h, h, fontsize=8.0,
+                fontweight="bold", va="center", ha="left",
+                transform=ax.transAxes)
+    ax.plot([0, 1], [1.0 - row_h] * 2, color="#333333", lw=0.8,
+            transform=ax.transAxes, clip_on=False)
+
+    for r, nm in enumerate(order):
+        y0 = 1.0 - (r + 2) * row_h
+        yc = y0 + 0.5 * row_h
+        if r % 2 == 1:                          # zebra stripe under text cols
+            ax.add_patch(plt.Rectangle((0, y0), col_x[2], row_h, fc="#f2f2f2",
+                                       ec="none", transform=ax.transAxes))
+        ax.text(col_x[0] + 0.005, yc, f"{r + 1}. {nm}", fontsize=7.6,
+                va="center", ha="left", transform=ax.transAxes)
+        ax.text(col_x[1] + 0.005, yc, BLOCK_LABELS.get(grp.get(nm, ""), ""),
+                fontsize=7.2, color="#444444", va="center", ha="left",
+                transform=ax.transAxes)
+        for j, (mk, _, _) in enumerate(MODELS):
+            v, sd = per_model[mk].get(nm, (np.nan, np.nan))
+            c = 2 + j
+            if np.isfinite(v):
+                # cap shading depth so black text stays readable
+                ax.add_patch(plt.Rectangle(
+                    (col_x[c], y0), col_w[c], row_h,
+                    fc=cmap(0.55 * max(v, 0.0) / vmax), ec="white", lw=0.8,
+                    transform=ax.transAxes))
+                txt = f"{v:.3f}"
+                if np.isfinite(sd):
+                    txt += f" ± {sd:.3f}"
+                ax.text(col_x[c] + 0.5 * col_w[c], yc, txt, fontsize=7.2,
+                        va="center", ha="center", transform=ax.transAxes)
+            else:
+                ax.text(col_x[c] + 0.5 * col_w[c], yc, "—", fontsize=7.2,
+                        va="center", ha="center", transform=ax.transAxes)
+
+    ax.set_title(f"Top {top} features by permutation $\\Delta$RMSE (ppm) — "
+                 f"{surface}, all held soundings\n"
+                 "(ranked by deep ensemble; median over 5 folds ± fold sd)",
+                 fontsize=8.6, loc="left", pad=10)
+    fig.tight_layout()
+    for ext in ("png", "pdf"):
+        fig.savefig(out_dir / f"fi_table_{surface}.{ext}")
+    plt.close(fig)
+    print(f"[fi] {out_dir}/fi_table_{surface}.png|pdf")
 
 
 def main() -> None:
@@ -144,7 +230,9 @@ def main() -> None:
     out_dir = FI_DIR
     figure_groups(out_dir)
     for surface in ("ocean", "land"):
-        figure_features(surface, out_dir, args.top)
+        figure_features(surface, out_dir, args.top, show_group=True)
+        figure_features(surface, out_dir, args.top, show_group=False)
+        figure_table(surface, out_dir, top=20)
 
 
 if __name__ == "__main__":
