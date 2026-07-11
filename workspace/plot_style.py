@@ -32,8 +32,10 @@ CMAPS = {
 XCO2_LABEL = r"$X_{\mathrm{CO2}}$"
 # Spectral-fit cumulants shown with their physical meaning: k1 = mean and
 # k2 = variance of the relative photon path l' (k_n defined in the text).
-MEAN_L_LABEL = r"$\langle l' \rangle$"
-VAR_L_LABEL = r"var($l'$)"
+# Rendering: \ell (script ell, from the STIX fallback — Arial's italic l is a
+# bare slash) + unicode prime U+2032 (mathtext's ascii ' floats detached).
+MEAN_L_LABEL = "$\\langle \\ell′ \\rangle$"
+VAR_L_LABEL = "var($\\ell′$)"
 
 
 def station_extent(lon0: float, lat0: float, radius_km: float = 100.0) -> list:
