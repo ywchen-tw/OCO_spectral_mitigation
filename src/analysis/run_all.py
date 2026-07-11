@@ -173,6 +173,7 @@ matplotlib.use('Agg')
 from analysis.utils import (
     get_storage_dir, load_data, apply_quality_filter,
     cld_dist_bins, bin_by_cld_dist, print_summary_stats,
+    apply_manuscript_style,
 )
 from analysis.signal_hierarchy import (
     plot_signal_hierarchy, plot_residual_signal_hierarchy,
@@ -526,6 +527,10 @@ def _run_subset_analysis(
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    # Manuscript figure style (Arial text + mathtext, thin axes, 300-dpi saves)
+    # applied ONCE here — every plotting module driven below inherits it.
+    apply_manuscript_style()
+
     parser = argparse.ArgumentParser(
         description='Run combined cloud-distance analysis plots.'
     )

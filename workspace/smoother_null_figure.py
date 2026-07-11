@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -29,14 +30,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-plt.rcParams.update({
-    "font.family": "serif",
-    "font.size": 8.5,
-    "mathtext.fontset": "cm",
-    "axes.linewidth": 0.8,
-})
+sys.path.insert(0, str(Path(__file__).parent))
+from plot_style import apply_manuscript_style, panel_label, XCO2_LABEL  # noqa: E402
 
-XCO2 = r"$X_{\mathrm{CO}_2}$"
 C_DE = "#0072B2"        # Okabe-Ito blue
 C_SM = "#D55E00"        # Okabe-Ito vermillion
 DEFAULT_DIR = Path("results/model_comparison/deep_ensemble/"
@@ -54,6 +50,7 @@ def load_cases(csv_path: Path) -> pd.DataFrame:
 
 
 def main():
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--report-dir", type=Path, default=DEFAULT_DIR,
@@ -112,15 +109,14 @@ def main():
                facecolors="none", edgecolors=C_SM, linewidths=0.8,
                label=f"running mean (±{wP:g} s)", zorder=2)
     ax.set_xlim(0, lim); ax.set_ylim(0, lim)
-    ax.set_xlabel(f"footprint {XCO2} scatter before (ppm)")
-    ax.set_ylabel(f"footprint {XCO2} scatter after (ppm)")
+    ax.set_xlabel(f"footprint {XCO2_LABEL} scatter before (ppm)")
+    ax.set_ylabel(f"footprint {XCO2_LABEL} scatter after (ppm)")
     ax.text(0.03, 0.92,
             f"mean {A_de['sd_b']:.2f} → {A_de['sd_a']:.2f} (DE)\n"
             f"mean {A_sm['sd_b']:.2f} → {A_sm['sd_a']:.2f} (smoother)",
             transform=ax.transAxes, fontsize=7, va="top")
     ax.legend(loc="lower right", fontsize=7, frameon=False)
-    ax.text(0.0, 1.02, "(a)", transform=ax.transAxes, fontsize=10,
-            fontweight="bold", va="bottom")
+    panel_label(ax, "(a)")
 
     # (b) |case bias to TCCON|, after vs before
     ax = axes[1]
@@ -139,8 +135,7 @@ def main():
             f"mean {A_de['ab_b']:.2f} → {A_de['ab_a']:.2f} (DE)\n"
             f"mean {A_sm['ab_b']:.2f} → {A_sm['ab_a']:.2f} (smoother)",
             transform=ax.transAxes, fontsize=7, va="top")
-    ax.text(0.0, 1.02, "(b)", transform=ax.transAxes, fontsize=10,
-            fontweight="bold", va="bottom")
+    panel_label(ax, "(b)")
 
     fig.tight_layout()
     out = rd / f"smoother_null_{tag}.{args.fmt}"

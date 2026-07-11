@@ -29,10 +29,20 @@ Outputs (under <outdir>):
 """
 
 import logging
+import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+ROOT = Path(__file__).resolve().parents[2]
+WORKSPACE = ROOT / "workspace"
+if str(WORKSPACE) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE))
+
+from plot_style import (apply_manuscript_style, panel_label, CMAPS,  # noqa: E402
+                        XCO2_LABEL, MEAN_L_LABEL, VAR_L_LABEL)
 
 from .utils import _save, bin_by_cld_dist
 from .land_cover import GROUP_ORDER, GROUP_COLORS
@@ -41,17 +51,17 @@ logger = logging.getLogger(__name__)
 
 # (column, short label) — profiles/effects computed for those present.
 LAND_CLASS_VARS = [
-    ('o2a_k1',              'O₂A k₁'),
-    ('o2a_k2',              'O₂A k₂'),
-    ('wco2_k1',             'WCO₂ k₁'),
-    ('wco2_k2',             'WCO₂ k₂'),
-    ('sco2_k1',             'SCO₂ k₁'),
-    ('sco2_k2',             'SCO₂ k₂'),
-    ('exp_o2a_intercept',   'O₂A exp-intercept'),
-    ('exp_wco2_intercept',  'WCO₂ exp-intercept'),
-    ('exp_sco2_intercept',  'SCO₂ exp-intercept'),
-    ('xco2_bc_anomaly',     'XCO₂ BC anomaly'),
-    ('xco2_raw_minus_apriori', 'XCO₂ raw − apriori'),
+    ('o2a_k1',              f'O$_2$A {MEAN_L_LABEL}'),
+    ('o2a_k2',              f'O$_2$A {VAR_L_LABEL}'),
+    ('wco2_k1',             f'WCO$_2$ {MEAN_L_LABEL}'),
+    ('wco2_k2',             f'WCO$_2$ {VAR_L_LABEL}'),
+    ('sco2_k1',             f'SCO$_2$ {MEAN_L_LABEL}'),
+    ('sco2_k2',             f'SCO$_2$ {VAR_L_LABEL}'),
+    ('exp_o2a_intercept',   'O$_2$A exp-intercept'),
+    ('exp_wco2_intercept',  'WCO$_2$ exp-intercept'),
+    ('exp_sco2_intercept',  'SCO$_2$ exp-intercept'),
+    ('xco2_bc_anomaly',     f'{XCO2_LABEL} BC anomaly'),
+    ('xco2_raw_minus_apriori', f'{XCO2_LABEL} raw - apriori'),
 ]
 
 # Ref-corrected per-sounding deltas (obs − clear-sky-neighbor reference).
@@ -60,15 +70,15 @@ LAND_CLASS_VARS = [
 # compare pure cloud response. Computed by ref_corrected.add_ref_anomalies
 # when the parquet carries ref_* columns.
 LAND_CLASS_DELTA_VARS = [
-    ('dk1_o2a',   'Δk₁ O₂A (obs−ref)'),
-    ('dk2_o2a',   'Δk₂ O₂A (obs−ref)'),
-    ('dk1_wco2',  'Δk₁ WCO₂ (obs−ref)'),
-    ('dk2_wco2',  'Δk₂ WCO₂ (obs−ref)'),
-    ('dk1_sco2',  'Δk₁ SCO₂ (obs−ref)'),
-    ('dk2_sco2',  'Δk₂ SCO₂ (obs−ref)'),
-    ('dexp_o2a',  'Δexp-int O₂A (obs−ref)'),
-    ('dexp_wco2', 'Δexp-int WCO₂ (obs−ref)'),
-    ('dexp_sco2', 'Δexp-int SCO₂ (obs−ref)'),
+    ('dk1_o2a',   f'Δ{MEAN_L_LABEL} O$_2$A (obs-ref)'),
+    ('dk2_o2a',   f'Δ{VAR_L_LABEL} O$_2$A (obs-ref)'),
+    ('dk1_wco2',  f'Δ{MEAN_L_LABEL} WCO$_2$ (obs-ref)'),
+    ('dk2_wco2',  f'Δ{VAR_L_LABEL} WCO$_2$ (obs-ref)'),
+    ('dk1_sco2',  f'Δ{MEAN_L_LABEL} SCO$_2$ (obs-ref)'),
+    ('dk2_sco2',  f'Δ{VAR_L_LABEL} SCO$_2$ (obs-ref)'),
+    ('dexp_o2a',  'Δexp-int O$_2$A (obs-ref)'),
+    ('dexp_wco2', 'Δexp-int WCO$_2$ (obs-ref)'),
+    ('dexp_sco2', 'Δexp-int SCO$_2$ (obs-ref)'),
 ]
 
 _NEAR = (0.0, 5.0)     # near-cloud window (km)
@@ -170,12 +180,14 @@ def plot_class_profile(df: pd.DataFrame, var: str, label: str,
 
     for ax, ttl, yl in ((ax_raw, f'{label} — raw mean ± SEM', label),
                         (ax_z, f'{label} — Δ from far-cloud baseline (z-units)',
-                         f'(mean − far) / σ_far')):
+                         r'(mean $-$ far) / $\sigma_\mathrm{far}$')):
         ax.set_xticks(x, labels, rotation=45, ha='right')
         ax.set_xlabel('cloud distance bin (km)')
         ax.set_ylabel(yl)
         ax.set_title(ttl, fontsize=10)
         ax.grid(alpha=0.3)
+    panel_label(ax_raw, '(a)')
+    panel_label(ax_z, '(b)')
     ax_z.axhline(0, color='gray', lw=0.8)
     ax_raw.legend(fontsize=8, ncol=2)
     fig.suptitle(f'{label} vs cloud distance by {title_tag}', y=1.02)
@@ -187,16 +199,20 @@ def plot_k_overview_z(df: pd.DataFrame, bins, labels, outdir: str,
                       groups: list[str], n_min: int, group_col: str,
                       colors: dict, prefix: str, title_tag: str) -> None:
     """3 bands × (k1, k2) z-profiles — the single cross-group mechanism figure."""
-    panel_vars = [('o2a_k1', 'O₂A k₁'), ('o2a_k2', 'O₂A k₂'),
-                  ('wco2_k1', 'WCO₂ k₁'), ('wco2_k2', 'WCO₂ k₂'),
-                  ('sco2_k1', 'SCO₂ k₁'), ('sco2_k2', 'SCO₂ k₂')]
+    panel_vars = [('o2a_k1', f'O$_2$A {MEAN_L_LABEL}'),
+                  ('o2a_k2', f'O$_2$A {VAR_L_LABEL}'),
+                  ('wco2_k1', f'WCO$_2$ {MEAN_L_LABEL}'),
+                  ('wco2_k2', f'WCO$_2$ {VAR_L_LABEL}'),
+                  ('sco2_k1', f'SCO$_2$ {MEAN_L_LABEL}'),
+                  ('sco2_k2', f'SCO$_2$ {VAR_L_LABEL}')]
     panel_vars = [(v, l) for v, l in panel_vars if v in df.columns]
     if not panel_vars:
         return
     x = np.arange(len(labels))
 
     fig, axes = plt.subplots(3, 2, figsize=(12, 11), sharex=True)
-    for ax, (var, label) in zip(axes.ravel(), panel_vars):
+    for k, (ax, (var, label)) in enumerate(zip(axes.ravel(), panel_vars)):
+        panel_label(ax, f'({chr(ord("a") + k)})')
         stats = _binned_stats(df, var, groups, bins, labels, group_col)
         base = _far_baseline(df, var, groups, group_col)
         for grp in groups:
@@ -220,7 +236,7 @@ def plot_k_overview_z(df: pd.DataFrame, bins, labels, outdir: str,
         ax.set_xticks(x, labels, rotation=45, ha='right')
         ax.set_xlabel('cloud distance bin (km)')
     for ax in axes[:, 0]:
-        ax.set_ylabel('(mean − far) / σ_far')
+        ax.set_ylabel(r'(mean $-$ far) / $\sigma_\mathrm{far}$')
     axes[0, 0].legend(fontsize=8, ncol=2)
     fig.suptitle(f'Path-length cumulants vs cloud distance by {title_tag} '
                  '(z-normalized to each group’s far-cloud baseline)', y=0.995)
@@ -284,7 +300,8 @@ def plot_effect_heatmap(eff: pd.DataFrame, outdir: str,
 
     vmax = np.nanmax(np.abs(mat.values)) or 1.0
     fig, ax = plt.subplots(figsize=(1.1 * len(groups) + 3, 0.55 * len(var_order) + 2))
-    im = ax.imshow(mat.values, cmap='RdBu_r', vmin=-vmax, vmax=vmax, aspect='auto')
+    im = ax.imshow(mat.values, cmap=CMAPS['mu'], vmin=-vmax, vmax=vmax,
+                   aspect='auto')
     ax.set_xticks(range(len(groups)), groups, rotation=45, ha='right')
     ax.set_yticks(range(len(var_order)), [labels_by_var[v] for v in var_order])
     for i in range(len(var_order)):
@@ -299,7 +316,7 @@ def plot_effect_heatmap(eff: pd.DataFrame, outdir: str,
             else:
                 ax.text(j, i, '—', ha='center', va='center',
                         fontsize=8, color='gray')
-    ax.set_title('Near-cloud (0–5 km) − far (20–50 km) effect, z-units\n'
+    ax.set_title('Near-cloud (0–5 km) $-$ far (20–50 km) effect, z-units\n'
                  '(* = |effect| exceeds its 95% CI; — = below n_min)')
     fig.colorbar(im, ax=ax, label='effect (z)')
     _save(fig, outdir, f'{prefix}_effect_heatmap.png')
@@ -326,6 +343,8 @@ def run_land_class_analysis(df: pd.DataFrame, bins, labels, outdir: str,
         logger.warning(f"No {group_col} column — nothing to do "
                        "(for igbp_group run land_cover.assign_land_cover first)")
         return
+
+    apply_manuscript_style()
 
     import os
     os.makedirs(outdir, exist_ok=True)

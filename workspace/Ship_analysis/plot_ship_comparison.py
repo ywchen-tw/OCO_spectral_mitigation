@@ -28,6 +28,8 @@ import matplotlib.pyplot as plt
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "workspace"))   # reuse the TCCON MODIS-RGB fetcher
+from plot_style import apply_manuscript_style, panel_label, CMAPS, XCO2_LABEL  # noqa: E402
+
 EPOCH = dt.datetime(1970, 1, 1)
 TABS = {
     "so268":  (os.path.join(REPO, "data/Other/SO268-3_track_XCO2_XCH4_XCO.tab"), "MORE-2 (RV Sonne)"),
@@ -90,6 +92,7 @@ def main():
     ap.add_argument("--corr-col", default="deep_ensemble_corrected_xco2",
                     help="corrected-XCO2 column in plot_data (deep_ensemble_/linreg_/xgb_corrected_xco2)")
     args = ap.parse_args()
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
     os.makedirs(args.output_dir, exist_ok=True)
     corr_col = args.corr_col
 
@@ -147,23 +150,28 @@ def main():
         if bg_img is not None:
             a.imshow(bg_img, extent=bg_extent, aspect="auto", origin="upper", zorder=0)
 
+    mean_lat = 0.5 * (args.lat_range[0] + args.lat_range[1])
+    map_aspect = 1.0 / max(np.cos(np.radians(mean_lat)), 0.05)
+
     fig, ax = plt.subplots(2, 2, figsize=(15, 11))
     fig.suptitle(f"OCO-2 (DeepEns-corrected) vs shipborne EM27/SUN — {site}  {args.date}\n"
                  f"{len(near)} ocean-glint footprints ≤{args.radius_km:.0f} km / ±{args.window_min:.0f} min",
-                 fontsize=15, weight="bold")
+                 weight="bold")
 
     # (1) map
     a = ax[0, 0]
     _bg(a)
-    sc = a.scatter(near.lon, near.lat, c=near[corr_col], s=14, cmap="turbo",
+    sc = a.scatter(near.lon, near.lat, c=near[corr_col], s=14, cmap=CMAPS["xco2"],
                    vmin=args.vmin, vmax=args.vmax, label="OCO-2 corrected", zorder=3)
     a.plot(ship.lon, ship.lat, "-", color="0.5", lw=0.8, alpha=0.7, zorder=4)
-    a.scatter(ship.lon, ship.lat, c=ship.xco2, s=40, cmap="turbo", vmin=args.vmin, vmax=args.vmax,
+    a.scatter(ship.lon, ship.lat, c=ship.xco2, s=40, cmap=CMAPS["xco2"], vmin=args.vmin, vmax=args.vmax,
               edgecolor="k", linewidth=0.6, marker="D", zorder=6, label="ship EM27/SUN")
     a.set(xlim=args.lon_range, ylim=args.lat_range, xlabel="Lon (°E)", ylabel="Lat (°N)",
-          title="DeepEns-corrected XCO₂ + ship track"
+          title=f"DeepEns-corrected {XCO2_LABEL} + ship track"
                 + (" (MODIS Aqua)" if bg_img is not None else ""))
-    fig.colorbar(sc, ax=a, label="XCO₂ (ppm)"); a.legend(loc="upper left", fontsize=8)
+    a.set_aspect(map_aspect)
+    fig.colorbar(sc, ax=a, label=f"{XCO2_LABEL} (ppm)"); a.legend(loc="lower left", fontsize=8)
+    panel_label(a, "(a)", inside=True)
 
     # (2) histogram
     a = ax[0, 1]
@@ -176,38 +184,48 @@ def main():
     a.hist(s_ref, bins, density=True, alpha=0.45, color="tab:red",
            label=f"ship EM27/SUN   μ={np.nanmean(s_ref):.2f} σ={sd_ref:.2f}")
     a.axvline(np.nanmedian(s_ref), color="tab:red", lw=2)
-    a.set(xlabel="XCO₂ (ppm)", ylabel="Density",
+    a.set(xlabel=f"{XCO2_LABEL} (ppm)", ylabel="Density",
           title=f"Δmedian(OCO−ship):  original {d_orig:+.2f}±{e_orig:.2f}  →  "
                 f"corrected {d_corr:+.2f}±{e_corr:.2f} ppm")
     a.legend(fontsize=9)
+    panel_label(a, "(b)")
 
-    # (3) original (before-correction) XCO₂_bc map — same colour scale as the
+    # (3) original (before-correction) XCO2_bc map — same colour scale as the
     #     corrected map so the correction's effect is read side-by-side
     a = ax[1, 0]
     _bg(a)
-    sc = a.scatter(near.lon, near.lat, c=near.xco2_bc, s=14, cmap="turbo",
+    sc = a.scatter(near.lon, near.lat, c=near.xco2_bc, s=14, cmap=CMAPS["xco2"],
                    vmin=args.vmin, vmax=args.vmax, zorder=3)
     a.plot(ship.lon, ship.lat, "-", color="0.5", lw=0.8, alpha=0.7, zorder=4)
-    a.scatter(ship.lon, ship.lat, c=ship.xco2, s=40, cmap="turbo", vmin=args.vmin, vmax=args.vmax,
+    a.scatter(ship.lon, ship.lat, c=ship.xco2, s=40, cmap=CMAPS["xco2"], vmin=args.vmin, vmax=args.vmax,
               edgecolor="k", linewidth=0.6, marker="D", zorder=6)
     a.set(xlim=args.lon_range, ylim=args.lat_range, xlabel="Lon (°E)", ylabel="Lat (°N)",
-          title="Original XCO₂_bc (before correction)"
+          title=f"Original {XCO2_LABEL} (xco2_bc, before correction)"
                 + (" (MODIS Aqua)" if bg_img is not None else ""))
-    fig.colorbar(sc, ax=a, label="XCO₂ (ppm)")
+    a.set_aspect(map_aspect)
+    fig.colorbar(sc, ax=a, label=f"{XCO2_LABEL} (ppm)")
+    panel_label(a, "(c)", inside=True)
 
     # (4) ship time series
     a = ax[1, 1]
     st_t = pd.to_datetime(ship.epoch, unit="s", utc=True)
-    a.scatter(st_t, ship.xco2, s=12, color="tab:red", alpha=0.6, label="ship XCO₂")
+    a.scatter(st_t, ship.xco2, s=12, color="tab:red", alpha=0.6, label=f"ship {XCO2_LABEL}")
     ot_t = pd.to_datetime(near.time, unit="s", utc=True)
     a.axvspan(ot_t.min(), ot_t.max(), color="tab:blue", alpha=0.25, label="OCO-2 overpass")
-    a.axhline(np.nanmedian(o_corr), color="tab:green", lw=1.5, ls="--", label="OCO-2 corrected median")
-    a.set(xlabel="UTC", ylabel="XCO₂ (ppm)", title=f"ship XCO₂ time series  (n={len(ship)})")
+    med_corr = np.nanmedian(o_corr)
+    a.axhline(med_corr, color="tab:green", lw=1.5, ls="--", label="OCO-2 corrected median")
+    a.set(xlabel="UTC", ylabel=f"{XCO2_LABEL} (ppm)",
+          title=f"ship {XCO2_LABEL} time series  (n={len(ship)})")
+    # Keep the median line inside the view (ylim otherwise follows ship data only).
+    lo, hi = a.get_ylim()
+    pad = 0.05 * (hi - lo)
+    a.set_ylim(min(lo, med_corr - pad), max(hi, med_corr + pad))
     a.legend(fontsize=8); a.tick_params(axis="x", rotation=30)
+    panel_label(a, "(d)")
 
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     out = os.path.join(args.output_dir, f"ship_comparison_{args.ship_tag}_{args.date}.png")
-    fig.savefig(out, dpi=150); plt.close(fig)
+    fig.savefig(out); plt.close(fig)
     print(f"  n_fp={len(near)}  ship_pts_in_window={len(ship_w)}")
     print(f"  OCO original {np.nanmedian(o_orig):.2f} (σ={sd_orig:.2f})  "
           f"corrected {np.nanmedian(o_corr):.2f} (σ={sd_corr:.2f})  "

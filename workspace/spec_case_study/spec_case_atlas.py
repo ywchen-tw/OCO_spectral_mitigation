@@ -34,12 +34,16 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+ROOT_WORKSPACE = Path(__file__).resolve().parents[1]
+if str(ROOT_WORKSPACE) not in sys.path:
+    sys.path.insert(0, str(ROOT_WORKSPACE))
+from plot_style import (apply_manuscript_style, CMAPS,  # noqa: E402
+                        XCO2_LABEL, MEAN_L_LABEL)
 from spec_case_figure import (  # noqa: E402
     BAND_COLORS,
     BANDS,
     DEFAULT_OUTDIR,
     DEFAULT_PARQUET,
-    XCO2_LABEL,
     add_scalebar,
     contiguous_spans,
     fetch_rgb,
@@ -52,7 +56,7 @@ CATEGORY_TITLES = {
     "good_land": "Small clouds over land",
     "good_ocean": "Small clouds over ocean (glint)",
     "false_positive": "MODIS cloud-mask false positives (surface features)",
-    "cloud_no_bias": "Clouds without an apparent XCO2 bias",
+    "cloud_no_bias": f"Clouds without an apparent {XCO2_LABEL} bias",
 }
 
 
@@ -81,8 +85,9 @@ def case_column(fig, gs_col, case_row, args, show_ylabels: bool) -> None:
         ax_rgb.imshow(img, extent=extent, origin="upper", zorder=0)
     except Exception as exc:
         print(f"GIBS fetch failed ({exc}); plain panel.")
+    # plasma over GIBS RGB: bright low end separates from dark ocean/land
     ax_rgb.scatter(seg["lon"], seg["lat"], c=seg["cld_dist_km"],
-                   cmap="viridis", vmin=0, vmax=args.clear_km, s=9,
+                   cmap=CMAPS["spec"], vmin=0, vmax=args.clear_km, s=9,
                    edgecolors="k", linewidths=0.15, zorder=2)
     ax_rgb.scatter(seg.loc[sel, "lon"], seg.loc[sel, "lat"], facecolors="none",
                    edgecolors="r", s=24, linewidths=0.5, zorder=3)
@@ -138,7 +143,7 @@ def case_column(fig, gs_col, case_row, args, show_ylabels: bool) -> None:
     for a in (ax_k1, ax_cont, ax_xco2):
         a.tick_params(labelsize=6.5)
     if show_ylabels:
-        ax_k1.set_ylabel(r"$\Delta k_1$", fontsize=8)
+        ax_k1.set_ylabel(rf"$\Delta${MEAN_L_LABEL}", fontsize=8)
         ax_cont.set_ylabel("cont./clear", fontsize=8)
         ax_xco2.set_ylabel(f"{XCO2_LABEL} BC (ppm)", fontsize=8)
     return ax_k1
@@ -156,10 +161,11 @@ def main() -> None:
     ap.add_argument("--zoom-km", type=float, default=15.0)
     ap.add_argument("--img-width", type=int, default=800)
     ap.add_argument("--fmt", default="png", choices=["png", "pdf"])
-    ap.add_argument("--dpi", type=int, default=200)
+    ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--parquet-fname", type=Path, default=DEFAULT_PARQUET)
     ap.add_argument("--output-dir", type=Path, default=DEFAULT_OUTDIR)
     args = ap.parse_args()
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
 
     shortlist = pd.read_csv(args.shortlist, dtype={"date": str})
     cats = args.category or list(dict.fromkeys(shortlist["category"]))

@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))            # workspace/
 from plot_corrected_xco2 import download_modis_rgb       # noqa: E402
 from ak_harmonize import _haversine_km                   # noqa: E402
+from plot_style import apply_manuscript_style, CMAPS, XCO2_LABEL  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CSV_DIR = os.path.join(REPO, "results", "csv_collection")
@@ -111,9 +112,9 @@ def make_map(date, radius_km, twin_s, pad, do_modis):
     # OCO soundings coloured by DE-corrected XCO2. Non-collocated in-frame soundings
     # are faint (context); the collocated subset is full-opacity + slightly larger.
     non = inx[~inx.index.isin(sel.index)]
-    ax.scatter(non.lon, non.lat, c=non[CORR], s=9, cmap="RdYlBu_r",
+    ax.scatter(non.lon, non.lat, c=non[CORR], s=9, cmap=CMAPS["xco2"],
                vmin=vmin, vmax=vmax, zorder=2, edgecolors="none", alpha=0.35)
-    sc = ax.scatter(sel.lon, sel.lat, c=sel[CORR], s=16, cmap="RdYlBu_r",
+    sc = ax.scatter(sel.lon, sel.lat, c=sel[CORR], s=16, cmap=CMAPS["xco2"],
                     vmin=vmin, vmax=vmax, zorder=3, edgecolors="none",
                     label=f"collocated ({len(sel)})")
     # ATom flight track (in-frame): single bright colour so it doesn't compete
@@ -121,15 +122,15 @@ def make_map(date, radius_km, twin_s, pad, do_modis):
     ax.plot(at_in.lon, at_in.lat, "-", color="magenta", lw=1.3, alpha=0.9, zorder=4,
             label="ATom track")
     cb = fig.colorbar(sc, ax=ax, shrink=0.8, pad=0.02)
-    cb.set_label("OCO-2 DE-corrected XCO2 (ppm)")
+    cb.set_label(f"OCO-2 DE-corrected {XCO2_LABEL} (ppm)")
     ax.set_xlim(lon0, lon1); ax.set_ylim(lat0, lat1)
+    ax.set_aspect(1.0 / max(np.cos(np.radians(0.5 * (lat0 + lat1))), 0.05))
     ax.set_xlabel("Longitude"); ax.set_ylabel("Latitude")
     ax.set_title(f"ATom × OCO-2 ocean-glint over MODIS Aqua — {date}\n"
-                 f"{len(sel)} collocated soundings (≤{radius_km:.0f} km, ±{twin_s/60:.0f} min)",
-                 fontsize=11)
+                 f"{len(sel)} collocated soundings (≤{radius_km:.0f} km, ±{twin_s/60:.0f} min)")
     ax.legend(loc="upper right", fontsize=8)
     out = os.path.join(PLOT_BASE, f"combined_{date}_atom", f"atom_modis_{date}.png")
-    fig.tight_layout(); fig.savefig(out, dpi=140); plt.close(fig)
+    fig.tight_layout(); fig.savefig(out); plt.close(fig)
     print(f"{date}: wrote {out}  (extent {['%.1f'%e for e in extent]}, "
           f"{len(sel)} collocated)")
 
@@ -142,6 +143,7 @@ def main():
     ap.add_argument("--pad", type=float, default=0.5, help="extent padding (deg)")
     ap.add_argument("--no-modis", action="store_true", help="skip GIBS download")
     args = ap.parse_args()
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
     dates = [args.date] if args.date else DATES
     for d in dates:
         make_map(d, args.radius_km, args.window_min * 60, args.pad, not args.no_modis)

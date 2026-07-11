@@ -290,7 +290,7 @@ def plot_comparison(df, fp='all', output_dir='.', xco2_bc_near_cld_mean=np.nan):
             [ax31, ax32, ax33], ):
         k1 = df[f'{tag}_k1']
         for ax, i in zip([ax1, ax2, ax3], [2, 3, 4]):
-            sc = ax.scatter(k1, df[f'{tag}_k{i}'], alpha=0.7, c=xco2_raw, cmap='jet')
+            sc = ax.scatter(k1, df[f'{tag}_k{i}'], alpha=0.7, c=xco2_raw, cmap='plasma')
             mask = np.isfinite(k1) & np.isfinite(df[f'{tag}_k{i}'])
             if np.sum(mask) < 10:
                 ax.set_xlabel('k1')
@@ -318,7 +318,7 @@ def plot_comparison(df, fp='all', output_dir='.', xco2_bc_near_cld_mean=np.nan):
     # ── k1, k2 vs cloud distance ────────────────────────────────────────────
     fig, ((ax11, ax12, ax13),
           (ax21, ax22, ax23)) = plt.subplots(2, 3, figsize=(18, 10))
-    scatter_arg = {'cmap': 'jet', 'alpha': 0.7, 'c': xco2_raw}
+    scatter_arg = {'cmap': 'plasma', 'alpha': 0.7, 'c': xco2_raw}
     cb_label = 'xco2_raw'
     sc11 = ax11.scatter(df['o2a_k1'],  cld_dist_km, **scatter_arg)
     ax11.set_title('O2A k1 vs cld_dist_km');  fig.colorbar(sc11, ax=ax11, label=cb_label)
@@ -515,7 +515,7 @@ def plot_comparison(df, fp='all', output_dir='.', xco2_bc_near_cld_mean=np.nan):
             scatter_arg = {'cmap': 'RdBu_r', 'alpha': 0.75, 'norm': norm}
         else:
             vmin, vmax = xco2_bc_mask.min(), xco2_bc_mask.max()
-            scatter_arg = {'cmap': 'jet', 'alpha': 0.75, 'vmin': vmin, 'vmax': vmax}
+            scatter_arg = {'cmap': 'plasma', 'alpha': 0.75, 'vmin': vmin, 'vmax': vmax}
         sc = ax.scatter(y_mask, y_pred, c=xco2_bc_mask, edgecolor=None, s=5, **scatter_arg)
         ax.scatter(y_mask[qf0], y_pred[qf0], c=xco2_bc_mask[qf0],
                     edgecolor='k',    label='QF=0', s=35, **scatter_arg)
@@ -1151,33 +1151,33 @@ def mitigation_test(sat, df, output_dir, reference_csv=None):
         # Assume longitude is in [0, 360] and convert to [-180, 180] for better map visualization
         plot_lon[plot_lon < 0] += 360
     
-    sc1 = ax1.scatter(plot_lon, df_orig_all.lat, c=df_orig_all.o2a_k1, cmap='jet', s=20, alpha=0.7)
+    sc1 = ax1.scatter(plot_lon, df_orig_all.lat, c=df_orig_all.o2a_k1, cmap='plasma', s=20, alpha=0.7)
     ax1.set_title('Retrieved O2A k1');  fig.colorbar(sc1, ax=ax1, label='k1')
 
-    sc2 = ax2.scatter(plot_lon, df_orig_all.lat, c=df_orig_all.o2a_k2, cmap='jet', s=20, alpha=0.7)
+    sc2 = ax2.scatter(plot_lon, df_orig_all.lat, c=df_orig_all.o2a_k2, cmap='plasma', s=20, alpha=0.7)
     ax2.set_title('Retrieved O2A k2');  fig.colorbar(sc2, ax=ax2, label='k2')
 
-    sc3 = ax3.scatter(plot_lon, df_orig_all.lat, c=df_orig_all['xco2_bc'], cmap='jet', s=20, alpha=0.7,
+    sc3 = ax3.scatter(plot_lon, df_orig_all.lat, c=df_orig_all['xco2_bc'], cmap='plasma', s=20, alpha=0.7,
                       vmin=xco2_min, vmax=xco2_max)
     ax3.set_title('OCO-2 L2 XCO2 (bias-corrected)');  fig.colorbar(sc3, ax=ax3, label='XCO2 (ppm)')
 
-    sc4 = ax4.scatter(plot_lon, df_orig_all.lat, c=df_orig_all['xco2_raw'], cmap='jet', s=20, alpha=0.7,
+    sc4 = ax4.scatter(plot_lon, df_orig_all.lat, c=df_orig_all['xco2_raw'], cmap='plasma', s=20, alpha=0.7,
                       vmin=xco2_min, vmax=xco2_max)
     ax4.set_title('OCO-2 L2 XCO2 raw');  fig.colorbar(sc4, ax=ax4, label='XCO2 raw (ppm)')
 
-    sc5 = ax5.scatter(plot_lon, df_orig_all.lat, c=xco2_bc_corrected_all, cmap='jet', s=20, alpha=0.7,
+    sc5 = ax5.scatter(plot_lon, df_orig_all.lat, c=xco2_bc_corrected_all, cmap='plasma', s=20, alpha=0.7,
                       vmin=xco2_min, vmax=xco2_max)
     ax5.set_title('LR Corrected XCO2');  fig.colorbar(sc5, ax=ax5, label='LR corrected XCO2 (ppm)')
 
-    sc6 = ax6.scatter(plot_lon, df_orig_all.lat, c=xco2_bc_predict_all_anomaly, cmap='jet', s=20, alpha=0.7)
+    sc6 = ax6.scatter(plot_lon, df_orig_all.lat, c=xco2_bc_predict_all_anomaly, cmap='RdBu_r', s=20, alpha=0.7)
     ax6.set_title('LR predicted XCO2 anomaly (ppm)')
     fig.colorbar(sc6, ax=ax6, label='LR predicted XCO2 anomaly (ppm)')
 
-    sc7 = ax7.scatter(plot_lon, df_orig_all.lat, c=xco2_bc_predict_all_anomaly_mlp, cmap='jet', s=20, alpha=0.7)
+    sc7 = ax7.scatter(plot_lon, df_orig_all.lat, c=xco2_bc_predict_all_anomaly_mlp, cmap='RdBu_r', s=20, alpha=0.7)
     ax7.set_title('MLP predicted XCO2 anomaly (ppm)')
     fig.colorbar(sc7, ax=ax7, label='MLP predicted XCO2 anomaly (ppm)')
 
-    sc8 = ax8.scatter(plot_lon, df_orig_all.lat, c=xco2_bc_corrected_all_mlp, cmap='jet', s=20, alpha=0.7,
+    sc8 = ax8.scatter(plot_lon, df_orig_all.lat, c=xco2_bc_corrected_all_mlp, cmap='plasma', s=20, alpha=0.7,
                       vmin=xco2_min, vmax=xco2_max)
     ax8.set_title('MLP Corrected XCO2');  fig.colorbar(sc8, ax=ax8, label='MLP corrected XCO2 (ppm)')
 

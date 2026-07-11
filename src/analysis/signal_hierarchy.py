@@ -14,9 +14,14 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
-from .utils import _save, bin_by_cld_dist
+from .utils import (_save, bin_by_cld_dist,
+                    MEAN_L_LABEL, VAR_L_LABEL, panel_label)
 
 logger = logging.getLogger(__name__)
+
+# Rendered band tags (Arial has no U+2082 subscript glyph → mathtext)
+_O2A, _WCO2, _SCO2 = 'O$_2$A', 'WCO$_2$', 'SCO$_2$'
+_K3 = '$k_3$'
 
 
 def plot_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
@@ -43,22 +48,22 @@ def plot_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
 
     feat_groups = [
         # (column,                band_label,    term_label)
-        ('o2a_k1',             'O\u2082A',   'k\u2081'),
-        ('o2a_k2',             'O\u2082A',   'k\u2082'),
-        ('o2a_k3',             'O\u2082A',   'k\u2083'),
-        ('exp_o2a_intercept',  'O\u2082A',   'exp'),
-        ('wco2_k1',            'WCO\u2082',  'k\u2081'),
-        ('wco2_k2',            'WCO\u2082',  'k\u2082'),
-        ('wco2_k3',            'WCO\u2082',  'k\u2083'),
-        ('exp_wco2_intercept', 'WCO\u2082',  'exp'),
-        ('sco2_k1',            'SCO\u2082',  'k\u2081'),
-        ('sco2_k2',            'SCO\u2082',  'k\u2082'),
-        ('sco2_k3',            'SCO\u2082',  'k\u2083'),
-        ('exp_sco2_intercept', 'SCO\u2082',  'exp'),
+        ('o2a_k1',             _O2A,   MEAN_L_LABEL),
+        ('o2a_k2',             _O2A,   VAR_L_LABEL),
+        ('o2a_k3',             _O2A,   _K3),
+        ('exp_o2a_intercept',  _O2A,   'exp'),
+        ('wco2_k1',            _WCO2,  MEAN_L_LABEL),
+        ('wco2_k2',            _WCO2,  VAR_L_LABEL),
+        ('wco2_k3',            _WCO2,  _K3),
+        ('exp_wco2_intercept', _WCO2,  'exp'),
+        ('sco2_k1',            _SCO2,  MEAN_L_LABEL),
+        ('sco2_k2',            _SCO2,  VAR_L_LABEL),
+        ('sco2_k3',            _SCO2,  _K3),
+        ('exp_sco2_intercept', _SCO2,  'exp'),
         # ── exp/alb ratio group ──────────────────────────────────────────────
-        ('_exp_alb_o2a',       'O\u2082A',   'exp/alb'),
-        ('_exp_alb_wco2',      'WCO\u2082',  'exp/alb'),
-        ('_exp_alb_sco2',      'SCO\u2082',  'exp/alb'),
+        ('_exp_alb_o2a',       _O2A,   'exp/alb'),
+        ('_exp_alb_wco2',      _WCO2,  'exp/alb'),
+        ('_exp_alb_sco2',      _SCO2,  'exp/alb'),
     ]
     avail = [(col, bl, tl) for col, bl, tl in feat_groups if col in df.columns]
     if not avail:
@@ -67,13 +72,13 @@ def plot_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
     # index where the exp/alb group starts (for the separator line)
     sep_idx = next((i for i, (_, _, tl) in enumerate(avail) if tl == 'exp/alb'), None)
 
-    band_colors  = {'O\u2082A': 'C0', 'WCO\u2082': 'C1', 'SCO\u2082': 'C2'}
+    band_colors  = {_O2A: 'C0', _WCO2: 'C1', _SCO2: 'C2'}
     term_hatches = {
-        'k\u2081':   '',
-        'k\u2082':   '///',
-        'k\u2083':   'xxx',
-        'exp':       '...',
-        'exp/alb':   '|||',
+        MEAN_L_LABEL: '',
+        VAR_L_LABEL:  '///',
+        _K3:          'xxx',
+        'exp':        '...',
+        'exp/alb':    '|||',
     }
     subsets = [('Ocean', df[df['sfc_type'] == 0]),
                ('Land',  df[df['sfc_type'] == 1])]
@@ -81,7 +86,8 @@ def plot_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(16, 5), sharey=True)
     x = np.arange(len(avail))
 
-    for ax, (sfc_name, sdf) in zip(axes, subsets):
+    for pi, (ax, (sfc_name, sdf)) in enumerate(zip(axes, subsets)):
+        panel_label(ax, f'({chr(97 + pi)})')
         rs = []
         for col, _, _ in avail:
             m = sdf[col].notna() & sdf['cld_dist_km'].notna()
@@ -124,7 +130,7 @@ def plot_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
     axes[0].legend(handles=legend_handles, fontsize=7, ncol=2, loc='lower left',
                    title='Band / Term', title_fontsize=7)
     fig.suptitle(
-        'Signal hierarchy: Pearson r(cld_dist_km) — k\u2081, k\u2082, k\u2083, exp_intercept, exp/alb ratio'
+        f'Signal hierarchy: Pearson r(cld_dist_km) — {MEAN_L_LABEL}, {VAR_L_LABEL}, {_K3}, exp_intercept, exp/alb ratio'
         '  |  Ocean vs Land',
         fontsize=12)
     fig.tight_layout()
@@ -159,9 +165,9 @@ def plot_cross_band_ratio_signal_hierarchy(df: pd.DataFrame, outdir: str) -> Non
         ('exp_int_minus_alb', 'exp−alb', 'C2'),
     ]
     pairs = [  # (num, den, pair_label)
-        ('wco2', 'o2a',  'WCO₂/O₂A'),
-        ('sco2', 'o2a',  'SCO₂/O₂A'),
-        ('sco2', 'wco2', 'SCO₂/WCO₂'),
+        ('wco2', 'o2a',  f'{_WCO2}/{_O2A}'),
+        ('sco2', 'o2a',  f'{_SCO2}/{_O2A}'),
+        ('sco2', 'wco2', f'{_SCO2}/{_WCO2}'),
     ]
 
     ratio_cols = {}
@@ -179,7 +185,7 @@ def plot_cross_band_ratio_signal_hierarchy(df: pd.DataFrame, outdir: str) -> Non
             for pfx, tl, clr in quantities
             for num, den, pl in pairs]
 
-    pair_hatches = {'WCO₂/O₂A': '', 'SCO₂/O₂A': '///', 'SCO₂/WCO₂': 'xxx'}
+    pair_hatches = {f'{_WCO2}/{_O2A}': '', f'{_SCO2}/{_O2A}': '///', f'{_SCO2}/{_WCO2}': 'xxx'}
     quant_colors = {tl: clr for _, tl, clr in quantities}
     subsets = [('Ocean', df[df['sfc_type'] == 0]),
                ('Land',  df[df['sfc_type'] == 1])]
@@ -189,7 +195,8 @@ def plot_cross_band_ratio_signal_hierarchy(df: pd.DataFrame, outdir: str) -> Non
     # separators between the three quantity groups
     sep_idxs = [i for i in range(1, len(feat)) if feat[i][2] != feat[i - 1][2]]
 
-    for ax, (sfc_name, sdf) in zip(axes, subsets):
+    for pi, (ax, (sfc_name, sdf)) in enumerate(zip(axes, subsets)):
+        panel_label(ax, f'({chr(97 + pi)})')
         rs = []
         for col, _, _, _ in feat:
             m = sdf[col].notna() & np.isfinite(sdf[col]) & sdf['cld_dist_km'].notna()
@@ -258,22 +265,22 @@ def plot_residual_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
 
     # (column, band_label, term_label, [confounder_cols])
     feat_defs = [
-        ('o2a_k1',             'O\u2082A',   'k\u2081',   ['alb_o2a',  'airmass', 'mu_sza']),
-        ('o2a_k2',             'O\u2082A',   'k\u2082',   ['alb_o2a',  'airmass', 'mu_sza']),
-        ('o2a_k3',             'O\u2082A',   'k\u2083',   ['alb_o2a',  'airmass', 'mu_sza']),
-        ('exp_o2a_intercept',  'O\u2082A',   'exp',       ['alb_o2a',  'airmass', 'mu_sza']),
-        ('wco2_k1',            'WCO\u2082',  'k\u2081',   ['alb_wco2', 'airmass', 'mu_sza']),
-        ('wco2_k2',            'WCO\u2082',  'k\u2082',   ['alb_wco2', 'airmass', 'mu_sza']),
-        ('wco2_k3',            'WCO\u2082',  'k\u2083',   ['alb_wco2', 'airmass', 'mu_sza']),
-        ('exp_wco2_intercept', 'WCO\u2082',  'exp',       ['alb_wco2', 'airmass', 'mu_sza']),
-        ('sco2_k1',            'SCO\u2082',  'k\u2081',   ['alb_sco2', 'airmass', 'mu_sza']),
-        ('sco2_k2',            'SCO\u2082',  'k\u2082',   ['alb_sco2', 'airmass', 'mu_sza']),
-        ('sco2_k3',            'SCO\u2082',  'k\u2083',   ['alb_sco2', 'airmass', 'mu_sza']),
-        ('exp_sco2_intercept', 'SCO\u2082',  'exp',       ['alb_sco2', 'airmass', 'mu_sza']),
+        ('o2a_k1',             _O2A,   MEAN_L_LABEL, ['alb_o2a',  'airmass', 'mu_sza']),
+        ('o2a_k2',             _O2A,   VAR_L_LABEL,  ['alb_o2a',  'airmass', 'mu_sza']),
+        ('o2a_k3',             _O2A,   _K3,          ['alb_o2a',  'airmass', 'mu_sza']),
+        ('exp_o2a_intercept',  _O2A,   'exp',        ['alb_o2a',  'airmass', 'mu_sza']),
+        ('wco2_k1',            _WCO2,  MEAN_L_LABEL, ['alb_wco2', 'airmass', 'mu_sza']),
+        ('wco2_k2',            _WCO2,  VAR_L_LABEL,  ['alb_wco2', 'airmass', 'mu_sza']),
+        ('wco2_k3',            _WCO2,  _K3,          ['alb_wco2', 'airmass', 'mu_sza']),
+        ('exp_wco2_intercept', _WCO2,  'exp',        ['alb_wco2', 'airmass', 'mu_sza']),
+        ('sco2_k1',            _SCO2,  MEAN_L_LABEL, ['alb_sco2', 'airmass', 'mu_sza']),
+        ('sco2_k2',            _SCO2,  VAR_L_LABEL,  ['alb_sco2', 'airmass', 'mu_sza']),
+        ('sco2_k3',            _SCO2,  _K3,          ['alb_sco2', 'airmass', 'mu_sza']),
+        ('exp_sco2_intercept', _SCO2,  'exp',        ['alb_sco2', 'airmass', 'mu_sza']),
         # exp/alb ratios — albedo already divided out
-        ('_ratio_o2a',         'O\u2082A',   'exp/alb',   ['airmass', 'mu_sza', 'aod_total']),
-        ('_ratio_wco2',        'WCO\u2082',  'exp/alb',   ['airmass', 'mu_sza', 'aod_total']),
-        ('_ratio_sco2',        'SCO\u2082',  'exp/alb',   ['airmass', 'mu_sza', 'aod_total']),
+        ('_ratio_o2a',         _O2A,   'exp/alb',    ['airmass', 'mu_sza', 'aod_total']),
+        ('_ratio_wco2',        _WCO2,  'exp/alb',    ['airmass', 'mu_sza', 'aod_total']),
+        ('_ratio_sco2',        _SCO2,  'exp/alb',    ['airmass', 'mu_sza', 'aod_total']),
     ]
     avail = [(col, bl, tl, ctrl) for col, bl, tl, ctrl in feat_defs
              if col in df.columns]
@@ -282,13 +289,13 @@ def plot_residual_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
 
     sep_idx = next((i for i, (_, _, tl, _) in enumerate(avail) if tl == 'exp/alb'), None)
 
-    band_colors  = {'O\u2082A': 'C0', 'WCO\u2082': 'C1', 'SCO\u2082': 'C2'}
+    band_colors  = {_O2A: 'C0', _WCO2: 'C1', _SCO2: 'C2'}
     term_hatches = {
-        'k\u2081':   '',
-        'k\u2082':   '///',
-        'k\u2083':   'xxx',
-        'exp':       '...',
-        'exp/alb':   '|||',
+        MEAN_L_LABEL: '',
+        VAR_L_LABEL:  '///',
+        _K3:          'xxx',
+        'exp':        '...',
+        'exp/alb':    '|||',
     }
     subsets = [('Ocean', df[df['sfc_type'] == 0]),
                ('Land',  df[df['sfc_type'] == 1])]
@@ -296,7 +303,8 @@ def plot_residual_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(16, 5), sharey=True)
     x = np.arange(len(avail))
 
-    for ax, (sfc_name, sdf) in zip(axes, subsets):
+    for pi, (ax, (sfc_name, sdf)) in enumerate(zip(axes, subsets)):
+        panel_label(ax, f'({chr(97 + pi)})')
         rs_resid = []
         for col, _, _, ctrl in avail:
             ctrl_ok = [c for c in ctrl if c in sdf.columns]
@@ -344,8 +352,8 @@ def plot_residual_signal_hierarchy(df: pd.DataFrame, outdir: str) -> None:
                    title='Band / Term', title_fontsize=7)
     fig.suptitle(
         'Residual signal hierarchy: r(cld_dist, residual) after removing alb + airmass + cos(SZA)\n'
-        'Genuine cloud-proximity signal: SCO\u2082 k\u2081/k\u2082/k\u2083 (land) '
-        'and O\u2082A exp/alb (ocean)',
+        f'Genuine cloud-proximity signal: {_SCO2} {MEAN_L_LABEL}/{VAR_L_LABEL}/{_K3} (land) '
+        f'and {_O2A} exp/alb (ocean)',
         fontsize=11)
     fig.tight_layout()
     _save(fig, outdir, 'residual_signal_hierarchy.png')

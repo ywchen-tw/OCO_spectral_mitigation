@@ -20,7 +20,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
-from .utils import _save, bin_by_cld_dist
+from .utils import (_save, bin_by_cld_dist,
+                    XCO2_LABEL, MEAN_L_LABEL, VAR_L_LABEL)
 from .k_coeff import (plot_distributions_vs_cld_dist, plot_k1_k2_binned_profile,
                          plot_k1_k2_vs_cld_dist, plot_k2_over_k1_vs_cld_dist,
                          plot_k1_k2_joint, plot_cross_band_k_combinations)
@@ -29,6 +30,9 @@ from .xco2 import (plot_xco2_anomaly_partial, plot_xco2_anomaly_vs_key_vars,
                      plot_xco2_anomaly_vs_cld_dist_binned, plot_xco2_anomaly_correlations)
 
 logger = logging.getLogger(__name__)
+
+# Rendered band tags (Arial has no U+2082 subscript glyph → mathtext)
+_O2A, _WCO2, _SCO2 = 'O$_2$A', 'WCO$_2$', 'SCO$_2$'
 
 
 # ── 4. Stratified analysis ────────────────────────────────────────────────────
@@ -97,9 +101,9 @@ def plot_k1_k2_overlay(df: pd.DataFrame, cld_bins, cld_labels,
                        strat_labels: list) -> None:
     """Mean ± SEM k1/k2 profiles for all strata overlaid on one figure per band."""
     bands = [
-        ('o2a_k1',  'o2a_k2',  'O2-A'),
-        ('wco2_k1', 'wco2_k2', 'WCO\u2082'),
-        ('sco2_k1', 'sco2_k2', 'SCO\u2082'),
+        ('o2a_k1',  'o2a_k2',  _O2A),
+        ('wco2_k1', 'wco2_k2', _WCO2),
+        ('sco2_k1', 'sco2_k2', _SCO2),
     ]
     avail = [(k1, k2, nm) for k1, k2, nm in bands
              if k1 in df.columns and k2 in df.columns]
@@ -139,7 +143,7 @@ def plot_k1_k2_overlay(df: pd.DataFrame, cld_bins, cld_labels,
             ax.set_xticks(x)
             ax.set_xticklabels(cld_labels, rotation=30, fontsize=8)
             ax.set_xlabel('Cloud distance (km)', fontsize=9)
-            klabel = 'k\u2081' if ci == 0 else 'k\u2082'
+            klabel = MEAN_L_LABEL if ci == 0 else VAR_L_LABEL
             ax.set_ylabel(f'{nm} {klabel}', fontsize=9)
             ax.set_title(f'{nm} {klabel} — stratified by {strat_var}', fontsize=10)
             ax.legend(fontsize=7, title=strat_var, title_fontsize=7)
@@ -151,7 +155,7 @@ def plot_k1_k2_overlay(df: pd.DataFrame, cld_bins, cld_labels,
                     spread = max((vmax - vmin) * 1.5, 1e-9)
                     ax.set_ylim(vmin - spread, vmax + spread)
 
-    fig.suptitle(f'k\u2081 / k\u2082 profiles by {strat_var} stratum', fontsize=12)
+    fig.suptitle(f'{MEAN_L_LABEL} / {VAR_L_LABEL} profiles by {strat_var} stratum', fontsize=12)
     fig.tight_layout()
     _save(fig, outdir, 'k1_k2_binned_profile_overlay.png')
 
@@ -161,9 +165,9 @@ def plot_intercept_overlay(df: pd.DataFrame, cld_bins, cld_labels,
                            strat_labels: list) -> None:
     """exp_intercept profiles for all strata overlaid on one figure."""
     bands = [
-        ('exp_o2a_intercept',  'O2-A',   'C0'),
-        ('exp_wco2_intercept', 'WCO\u2082', 'C1'),
-        ('exp_sco2_intercept', 'SCO\u2082', 'C2'),
+        ('exp_o2a_intercept',  _O2A,  'C0'),
+        ('exp_wco2_intercept', _WCO2, 'C1'),
+        ('exp_sco2_intercept', _SCO2, 'C2'),
     ]
     avail = [(col, nm, c) for col, nm, c in bands if col in df.columns]
     if not avail:
@@ -221,10 +225,10 @@ def plot_xco2_anomaly_binned_overlay(df: pd.DataFrame, cld_bins, cld_labels,
                                      strat_labels: list) -> None:
     """Mean XCO2 profiles for all strata overlaid on one figure (one file per target)."""
     targets = [
-        ('xco2_bc_anomaly',  'XCO\u2082 BC anomaly (ppm)',  'C0'),
-        ('xco2_raw_anomaly', 'XCO\u2082 raw anomaly (ppm)', 'C1'),
-        ('xco2_bc',          'XCO\u2082 BC (ppm)',           'C2'),
-        ('xco2_raw',         'XCO\u2082 raw (ppm)',          'C3'),
+        ('xco2_bc_anomaly',  f'{XCO2_LABEL} BC anomaly (ppm)',  'C0'),
+        ('xco2_raw_anomaly', f'{XCO2_LABEL} raw anomaly (ppm)', 'C1'),
+        ('xco2_bc',          f'{XCO2_LABEL} BC (ppm)',           'C2'),
+        ('xco2_raw',         f'{XCO2_LABEL} raw (ppm)',          'C3'),
     ]
     avail = [(t, lbl, c) for t, lbl, c in targets if t in df.columns]
     if not avail:
@@ -303,10 +307,10 @@ def run_stratified_analysis(df: pd.DataFrame,
 
         plot_distributions_vs_cld_dist(sdf, cld_bins, cld_labels, sdir)
         _XCO2_TARGETS = [
-            ('xco2_bc_anomaly',  'XCO\u2082 BC anomaly (ppm)'),
-            ('xco2_raw_anomaly', 'XCO\u2082 raw anomaly (ppm)'),
-            ('xco2_bc',          'XCO\u2082 BC (ppm)'),
-            ('xco2_raw',         'XCO\u2082 raw (ppm)'),
+            ('xco2_bc_anomaly',  f'{XCO2_LABEL} BC anomaly (ppm)'),
+            ('xco2_raw_anomaly', f'{XCO2_LABEL} raw anomaly (ppm)'),
+            ('xco2_bc',          f'{XCO2_LABEL} BC (ppm)'),
+            ('xco2_raw',         f'{XCO2_LABEL} raw (ppm)'),
         ]
         plot_xco2_anomaly_vs_cld_dist_binned(
             sdf, cld_bins, cld_labels, sdir,

@@ -37,6 +37,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+ROOT_WORKSPACE = Path(__file__).resolve().parents[1]
+if str(ROOT_WORKSPACE) not in sys.path:
+    sys.path.insert(0, str(ROOT_WORKSPACE))
+from plot_style import apply_manuscript_style, XCO2_LABEL  # noqa: E402
 from analyze_nassar_plume_preservation import (  # noqa: E402
     DEFAULT_PLANTS,
     DEFAULT_PLOT_BASE,
@@ -197,12 +201,13 @@ def plot_null(summary: pd.DataFrame, ctrl: pd.DataFrame, path: Path) -> None:
     labels = [f"{r.plant_id}\n{r.date}\n(p{r.plant_ratio_pctile_in_controls:.0f})"
               for r in cases.itertuples(index=False)]
     ax.set_xticks(range(len(cases)), labels, fontsize=7)
-    ax.set_ylabel("corrected / original XCO₂ spread (p95−p05 ratio)")
-    ax.set_title("Plume-preservation null: plant disk (★) vs cloud-matched\n"
-                 "control windows (·) from the same date, ≥100 km from any plant")
+    ax.set_ylabel(f"corrected / original {XCO2_LABEL} spread (p95-p05 ratio)")
+    ax.set_title("Plume-preservation null: plant disk (red star) vs cloud-matched\n"
+                 "control windows (grey dots) from the same date, "
+                 "$\\geq$100 km from any plant")
     ax.grid(alpha=0.3, axis="y")
     fig.tight_layout()
-    fig.savefig(path, dpi=150, bbox_inches="tight")
+    fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -243,6 +248,7 @@ def main() -> None:
     ap.add_argument("--radius-km", nargs="+", type=float, default=[25.0])
     args = ap.parse_args()
 
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
     plants = read_plants(args.plants)
     plants_df = pd.read_csv(args.plants)
     pairs = args.pair or list(DEFAULT_PAIRS)

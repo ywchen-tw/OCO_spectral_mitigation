@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from analysis.utils import get_storage_dir, _save
+from analysis.utils import get_storage_dir, _save, apply_manuscript_style, panel_label
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -172,7 +172,8 @@ def plot_cld_dist_cdf_by_surface(df: pd.DataFrame, distance_col: str, outdir: st
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
 
-    for ax, (sfc_name, sfc_code) in zip(axes, _SURFACES):
+    for pi, (ax, (sfc_name, sfc_code)) in enumerate(zip(axes, _SURFACES)):
+        panel_label(ax, f'({chr(97 + pi)})')
         sdf = df[df['sfc_type'] == sfc_code]
         _plot_cdf_on_ax(ax, sdf['xco2_qf'], sdf[distance_col], sfc_name)
 
@@ -186,6 +187,10 @@ def plot_cld_dist_cdf_by_surface(df: pd.DataFrame, distance_col: str, outdir: st
 
 
 def main():
+    # Manuscript figure style (Arial text + mathtext, thin axes, 300-dpi saves)
+    # — this script is its own entry point, so apply it here.
+    apply_manuscript_style()
+
     parser = argparse.ArgumentParser(
         description='Plot footprint cloud-distance CDF split by quality flag.'
     )

@@ -19,9 +19,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from scipy import stats
-from .utils import _save, rolling_median_iqr, bin_by_cld_dist
+from .utils import (_save, rolling_median_iqr, bin_by_cld_dist,
+                    CMAPS, XCO2_LABEL, MEAN_L_LABEL, VAR_L_LABEL, panel_label)
 
 logger = logging.getLogger(__name__)
+
+# Rendered band tags (Arial has no U+2082 subscript glyph → mathtext)
+_O2A, _WCO2, _SCO2 = 'O$_2$A', 'WCO$_2$', 'SCO$_2$'
 
 
 def plot_xco2_anomaly_correlations(df, outdir, target_cols=None):
@@ -50,7 +54,7 @@ def plot_xco2_anomaly_correlations(df, outdir, target_cols=None):
     target_corr = corr[target_cols].drop(index=target_cols, errors='ignore')
 
     fig, ax = plt.subplots(figsize=(6, max(8, len(target_corr) * 0.35)))
-    im = ax.imshow(target_corr.values, aspect='auto', cmap='RdBu_r', vmin=-1, vmax=1)
+    im = ax.imshow(target_corr.values, aspect='auto', cmap=CMAPS['mu'], vmin=-1, vmax=1)
     plt.colorbar(im, ax=ax, label='Pearson r')
     ax.set_xticks(range(len(target_cols)))
     ax.set_xticklabels([c.replace('_', '\n') for c in target_cols], fontsize=9)
@@ -61,7 +65,7 @@ def plot_xco2_anomaly_correlations(df, outdir, target_cols=None):
             val = target_corr.iloc[i, j]
             ax.text(j, i, f'{val:.2f}', ha='center', va='center',
                     fontsize=7, color='black' if abs(val) < 0.6 else 'white')
-    ax.set_title('Pearson r of predictors with XCO\u2082 anomalies', fontsize=11)
+    ax.set_title(f'Pearson r of predictors with {XCO2_LABEL} anomalies', fontsize=11)
     fig.tight_layout()
     _save(fig, outdir, 'xco2_anomaly_correlation_heatmap.png')
     return target_corr
@@ -71,24 +75,24 @@ def plot_xco2_anomaly_vs_key_vars(df, outdir, target='xco2_bc_anomaly',
                                    target_label=None, max_dist=50, n_roll=200):
     """Scatter panels: target vs top predictors."""
     if target_label is None:
-        target_label = 'XCO\u2082 BC anomaly (ppm)'
+        target_label = f'{XCO2_LABEL} BC anomaly (ppm)'
     key_pairs = [
         ('cld_dist_km',    'Cloud distance (km)'),
-        ('o2a_k1',         'O2-A k\u2081'),
-        ('o2a_k2',         'O2-A k\u2082'),
-        ('o2a_k2_over_k1', 'O2-A k\u2082/k\u2081'),
-        ('wco2_k1',        'WCO\u2082 k\u2081'),
-        ('wco2_k2',        'WCO\u2082 k\u2082'),
-        ('sco2_k1',        'SCO\u2082 k\u2081'),
-        ('sco2_k2',        'SCO\u2082 k\u2082'),
+        ('o2a_k1',         f'{_O2A} {MEAN_L_LABEL}'),
+        ('o2a_k2',         f'{_O2A} {VAR_L_LABEL}'),
+        ('o2a_k2_over_k1', f'{_O2A} {VAR_L_LABEL}/{MEAN_L_LABEL}'),
+        ('wco2_k1',        f'{_WCO2} {MEAN_L_LABEL}'),
+        ('wco2_k2',        f'{_WCO2} {VAR_L_LABEL}'),
+        ('sco2_k1',        f'{_SCO2} {MEAN_L_LABEL}'),
+        ('sco2_k2',        f'{_SCO2} {VAR_L_LABEL}'),
         ('airmass',        'Airmass'),
         ('aod_total',      'AOD total'),
         ('dp',             '\u0394P (hPa)'),
-        ('alb_o2a',        'Albedo O2-A'),
-        ('co2_grad_del',   'CO\u2082 gradient \u0394'),
+        ('alb_o2a',        f'Albedo {_O2A}'),
+        ('co2_grad_del',   'CO$_2$ gradient \u0394'),
         ('dpfrac',         'dp fraction'),
         ('glint_angle',    'Glint angle (deg)'),
-        ('snr_o2a',        'SNR O2-A'),
+        ('snr_o2a',        f'SNR {_O2A}'),
     ]
     avail = [(col, lbl) for col, lbl in key_pairs if col in df.columns]
 
@@ -130,8 +134,8 @@ def plot_xco2_anomaly_vs_cld_dist_binned(df, bins, labels, outdir, targets=None)
     """Mean XCO2 quantity ± SEM as a function of cloud-distance bin."""
     if targets is None:
         targets = [
-            ('xco2_bc_anomaly',  'XCO\u2082 BC anomaly (ppm)',  'C0'),
-            ('xco2_raw_anomaly', 'XCO\u2082 raw anomaly (ppm)', 'C1'),
+            ('xco2_bc_anomaly',  f'{XCO2_LABEL} BC anomaly (ppm)',  'C0'),
+            ('xco2_raw_anomaly', f'{XCO2_LABEL} raw anomaly (ppm)', 'C1'),
         ]
     _bin = bin_by_cld_dist(df, bins, labels)
     x = np.arange(len(labels))
@@ -179,9 +183,9 @@ def plot_xco2_anomaly_partial(df: pd.DataFrame, bins, labels,
     CO₂ gradient, H₂O scaling, dp fraction.
     """
     if target_label is None:
-        target_label = 'XCO\u2082 BC anomaly (ppm)'
+        target_label = f'{XCO2_LABEL} BC anomaly (ppm)'
     if target not in df.columns:
-        logger.warning(f"{target!r} not found — skipping XCO\u2082 partial plot")
+        logger.warning(f"{target!r} not found — skipping XCO2 partial plot")
         return
 
     confounders = [
@@ -194,7 +198,8 @@ def plot_xco2_anomaly_partial(df: pd.DataFrame, bins, labels,
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=False)
 
-    for ax, (sfc_name, sdf) in zip(axes, subsets):
+    for pi, (ax, (sfc_name, sdf)) in enumerate(zip(axes, subsets)):
+        panel_label(ax, f'({chr(97 + pi)})')
         ctrl  = [c for c in confounders if c in sdf.columns]
         req   = [target, 'cld_dist_km'] + ctrl
         m     = sdf[req].notna().all(axis=1)
@@ -245,7 +250,7 @@ def plot_xco2_anomaly_partial(df: pd.DataFrame, bins, labels,
 
     fig.suptitle(
         f'{target_label}: partial correlation with cloud distance\n'
-        'after removing albedo + airmass + cos(SZA) + AOD + \u0394P + CO\u2082_grad + H\u2082O',
+        'after removing albedo + airmass + cos(SZA) + AOD + \u0394P + CO$_2$ grad + H$_2$O',
         fontsize=11)
     fig.tight_layout()
     fig.subplots_adjust(bottom=0.18)
@@ -256,10 +261,10 @@ def plot_xco2_anomaly_partial(df: pd.DataFrame, bins, labels,
 
 _XCO2_DERIVED_TARGETS = [
     ('xco2_raw_minus_apriori',
-     'XCO\u2082 raw \u2212 a priori (ppm)',
+     f'{XCO2_LABEL} raw \u2212 a priori (ppm)',
      'C2'),
     ('xco2_raw_minus-xco2_strong_idp_minus',
-     'XCO\u2082 raw \u2212 strong IDP (ppm)',
+     f'{XCO2_LABEL} raw \u2212 strong IDP (ppm)',
      'C3'),
 ]
 
@@ -340,7 +345,7 @@ def plot_xco2_derived_vs_bc_anomaly(df: pd.DataFrame, bins, labels,
     sub = df[df['cld_dist_km'] <= max_dist].copy() if 'cld_dist_km' in df.columns else df.copy()
     _bin = bin_by_cld_dist(sub, bins, labels)
 
-    bin_colors = plt.cm.get_cmap('plasma', len(labels))
+    bin_colors = plt.cm.get_cmap(CMAPS['cld_dist'], len(labels))
 
     for col, lbl, _ in _XCO2_DERIVED_TARGETS:
         if col not in df.columns:
@@ -441,15 +446,15 @@ def plot_xco2_sign_comparison(
         split_label = split_col.replace('_', ' ')
 
     _DELTA_VARS = [
-        ('dk1',  'Δk\u2081'),
-        ('dk2',  'Δk\u2082'),
+        ('dk1',  f'Δ{MEAN_L_LABEL}'),
+        ('dk2',  f'Δ{VAR_L_LABEL}'),
         ('dexp', 'Δexp intercept'),
         ('dalb', 'Δalbedo'),
     ]
     _BANDS = [
-        ('o2a',  'O2-A',   'tab:blue'),
-        ('wco2', 'WCO\u2082', 'tab:orange'),
-        ('sco2', 'SCO\u2082', 'tab:green'),
+        ('o2a',  _O2A,  'tab:blue'),
+        ('wco2', _WCO2, 'tab:orange'),
+        ('sco2', _SCO2, 'tab:green'),
     ]
 
     # Check that at least one delta column exists in either subset
@@ -651,10 +656,10 @@ def run_xco2_sign_analysis(
 
 # (col, human label, folder name)
 _XCO2_TARGET_CONFIG = [
-    ('xco2_bc_anomaly',  'XCO\u2082 BC anomaly (ppm)',  'xco2_bc_anomaly'),
-    ('xco2_raw_anomaly', 'XCO\u2082 raw anomaly (ppm)', 'xco2_raw_anomaly'),
-    ('xco2_bc',          'XCO\u2082 BC (ppm)',           'xco2_bc'),
-    ('xco2_raw',         'XCO\u2082 raw (ppm)',          'xco2_raw'),
+    ('xco2_bc_anomaly',  f'{XCO2_LABEL} BC anomaly (ppm)',  'xco2_bc_anomaly'),
+    ('xco2_raw_anomaly', f'{XCO2_LABEL} raw anomaly (ppm)', 'xco2_raw_anomaly'),
+    ('xco2_bc',          f'{XCO2_LABEL} BC (ppm)',           'xco2_bc'),
+    ('xco2_raw',         f'{XCO2_LABEL} raw (ppm)',          'xco2_raw'),
 ]
 
 

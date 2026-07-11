@@ -26,6 +26,7 @@ Usage (after screening):
 from __future__ import annotations
 
 import argparse
+import sys
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +40,12 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pyarrow.parquet as pq  # noqa: E402
 
+ROOT_WORKSPACE = Path(__file__).resolve().parents[1]
+if str(ROOT_WORKSPACE) not in sys.path:
+    sys.path.insert(0, str(ROOT_WORKSPACE))
+from plot_style import (apply_manuscript_style, panel_label, CMAPS,  # noqa: E402
+                        XCO2_LABEL, MEAN_L_LABEL, VAR_L_LABEL)
+
 DEFAULT_PARQUET = Path("results/csv_collection/combined_2016_2020_dates.parquet")
 DEFAULT_OUTDIR = Path("results/figures/cld_dist_analysis/spec_case_study")
 
@@ -46,7 +53,6 @@ GROUND_SPEED_KMPS = 6.74          # OCO-2 along-track ground speed
 BANDS = ("o2a", "wco2", "sco2")
 # Okabe-Ito: CVD-safe (all pairs dE>37 under deutan/protan simulation)
 BAND_COLORS = {"o2a": "#0072B2", "wco2": "#009E73", "sco2": "#D55E00"}
-XCO2_LABEL = r"$X_{CO_2}$"
 GIBS_WMS = ("https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi"
             "?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS={layer}"
             "&SRS=EPSG:4326&BBOX={w},{s},{e},{n}&WIDTH={px_w}&HEIGHT={px_h}"
@@ -198,12 +204,13 @@ def main() -> None:
                     help="Include the fp x track cross-band dk1 z-index "
                          "heatmap (exploration aid, off for journal figures).")
     ap.add_argument("--fmt", default="png", choices=["png", "pdf"])
-    ap.add_argument("--dpi", type=int, default=150)
+    ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--parquet-fname", type=Path, default=DEFAULT_PARQUET)
     ap.add_argument("--output-dir", type=Path, default=DEFAULT_OUTDIR)
     args = ap.parse_args()
     if args.frame is None and args.frame_time is None:
         ap.error("give --frame or --frame-time")
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
 
     print(f"Loading {args.date} from {args.parquet_fname} ...")
     case = load_case(args.parquet_fname, args.date, frame=args.frame,
@@ -251,8 +258,9 @@ def main() -> None:
                 ax.imshow(img, extent=extent, origin="upper", zorder=0)
             except Exception as exc:  # keep the figure usable offline
                 print(f"GIBS fetch failed ({exc}); plain map panel.")
+        # plasma over GIBS RGB: bright low end separates from dark ocean/land
         sc = ax.scatter(seg["lon"], seg["lat"], c=seg["cld_dist_km"],
-                        cmap="viridis", vmin=0, vmax=args.clear_km, s=s_pts,
+                        cmap=CMAPS["spec"], vmin=0, vmax=args.clear_km, s=s_pts,
                         edgecolors="k", linewidths=0.2, zorder=2)
         ax.scatter(seg.loc[sel, "lon"], seg.loc[sel, "lat"], facecolors="none",
                    edgecolors="r", s=s_pts * 2.8, linewidths=0.7, zorder=3,
@@ -279,12 +287,12 @@ def main() -> None:
     if ax_heat is not None:
         vmax = max(2.0, float(np.nanpercentile(np.abs(seg["zk1_index"]), 98)))
         hm = ax_heat.scatter(seg["x_km"], seg["fp"], c=seg["zk1_index"],
-                             cmap="RdBu_r", vmin=-vmax, vmax=vmax,
+                             cmap=CMAPS["mu"], vmin=-vmax, vmax=vmax,
                              marker="s", s=16)
         ax_heat.set_ylim(-0.7, 7.7); ax_heat.set_ylabel("footprint")
         ax_heat.axhline(fp_sel, color="k", lw=0.5, ls=":")
         fig.colorbar(hm, ax=ax_heat, pad=0.01,
-                     label=r"cross-band $\Delta k_1$ (z-score)")
+                     label=rf"cross-band $\Delta${MEAN_L_LABEL} (z-score)")
 
     def band_panel(ax, fmt, ylabel, ratio=False, legend=False):
         for b in BANDS:
@@ -301,11 +309,11 @@ def main() -> None:
             ax.legend(loc="lower right", bbox_to_anchor=(1.0, 1.0),
                       fontsize=7, ncol=3, frameon=False, borderaxespad=0.1)
 
-    band_panel(axes[0], "d_{b}_k1", r"$\Delta k_1$", legend=True)
-    band_panel(axes[1], "d_{b}_k2", r"$\Delta k_2$")
-    band_panel(axes[2], "d_{b}_exp_intercept-alb", "Δ(exp int − alb)")
+    band_panel(axes[0], "d_{b}_k1", rf"$\Delta${MEAN_L_LABEL}", legend=True)
+    band_panel(axes[1], "d_{b}_k2", rf"$\Delta${VAR_L_LABEL}")
+    band_panel(axes[2], "d_{b}_exp_intercept-alb", r"$\Delta$(exp int $-$ alb)")
     band_panel(axes[3], "r_h_cont_{b}", "continuum / clear", ratio=True)
-    band_panel(axes[4], "d_alb_{b}", "Δ albedo")
+    band_panel(axes[4], "d_alb_{b}", r"$\Delta$ albedo")
 
     ax = axes[5]
     other = seg[~sel]
@@ -345,9 +353,7 @@ def main() -> None:
     lettered = ([ax_map, ax_zoom] + ([ax_heat] if ax_heat is not None else [])
                 + axes)
     for letter, a in zip("abcdefghij", lettered):
-        a.text(0.008, 0.97, f"({letter})", transform=a.transAxes, fontsize=9,
-               fontweight="bold", va="top",
-               bbox=dict(fc="w", ec="none", alpha=0.6, pad=1))
+        panel_label(a, f"({letter})", size=9, inside=True)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     frame_id = int(center["fp_id"].iloc[0] // 10)

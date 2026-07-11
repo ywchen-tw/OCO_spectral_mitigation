@@ -22,6 +22,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from plot_ship_comparison import load_ship, haversine_km, TABS  # noqa: E402
 
+ROOT_WORKSPACE = os.path.abspath(os.path.join(HERE, ".."))
+if ROOT_WORKSPACE not in sys.path:
+    sys.path.insert(0, ROOT_WORKSPACE)
+from plot_style import apply_manuscript_style, panel_label  # noqa: E402
+
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 DEFAULT_OUT = os.path.join(REPO, "results/model_comparison/deep_ensemble/"
                            "de_beta_nll_prof_reg_o05l15_m5/ship")
@@ -87,7 +92,7 @@ def make_summary_plot(df, out_png):
     # Grey band = ship measured XCO2 uncertainty about the (zero) reference, per case.
     for k, (yi, err) in enumerate(zip(y, d.ship_err)):
         ax1.fill_betweenx([yi - 0.35, yi + 0.35], -err, err, color=GREY, zorder=0,
-                          label="ship σ (meas⊕var)" if k == 0 else None)
+                          label=r"ship σ (meas$\oplus$var)" if k == 0 else None)
     for yi, rb, rc in zip(y, d.resid_bc, d.resid_corr):
         ax1.plot([rb, rc], [yi, yi], "-", color="0.75", zorder=1)
     ax1.errorbar(d.resid_bc, y, xerr=d.oco_bc_sd, fmt="o", ms=7, color=RED, ecolor=RED,
@@ -98,6 +103,7 @@ def make_summary_plot(df, out_png):
     ax1.set_yticks(y); ax1.set_yticklabels(lbl, fontsize=9); ax1.invert_yaxis()
     ax1.set_xlabel("OCO-2 − ship EM27/SUN (ppm)   [±1σ of collocated soundings]")
     ax1.set_title(f"Per-case bias: xco2_bc → {MODEL_LABEL}"); ax1.legend(fontsize=8)
+    panel_label(ax1, "(a)")
 
     # (B) bias vs cloud distance, yerr = 1σ of the collocated OCO-2 soundings.
     # Grey band = ship measured XCO2 uncertainty about the (zero) reference, per case.
@@ -105,7 +111,7 @@ def make_summary_plot(df, out_png):
     xw = max((d.cld_med.max() - d.cld_med.min()) * 0.02, 1.0)
     for k, r in enumerate(d.itertuples()):
         ax2.fill_between([r.cld_med - xw, r.cld_med + xw], -r.ship_err, r.ship_err,
-                         color=GREY, zorder=0, label="ship σ (meas⊕var)" if k == 0 else None)
+                         color=GREY, zorder=0, label=r"ship σ (meas$\oplus$var)" if k == 0 else None)
     ax2.errorbar(d.cld_med, d.resid_bc, yerr=d.oco_bc_sd, fmt="o", color=RED, mfc="none",
                  ms=8, elinewidth=0.8, capsize=3, label="xco2_bc")
     ax2.errorbar(d.cld_med, d.resid_corr, yerr=d.oco_corr_sd, fmt="o", color=BLUE,
@@ -117,6 +123,7 @@ def make_summary_plot(df, out_png):
     ax2.set_xlabel("median cloud distance of collocated OCO-2 (km)")
     ax2.set_ylabel("OCO-2 − ship (ppm)"); ax2.set_title("Bias vs cloud distance")
     ax2.legend(fontsize=8)
+    panel_label(ax2, "(b)")
 
     nc = d[d.cld_med <= 10]
     sub = f"{len(nc)} near-cloud: mean bias {nc.resid_bc.mean():+.2f}→{nc.resid_corr.mean():+.2f} ppm  " if len(nc) else ""
@@ -126,8 +133,8 @@ def make_summary_plot(df, out_png):
         f"{d.resid_corr.mean():+.2f}±{d.resid_corr.std():.2f} ppm   "
         f"(mean OCO σ {d.oco_bc_sd.mean():.2f}→{d.oco_corr_sd.mean():.2f}; "
         f"mean ship σ {d.ship_err.mean():.2f})",
-        fontweight="bold", fontsize=11)
-    fig.tight_layout(); fig.savefig(out_png, dpi=130); plt.close(fig)
+        fontweight="bold")
+    fig.tight_layout(); fig.savefig(out_png); plt.close(fig)
     print(f"wrote {out_png}")
 
 
@@ -141,6 +148,7 @@ def main():
                     help="corrected-XCO2 column in plot_data (deep_ensemble_/linreg_/xgb_corrected_xco2)")
     ap.add_argument("--model-label", default=MODEL_LABEL, help="cosmetic label for plot legends")
     args = ap.parse_args()
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
     CORR = args.corr_col
     MODEL_LABEL = args.model_label
     twin = args.window_min * 60

@@ -25,8 +25,18 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+_WORKSPACE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), 'workspace')
+if _WORKSPACE not in sys.path:
+    sys.path.insert(0, _WORKSPACE)
+from plot_style import (apply_manuscript_style, panel_label,  # noqa: E402
+                        MEAN_L_LABEL, VAR_L_LABEL)
+
 BANDS = ('o2a', 'wco2', 'sco2')
 PARAMS = ('k1', 'k2', 'intercept')
+# Rendered-label forms (data keys stay 'o2a'/'k1'/... everywhere).
+_BAND_LABELS = {'o2a': 'O$_2$A', 'wco2': 'WCO$_2$', 'sco2': 'SCO$_2$'}
+_PARAM_LABELS = {'k1': MEAN_L_LABEL, 'k2': VAR_L_LABEL}
 
 
 def _dset(tag, param, nosg):
@@ -110,6 +120,7 @@ def main():
     print(df.to_string(index=False))
 
     # scatter grid: bands (rows) x k1/k2 (cols)
+    apply_manuscript_style()
     fig, axes = plt.subplots(len(BANDS), 2, figsize=(11, 14))
     for i, t in enumerate(BANDS):
         for j, p in enumerate(('k1', 'k2')):
@@ -128,16 +139,18 @@ def main():
             ax.plot([lo, hi], [lo, hi], 'k--', lw=1)
             ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
             st = paired_stats(sg, ns)
+            plabel = f'{_BAND_LABELS[t]} {_PARAM_LABELS[p]}'
             if st:
-                ax.set_title(f"{t} {p}: median Δ={st['median_diff']:.3g} "
-                             f"({st['median_rel_diff_pct']:.2f}%), r={st['pearson_r']:.4f}",
-                             fontsize=10)
-            ax.set_xlabel(f'{p} (savgol)'); ax.set_ylabel(f'{p} (no savgol)')
+                ax.set_title(f"{plabel}: median $\\Delta$={st['median_diff']:.3g} "
+                             f"({st['median_rel_diff_pct']:.2f}%), r={st['pearson_r']:.4f}")
+            ax.set_xlabel(f'{plabel} (Savitzky-Golay)')
+            ax.set_ylabel(f'{plabel} (no smoothing)')
             ax.grid(alpha=0.3)
+            panel_label(ax, f'({chr(ord("a") + i * 2 + j)})')
     fig.suptitle('Spectral-fit parameters: Savitzky-Golay smoothed vs raw ln(T) fits', y=0.995)
     fig.tight_layout()
     png_path = os.path.join(args.output_dir, 'savgol_ab_scatter.png')
-    fig.savefig(png_path, dpi=180, bbox_inches='tight')
+    fig.savefig(png_path, bbox_inches='tight')
     print(f"[saved] {csv_path}\n[saved] {png_path}")
     return 0
 

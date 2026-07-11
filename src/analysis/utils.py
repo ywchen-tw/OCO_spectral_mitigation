@@ -32,6 +32,16 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import Config
 
+# ── shared manuscript figure style (workspace/plot_style.py) ──────────────────
+# Re-exported here so every analysis module gets the style helpers and label
+# constants from one place.  apply_manuscript_style() itself is called ONCE in
+# the entry point (run_all.main / cld_dist_cdf.main), not at import time.
+_WORKSPACE = Path(__file__).resolve().parents[2] / 'workspace'
+if str(_WORKSPACE) not in sys.path:
+    sys.path.insert(0, str(_WORKSPACE))
+from plot_style import (apply_manuscript_style, panel_label, CMAPS,  # noqa: E402,F401
+                        XCO2_LABEL, MEAN_L_LABEL, VAR_L_LABEL)
+
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -105,7 +115,7 @@ def bin_by_cld_dist(df: pd.DataFrame, edges, labels) -> pd.Series:
 def _save(fig, outdir, name):
     os.makedirs(outdir, exist_ok=True)
     p = os.path.join(outdir, name)
-    fig.savefig(p, dpi=150, bbox_inches='tight')
+    fig.savefig(p, bbox_inches='tight')   # dpi from rcParams (300 via manuscript style)
     plt.close(fig)
     logger.info(f"  saved → {p}")
 

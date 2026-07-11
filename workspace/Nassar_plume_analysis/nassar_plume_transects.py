@@ -28,6 +28,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+ROOT_WORKSPACE = Path(__file__).resolve().parents[1]
+if str(ROOT_WORKSPACE) not in sys.path:
+    sys.path.insert(0, str(ROOT_WORKSPACE))
+from plot_style import apply_manuscript_style, panel_label, XCO2_LABEL  # noqa: E402
 from analyze_nassar_plume_preservation import (  # noqa: E402
     DEFAULT_PLANTS,
     DEFAULT_PLOT_BASE,
@@ -82,16 +86,17 @@ def transect_case(pair, plants, plot_base, outdir, max_km=100.0):
     x = seg["x_km"].to_numpy()
     ax.plot(x, seg["xco2_bc"], ".", color="C0", ms=3, alpha=0.4)
     ax.plot(x, seg["deep_ensemble_corrected_xco2"], ".", color="C3", ms=3, alpha=0.4)
-    for col, c, lbl in (("xco2_bc", "C0", "xco2_bc"),
+    for col, c, lbl in (("xco2_bc", "C0", "original"),
                         ("deep_ensemble_corrected_xco2", "C3", "corrected")):
         xs, med = rolling(x, seg[col].to_numpy())
         ax.plot(xs, med, "-", color=c, lw=1.8, label=f"{lbl} (5 km median)")
     ax.axvline(0, color="k", lw=1, ls="--")
     ax.axvspan(-10, 10, color="gold", alpha=0.15)
-    ax.set_ylabel("XCO₂ (ppm)")
-    ax.legend(fontsize=8)
+    ax.set_ylabel(f"{XCO2_LABEL} (ppm)")
+    ax.legend()
     ax.set_title(f"{src['source_name']} — {date}   "
                  f"(closest approach {min_dist:.1f} km)")
+    panel_label(ax, "(a)")
 
     ax = axes[1]
     ax.plot(x, seg["pred_anomaly"], ".", color="C2", ms=3, alpha=0.4)
@@ -100,20 +105,22 @@ def transect_case(pair, plants, plot_base, outdir, max_km=100.0):
     ax.axvline(0, color="k", lw=1, ls="--")
     ax.axvspan(-10, 10, color="gold", alpha=0.15)
     ax.axhline(0, color="gray", lw=0.8)
-    ax.set_ylabel("mu (ppm)")
+    ax.set_ylabel("μ (ppm)")
+    panel_label(ax, "(b)")
 
     ax = axes[2]
     ax.plot(x, seg["cld_dist_km"], ".", color="C7", ms=3, alpha=0.5)
     ax.axvline(0, color="k", lw=1, ls="--")
     ax.axvspan(-10, 10, color="gold", alpha=0.15)
-    ax.set_ylabel("cloud dist (km)")
+    ax.set_ylabel("nearest-cloud distance (km)")
     ax.set_xlabel("along-track distance from closest approach (km)")
+    panel_label(ax, "(c)")
 
     for a in axes:
         a.grid(alpha=0.3)
     fig.tight_layout()
     out = outdir / f"nassar_transect_{plant_id}_{date}.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight")
+    fig.savefig(out, bbox_inches="tight")
     plt.close(fig)
     print(f"  wrote {out}")
 
@@ -127,6 +134,7 @@ def main() -> None:
     ap.add_argument("--max-km", type=float, default=100.0)
     args = ap.parse_args()
 
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
     plants = read_plants(args.plants)
     pairs = args.pair or list(DEFAULT_PAIRS)
     outdir = args.output_dir / "transects"

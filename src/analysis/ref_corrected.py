@@ -31,47 +31,55 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from scipy import stats
-from .utils import _save, rolling_median_iqr, bin_by_cld_dist
+from .utils import (_save, rolling_median_iqr, bin_by_cld_dist,
+                    CMAPS, XCO2_LABEL, MEAN_L_LABEL, VAR_L_LABEL, panel_label)
 
 logger = logging.getLogger(__name__)
+
+# Rendered band/term tags (Arial has no U+2082 subscript glyph → mathtext).
+# NOTE these strings double as internal registry keys and as suffixes of the
+# in-memory derived delta columns (e.g. d_exp_minus_alb_<band>); they are
+# consistent module-wide and never touch parquet column names.
+_O2A, _WCO2, _SCO2 = 'O$_2$A', 'WCO$_2$', 'SCO$_2$'
+_K3 = '$k_3$'
 
 
 # Registry: (obs_col, ref_mean_col, ref_std_col, diff_col, band_label, term_label, band_color)
 _REF_PAIRS: list[tuple] = [
-    ('o2a_k1',             'ref_o2a_k1_mean',       'ref_o2a_k1_std',       'dk1_o2a',   'O\u2082A',  'k\u2081',   'C0'),
-    ('o2a_k2',             'ref_o2a_k2_mean',       'ref_o2a_k2_std',       'dk2_o2a',   'O\u2082A',  'k\u2082',   'C0'),
-    ('o2a_k3',             'ref_o2a_k3_mean',       'ref_o2a_k3_std',       'dk3_o2a',   'O\u2082A',  'k\u2083',   'C0'),
-    ('wco2_k1',            'ref_wco2_k1_mean',      'ref_wco2_k1_std',      'dk1_wco2',  'WCO\u2082', 'k\u2081',   'C1'),
-    ('wco2_k2',            'ref_wco2_k2_mean',      'ref_wco2_k2_std',      'dk2_wco2',  'WCO\u2082', 'k\u2082',   'C1'),
-    ('wco2_k3',            'ref_wco2_k3_mean',      'ref_wco2_k3_std',      'dk3_wco2',  'WCO\u2082', 'k\u2083',   'C1'),
-    ('sco2_k1',            'ref_sco2_k1_mean',      'ref_sco2_k1_std',      'dk1_sco2',  'SCO\u2082', 'k\u2081',   'C2'),
-    ('sco2_k2',            'ref_sco2_k2_mean',      'ref_sco2_k2_std',      'dk2_sco2',  'SCO\u2082', 'k\u2082',   'C2'),
-    ('sco2_k3',            'ref_sco2_k3_mean',      'ref_sco2_k3_std',      'dk3_sco2',  'SCO\u2082', 'k\u2083',   'C2'),
-    ('alb_o2a',            'ref_alb_o2a_mean',      'ref_alb_o2a_std',      'dalb_o2a',  'O\u2082A',  'albedo',    'C0'),
-    ('alb_wco2',           'ref_alb_wco2_mean',     'ref_alb_wco2_std',     'dalb_wco2', 'WCO\u2082', 'albedo',    'C1'),
-    ('alb_sco2',           'ref_alb_sco2_mean',     'ref_alb_sco2_std',     'dalb_sco2', 'SCO\u2082', 'albedo',    'C2'),
-    ('exp_o2a_intercept',  'ref_exp_int_o2a_mean',  'ref_exp_int_o2a_std',  'dexp_o2a',  'O\u2082A',  'exp_int',   'C0'),
-    ('exp_wco2_intercept', 'ref_exp_int_wco2_mean', 'ref_exp_int_wco2_std', 'dexp_wco2', 'WCO\u2082', 'exp_int',   'C1'),
-    ('exp_sco2_intercept', 'ref_exp_int_sco2_mean', 'ref_exp_int_sco2_std', 'dexp_sco2', 'SCO\u2082', 'exp_int',   'C2'),
+    ('o2a_k1',             'ref_o2a_k1_mean',       'ref_o2a_k1_std',       'dk1_o2a',   _O2A,  MEAN_L_LABEL,   'C0'),
+    ('o2a_k2',             'ref_o2a_k2_mean',       'ref_o2a_k2_std',       'dk2_o2a',   _O2A,  VAR_L_LABEL,   'C0'),
+    ('o2a_k3',             'ref_o2a_k3_mean',       'ref_o2a_k3_std',       'dk3_o2a',   _O2A,  _K3,   'C0'),
+    ('wco2_k1',            'ref_wco2_k1_mean',      'ref_wco2_k1_std',      'dk1_wco2',  _WCO2, MEAN_L_LABEL,   'C1'),
+    ('wco2_k2',            'ref_wco2_k2_mean',      'ref_wco2_k2_std',      'dk2_wco2',  _WCO2, VAR_L_LABEL,   'C1'),
+    ('wco2_k3',            'ref_wco2_k3_mean',      'ref_wco2_k3_std',      'dk3_wco2',  _WCO2, _K3,   'C1'),
+    ('sco2_k1',            'ref_sco2_k1_mean',      'ref_sco2_k1_std',      'dk1_sco2',  _SCO2, MEAN_L_LABEL,   'C2'),
+    ('sco2_k2',            'ref_sco2_k2_mean',      'ref_sco2_k2_std',      'dk2_sco2',  _SCO2, VAR_L_LABEL,   'C2'),
+    ('sco2_k3',            'ref_sco2_k3_mean',      'ref_sco2_k3_std',      'dk3_sco2',  _SCO2, _K3,   'C2'),
+    ('alb_o2a',            'ref_alb_o2a_mean',      'ref_alb_o2a_std',      'dalb_o2a',  _O2A,  'albedo',    'C0'),
+    ('alb_wco2',           'ref_alb_wco2_mean',     'ref_alb_wco2_std',     'dalb_wco2', _WCO2, 'albedo',    'C1'),
+    ('alb_sco2',           'ref_alb_sco2_mean',     'ref_alb_sco2_std',     'dalb_sco2', _SCO2, 'albedo',    'C2'),
+    ('exp_o2a_intercept',  'ref_exp_int_o2a_mean',  'ref_exp_int_o2a_std',  'dexp_o2a',  _O2A,  'exp_int',   'C0'),
+    ('exp_wco2_intercept', 'ref_exp_int_wco2_mean', 'ref_exp_int_wco2_std', 'dexp_wco2', _WCO2, 'exp_int',   'C1'),
+    ('exp_sco2_intercept', 'ref_exp_int_sco2_mean', 'ref_exp_int_sco2_std', 'dexp_sco2', _SCO2, 'exp_int',   'C2'),
 ]
 
 # r15 reference set (min_cld_dist=15 km) — mirrors _REF_PAIRS with r15_ prefix columns
 _R15_PAIRS: list[tuple] = [
-    ('o2a_k1',             'r15_o2a_k1_mean',       'r15_o2a_k1_std',       'dr15k1_o2a',   'O\u2082A',  'k\u2081',   'C0'),
-    ('o2a_k2',             'r15_o2a_k2_mean',       'r15_o2a_k2_std',       'dr15k2_o2a',   'O\u2082A',  'k\u2082',   'C0'),
-    ('o2a_k3',             'r15_o2a_k3_mean',       'r15_o2a_k3_std',       'dr15k3_o2a',   'O\u2082A',  'k\u2083',   'C0'),
-    ('wco2_k1',            'r15_wco2_k1_mean',      'r15_wco2_k1_std',      'dr15k1_wco2',  'WCO\u2082', 'k\u2081',   'C1'),
-    ('wco2_k2',            'r15_wco2_k2_mean',      'r15_wco2_k2_std',      'dr15k2_wco2',  'WCO\u2082', 'k\u2082',   'C1'),
-    ('wco2_k3',            'r15_wco2_k3_mean',      'r15_wco2_k3_std',      'dr15k3_wco2',  'WCO\u2082', 'k\u2083',   'C1'),
-    ('sco2_k1',            'r15_sco2_k1_mean',      'r15_sco2_k1_std',      'dr15k1_sco2',  'SCO\u2082', 'k\u2081',   'C2'),
-    ('sco2_k2',            'r15_sco2_k2_mean',      'r15_sco2_k2_std',      'dr15k2_sco2',  'SCO\u2082', 'k\u2082',   'C2'),
-    ('sco2_k3',            'r15_sco2_k3_mean',      'r15_sco2_k3_std',      'dr15k3_sco2',  'SCO\u2082', 'k\u2083',   'C2'),
-    ('alb_o2a',            'r15_alb_o2a_mean',      'r15_alb_o2a_std',      'dr15alb_o2a',  'O\u2082A',  'albedo',    'C0'),
-    ('alb_wco2',           'r15_alb_wco2_mean',     'r15_alb_wco2_std',     'dr15alb_wco2', 'WCO\u2082', 'albedo',    'C1'),
-    ('alb_sco2',           'r15_alb_sco2_mean',     'r15_alb_sco2_std',     'dr15alb_sco2', 'SCO\u2082', 'albedo',    'C2'),
-    ('exp_o2a_intercept',  'r15_exp_int_o2a_mean',  'r15_exp_int_o2a_std',  'dr15exp_o2a',  'O\u2082A',  'exp_int',   'C0'),
-    ('exp_wco2_intercept', 'r15_exp_int_wco2_mean', 'r15_exp_int_wco2_std', 'dr15exp_wco2', 'WCO\u2082', 'exp_int',   'C1'),
-    ('exp_sco2_intercept', 'r15_exp_int_sco2_mean', 'r15_exp_int_sco2_std', 'dr15exp_sco2', 'SCO\u2082', 'exp_int',   'C2'),
+    ('o2a_k1',             'r15_o2a_k1_mean',       'r15_o2a_k1_std',       'dr15k1_o2a',   _O2A,  MEAN_L_LABEL,   'C0'),
+    ('o2a_k2',             'r15_o2a_k2_mean',       'r15_o2a_k2_std',       'dr15k2_o2a',   _O2A,  VAR_L_LABEL,   'C0'),
+    ('o2a_k3',             'r15_o2a_k3_mean',       'r15_o2a_k3_std',       'dr15k3_o2a',   _O2A,  _K3,   'C0'),
+    ('wco2_k1',            'r15_wco2_k1_mean',      'r15_wco2_k1_std',      'dr15k1_wco2',  _WCO2, MEAN_L_LABEL,   'C1'),
+    ('wco2_k2',            'r15_wco2_k2_mean',      'r15_wco2_k2_std',      'dr15k2_wco2',  _WCO2, VAR_L_LABEL,   'C1'),
+    ('wco2_k3',            'r15_wco2_k3_mean',      'r15_wco2_k3_std',      'dr15k3_wco2',  _WCO2, _K3,   'C1'),
+    ('sco2_k1',            'r15_sco2_k1_mean',      'r15_sco2_k1_std',      'dr15k1_sco2',  _SCO2, MEAN_L_LABEL,   'C2'),
+    ('sco2_k2',            'r15_sco2_k2_mean',      'r15_sco2_k2_std',      'dr15k2_sco2',  _SCO2, VAR_L_LABEL,   'C2'),
+    ('sco2_k3',            'r15_sco2_k3_mean',      'r15_sco2_k3_std',      'dr15k3_sco2',  _SCO2, _K3,   'C2'),
+    ('alb_o2a',            'r15_alb_o2a_mean',      'r15_alb_o2a_std',      'dr15alb_o2a',  _O2A,  'albedo',    'C0'),
+    ('alb_wco2',           'r15_alb_wco2_mean',     'r15_alb_wco2_std',     'dr15alb_wco2', _WCO2, 'albedo',    'C1'),
+    ('alb_sco2',           'r15_alb_sco2_mean',     'r15_alb_sco2_std',     'dr15alb_sco2', _SCO2, 'albedo',    'C2'),
+    ('exp_o2a_intercept',  'r15_exp_int_o2a_mean',  'r15_exp_int_o2a_std',  'dr15exp_o2a',  _O2A,  'exp_int',   'C0'),
+    ('exp_wco2_intercept', 'r15_exp_int_wco2_mean', 'r15_exp_int_wco2_std', 'dr15exp_wco2', _WCO2, 'exp_int',   'C1'),
+    ('exp_sco2_intercept', 'r15_exp_int_sco2_mean', 'r15_exp_int_sco2_std', 'dr15exp_sco2', _SCO2, 'exp_int',   'C2'),
 ]
 
 
@@ -100,8 +108,8 @@ def add_ref_anomalies(df: pd.DataFrame) -> pd.DataFrame:
     # ── derived composite deltas ──────────────────────────────────────────────
     _band_to_exp = {p[4]: p for p in _REF_PAIRS if p[5] == 'exp_int'}
     _band_to_alb = {p[4]: p for p in _REF_PAIRS if p[5] == 'albedo'}
-    _band_to_k1  = {p[4]: p for p in _REF_PAIRS if p[5] == 'k\u2081'}
-    _band_to_k2  = {p[4]: p for p in _REF_PAIRS if p[5] == 'k\u2082'}
+    _band_to_k1  = {p[4]: p for p in _REF_PAIRS if p[5] == MEAN_L_LABEL}
+    _band_to_k2  = {p[4]: p for p in _REF_PAIRS if p[5] == VAR_L_LABEL}
 
     for band in _band_to_exp:
         exp_p = _band_to_exp[band]
@@ -173,21 +181,21 @@ def _has_r15_data(df: pd.DataFrame) -> bool:
 
 # r05 reference set (min_cld_dist=5 km) — mirrors _REF_PAIRS with r05_ prefix columns
 _R05_PAIRS: list[tuple] = [
-    ('o2a_k1',             'r05_o2a_k1_mean',       'r05_o2a_k1_std',       'dr05k1_o2a',   'O₂A',  'k₁',   'C0'),
-    ('o2a_k2',             'r05_o2a_k2_mean',       'r05_o2a_k2_std',       'dr05k2_o2a',   'O₂A',  'k₂',   'C0'),
-    ('o2a_k3',             'r05_o2a_k3_mean',       'r05_o2a_k3_std',       'dr05k3_o2a',   'O₂A',  'k₃',   'C0'),
-    ('wco2_k1',            'r05_wco2_k1_mean',      'r05_wco2_k1_std',      'dr05k1_wco2',  'WCO₂', 'k₁',   'C1'),
-    ('wco2_k2',            'r05_wco2_k2_mean',      'r05_wco2_k2_std',      'dr05k2_wco2',  'WCO₂', 'k₂',   'C1'),
-    ('wco2_k3',            'r05_wco2_k3_mean',      'r05_wco2_k3_std',      'dr05k3_wco2',  'WCO₂', 'k₃',   'C1'),
-    ('sco2_k1',            'r05_sco2_k1_mean',      'r05_sco2_k1_std',      'dr05k1_sco2',  'SCO₂', 'k₁',   'C2'),
-    ('sco2_k2',            'r05_sco2_k2_mean',      'r05_sco2_k2_std',      'dr05k2_sco2',  'SCO₂', 'k₂',   'C2'),
-    ('sco2_k3',            'r05_sco2_k3_mean',      'r05_sco2_k3_std',      'dr05k3_sco2',  'SCO₂', 'k₃',   'C2'),
-    ('alb_o2a',            'r05_alb_o2a_mean',      'r05_alb_o2a_std',      'dr05alb_o2a',  'O₂A',  'albedo',    'C0'),
-    ('alb_wco2',           'r05_alb_wco2_mean',     'r05_alb_wco2_std',     'dr05alb_wco2', 'WCO₂', 'albedo',    'C1'),
-    ('alb_sco2',           'r05_alb_sco2_mean',     'r05_alb_sco2_std',     'dr05alb_sco2', 'SCO₂', 'albedo',    'C2'),
-    ('exp_o2a_intercept',  'r05_exp_int_o2a_mean',  'r05_exp_int_o2a_std',  'dr05exp_o2a',  'O₂A',  'exp_int',   'C0'),
-    ('exp_wco2_intercept', 'r05_exp_int_wco2_mean', 'r05_exp_int_wco2_std', 'dr05exp_wco2', 'WCO₂', 'exp_int',   'C1'),
-    ('exp_sco2_intercept', 'r05_exp_int_sco2_mean', 'r05_exp_int_sco2_std', 'dr05exp_sco2', 'SCO₂', 'exp_int',   'C2'),
+    ('o2a_k1',             'r05_o2a_k1_mean',       'r05_o2a_k1_std',       'dr05k1_o2a',   _O2A,  MEAN_L_LABEL,   'C0'),
+    ('o2a_k2',             'r05_o2a_k2_mean',       'r05_o2a_k2_std',       'dr05k2_o2a',   _O2A,  VAR_L_LABEL,   'C0'),
+    ('o2a_k3',             'r05_o2a_k3_mean',       'r05_o2a_k3_std',       'dr05k3_o2a',   _O2A,  _K3,   'C0'),
+    ('wco2_k1',            'r05_wco2_k1_mean',      'r05_wco2_k1_std',      'dr05k1_wco2',  _WCO2, MEAN_L_LABEL,   'C1'),
+    ('wco2_k2',            'r05_wco2_k2_mean',      'r05_wco2_k2_std',      'dr05k2_wco2',  _WCO2, VAR_L_LABEL,   'C1'),
+    ('wco2_k3',            'r05_wco2_k3_mean',      'r05_wco2_k3_std',      'dr05k3_wco2',  _WCO2, _K3,   'C1'),
+    ('sco2_k1',            'r05_sco2_k1_mean',      'r05_sco2_k1_std',      'dr05k1_sco2',  _SCO2, MEAN_L_LABEL,   'C2'),
+    ('sco2_k2',            'r05_sco2_k2_mean',      'r05_sco2_k2_std',      'dr05k2_sco2',  _SCO2, VAR_L_LABEL,   'C2'),
+    ('sco2_k3',            'r05_sco2_k3_mean',      'r05_sco2_k3_std',      'dr05k3_sco2',  _SCO2, _K3,   'C2'),
+    ('alb_o2a',            'r05_alb_o2a_mean',      'r05_alb_o2a_std',      'dr05alb_o2a',  _O2A,  'albedo',    'C0'),
+    ('alb_wco2',           'r05_alb_wco2_mean',     'r05_alb_wco2_std',     'dr05alb_wco2', _WCO2, 'albedo',    'C1'),
+    ('alb_sco2',           'r05_alb_sco2_mean',     'r05_alb_sco2_std',     'dr05alb_sco2', _SCO2, 'albedo',    'C2'),
+    ('exp_o2a_intercept',  'r05_exp_int_o2a_mean',  'r05_exp_int_o2a_std',  'dr05exp_o2a',  _O2A,  'exp_int',   'C0'),
+    ('exp_wco2_intercept', 'r05_exp_int_wco2_mean', 'r05_exp_int_wco2_std', 'dr05exp_wco2', _WCO2, 'exp_int',   'C1'),
+    ('exp_sco2_intercept', 'r05_exp_int_sco2_mean', 'r05_exp_int_sco2_std', 'dr05exp_sco2', _SCO2, 'exp_int',   'C2'),
 ]
 
 
@@ -270,9 +278,9 @@ def plot_ref_diff_vs_cld_dist(df: pd.DataFrame, outdir: str,
     if pairs is None:
         pairs = _REF_PAIRS
     term_groups = [
-        ('k\u2081',   [p for p in pairs if p[5] == 'k\u2081'],  f'{tag}_diff_scatter_k1.png'),
-        ('k\u2082',   [p for p in pairs if p[5] == 'k\u2082'],  f'{tag}_diff_scatter_k2.png'),
-        ('k\u2083',   [p for p in pairs if p[5] == 'k\u2083'],  f'{tag}_diff_scatter_k3.png'),
+        (MEAN_L_LABEL,   [p for p in pairs if p[5] == MEAN_L_LABEL],  f'{tag}_diff_scatter_k1.png'),
+        (VAR_L_LABEL,   [p for p in pairs if p[5] == VAR_L_LABEL],  f'{tag}_diff_scatter_k2.png'),
+        (_K3,   [p for p in pairs if p[5] == _K3],  f'{tag}_diff_scatter_k3.png'),
         ('albedo', [p for p in pairs if p[5] == 'albedo'],      f'{tag}_diff_scatter_alb.png'),
         ('exp_int',[p for p in pairs if p[5] == 'exp_int'],     f'{tag}_diff_scatter_exp.png'),
     ]
@@ -347,11 +355,11 @@ def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str,
     if pairs is None:
         pairs = _REF_PAIRS
     check_vars = {
-        'o2a_k1':            'O\u2082A k\u2081',
-        'alb_o2a':           'O\u2082A albedo',
-        'exp_o2a_intercept': 'O\u2082A exp_int',
-        'sco2_k1':           'SCO\u2082 k\u2081',
-        'xco2_bc_anomaly':   'XCO\u2082 BC anomaly (ppm)',
+        'o2a_k1':            f'{_O2A} {MEAN_L_LABEL}',
+        'alb_o2a':           f'{_O2A} albedo',
+        'exp_o2a_intercept': f'{_O2A} exp_int',
+        'sco2_k1':           f'{_SCO2} {MEAN_L_LABEL}',
+        'xco2_bc_anomaly':   f'{XCO2_LABEL} BC anomaly (ppm)',
         'airmass':           'Airmass',
     }
     avail = {k: v for k, v in check_vars.items() if k in df.columns}
@@ -430,8 +438,8 @@ def plot_ref_std_profiles(df: pd.DataFrame, bins, labels, outdir: str,
     if pairs is None:
         pairs = _REF_PAIRS
     # show k1, albedo, exp_int for O₂A and SCO₂ only
-    _show_bands = {'O\u2082A', 'SCO\u2082'}
-    _show_terms = {'k\u2081', 'albedo', 'exp_int'}
+    _show_bands = {_O2A, _SCO2}
+    _show_terms = {MEAN_L_LABEL, 'albedo', 'exp_int'}
     std_vars = [
         (ref_s, f'{bl} {tl} {tag} \u03c3', col)
         for _, _, ref_s, _, bl, tl, col in pairs
@@ -487,14 +495,14 @@ def plot_ref_corrected_profiles(df: pd.DataFrame, bins, labels, outdir: str,
     if pairs is None:
         pairs = _REF_PAIRS
 
-    _BANDS = ['O\u2082A', 'WCO\u2082', 'SCO\u2082']
-    _BAND_COLOR = {'O\u2082A': 'C0', 'WCO\u2082': 'C1', 'SCO\u2082': 'C2'}
+    _BANDS = [_O2A, _WCO2, _SCO2]
+    _BAND_COLOR = {_O2A: 'C0', _WCO2: 'C1', _SCO2: 'C2'}
 
     # standard pairs groups (7-tuples) + derived groups (4-tuples padded to 7)
     term_groups = [
-        ('k\u2081',   [p for p in pairs if p[5] == 'k\u2081'],   f'{tag}_corrected_k1_profiles.png'),
-        ('k\u2082',   [p for p in pairs if p[5] == 'k\u2082'],   f'{tag}_corrected_k2_profiles.png'),
-        ('k\u2083',   [p for p in pairs if p[5] == 'k\u2083'],   f'{tag}_corrected_k3_profiles.png'),
+        (MEAN_L_LABEL,   [p for p in pairs if p[5] == MEAN_L_LABEL],   f'{tag}_corrected_k1_profiles.png'),
+        (VAR_L_LABEL,   [p for p in pairs if p[5] == VAR_L_LABEL],   f'{tag}_corrected_k2_profiles.png'),
+        (_K3,   [p for p in pairs if p[5] == _K3],   f'{tag}_corrected_k3_profiles.png'),
         ('albedo', [p for p in pairs if p[5] == 'albedo'],       f'{tag}_corrected_alb_profiles.png'),
         ('exp_int',[p for p in pairs if p[5] == 'exp_int'],      f'{tag}_corrected_exp_profiles.png'),
         # derived groups — 4-tuples padded: (None, None, None, dcol, band, term, color)
@@ -506,8 +514,8 @@ def plot_ref_corrected_profiles(df: pd.DataFrame, bins, labels, outdir: str,
          [(None, None, None, f'd_exp_over_alb_{b}', b, 'exp/alb', _BAND_COLOR[b])
           for b in _BANDS],
          f'{tag}_corrected_exp_over_alb_profiles.png'),
-        ('k\u2082/k\u2081',
-         [(None, None, None, f'd_k2_over_k1_{b}', b, 'k\u2082/k\u2081', _BAND_COLOR[b])
+        (f'{VAR_L_LABEL}/{MEAN_L_LABEL}',
+         [(None, None, None, f'd_k2_over_k1_{b}', b, f'{VAR_L_LABEL}/{MEAN_L_LABEL}', _BAND_COLOR[b])
           for b in _BANDS],
          f'{tag}_corrected_k2_over_k1_profiles.png'),
     ]
@@ -526,6 +534,7 @@ def plot_ref_corrected_profiles(df: pd.DataFrame, bins, labels, outdir: str,
         for row, (_, _, _, dcol, bl, tl, col) in enumerate(avail):
             for ci, (sfc_name, sdf) in enumerate(subsets):
                 ax = axes[row, ci]
+                panel_label(ax, f'({chr(97 + row * 2 + ci)})')
                 _binned_ref_profile(ax, sdf, dcol, bins, labels, col,
                                     f'{bl} {tl} \u2212 ref — {sfc_name}')
                 if ax.get_visible():
@@ -551,9 +560,9 @@ def plot_ref_zscore_profiles(df: pd.DataFrame, bins, labels, outdir: str,
     if pairs is None:
         pairs = _REF_PAIRS
     term_groups = [
-        ('k\u2081',   [p for p in pairs if p[5] == 'k\u2081'],   f'{tag}_zscore_k1_profiles.png'),
-        ('k\u2082',   [p for p in pairs if p[5] == 'k\u2082'],   f'{tag}_zscore_k2_profiles.png'),
-        ('k\u2083',   [p for p in pairs if p[5] == 'k\u2083'],   f'{tag}_zscore_k3_profiles.png'),
+        (MEAN_L_LABEL,   [p for p in pairs if p[5] == MEAN_L_LABEL],   f'{tag}_zscore_k1_profiles.png'),
+        (VAR_L_LABEL,   [p for p in pairs if p[5] == VAR_L_LABEL],   f'{tag}_zscore_k2_profiles.png'),
+        (_K3,   [p for p in pairs if p[5] == _K3],   f'{tag}_zscore_k3_profiles.png'),
         ('albedo', [p for p in pairs if p[5] == 'albedo'],       f'{tag}_zscore_alb_profiles.png'),
         ('exp_int',[p for p in pairs if p[5] == 'exp_int'],      f'{tag}_zscore_exp_profiles.png'),
     ]
@@ -600,9 +609,9 @@ def plot_ref_signal_hierarchy(df: pd.DataFrame, outdir: str,
     """
     if pairs is None:
         pairs = _REF_PAIRS
-    _term_order  = ['k\u2081', 'k\u2082', 'k\u2083', 'albedo', 'exp_int']
-    _hatch_map   = {'k\u2081': '', 'k\u2082': '///', 'k\u2083': 'xxx', 'albedo': '...', 'exp_int': '|||'}
-    _disp_term   = {'k\u2081': 'k\u2081', 'k\u2082': 'k\u2082', 'k\u2083': 'k\u2083',
+    _term_order  = [MEAN_L_LABEL, VAR_L_LABEL, _K3, 'albedo', 'exp_int']
+    _hatch_map   = {MEAN_L_LABEL: '', VAR_L_LABEL: '///', _K3: 'xxx', 'albedo': '...', 'exp_int': '|||'}
+    _disp_term   = {MEAN_L_LABEL: MEAN_L_LABEL, VAR_L_LABEL: VAR_L_LABEL, _K3: _K3,
                     'albedo': 'alb', 'exp_int': 'exp_int'}
     feat_groups = [
         (dcol, bl, _disp_term[tl], _hatch_map[tl])
@@ -614,7 +623,7 @@ def plot_ref_signal_hierarchy(df: pd.DataFrame, outdir: str,
     if not avail:
         return
 
-    band_colors  = {'O\u2082A': 'C0', 'WCO\u2082': 'C1', 'SCO\u2082': 'C2'}
+    band_colors  = {_O2A: 'C0', _WCO2: 'C1', _SCO2: 'C2'}
     subsets = [('Ocean', df[df['sfc_type'] == 0]),
                ('Land',  df[df['sfc_type'] == 1])]
 
@@ -648,7 +657,7 @@ def plot_ref_signal_hierarchy(df: pd.DataFrame, outdir: str,
     from matplotlib.patches import Patch
     legend_handles  = [Patch(facecolor=c, label=b) for b, c in band_colors.items()]
     legend_handles += [Patch(facecolor='gray', hatch=h, label=t, alpha=0.7)
-                       for t, h in [('k\u2081', ''), ('k\u2082', '///'), ('k\u2083', 'xxx'),
+                       for t, h in [(MEAN_L_LABEL, ''), (VAR_L_LABEL, '///'), (_K3, 'xxx'),
                                     ('alb', '...'), ('exp_int', '|||')]]
     axes[0].legend(handles=legend_handles, fontsize=7, ncol=2, loc='lower left',
                    title='Band / Term', title_fontsize=7)
@@ -758,8 +767,8 @@ def plot_obs_vs_ref_scatter(df: pd.DataFrame, outdir: str,
     """
     if pairs is None:
         pairs = _REF_PAIRS
-    _show_bands = {'O\u2082A', 'SCO\u2082'}
-    _show_terms = {'k\u2081', 'albedo', 'exp_int'}
+    _show_bands = {_O2A, _SCO2}
+    _show_terms = {MEAN_L_LABEL, 'albedo', 'exp_int'}
     var_defs = [
         (obs, ref_m, f'{bl} {tl}', col)
         for obs, ref_m, _, _, bl, tl, col in pairs
@@ -854,18 +863,18 @@ def plot_ref_delta_multivar(df: pd.DataFrame, bins, labels,
                   else [('All', df)]
 
     x = np.arange(len(labels))
-    term_order = ['k\u2081', 'k\u2082', 'k\u2083', 'albedo', 'exp_int']
+    term_order = [MEAN_L_LABEL, VAR_L_LABEL, _K3, 'albedo', 'exp_int']
     terms = [t for t in term_order if t in term_map] + \
             [t for t in term_map if t not in term_order]
 
     # derived delta groups: (label, [(dcol, band_lbl, color), ...])
-    _BANDS = ['O\u2082A', 'WCO\u2082', 'SCO\u2082']
-    _BAND_COLOR = {'O\u2082A': 'C0', 'WCO\u2082': 'C1', 'SCO\u2082': 'C2'}
+    _BANDS = [_O2A, _WCO2, _SCO2]
+    _BAND_COLOR = {_O2A: 'C0', _WCO2: 'C1', _SCO2: 'C2'}
     _derived_terms = []
     for derived_lbl, col_prefix in [
         ('exp\u2212alb',    'd_exp_minus_alb'),
         ('exp/alb',         'd_exp_over_alb'),
-        ('k\u2082/k\u2081', 'd_k2_over_k1'),
+        (f'{VAR_L_LABEL}/{MEAN_L_LABEL}', 'd_k2_over_k1'),
     ]:
         entries = [(f'{col_prefix}_{b}', b, _BAND_COLOR[b])
                    for b in _BANDS if f'{col_prefix}_{b}' in df.columns]
@@ -960,11 +969,11 @@ def plot_ref_cross_band_delta(df: pd.DataFrame, outdir: str,
         return
 
     norm = mcolors.Normalize(vmin=0, vmax=max_dist)
-    cmap = plt.cm.plasma_r
+    cmap = plt.colormaps[CMAPS['cld_dist']]
 
-    term_order = [('k\u2081', f'{tag}_cross_band_delta_k1.png'),
-                  ('k\u2082', f'{tag}_cross_band_delta_k2.png'),
-                  ('k\u2083', f'{tag}_cross_band_delta_k3.png'),
+    term_order = [(MEAN_L_LABEL, f'{tag}_cross_band_delta_k1.png'),
+                  (VAR_L_LABEL, f'{tag}_cross_band_delta_k2.png'),
+                  (_K3, f'{tag}_cross_band_delta_k3.png'),
                   ('albedo', f'{tag}_cross_band_delta_alb.png'),
                   ('exp_int', f'{tag}_cross_band_delta_exp.png')]
 
@@ -1132,12 +1141,12 @@ def plot_ref_delta_vs_xco2(df: pd.DataFrame, outdir: str,
         return
 
     norm = mcolors.Normalize(vmin=0, vmax=max_dist)
-    cmap = plt.cm.viridis_r
+    cmap = plt.colormaps[CMAPS['cld_dist']]
     yv_xco2 = sub['xco2_bc_anomaly'].values.astype(float)
 
-    term_order = [('k\u2081', f'{tag}_delta_vs_xco2_k1.png'),
-                  ('k\u2082', f'{tag}_delta_vs_xco2_k2.png'),
-                  ('k\u2083', f'{tag}_delta_vs_xco2_k3.png'),
+    term_order = [(MEAN_L_LABEL, f'{tag}_delta_vs_xco2_k1.png'),
+                  (VAR_L_LABEL, f'{tag}_delta_vs_xco2_k2.png'),
+                  (_K3, f'{tag}_delta_vs_xco2_k3.png'),
                   ('albedo', f'{tag}_delta_vs_xco2_alb.png'),
                   ('exp_int', f'{tag}_delta_vs_xco2_exp.png')]
 
@@ -1168,10 +1177,10 @@ def plot_ref_delta_vs_xco2(df: pd.DataFrame, outdir: str,
                 r_val = stats.pearsonr(xv[m], yv_xco2[m])[0]
                 ax.set_title(f'{band_lbl} \u0394{term_lbl}   r={r_val:.3f}', fontsize=9)
             ax.set_xlabel(f'\u0394{term_lbl} ({band_lbl})', fontsize=9)
-            ax.set_ylabel('XCO\u2082 BC anomaly (ppm)', fontsize=9)
+            ax.set_ylabel(f'{XCO2_LABEL} BC anomaly (ppm)', fontsize=9)
             ax.legend(fontsize=7)
 
-        fig.suptitle(f'[{tag}] \u0394{term_lbl} vs XCO\u2082 BC anomaly\n'
+        fig.suptitle(f'[{tag}] \u0394{term_lbl} vs {XCO2_LABEL} BC anomaly\n'
                      f'soundings \u2264{max_dist} km from cloud, colored by cld_dist',
                      fontsize=11)
         fig.tight_layout()
@@ -1200,12 +1209,12 @@ def plot_ref_delta_partial_xco2(df: pd.DataFrame, outdir: str,
              if dcol in df.columns]
 
     # append derived composite deltas
-    _BANDS = ['O\u2082A', 'WCO\u2082', 'SCO\u2082']
-    _BAND_COLOR = {'O\u2082A': 'C0', 'WCO\u2082': 'C1', 'SCO\u2082': 'C2'}
+    _BANDS = [_O2A, _WCO2, _SCO2]
+    _BAND_COLOR = {_O2A: 'C0', _WCO2: 'C1', _SCO2: 'C2'}
     for derived_lbl, col_prefix in [
         ('exp\u2212alb',    'd_exp_minus_alb'),
         ('exp/alb',         'd_exp_over_alb'),
-        ('k\u2082/k\u2081', 'd_k2_over_k1'),
+        (f'{VAR_L_LABEL}/{MEAN_L_LABEL}', 'd_k2_over_k1'),
     ]:
         for b in _BANDS:
             dc = f'{col_prefix}_{b}'
@@ -1278,7 +1287,7 @@ def plot_ref_delta_partial_xco2(df: pd.DataFrame, outdir: str,
                 ax.text(xpos, bar.get_y() + bar.get_height() / 2,
                         f'{r:.3f}', va='center', ha=ha, fontsize=7)
 
-    fig.suptitle(f'[{tag}] Partial r(\u0394var, XCO\u2082 BC anomaly)\n'
+    fig.suptitle(f'[{tag}] Partial r(\u0394var, {XCO2_LABEL} BC anomaly)\n'
                  f'after OLS-removing {", ".join(conf_avail[:3])}…', fontsize=11)
     fig.tight_layout()
     _save(fig, outdir, f'{tag}_delta_partial_xco2.png')
@@ -1345,7 +1354,7 @@ def plot_ref_corrected_profiles_by_fp_area(
     # ocean/land slices contain the new columns.
     band_to_exp = {p[4]: p for p in pairs if p[5] == 'exp_int'}
     band_to_alb = {p[4]: p for p in pairs if p[5] == 'albedo'}
-    _BAND_ORDER = {'O\u2082A': 0, 'WCO\u2082': 1, 'SCO\u2082': 2}
+    _BAND_ORDER = {_O2A: 0, _WCO2: 1, _SCO2: 2}
 
     derived_minus, derived_ratio = [], []
     for band, exp_p in sorted(band_to_exp.items(), key=lambda kv: _BAND_ORDER.get(kv[0], 99)):
@@ -1380,12 +1389,12 @@ def plot_ref_corrected_profiles_by_fp_area(
 
     # ── build variable groups (standard + derived) ────────────────────────────
     var_groups = [
-        ('k\u2081',          [p for p in pairs if p[5] == 'k\u2081'],
+        (MEAN_L_LABEL,          [p for p in pairs if p[5] == MEAN_L_LABEL],
          f'{tag}_corrected_k1_profiles_by_fp_area.png',
-         f'[{tag}] Ref-corrected \u0394k\u2081 by footprint area quintile'),
-        ('k\u2082',          [p for p in pairs if p[5] == 'k\u2082'],
+         f'[{tag}] Ref-corrected \u0394{MEAN_L_LABEL} by footprint area quintile'),
+        (VAR_L_LABEL,          [p for p in pairs if p[5] == VAR_L_LABEL],
          f'{tag}_corrected_k2_profiles_by_fp_area.png',
-         f'[{tag}] Ref-corrected \u0394k\u2082 by footprint area quintile'),
+         f'[{tag}] Ref-corrected \u0394{VAR_L_LABEL} by footprint area quintile'),
         ('albedo',         [p for p in pairs if p[5] == 'albedo'],
          f'{tag}_corrected_alb_profiles_by_fp_area.png',
          f'[{tag}] Ref-corrected \u0394albedo by footprint area quintile'),

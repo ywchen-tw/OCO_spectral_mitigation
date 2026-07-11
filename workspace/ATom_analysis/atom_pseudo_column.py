@@ -32,6 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)                       # for ak_harmonize (workspace/)
 sys.path.insert(0, os.path.join(HERE, ".."))
 from ak_harmonize import operator_from_dataframe, _haversine_km  # noqa: E402
+from plot_style import apply_manuscript_style, panel_label       # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CSV_DIR = os.path.join(REPO, "results", "csv_collection")
@@ -179,6 +180,7 @@ def make_summary_plot(df, out_png):
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
     d = df.sort_values("cld_med").reset_index(drop=True)
     y = np.arange(len(d))
     lbl = [f"{r.date[5:]} L{r.profile_id}" for r in d.itertuples()]
@@ -202,6 +204,7 @@ def make_summary_plot(df, out_png):
     ax1.set_title(f"Per-leg bias: xco2_bc → {MODEL_LABEL}")
     ax1.legend(handles=[Patch(facecolor=GREY, alpha=0.25, label="ATom pseudo-column ±1σ (per leg)"),
                         *ax1.get_legend_handles_labels()[0]], fontsize=7)
+    panel_label(ax1, "(a)")
 
     # (B) bias vs cloud distance; per-leg grey bar at each x = that leg's pseudo-column ±1σ
     ax2.errorbar(d.cld_med, np.zeros(len(d)), yerr=sd, fmt="none", ecolor=GREY,
@@ -217,6 +220,7 @@ def make_summary_plot(df, out_png):
     ax2.set_ylabel("OCO-2 − ATom (ppm)"); ax2.set_title("Bias vs cloud distance")
     ax2.legend(handles=[Patch(facecolor=GREY, alpha=0.3, label="ATom pseudo-column ±1σ (per leg)"),
                         *ax2.get_legend_handles_labels()[0]], fontsize=8)
+    panel_label(ax2, "(b)")
 
     nc = d[d.cld_med <= 10]
     fig.suptitle(
@@ -225,8 +229,8 @@ def make_summary_plot(df, out_png):
         f"near-cloud mean bias {nc.resid_bc.mean():+.2f}±{nc.resid_bc.std():.2f} → "
         f"{nc.resid_corr.mean():+.2f}±{nc.resid_corr.std():.2f} ppm  "
         f"(±1σ across legs;  pseudo-column σ {sd.min():.2f}–{sd.max():.2f} per leg)",
-        fontweight="bold", fontsize=11)
-    fig.tight_layout(); fig.savefig(out_png, dpi=130); plt.close(fig)
+        fontweight="bold")
+    fig.tight_layout(); fig.savefig(out_png); plt.close(fig)
     print(f"wrote {out_png}")
 
 

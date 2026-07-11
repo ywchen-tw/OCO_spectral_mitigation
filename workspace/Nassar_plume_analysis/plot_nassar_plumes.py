@@ -13,6 +13,7 @@ import argparse
 import csv
 import math
 import re
+import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -26,6 +27,12 @@ import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+ROOT_WORKSPACE = Path(__file__).resolve().parents[1]
+if str(ROOT_WORKSPACE) not in sys.path:
+    sys.path.insert(0, str(ROOT_WORKSPACE))
+from plot_style import (apply_manuscript_style, panel_label, CMAPS,  # noqa: E402
+                        XCO2_LABEL, MEAN_L_LABEL)
 
 
 DEFAULT_PLANTS = Path(__file__).with_name("nassar_power_plants.csv")
@@ -411,16 +418,18 @@ def plot_pair(
         ]
     )
     info_ax = fig.add_subplot(grid[:, 3])
+    xco2_ppm = f"{XCO2_LABEL} (ppm)"
     panels = [
-        ("Original XCO2_bc", "xco2_bc", "turbo", vmin, vmax, None, "XCO2 (ppm)"),
-        ("DeepEns corrected XCO2", "deep_ensemble_corrected_xco2", "turbo", vmin, vmax, None, "XCO2 (ppm)"),
-        ("Predicted correction mu", "pred_anomaly", "coolwarm", None, None, mu_norm, "mu (ppm)"),
-        ("Nearest-cloud distance", "cld_dist_km", "viridis", 0.0, 50.0, None, "km"),
-        ("O2A k1", "o2a_k1", "magma", o2a_k1_min, o2a_k1_max, None, "o2a k1"),
-        ("WCO2 k1", "wco2_k1", "magma", wco2_k1_min, wco2_k1_max, None, "wco2 k1"),
+        (f"Original {XCO2_LABEL} (bias-corrected)", "xco2_bc", CMAPS["xco2"], vmin, vmax, None, xco2_ppm),
+        (f"DeepEns corrected {XCO2_LABEL}", "deep_ensemble_corrected_xco2", CMAPS["xco2"], vmin, vmax, None, xco2_ppm),
+        ("Predicted correction μ", "pred_anomaly", CMAPS["mu"], None, None, mu_norm, "μ (ppm)"),
+        ("Nearest-cloud distance", "cld_dist_km", CMAPS["cld_dist"], 0.0, 50.0, None, "km"),
+        (f"{MEAN_L_LABEL} (O2A)", "o2a_k1", CMAPS["spec"], o2a_k1_min, o2a_k1_max, None, f"{MEAN_L_LABEL} (O2A)"),
+        (f"{MEAN_L_LABEL} (WCO2)", "wco2_k1", CMAPS["spec"], wco2_k1_min, wco2_k1_max, None, f"{MEAN_L_LABEL} (WCO2)"),
     ]
 
-    for ax, (title, col, cmap, pmin, pmax, norm, cbar_label) in zip(axes.ravel(), panels):
+    for i, (ax, (title, col, cmap, pmin, pmax, norm, cbar_label)) in enumerate(
+            zip(axes.ravel(), panels)):
         if bg_img is not None:
             ax.imshow(bg_img, extent=[extent[0], extent[1], extent[2], extent[3]], origin="upper", aspect="auto")
         if col in view.columns:
@@ -476,10 +485,11 @@ def plot_pair(
             )
         ax.set_xlim(extent[0], extent[1])
         ax.set_ylim(extent[2], extent[3])
-        ax.set_title(title, fontsize=11)
+        ax.set_title(title)
         ax.set_xlabel("Lon (deg E)")
         ax.set_ylabel("Lat (deg N)")
         ax.legend(loc="lower left", fontsize=8, framealpha=0.85)
+        panel_label(ax, f"({chr(ord('a') + i)})")
 
     info_ax.axis("off")
     info_ax.text(
@@ -505,7 +515,7 @@ def plot_pair(
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f"nassar_plume_{plant_id}_{date}.png"
-    fig.savefig(output, dpi=180)
+    fig.savefig(output)
     plt.close(fig)
     return output
 
@@ -531,6 +541,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
     plants = read_plants(args.plants)
     preservation_summary = load_optional_csv(args.preservation_summary)
     preservation_by_footprint = load_optional_csv(args.preservation_by_footprint)

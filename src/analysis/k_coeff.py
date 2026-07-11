@@ -21,22 +21,27 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from scipy import stats
-from .utils import _save, rolling_median_iqr, bin_by_cld_dist
+from .utils import (_save, rolling_median_iqr, bin_by_cld_dist,
+                    CMAPS, XCO2_LABEL, MEAN_L_LABEL, VAR_L_LABEL, panel_label)
 
 logger = logging.getLogger(__name__)
+
+# Rendered band tags (Arial has no U+2082 subscript glyph → mathtext)
+_O2A, _WCO2, _SCO2 = 'O$_2$A', 'WCO$_2$', 'SCO$_2$'
+_K3 = '$k_3$'
 
 
 def plot_distributions_vs_cld_dist(df, bins, labels, outdir):
     """Box-plot key variables split by cloud-distance bin."""
     vars_of_interest = {
-        'o2a_k1': 'O2-A  k\u2081',
-        'o2a_k2': 'O2-A  k\u2082',
-        'wco2_k1': 'WCO\u2082  k\u2081',
-        'wco2_k2': 'WCO\u2082  k\u2082',
-        'sco2_k1': 'SCO\u2082  k\u2081',
-        'sco2_k2': 'SCO\u2082  k\u2082',
-        'xco2_bc_anomaly': 'XCO\u2082 BC anomaly (ppm)',
-        'xco2_raw_anomaly': 'XCO\u2082 raw anomaly (ppm)',
+        'o2a_k1': f'{_O2A} {MEAN_L_LABEL}',
+        'o2a_k2': f'{_O2A} {VAR_L_LABEL}',
+        'wco2_k1': f'{_WCO2} {MEAN_L_LABEL}',
+        'wco2_k2': f'{_WCO2} {VAR_L_LABEL}',
+        'sco2_k1': f'{_SCO2} {MEAN_L_LABEL}',
+        'sco2_k2': f'{_SCO2} {VAR_L_LABEL}',
+        'xco2_bc_anomaly': f'{XCO2_LABEL} BC anomaly (ppm)',
+        'xco2_raw_anomaly': f'{XCO2_LABEL} raw anomaly (ppm)',
         'aod_total': 'AOD total',
         'dp': '\u0394P (hPa)',
         'fp_area_km2': 'FP area (km\u00b2)',
@@ -93,7 +98,8 @@ def plot_xco2_anomaly_ocean_land(df, bins, labels, outdir,
     subsets = [('Ocean', df['sfc_type'] == 0),
                ('Land',  df['sfc_type'] == 1)]
 
-    for ax, (title, mask) in zip(axes, subsets):
+    for pi, (ax, (title, mask)) in enumerate(zip(axes, subsets)):
+        panel_label(ax, f'({chr(97 + pi)})')
         sub  = df[mask]
         bsub = _bin[mask]
         groups = [sub.loc[bsub == lbl, col].dropna().values for lbl in labels]
@@ -135,9 +141,9 @@ def plot_xco2_anomaly_ocean_land(df, bins, labels, outdir,
 def plot_k1_k2_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):
     """Scatter (hexbin) + rolling median of k1, k2 for each spectral band."""
     bands = [
-        ('o2a_k1',  'o2a_k2',  'O2-A',  'C0'),
-        ('wco2_k1', 'wco2_k2', 'WCO\u2082', 'C1'),
-        ('sco2_k1', 'sco2_k2', 'SCO\u2082', 'C2'),
+        ('o2a_k1',  'o2a_k2',  _O2A,  'C0'),
+        ('wco2_k1', 'wco2_k2', _WCO2, 'C1'),
+        ('sco2_k1', 'sco2_k2', _SCO2, 'C2'),
     ]
     avail = [(k1, k2, nm, c) for k1, k2, nm, c in bands
              if k1 in df.columns and k2 in df.columns]
@@ -150,8 +156,10 @@ def plot_k1_k2_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):
         axes = axes[np.newaxis, :]
 
     for row, (k1c, k2c, nm, col) in enumerate(avail):
-        for ci, (kcol, klabel) in enumerate([(k1c, 'k\u2081'), (k2c, 'k\u2082')]):
+        for ci, (kcol, klabel) in enumerate([(k1c, MEAN_L_LABEL),
+                                             (k2c, VAR_L_LABEL)]):
             ax = axes[row, ci]
+            panel_label(ax, f'({chr(97 + row * 2 + ci)})')
             y = sub[kcol].values
             mask = np.isfinite(x) & np.isfinite(y)
             xm, ym = x[mask], y[mask]
@@ -168,12 +176,12 @@ def plot_k1_k2_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):
 
             # Pearson r
             r, _ = stats.pearsonr(xm, ym)
-            ax.set_title(f'{nm} {klabel} vs cld_dist   r={r:.3f}', fontsize=10)
+            ax.set_title(f'{nm} {klabel} vs cloud distance   r={r:.3f}', fontsize=10)
             ax.set_xlabel('Cloud distance (km)', fontsize=9)
             ax.set_ylabel(f'{nm} {klabel}', fontsize=9)
             ax.legend(fontsize=8)
 
-    fig.suptitle('k\u2081 and k\u2082 cumulant coefficients vs cloud distance', fontsize=12)
+    fig.suptitle(f'{MEAN_L_LABEL} and {VAR_L_LABEL} vs cloud distance', fontsize=12)
     fig.tight_layout()
     _save(fig, outdir, 'k1_k2_vs_cld_dist.png')
 
@@ -181,9 +189,9 @@ def plot_k1_k2_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):
 def plot_k2_over_k1_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):
     """k2/k1 ratio per band vs cloud distance — highlights scattering asymmetry."""
     bands = [
-        ('o2a_k2_over_k1',  'O2-A',   'C0'),
-        ('wco2_k2_over_k1', 'WCO\u2082', 'C1'),
-        ('sco2_k2_over_k1', 'SCO\u2082', 'C2'),
+        ('o2a_k2_over_k1',  _O2A,  'C0'),
+        ('wco2_k2_over_k1', _WCO2, 'C1'),
+        ('sco2_k2_over_k1', _SCO2, 'C2'),
     ]
     avail = [(col, nm, c) for col, nm, c in bands if col in df.columns]
     if not avail:
@@ -196,7 +204,8 @@ def plot_k2_over_k1_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):
     if len(avail) == 1:
         axes = [axes]
 
-    for ax, (col, nm, c) in zip(axes, avail):
+    for pi, (ax, (col, nm, c)) in enumerate(zip(axes, avail)):
+        panel_label(ax, f'({chr(97 + pi)})')
         y = sub[col].values
         mask = np.isfinite(x) & np.isfinite(y)
         xm, ym = x[mask], y[mask]
@@ -210,12 +219,13 @@ def plot_k2_over_k1_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):
         ax.plot(xs, med, color=c, lw=2, label='rolling median')
         ax.fill_between(xs, q25, q75, color=c, alpha=0.2)
         r, _ = stats.pearsonr(xm[vm], ym[vm])
-        ax.set_title(f'{nm} k\u2082/k\u2081   r={r:.3f}', fontsize=10)
+        ax.set_title(f'{nm} {VAR_L_LABEL}/{MEAN_L_LABEL}   r={r:.3f}', fontsize=10)
         ax.set_xlabel('Cloud distance (km)', fontsize=9)
-        ax.set_ylabel('k\u2082 / k\u2081', fontsize=9)
+        ax.set_ylabel(f'{VAR_L_LABEL} / {MEAN_L_LABEL}', fontsize=9)
         ax.legend(fontsize=8)
 
-    fig.suptitle('k\u2082/k\u2081 ratio vs cloud distance (scattering asymmetry proxy)', fontsize=11)
+    fig.suptitle(f'{VAR_L_LABEL}/{MEAN_L_LABEL} ratio vs cloud distance '
+                 '(scattering asymmetry proxy)', fontsize=11)
     fig.tight_layout()
     _save(fig, outdir, 'k2_over_k1_vs_cld_dist.png')
 
@@ -223,9 +233,9 @@ def plot_k2_over_k1_vs_cld_dist(df, outdir, max_dist=50, n_roll=200):
 def plot_k1_k2_binned_profile(df, bins, labels, outdir):
     """Mean ± std of k1 and k2 as a function of cloud-distance bin (profile plot)."""
     bands = [
-        ('o2a_k1',  'o2a_k2',  'O2-A'),
-        ('wco2_k1', 'wco2_k2', 'WCO\u2082'),
-        ('sco2_k1', 'sco2_k2', 'SCO\u2082'),
+        ('o2a_k1',  'o2a_k2',  _O2A),
+        ('wco2_k1', 'wco2_k2', _WCO2),
+        ('sco2_k1', 'sco2_k2', _SCO2),
     ]
     avail = [(k1, k2, nm) for k1, k2, nm in bands
              if k1 in df.columns and k2 in df.columns]
@@ -240,6 +250,7 @@ def plot_k1_k2_binned_profile(df, bins, labels, outdir):
     for row, (k1c, k2c, nm) in enumerate(avail):
         for ci, kcol in enumerate([k1c, k2c]):
             ax = axes[row, ci]
+            panel_label(ax, f'({chr(97 + row * 2 + ci)})')
             means = df.groupby(_bin, observed=True)[kcol].mean().reindex(labels)
             stds  = df.groupby(_bin, observed=True)[kcol].std().reindex(labels)
             ns    = df.groupby(_bin, observed=True)[kcol].count().reindex(labels).fillna(0).astype(int)
@@ -259,7 +270,7 @@ def plot_k1_k2_binned_profile(df, bins, labels, outdir):
             ax.set_xticks(x)
             ax.set_xticklabels(labels, rotation=30, fontsize=8)
             ax.set_xlabel('Cloud distance (km)', fontsize=9)
-            klabel = 'k\u2081' if ci == 0 else 'k\u2082'
+            klabel = MEAN_L_LABEL if ci == 0 else VAR_L_LABEL
             ax.set_ylabel(f'{nm} {klabel}', fontsize=9)
             ax.set_title(f'{nm} {klabel}: mean \u00b1 SEM (bars) / \u00b1 std (shading)', fontsize=10)
             ax.grid(axis='y', alpha=0.3)
@@ -277,9 +288,9 @@ def plot_k1_k2_binned_profile(df, bins, labels, outdir):
 def plot_k1_k2_joint(df, outdir, max_dist=50):
     """k1 vs k2 joint scatter colored by cloud distance — each band."""
     bands = [
-        ('o2a_k1',  'o2a_k2',  'O2-A'),
-        ('wco2_k1', 'wco2_k2', 'WCO\u2082'),
-        ('sco2_k1', 'sco2_k2', 'SCO\u2082'),
+        ('o2a_k1',  'o2a_k2',  _O2A),
+        ('wco2_k1', 'wco2_k2', _WCO2),
+        ('sco2_k1', 'sco2_k2', _SCO2),
     ]
     avail = [(k1, k2, nm) for k1, k2, nm in bands
              if k1 in df.columns and k2 in df.columns]
@@ -291,19 +302,20 @@ def plot_k1_k2_joint(df, outdir, max_dist=50):
     if len(avail) == 1:
         axes = [axes]
 
-    for ax, (k1c, k2c, nm) in zip(axes, avail):
+    for pi, (ax, (k1c, k2c, nm)) in enumerate(zip(axes, avail)):
+        panel_label(ax, f'({chr(97 + pi)})')
         sc = ax.scatter(sub[k1c], sub[k2c], c=sub['cld_dist_km'],
-                        cmap='viridis', s=2, alpha=0.4,
+                        cmap=CMAPS['cld_dist'], s=2, alpha=0.4,
                         norm=mcolors.LogNorm(vmin=1, vmax=max_dist))
-        plt.colorbar(sc, ax=ax, label='cld_dist_km')
+        plt.colorbar(sc, ax=ax, label='Cloud distance (km)')
         r, _ = stats.pearsonr(
             sub[k1c].dropna().values,
             sub[k2c].reindex(sub[k1c].dropna().index).values)
-        ax.set_xlabel(f'{nm} k\u2081', fontsize=9)
-        ax.set_ylabel(f'{nm} k\u2082', fontsize=9)
-        ax.set_title(f'{nm}: k\u2081 vs k\u2082 (r={r:.3f})', fontsize=10)
+        ax.set_xlabel(f'{nm} {MEAN_L_LABEL}', fontsize=9)
+        ax.set_ylabel(f'{nm} {VAR_L_LABEL}', fontsize=9)
+        ax.set_title(f'{nm}: {MEAN_L_LABEL} vs {VAR_L_LABEL} (r={r:.3f})', fontsize=10)
 
-    fig.suptitle('k\u2081 vs k\u2082 colored by cloud distance', fontsize=11)
+    fig.suptitle(f'{MEAN_L_LABEL} vs {VAR_L_LABEL} colored by cloud distance', fontsize=11)
     fig.tight_layout()
     _save(fig, outdir, 'k1_vs_k2_joint_cld_dist.png')
 
@@ -315,8 +327,8 @@ def plot_higher_order_k_profiles(df: pd.DataFrame, bins, labels,
     Ocean and land are shown in separate columns.
     """
     cols_info = [
-        ('sco2_k3', 'SCO\u2082 k\u2083', 'C2'),
-        ('wco2_k3', 'WCO\u2082 k\u2083', 'C1'),
+        ('sco2_k3', f'{_SCO2} {_K3}', 'C2'),
+        ('wco2_k3', f'{_WCO2} {_K3}', 'C1'),
     ]
     avail = [(col, lbl, c) for col, lbl, c in cols_info if col in df.columns]
     if not avail:
@@ -333,6 +345,7 @@ def plot_higher_order_k_profiles(df: pd.DataFrame, bins, labels,
     for row, (col, lbl, color) in enumerate(avail):
         for ci, (sfc_name, sdf) in enumerate(subsets):
             ax = axes[row, ci]
+            panel_label(ax, f'({chr(97 + row * 2 + ci)})')
             _sdf_bin = bin_by_cld_dist(sdf, bins, labels)
             means = sdf.groupby(_sdf_bin, observed=True)[col].mean().reindex(labels)
             stds  = sdf.groupby(_sdf_bin, observed=True)[col].std().reindex(labels)
@@ -370,7 +383,7 @@ def plot_higher_order_k_profiles(df: pd.DataFrame, bins, labels,
                 ax.set_ylim(finite_means.min() - spread, finite_means.max() + spread)
 
     fig.suptitle(
-        'Higher-order cumulant k\u2083 vs cloud distance — SCO\u2082 and WCO\u2082',
+        f'Higher-order cumulant {_K3} vs cloud distance — {_SCO2} and {_WCO2}',
         fontsize=11)
     fig.tight_layout()
     _save(fig, outdir, 'higher_order_k_profiles.png')
@@ -387,14 +400,14 @@ def plot_k_albedo_residuals(df: pd.DataFrame, bins, labels,
     One output file per k term (k1, k2, k3).
     """
     k_terms = [
-        ('k1', 'k\u2081'),
-        ('k2', 'k\u2082'),
-        ('k3', 'k\u2083'),
+        ('k1', MEAN_L_LABEL),
+        ('k2', VAR_L_LABEL),
+        ('k3', _K3),
     ]
     band_defs = [
-        ('o2a',  'O\u2082A',  'alb_o2a',  'C0'),
-        ('wco2', 'WCO\u2082', 'alb_wco2', 'C1'),
-        ('sco2', 'SCO\u2082', 'alb_sco2', 'C2'),
+        ('o2a',  _O2A,  'alb_o2a',  'C0'),
+        ('wco2', _WCO2, 'alb_wco2', 'C1'),
+        ('sco2', _SCO2, 'alb_sco2', 'C2'),
     ]
     control_cols = ['airmass', 'mu_sza']
     subsets = [('Ocean', df[df['sfc_type'] == 0]),
@@ -415,6 +428,7 @@ def plot_k_albedo_residuals(df: pd.DataFrame, bins, labels,
         for row, (k_col, alb_col, nm, col) in enumerate(band_info):
             for ci, (sfc_name, sdf) in enumerate(subsets):
                 ax = axes[row, ci]
+                panel_label(ax, f'({chr(97 + row * 2 + ci)})')
                 ctrl  = [c for c in control_cols if c in sdf.columns]
                 X_cols = [alb_col] + ctrl
                 m     = sdf[[k_col, 'cld_dist_km'] + X_cols].notna().all(axis=1)
@@ -464,8 +478,8 @@ def plot_k_albedo_residuals(df: pd.DataFrame, bins, labels,
 
         fig.suptitle(
             f'{kt_label} residuals after removing alb + airmass + cos(SZA)\n'
-            f'SCO\u2082 {kt_label} retains genuine cloud-proximity signal on land; '
-            f'O\u2082A and WCO\u2082 do not.',
+            f'{_SCO2} {kt_label} retains genuine cloud-proximity signal on land; '
+            f'{_O2A} and {_WCO2} do not.',
             fontsize=11)
         fig.tight_layout()
         _save(fig, outdir, f'{kt}_albedo_residuals.png')
@@ -491,14 +505,14 @@ def plot_cross_band_k_combinations(df: pd.DataFrame, bins, labels,
     import itertools
 
     BANDS = [
-        ('o2a',  'O2-A',   'C0'),
-        ('wco2', 'WCO\u2082', 'C1'),
-        ('sco2', 'SCO\u2082', 'C2'),
+        ('o2a',  _O2A,  'C0'),
+        ('wco2', _WCO2, 'C1'),
+        ('sco2', _SCO2, 'C2'),
     ]
     ORDERS = [
-        ('k1', 'k\u2081'),
-        ('k2', 'k\u2082'),
-        ('k3', 'k\u2083'),
+        ('k1', MEAN_L_LABEL),
+        ('k2', VAR_L_LABEL),
+        ('k3', _K3),
     ]
 
     # ── (A) Cross-band ratio binned profiles ──────────────────────────────────
@@ -583,7 +597,7 @@ def plot_cross_band_k_combinations(df: pd.DataFrame, bins, labels,
     # ── (B) Cross-band k scatter matrix (per k-order) ────────────────────────
     # For each k-order, draw an N×N grid where cell (i,j) is scatter of
     # band_i kN vs band_j kN, coloured by cld_dist bin.
-    cmap_bins = plt.cm.get_cmap('plasma', len(labels))
+    cmap_bins = plt.cm.get_cmap(CMAPS['cld_dist'], len(labels))
     _bin_cat = bin_by_cld_dist(df, bins, labels)
 
     for kord, klbl in ORDERS:
@@ -692,19 +706,19 @@ def plot_fp_area_analysis(df: pd.DataFrame, bins, labels,
 
     # ── variable registry ─────────────────────────────────────────────────────
     _VARS = [
-        ('o2a_k1',           'O\u2082A k\u2081'),
-        ('o2a_k2',           'O\u2082A k\u2082'),
-        ('wco2_k1',          'WCO\u2082 k\u2081'),
-        ('wco2_k2',          'WCO\u2082 k\u2082'),
-        ('sco2_k1',          'SCO\u2082 k\u2081'),
-        ('sco2_k2',          'SCO\u2082 k\u2082'),
-        ('exp_o2a_intercept',  'O\u2082A exp'),
-        ('exp_wco2_intercept', 'WCO\u2082 exp'),
-        ('exp_sco2_intercept', 'SCO\u2082 exp'),
-        ('alb_o2a',          'O\u2082A alb'),
-        ('alb_wco2',         'WCO\u2082 alb'),
-        ('alb_sco2',         'SCO\u2082 alb'),
-        ('xco2_bc_anomaly',  'XCO\u2082 BC anom.'),
+        ('o2a_k1',           f'{_O2A} {MEAN_L_LABEL}'),
+        ('o2a_k2',           f'{_O2A} {VAR_L_LABEL}'),
+        ('wco2_k1',          f'{_WCO2} {MEAN_L_LABEL}'),
+        ('wco2_k2',          f'{_WCO2} {VAR_L_LABEL}'),
+        ('sco2_k1',          f'{_SCO2} {MEAN_L_LABEL}'),
+        ('sco2_k2',          f'{_SCO2} {VAR_L_LABEL}'),
+        ('exp_o2a_intercept',  f'{_O2A} exp'),
+        ('exp_wco2_intercept', f'{_WCO2} exp'),
+        ('exp_sco2_intercept', f'{_SCO2} exp'),
+        ('alb_o2a',          f'{_O2A} alb'),
+        ('alb_wco2',         f'{_WCO2} alb'),
+        ('alb_sco2',         f'{_SCO2} alb'),
+        ('xco2_bc_anomaly',  f'{XCO2_LABEL} BC anom.'),
     ]
     avail = [(col, lbl) for col, lbl in _VARS if col in df.columns]
     if not avail:
@@ -874,17 +888,17 @@ def plot_fp_area_analysis(df: pd.DataFrame, bins, labels,
 
     fig, ax = plt.subplots(figsize=(max(6, len(fp_q_labels)), max(4, len(labels))))
     im = ax.imshow(grid.values.astype(float), aspect='auto', origin='upper',
-                   cmap='RdBu_r',
+                   cmap=CMAPS['mu'],
                    vmin=-np.nanpercentile(np.abs(grid.values), 95),
                    vmax= np.nanpercentile(np.abs(grid.values), 95))
-    plt.colorbar(im, ax=ax, label='mean XCO\u2082 BC anomaly (ppm)')
+    plt.colorbar(im, ax=ax, label=f'mean {XCO2_LABEL} BC anomaly (ppm)')
     ax.set_xticks(np.arange(grid.shape[1]))
     ax.set_xticklabels([str(c) for c in grid.columns], rotation=40, ha='right', fontsize=8)
     ax.set_yticks(np.arange(len(labels)))
     ax.set_yticklabels(labels, fontsize=8)
     ax.set_xlabel('fp_area_km2 (quantile bin)', fontsize=9)
     ax.set_ylabel('Cloud distance (km)', fontsize=9)
-    ax.set_title('Mean XCO\u2082 BC anomaly\n(cld_dist \u00d7 fp_area_km2)', fontsize=10)
+    ax.set_title(f'Mean {XCO2_LABEL} BC anomaly\n(cld_dist \u00d7 fp_area_km2)', fontsize=10)
     for ri in range(grid.shape[0]):
         for ci in range(grid.shape[1]):
             val = grid.values[ri, ci]

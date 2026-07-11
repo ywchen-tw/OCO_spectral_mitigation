@@ -21,17 +21,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from scipy import stats
-from .utils import _save, rolling_median_iqr, bin_by_cld_dist
+from .utils import (_save, rolling_median_iqr, bin_by_cld_dist, CMAPS)
 
 logger = logging.getLogger(__name__)
+
+# Rendered band tags (Arial has no U+2082 subscript glyph → mathtext)
+_O2A, _WCO2, _SCO2 = 'O$_2$A', 'WCO$_2$', 'SCO$_2$'
 
 
 def plot_alb_vs_exp_intercept(df, outdir, n_roll=200):
     """Scatter (hexbin) + rolling median of albedo vs exp_intercept for each band."""
     bands = [
-        ('alb_o2a',  'exp_o2a_intercept',  'O2-A',   'C0'),
-        ('alb_wco2', 'exp_wco2_intercept', 'WCO\u2082', 'C1'),
-        ('alb_sco2', 'exp_sco2_intercept', 'SCO\u2082', 'C2'),
+        ('alb_o2a',  'exp_o2a_intercept',  _O2A,  'C0'),
+        ('alb_wco2', 'exp_wco2_intercept', _WCO2, 'C1'),
+        ('alb_sco2', 'exp_sco2_intercept', _SCO2, 'C2'),
     ]
     avail = [(alb, eint, nm, c) for alb, eint, nm, c in bands
              if alb in df.columns and eint in df.columns]
@@ -71,14 +74,14 @@ def plot_alb_vs_exp_intercept(df, outdir, n_roll=200):
 def plot_alb_vs_exp_intercept_cross(df, outdir, n_roll=200):
     """3×3 cross-band scatter: each exp_intercept (rows) vs each albedo (cols)."""
     intercepts = [
-        ('exp_o2a_intercept',  'O2-A exp_intercept'),
-        ('exp_wco2_intercept', 'WCO\u2082 exp_intercept'),
-        ('exp_sco2_intercept', 'SCO\u2082 exp_intercept'),
+        ('exp_o2a_intercept',  f'{_O2A} exp_intercept'),
+        ('exp_wco2_intercept', f'{_WCO2} exp_intercept'),
+        ('exp_sco2_intercept', f'{_SCO2} exp_intercept'),
     ]
     albedos = [
-        ('alb_o2a',  'O2-A albedo'),
-        ('alb_wco2', 'WCO\u2082 albedo'),
-        ('alb_sco2', 'SCO\u2082 albedo'),
+        ('alb_o2a',  f'{_O2A} albedo'),
+        ('alb_wco2', f'{_WCO2} albedo'),
+        ('alb_sco2', f'{_SCO2} albedo'),
     ]
     row_avail = [(col, lbl) for col, lbl in intercepts if col in df.columns]
     col_avail = [(col, lbl) for col, lbl in albedos  if col in df.columns]
@@ -128,9 +131,9 @@ def plot_alb_vs_exp_intercept_cross(df, outdir, n_roll=200):
 def plot_intercept_binned_profile(df, bins, labels, outdir):
     """Mean ± SEM (bars) / ± std (shading) of the spectral exp_intercept per band."""
     bands = [
-        ('exp_o2a_intercept',  'O2-A',   'C0'),
-        ('exp_wco2_intercept', 'WCO\u2082', 'C1'),
-        ('exp_sco2_intercept', 'SCO\u2082', 'C2'),
+        ('exp_o2a_intercept',  _O2A,  'C0'),
+        ('exp_wco2_intercept', _WCO2, 'C1'),
+        ('exp_sco2_intercept', _SCO2, 'C2'),
     ]
     avail = [(col, nm, c) for col, nm, c in bands if col in df.columns]
     if not avail:
@@ -181,9 +184,9 @@ def plot_exp_intercept_interband_coherence(df: pd.DataFrame, outdir: str) -> Non
     Layout: rows = ocean / land;  columns = (O\u2082A vs WCO\u2082), (O\u2082A vs SCO\u2082), (WCO\u2082 vs SCO\u2082).
     """
     pairs = [
-        ('exp_o2a_intercept',  'exp_wco2_intercept', 'O\u2082A',  'WCO\u2082'),
-        ('exp_o2a_intercept',  'exp_sco2_intercept', 'O\u2082A',  'SCO\u2082'),
-        ('exp_wco2_intercept', 'exp_sco2_intercept', 'WCO\u2082', 'SCO\u2082'),
+        ('exp_o2a_intercept',  'exp_wco2_intercept', _O2A,  _WCO2),
+        ('exp_o2a_intercept',  'exp_sco2_intercept', _O2A,  _SCO2),
+        ('exp_wco2_intercept', 'exp_sco2_intercept', _WCO2, _SCO2),
     ]
     avail = [(a, b, na, nb) for a, b, na, nb in pairs
              if a in df.columns and b in df.columns]
@@ -212,9 +215,9 @@ def plot_exp_intercept_interband_coherence(df: pd.DataFrame, outdir: str) -> Non
                 ax.set_visible(False)
                 continue
             r, _ = stats.pearsonr(x, y)
-            sc = ax.scatter(x, y, c=c, cmap='viridis_r', s=2, alpha=0.3,
+            sc = ax.scatter(x, y, c=c, cmap=CMAPS['cld_dist'], s=2, alpha=0.3,
                             vmin=0, vmax=50)
-            plt.colorbar(sc, ax=ax, label='cld_dist_km')
+            plt.colorbar(sc, ax=ax, label='Cloud distance (km)')
             ax.set_xlabel(f'{na} exp_intercept', fontsize=9)
             ax.set_ylabel(f'{nb} exp_intercept', fontsize=9)
             ax.set_title(f'{sfc_name}: {na} vs {nb}  r={r:.3f}', fontsize=9)
@@ -240,9 +243,9 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
     albedo → anomalous suppression of exp_intercept independent of surface reflectance.
     """
     bands = [
-        ('alb_o2a',  'exp_o2a_intercept',  'O\u2082A',   'C0'),
-        ('alb_wco2', 'exp_wco2_intercept', 'WCO\u2082',  'C1'),
-        ('alb_sco2', 'exp_sco2_intercept', 'SCO\u2082',  'C2'),
+        ('alb_o2a',  'exp_o2a_intercept',  _O2A,   'C0'),
+        ('alb_wco2', 'exp_wco2_intercept', _WCO2,  'C1'),
+        ('alb_sco2', 'exp_sco2_intercept', _SCO2,  'C2'),
     ]
     avail = [(alb, exp, nm, c) for alb, exp, nm, c in bands
              if alb in df.columns and exp in df.columns]
@@ -438,9 +441,9 @@ def plot_exp_intercept_albedo_residuals(df: pd.DataFrame, bins, labels,
     survives after albedo confound removal.  Ocean and land are shown separately.
     """
     bands = [
-        ('exp_o2a_intercept',  'alb_o2a',  'O\u2082A',  'C0'),
-        ('exp_wco2_intercept', 'alb_wco2', 'WCO\u2082', 'C1'),
-        ('exp_sco2_intercept', 'alb_sco2', 'SCO\u2082', 'C2'),
+        ('exp_o2a_intercept',  'alb_o2a',  _O2A,  'C0'),
+        ('exp_wco2_intercept', 'alb_wco2', _WCO2, 'C1'),
+        ('exp_sco2_intercept', 'alb_sco2', _SCO2, 'C2'),
     ]
     avail = [(ei, alb, nm, c) for ei, alb, nm, c in bands
              if ei in df.columns and alb in df.columns]
@@ -527,9 +530,9 @@ def plot_exp_alb_ratio_residuals(df: pd.DataFrame, bins, labels,
     the ocean direction and confirming a real cloud-adjacency effect.
     """
     ratio_defs = [
-        ('exp_o2a_intercept',  'alb_o2a',  'O\u2082A',   'C0'),
-        ('exp_wco2_intercept', 'alb_wco2', 'WCO\u2082',  'C1'),
-        ('exp_sco2_intercept', 'alb_sco2', 'SCO\u2082',  'C2'),
+        ('exp_o2a_intercept',  'alb_o2a',  _O2A,   'C0'),
+        ('exp_wco2_intercept', 'alb_wco2', _WCO2,  'C1'),
+        ('exp_sco2_intercept', 'alb_sco2', _SCO2,  'C2'),
     ]
     avail = [(ei, alb, nm, c) for ei, alb, nm, c in ratio_defs
              if ei in df.columns and alb in df.columns]
@@ -613,9 +616,9 @@ def plot_exp_alb_ratio_residuals(df: pd.DataFrame, bins, labels,
 
 
 _CROSS_BAND_PAIRS = [
-    ('wco2', 'o2a',  'WCO₂/O₂A'),
-    ('sco2', 'o2a',  'SCO₂/O₂A'),
-    ('sco2', 'wco2', 'SCO₂/WCO₂'),
+    ('wco2', 'o2a',  f'{_WCO2}/{_O2A}'),
+    ('sco2', 'o2a',  f'{_SCO2}/{_O2A}'),
+    ('sco2', 'wco2', f'{_SCO2}/{_WCO2}'),
 ]
 # (column prefix, row label) — must match build_feature_dataset.py naming
 _CROSS_BAND_QUANTITIES = [
@@ -691,9 +694,9 @@ def plot_cross_band_ratio_profiles(df, bins, labels, outdir):
 def plot_alb_binned_profile(df, bins, labels, outdir):
     """Mean ± SEM (bars) / ± std (shading) of albedo per band vs cloud-distance bin."""
     bands = [
-        ('alb_o2a',  'O2-A',   'C0'),
-        ('alb_wco2', 'WCO\u2082', 'C1'),
-        ('alb_sco2', 'SCO\u2082', 'C2'),
+        ('alb_o2a',  _O2A,  'C0'),
+        ('alb_wco2', _WCO2, 'C1'),
+        ('alb_sco2', _SCO2, 'C2'),
     ]
     avail = [(col, nm, c) for col, nm, c in bands if col in df.columns]
     if not avail:

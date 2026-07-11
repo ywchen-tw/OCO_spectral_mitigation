@@ -44,12 +44,19 @@ SRC_DIR = Path(__file__).resolve().parent.parent
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+ROOT = Path(__file__).resolve().parents[2]
+WORKSPACE = ROOT / "workspace"
+if str(WORKSPACE) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE))
+
 import matplotlib
 matplotlib.use('Agg')
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from plot_style import (apply_manuscript_style, panel_label,  # noqa: E402
+                        XCO2_LABEL, MEAN_L_LABEL)
 from analysis.utils import get_storage_dir, apply_quality_filter, _save
 from analysis.ref_corrected import add_ref_anomalies, _REF_PAIRS
 
@@ -121,12 +128,15 @@ def run_subpixel_check(df: pd.DataFrame, outdir: str,
         axes[1].plot(stat['spec_idx_med'], stat['anom_std'], color=c,
                      marker='o', label=sname)
 
-    axes[0].set_ylabel('mean XCO₂ BC anomaly (ppm)')
+    axes[0].set_ylabel(f'mean {XCO2_LABEL} BC anomaly (ppm)')
     axes[0].set_title('Anomaly mean vs spec elevation (MODIS-far only)')
-    axes[1].set_ylabel('σ of XCO₂ BC anomaly (ppm)')
+    axes[1].set_ylabel(rf'$\sigma$ of {XCO2_LABEL} BC anomaly (ppm)')
     axes[1].set_title('Anomaly scatter vs spec elevation (MODIS-far only)')
+    panel_label(axes[0], '(a)')
+    panel_label(axes[1], '(b)')
     for ax in axes:
-        ax.set_xlabel('spec elevation index (mean z(Δk₁) over 3 bands)')
+        ax.set_xlabel(f'spec elevation index (mean z(Δ{MEAN_L_LABEL}) '
+                      'over 3 bands)')
         ax.axvline(0, color='gray', lw=0.8)
         ax.grid(alpha=0.3)
         ax.legend()
@@ -160,9 +170,10 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
         ('neutral', near['zexp_o2a'].abs() <= z_thresh, '#7570b3'),
         ('shadowed', near['zexp_o2a'] < -z_thresh, '#1b9e77'),
     ]
-    panel_vars = [('dk1_o2a', 'Δk₁ O₂A'), ('dk1_wco2', 'Δk₁ WCO₂'),
-                  ('dk1_sco2', 'Δk₁ SCO₂'),
-                  ('xco2_bc_anomaly', 'XCO₂ BC anomaly (ppm)')]
+    panel_vars = [('dk1_o2a', f'Δ{MEAN_L_LABEL} O$_2$A'),
+                  ('dk1_wco2', f'Δ{MEAN_L_LABEL} WCO$_2$'),
+                  ('dk1_sco2', f'Δ{MEAN_L_LABEL} SCO$_2$'),
+                  ('xco2_bc_anomaly', f'{XCO2_LABEL} BC anomaly (ppm)')]
 
     rows = []
     x = np.arange(len(labels))
@@ -171,7 +182,8 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
         if not len(sdf):
             continue
         fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True)
-        for ax, (var, vlabel) in zip(axes.ravel(), panel_vars):
+        for k, (ax, (var, vlabel)) in enumerate(zip(axes.ravel(), panel_vars)):
+            panel_label(ax, f'({chr(ord("a") + k)})')
             for bname, bmask, color in branches:
                 b = sdf[bmask.reindex(sdf.index, fill_value=False)]
                 g = b.groupby('_bin', observed=False)[var].agg(
@@ -302,6 +314,7 @@ def _needed_columns(analyses: list[str]) -> list[str]:
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    apply_manuscript_style()
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[2])
     ap.add_argument('--parquet-fname', default='combined_2016_2020_dates.parquet')
     ap.add_argument('--analyses', nargs='+', default=['subpixel', 'shadow', 'classifier'],
