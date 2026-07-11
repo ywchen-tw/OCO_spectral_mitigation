@@ -99,20 +99,20 @@ python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_beta_nll_prof_reg_
 # reuses the same fold-specific ProfilePCA pkl.  Mirrors the ablation loops in
 # curc_shell_blanca_de_profile_r05.sh, adapted to foldpca (fold PCA + _foldpca
 # suffix).  Suffix: de_ocean_{FS}_prof_foldpca_r05_f${F}.
-# for FS in no_xco2 no_spec no_xco2_and_spec; do
-#   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_foldpca_r05_f${F} \
-#       --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 5km \
-#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
+for FS in no_xco2 no_spec no_xco2_and_spec; do
+  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_foldpca_r05_f${F} \
+      --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 5km \
+      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
 
-# for FS in no_contam no_contam_and_xco2; do
-#   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_foldpca_r05_f${F} \
-#       --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 5km \
-#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
+for FS in no_contam no_contam_and_xco2; do
+  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_foldpca_r05_f${F} \
+      --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 5km \
+      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
