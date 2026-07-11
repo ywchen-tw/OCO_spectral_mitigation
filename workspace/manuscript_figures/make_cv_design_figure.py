@@ -5,13 +5,14 @@ Companion to the deep-ensemble architecture schematic
 print-friendly style.  The figure contrasts a random sounding-level split
 (interleaved train/test dates -> leakage, inflated R^2) with the
 date-blocked 5-fold protocol actually used for evaluation (contiguous
-held-out date blocks plus a trailing calibration block for early stopping
+held-out date blocks plus a fold-local calibration block for early stopping
 and conformal calibration).
 
 Fold layout is read from the real ``training_dates.json`` manifests of the
 production ocean deep ensemble (``de_ocean_beta_nll_prof_reg_r05_f0..f4``)
-when present; otherwise a stylized 116-date semi-monthly timeline
-(2016-2020) with the same block structure is drawn.
+when present and already using fold-local calibration; otherwise a
+stylized 116-date semi-monthly timeline (2016-2020) with the same block
+structure is drawn.
 
 Run:
   python3 workspace/manuscript_figures/make_cv_design_figure.py
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import date
 from pathlib import Path
@@ -84,7 +86,28 @@ def _load_manifests(model_dir: Path):
             roles[k, index[d]] = "calib"
         for d in f.get("held_dates", []):
             roles[k, index[d]] = "test"
+    if not _roles_have_fold_local_calibration(roles):
+        return None
     return dates, roles
+
+
+def _roles_have_fold_local_calibration(roles: np.ndarray) -> bool:
+    """Reject stale manifests from the old shared trailing-calibration design."""
+    calib_sets = []
+    for row in roles:
+        calib_idx = np.flatnonzero(row == "calib")
+        test_idx = np.flatnonzero(row == "test")
+        if len(calib_idx) == 0 or len(test_idx) == 0:
+            return False
+        if not np.all(np.diff(calib_idx) == 1):
+            return False
+        adjacent_after = calib_idx[0] == test_idx[-1] + 1
+        adjacent_before = calib_idx[-1] == test_idx[0] - 1
+        wrapped_to_start = calib_idx[0] == 0
+        if not (adjacent_after or adjacent_before or wrapped_to_start):
+            return False
+        calib_sets.append(tuple(calib_idx))
+    return len(set(calib_sets)) == roles.shape[0]
 
 
 def _stylized_timeline():
@@ -96,15 +119,22 @@ def _stylized_timeline():
             dates.append(date(year, month, 15))
     dates = dates[:116]
     n = len(dates)
-    edges = np.linspace(0, n, N_FOLDS + 1).astype(int)
+    blocks = np.array_split(np.arange(n), N_FOLDS)
     roles = np.full((N_FOLDS, n), "train", dtype=object)
-    n_calib = 14
-    for k in range(N_FOLDS):
-        lo, hi = edges[k], edges[k + 1]
+    calib_frac = 0.15
+    for k, block in enumerate(blocks):
+        lo = int(block[0])
+        hi = int(block[-1]) + 1
         roles[k, lo:hi] = "test"
-        pool = [i for i in range(n) if not (lo <= i < hi)]
-        for i in pool[-n_calib:]:
-            roles[k, i] = "calib"
+        n_calib = max(1, math.ceil(calib_frac * (n - len(block))))
+        n_calib = min(n_calib, n - len(block) - 1)
+        if hi + n_calib <= n:
+            calib = np.arange(hi, hi + n_calib)
+        elif n_calib <= lo:
+            calib = np.arange(n_calib)
+        else:
+            calib = np.arange(lo - n_calib, lo)
+        roles[k, calib] = "calib"
     return dates, roles
 
 
@@ -206,17 +236,21 @@ def build(out_dir: Path, *, dpi: int, formats: tuple[str, ...],
             "held-out $R^2$\n0.53 ocean\n0.39 land", fontsize=6.8,
             ha="left", va="center", linespacing=1.3)
 
-    # Calibration-block callout on fold 1 (trailing 2020 block).
-    calib_x = x[np.array([r == "calib" for r in roles[0]])]
+    # Calibration-block callout on a later fold, where the calibration block is
+    # visually separated from both the random-split note and the section title.
+    callout_fold = 3
+    callout_y = y_fold0 - callout_fold * dy_fold
+    calib_x = x[np.array([r == "calib" for r in roles[callout_fold]])]
     cx = float(calib_x.mean())
-    ax.text(cx - 0.55, y_fold0 + h + 0.62,
-            "trailing calibration block\n(early stop + conformal)",
+    tx, ty = 2020.30, y_fold0 + h + 0.78
+    ax.text(tx, ty,
+            "fold-local calibration block\n(early stop + conformal)",
             fontsize=6.2, color=C_NOTE, ha="center", va="bottom",
             linespacing=1.2)
     ax.add_patch(FancyArrowPatch(
-        (cx - 0.55, y_fold0 + h + 0.56), (cx, y_fold0 + h + 0.03),
+        (tx, ty - 0.04), (cx, callout_y + h + 0.03),
         arrowstyle="-|>", mutation_scale=7.5, lw=0.8, color=ARROW,
-        connectionstyle="arc3,rad=-0.2", shrinkA=1.0, shrinkB=0.5, zorder=4))
+        connectionstyle="arc3,rad=0.15", shrinkA=1.0, shrinkB=0.5, zorder=4))
 
     # -- Year axis -----------------------------------------------------------
     ax.plot([x_lo, x_hi], [y_axis, y_axis], color=EDGE, lw=0.8, zorder=3)

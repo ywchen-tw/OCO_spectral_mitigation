@@ -82,9 +82,16 @@ class DateKfoldTrainCalibTestTests(unittest.TestCase):
 
         self.assertEqual(len({frozenset(dates) for dates in calib_sets}), self.n_folds)
 
-    def test_default_calibration_block_is_adjacent_to_held_block(self) -> None:
+    def test_default_calibration_block_is_adjacent_or_wrapped(self) -> None:
         sorted_dates = _date_values(self.frame)
         date_index = {date: idx for idx, date in enumerate(sorted_dates)}
+        expected_calib_ranges = {
+            0: (24, 37),
+            1: (47, 60),
+            2: (70, 83),
+            3: (93, 106),
+            4: (0, 13),
+        }
 
         for fold in range(self.n_folds):
             _, calib_df, held_df = split_date_kfold_train_calib_test(
@@ -97,9 +104,14 @@ class DateKfoldTrainCalibTestTests(unittest.TestCase):
             held_idx = sorted(date_index[date] for date in _date_values(held_df))
 
             self.assertEqual(calib_idx, list(range(calib_idx[0], calib_idx[-1] + 1)))
+            self.assertEqual(
+                (calib_idx[0], calib_idx[-1]),
+                expected_calib_ranges[fold],
+            )
             self.assertTrue(
                 calib_idx[0] == held_idx[-1] + 1
                 or calib_idx[-1] == held_idx[0] - 1
+                or calib_idx[0] == 0
             )
 
 

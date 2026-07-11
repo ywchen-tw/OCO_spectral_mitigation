@@ -144,23 +144,33 @@ def split_date_kfold_train_calib_test(
         n_folds: int,
         fold: int,
         calib_frac: float,
-        calib_side: str = "after_then_before") -> tuple:
+        calib_side: str = "after_then_wrap_before") -> tuple:
     """Return proper-train, calibration, and held-out frames for date_kfold.
 
     The held-out dates are exactly the same contiguous block used by
     ``split_dataframe(..., mode="date_kfold")``.  The calibration set is a
-    fold-local contiguous date block adjacent to the held-out block, with the
-    same date-count formula previously used when carving calibration from the
-    non-test dates: ``ceil(calib_frac * n_non_test_dates)``.  At least one
-    proper-training date is always retained.
+    fold-local contiguous date block, with the same date-count formula
+    previously used when carving calibration from the non-test dates:
+    ``ceil(calib_frac * n_non_test_dates)``.  By default the calibration block
+    is placed immediately after the held-out block, wrapping to the beginning
+    of the record for terminal folds, and falling back to immediately before
+    only when wrapping is impossible.  At least one proper-training date is
+    always retained.
     """
     if not 0.0 < calib_frac < 1.0:
         raise ValueError(f"calib_frac must be in (0, 1), got {calib_frac}")
-    if calib_side not in {"after_then_before", "before_then_after", "after", "before"}:
+    valid_calib_sides = {
+        "after_then_wrap_before",
+        "after_then_before",
+        "before_then_after",
+        "after",
+        "before",
+        "wrap",
+    }
+    if calib_side not in valid_calib_sides:
         raise ValueError(
-            "calib_side must be one of {'after_then_before', "
-            "'before_then_after', 'after', 'before'}, got "
-            f"{calib_side!r}"
+            f"calib_side must be one of {sorted(valid_calib_sides)}, "
+            f"got {calib_side!r}"
         )
     if not isinstance(n_folds, int) or n_folds < 2:
         raise ValueError(f"date_kfold needs n_folds >= 2, got {n_folds!r}")
@@ -201,11 +211,18 @@ def split_date_kfold_train_calib_test(
             return unique_dates[test_start - n_calib:test_start]
         return None
 
+    def wrap_block() -> np.ndarray | None:
+        if n_calib <= test_start:
+            return unique_dates[:n_calib]
+        return None
+
     selectors = {
+        "after_then_wrap_before": (after_block, wrap_block, before_block),
         "after_then_before": (after_block, before_block),
         "before_then_after": (before_block, after_block),
         "after": (after_block,),
         "before": (before_block,),
+        "wrap": (wrap_block,),
     }
     calib_block = None
     for selector in selectors[calib_side]:
@@ -215,7 +232,8 @@ def split_date_kfold_train_calib_test(
     if calib_block is None:
         raise ValueError(
             "Could not place a contiguous fold-local calibration block adjacent "
-            f"to fold {fold}; n_dates={n_dates}, n_test_dates={n_test_dates}, "
+            "to or wrapped around fold "
+            f"{fold}; n_dates={n_dates}, n_test_dates={n_test_dates}, "
             f"n_calib={n_calib}, calib_side={calib_side!r}."
         )
 
