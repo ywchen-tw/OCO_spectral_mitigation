@@ -3,7 +3,7 @@
 ###SBATCH --nodes=1
 ###SBATCH --ntasks=4
 ###SBATCH --ntasks-per-node=4
-###SBATCH --mem=128G
+#SBATCH --mem=128G
 #SBATCH --nodes=1
 #SBATCH --ntasks=32
 #SBATCH --ntasks-per-node=32
@@ -16,7 +16,7 @@
 ###SBATCH --partition=blanca-airs
 #SBATCH --partition=blanca-curc-gpu
 #SBATCH --qos=preemptable
-#SBATCH --gres=gpu:1
+###SBATCH --gres=gpu:1
 #SBATCH --array=0-4
 #SBATCH --requeue
 
