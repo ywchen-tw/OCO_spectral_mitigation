@@ -1,9 +1,12 @@
 #!/bin/env bash
 
+###SBATCH --nodes=1
+###SBATCH --ntasks=4
+###SBATCH --ntasks-per-node=4
+###SBATCH --mem=128G
 #SBATCH --nodes=1
-#SBATCH --ntasks=4
-#SBATCH --ntasks-per-node=4
-#SBATCH --mem=128G
+#SBATCH --ntasks=32
+#SBATCH --ntasks-per-node=32
 #SBATCH --time=16:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
