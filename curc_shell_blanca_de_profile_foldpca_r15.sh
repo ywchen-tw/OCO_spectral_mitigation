@@ -3,10 +3,10 @@
 ###SBATCH --nodes=1
 ###SBATCH --ntasks=4
 ###SBATCH --ntasks-per-node=4
-#SBATCH --mem=128G
+#SBATCH --mem=80G
 #SBATCH --nodes=1
-#SBATCH --ntasks=4
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks=8
+#SBATCH --ntasks-per-node=8
 #SBATCH --time=16:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
