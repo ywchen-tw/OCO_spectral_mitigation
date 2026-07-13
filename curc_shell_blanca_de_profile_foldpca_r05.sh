@@ -16,7 +16,7 @@
 ###SBATCH --partition=blanca-airs
 #SBATCH --partition=blanca-curc-gpu
 #SBATCH --qos=preemptable
-#SBATCH --gres=gpu:1
+###SBATCH --gres=gpu:1
 #SBATCH --array=0-4
 #SBATCH --requeue
 
