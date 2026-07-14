@@ -12,6 +12,10 @@ not be quoted until the full-parquet regeneration (§2-2) lands. Scoop risk
 paragraph + ONE appendix demo figure (A12, TEMPO O2-B); EMIT rejected for this
 paper; CH4 handled in text (TROPOMI/GOSAT-GW); journal stays AMT; full
 multi-scene demonstration deferred to a follow-up letter (§4).
+**Update (2026-07-13b):** cohort's backward-MC 3D-vs-ICA coefficient demo
+ACCEPTED for the appendix (A13) — the causal mechanism experiment the
+observational stratifications can't provide; §8d reframed from pure future
+work to "first demonstration included, PPDF closure + plume OSSE deferred".
 
 ---
 
@@ -259,13 +263,44 @@ multi-scene demonstration deferred to a follow-up letter (§4).
   (weeks of new work), the resolution physics is likely fatal, and a weak
   panel next to a clean TEMPO panel would undermine the transferability
   claim it is meant to support.
+- [ ] **Backward-MC 3D-vs-ICA mechanism demo → appendix A13 (decided
+  2026-07-13; cohort's model).** Source figure:
+  `~/Downloads/01_radtoa_fitting_coefficients.png` (X–Z scene, cloud at
+  x = 10–15 km; fitted ln-reflectance-vs-τ coefficients C2/C1/C0 along track,
+  3D vs ICA). Why included: the ICA curve is a perfect null (same cloud, no
+  horizontal transport) — the 3D-only adjacency response in clear columns
+  (x ≈ 15–18 km: C2 ×~5, C1 −0.45 excursion, C0 −2.3) is a CAUSAL
+  demonstration that the cumulants respond to 3D transport; one-sided
+  (shadow-side) response corroborates the Fig 3 shadow/brightening split;
+  ~3 km enhancement scale echoes the observed ocean decay. Conditions before
+  it ships:
+  - [ ] Refit the synthetic spectra with the PRODUCTION estimator (order 7,
+        exact lstsq, no-SG) — removes the order-2-vs-order-7 reviewer
+        question entirely (fallback: one sentence on why order 2 suffices
+        at the simulated τ range).
+  - [ ] Relabel to paper notation (C1 → −⟨l′⟩, C2 → ½·var(l′)) + restyle to
+        `plot_style.py`; caption in locked conventions.
+  - [ ] Methods paragraph (cohort sign-off): model name + citation (EaR3T /
+        Chen et al. 2025 lineage?), backward MC, X–Z (2D) domain, cloud
+        COD/height/placement, SZA + viewing geometry, band, surface albedo,
+        photon-noise level.
+  - [ ] Understand + dismiss the far-field 3D-vs-ICA offset (C1 −1.07 vs
+        −1.05) in half a caption sentence (ask cohort: domain-average side
+        illumination? boundary conditions?).
+  - [ ] Scope sentence pre-empting the parameter-sweep request: single
+        representative geometry, mechanism demonstration only — validates
+        the FEATURE physics, not the correction μ; sensitivity across
+        SZA/COD/albedo belongs to the OSSE follow-up.
+  - [ ] Co-authorship / provenance settled with the cohort member.
 - [ ] Writing-time subsections: Ny-Ålesund/high-latitude; five worsening sites;
   M5 parallax/advection bound sentences; M9(f) convergence-radius caveat.
 
 ## 4. EXPLICITLY DEFERRED (state in reply-to-reviewers if asked)
 
 - Transport-model (CAMS/CT) regression of the label (ceiling + r05/r15
-  sensitivity covers most of it) · EaR3T OSSE (follow-up paper) ·
+  sensitivity covers most of it) · EaR3T OSSE (follow-up paper; the A13
+  single-scene 3D-vs-ICA demo is now IN the appendix — what stays deferred
+  is the PPDF tally closure, plume injection, and the geometry sweep) ·
   wind-resolved plume enhancement · σ(k1)/σ(k2) export (appendix QC) ·
   MCD12C1 purity-filter robustness row · FT-Transformer/TabPFN baselines ·
   **cross-sensor demonstration letter** (2026-07-13: multi-scene TEMPO O2-B
@@ -348,18 +383,22 @@ TCCON, aircraft, and shipborne observations."*
    sensitivity, parallax/advection bounds (M5 sentences); Cloudy-only rerun
    only if time permits (§3).
    (c) Label circularity/selection (M1 residuals), land-driven TCCON weighting.
-   (d) **Future validation of the PPDF with a Monte Carlo model (user,
-   2026-07-09):** the cumulant fit *interprets* k1/k2 as mean and variance of
-   the photon path-length distribution function, but the paper never verifies
-   that the fitted moments equal the physical ones — a 3D Monte Carlo RT model
-   (EaR3T; Chen et al. 2025) can tally the actual per-photon path-length
-   histogram in a cloud-adjacent scene, generate the synthetic OCO-2 spectra
-   from the same photon ensemble, and compare the spectrum-fitted k1/k2
-   against the directly tallied MC moments — closing the loop between the Laplace-transform
-   derivation and the retrieval. Same machinery doubles as the plume OSSE
-   (inject ΔCO2, verify k1/k2 invariance rigorously). State as future work in
-   the Discussion (deferred to a follow-up paper per §4; one paragraph +
-   citation here, not a result).
+   (d) **PPDF validation with a Monte Carlo model — REFRAMED 2026-07-13
+   (first demonstration now included as appendix A13):** the cumulant fit
+   *interprets* k1/k2 as mean and variance of the photon path-length
+   distribution function. A cohort backward-MC X–Z simulation (cloud at
+   x = 10–15 km) now demonstrates causally that the fitted coefficients
+   respond to cloud adjacency ONLY under 3D transport — the ICA null (same
+   cloud, no horizontal transport) shows zero adjacency response while the
+   3D run shows the k1/k2 enhancement in clear columns, one-sided on the
+   shadow side, decaying within ~3 km (appendix Fig A13; conditions
+   checklist in §3). Cite it here as the first step. STILL FUTURE WORK
+   (follow-up paper per §4): the full PPDF closure — tally the per-photon
+   path-length histogram, generate synthetic OCO-2 spectra from the same
+   ensemble, compare spectrum-fitted k1/k2 against the directly tallied MC
+   moments (closing the Laplace-transform loop) — and the plume OSSE
+   (inject ΔCO2, verify k1/k2 invariance rigorously) across
+   SZA/COD/albedo geometries.
 9. **Data recovery and applications.** QF1 near-cloud recovery numbers;
    throughput in the cloudy tropics → flux-inversion relevance; **cross-sensor
    transferability paragraph (user decision 2026-07-13, see §3):** abstract
@@ -611,3 +650,23 @@ abbreviated `<TAG>`**):**
   geostationary UV-Vis imager whose own cloud product provides in-scene
   proximity — no cross-platform collocation — and rise toward the imaged
   cloud field; shown as feasibility, not a validated correction."
+- **A13 backward-MC 3D-vs-ICA mechanism demo (decided 2026-07-13; TO
+  PREPARE — cohort figure, conditions checklist in §3):** source
+  `~/Downloads/01_radtoa_fitting_coefficients.png`, to be refit with the
+  production estimator, relabeled (C1 → −⟨l′⟩, C2 → ½·var(l′)), and
+  restyled; final path
+  `results/figures/manuscript/fig_a13_mc_3d_vs_ica.png`. Pairs with §4
+  (mechanism) and the §8d paragraph; together with A12 it makes the
+  "features are physics, and the physics transfers" bookend.
+  *Caption stub:* "Controlled 3-D radiative-transfer demonstration of the
+  path-length mechanism. Fitted ⟨l′⟩, var(l′), and intercept along an X–Z
+  backward Monte Carlo scene (cloud at x = 10–15 km; [model, geometry,
+  COD, band]) for full 3-D transport and the independent-column
+  approximation (ICA). The ICA run — same cloud, no horizontal photon
+  transport — shows no response outside the cloud, whereas the 3-D run
+  shows enhanced ⟨l′⟩ and var(l′) in clear columns within ~3 km of the
+  shadow-side cloud edge: the fitted cumulants respond to cloud adjacency
+  only under 3-D transport, corroborating the shadow/brightening asymmetry
+  of Fig. 3. Single representative geometry, validating the feature
+  physics, not the correction; the full path-length-histogram closure and
+  plume OSSE are future work (Sect. 8d)."
