@@ -8,6 +8,10 @@
 start writing NOW in parallel with §2. The mechanism half (spec features) must
 not be quoted until the full-parquet regeneration (§2-2) lands. Scoop risk
 (Mauceri/Keely 2025 Parts 1+2) argues against gold-plating.
+**Update (2026-07-13):** cross-sensor decision recorded — §9 transferability
+paragraph + ONE appendix demo figure (A12, TEMPO O2-B); EMIT rejected for this
+paper; CH4 handled in text (TROPOMI/GOSAT-GW); journal stays AMT; full
+multi-scene demonstration deferred to a follow-up letter (§4).
 
 ---
 
@@ -228,6 +232,33 @@ not be quoted until the full-parquet regeneration (§2-2) lands. Scoop risk
         (`FEATURESET_ABLATION_QF_2026-07-08.md`; the older 64x32 summary was
         archived in the 07-09 docs sweep). Also restyled
         `src/spectral/compare_savgol_fits.py` (A5 producer; regen on CURC).
+- [ ] **Cross-sensor transferability (decided 2026-07-13: mention + one
+  appendix demo; TEMPO only, EMIT rejected; journal call unchanged — AMT).**
+  (a) Extend the §9 transferability paragraph: abstract requirements of the
+  method (resolved absorption band + per-channel prior τ + single-footprint
+  spectrum — no imager, no retrieval internals) → OCO-3/CO2M (same bands,
+  direct transfer) → TEMPO O2-B (geostationary AND an imager: its own cloud
+  product gives in-scene proximity, no cross-platform collocation — the
+  strongest form of the NoMODIS argument) → CH4 in TEXT only (TROPOMI
+  2305–2385 nm @ ~0.25 nm, GOSAT-GW are the resolution-viable candidates;
+  EMIT-class ~7.4 nm band-integrated sampling stated as an open question —
+  it collapses the channel-to-channel τ dynamic range the cumulant fit
+  feeds on). Add the CH4 hook sentence (plume quantification near broken
+  cloud fields is where emission estimates get made or discarded).
+  (b) NEW appendix figure A12 (see §5 appendix list): one TEMPO O2-B granule
+  demo from `~/programming/tempo` (WP1–WP8 pipeline complete; 4-panel figs
+  exist for 3 vetted scenes) with an existence-proof caption ONLY — no bias
+  or validation claim. Step-by-step task list lives in the tempo repo:
+  `~/programming/tempo/TODO_OCO_APPENDIX_A12.md` (scene selection → in-scene
+  cloud distance → decay panel → style → caption handshake). Add the in-scene ⟨l′⟩-vs-cloud-distance decay panel
+  (threshold CLDO4 cloud fraction + KD-tree distance, reuse step_04 geometry
+  logic; ~1 day) so the panel echoes Fig 1b,c; restyle to `plot_style.py`.
+  Caveat to state: tempo still runs the pre-§7.2 fit engine (curve_fit + SG)
+  — caption as "same model, reference implementation".
+  (c) EMIT demo explicitly REJECTED for this paper: no pipeline exists
+  (weeks of new work), the resolution physics is likely fatal, and a weak
+  panel next to a clean TEMPO panel would undermine the transferability
+  claim it is meant to support.
 - [ ] Writing-time subsections: Ny-Ålesund/high-latitude; five worsening sites;
   M5 parallax/advection bound sentences; M9(f) convergence-radius caveat.
 
@@ -236,7 +267,12 @@ not be quoted until the full-parquet regeneration (§2-2) lands. Scoop risk
 - Transport-model (CAMS/CT) regression of the label (ceiling + r05/r15
   sensitivity covers most of it) · EaR3T OSSE (follow-up paper) ·
   wind-resolved plume enhancement · σ(k1)/σ(k2) export (appendix QC) ·
-  MCD12C1 purity-filter robustness row · FT-Transformer/TabPFN baselines.
+  MCD12C1 purity-filter robustness row · FT-Transformer/TabPFN baselines ·
+  **cross-sensor demonstration letter** (2026-07-13: multi-scene TEMPO O2-B
+  statistics + TROPOMI CH4 feasibility; the A12 appendix demo is the teaser;
+  natural GRL/AMT-letter shape; port the exact-lstsq fitter to tempo first) ·
+  EMIT CH4 fitting (~7.4 nm sampling likely collapses the τ dynamic range;
+  revisit only if the band-integrated open question gets answered).
 
 ---
 
@@ -325,8 +361,13 @@ TCCON, aircraft, and shipborne observations."*
    the Discussion (deferred to a follow-up paper per §4; one paragraph +
    citation here, not a result).
 9. **Data recovery and applications.** QF1 near-cloud recovery numbers;
-   throughput in the cloudy tropics → flux-inversion relevance; OCO-3 /
-   GOSAT-GW / CO2M transferability; post-2022 NoMODIS-era deployability.
+   throughput in the cloudy tropics → flux-inversion relevance; **cross-sensor
+   transferability paragraph (user decision 2026-07-13, see §3):** abstract
+   method requirements → OCO-3/CO2M → TEMPO O2-B (geostationary imager,
+   in-scene cloud proximity; points to appendix Fig A12) → CH4 in text only
+   (TROPOMI/GOSAT-GW viable; EMIT-class band-integrated sampling an open
+   question) + the CH4 plume-community hook sentence; post-2022 NoMODIS-era
+   deployability.
 10. **Conclusions.** Close with the outlook sentence pair: MC/PPDF validation
     (§8d) and transfer to imager-free correction for OCO-3 / GOSAT-GW / CO2M.
 
@@ -555,3 +596,18 @@ abbreviated `<TAG>`**):**
   far-cloud soundings (AUC 0.72 land / 0.66 ocean), and the anomaly rises
   monotonically with the spectral index below the 1-km MODIS pixel floor —
   the only proximity signal available in the post-2022 NoMODIS era."
+- **A12 cross-sensor demo — TEMPO O2-B (decided 2026-07-13; TO CREATE):**
+  one granule from `~/programming/tempo` (existing 4-panel: GOES ABI RGB +
+  CLDO4 cloud fraction + ⟨l′⟩ + var(l′) maps; 3 vetted scenes to pick from)
+  + NEW in-scene ⟨l′⟩-vs-cloud-distance decay panel (CLDO4 cloud-fraction
+  threshold + KD-tree, reuse step_04 geometry; ~1 day); restyle to
+  `plot_style.py`. Existence-proof caption ONLY; EMIT explicitly excluded
+  (no pipeline; ~7.4 nm sampling collapses the τ dynamic range; a weak
+  panel would undermine the claim). Pairs with the §9 transferability
+  paragraph and the A10 deployment-story figure.
+  *Caption stub:* "Instrument transfer existence proof: the cumulant fit of
+  Sect. X applied to one TEMPO O2-B granule (683–697 nm; same model,
+  reference implementation): ⟨l′⟩ and var(l′) are retrievable from a
+  geostationary UV-Vis imager whose own cloud product provides in-scene
+  proximity — no cross-platform collocation — and rise toward the imaged
+  cloud field; shown as feasibility, not a validated correction."
