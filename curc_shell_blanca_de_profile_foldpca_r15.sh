@@ -97,6 +97,16 @@ echo "fold=${F}/${NFOLDS}  profile_pca=${PROFILE_PKL}"
 #     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
 #     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
+# ── 2026-07-15 RERUN NOTE ──────────────────────────────────────────────────────
+# In the first foldpca variant run (non-reg), LAND fold f2 diverged for EVERY
+# variant (held-out RMSE 3.8k-43k ppm) and land f1/f3 under-converged (R2
+# 0.01-0.24) — the known beta-NLL land instability that lndo01 fixed for
+# production.  The loops below now train the variants WITH the production
+# regularization (--norm layer --dropout 0.1) so each variant differs from
+# production `full` ONLY in feature set (and the instability is removed).
+# Minimal alternative (keep non-reg): rerun only the diverged fold with a
+# fresh seed, e.g.  sbatch --array=2 <this script>  after adding --seed 43
+# (precedent: de_ocean_no_xco2_f0, curc_shell_blanca_train_de_ablation_extra.sh).
 # ── Feature-set ablations (+fold-specific profile, 15 km reference) ────────────
 # Same config as the production run above, each with one feature block dropped,
 # land only.  The profile block is ORTHOGONAL to --feature_set; each ablation
@@ -107,6 +117,7 @@ for FS in no_xco2 no_spec no_xco2_and_spec; do
   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_foldpca_r15_f${F} \
       --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 15km \
       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+      --norm layer --dropout 0.1 \
       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
@@ -115,6 +126,7 @@ for FS in no_contam no_contam_and_xco2; do
   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_foldpca_r15_f${F} \
       --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 15km \
       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+      --norm layer --dropout 0.1 \
       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 done
