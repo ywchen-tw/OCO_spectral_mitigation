@@ -195,6 +195,35 @@ ablation doc + Nassar channel attribution are PRELIMINARY; retrain queued
 
 ## 3. SHOULD-DO (strengthens, not blocking)
 
+- [ ] **Failure-mode analysis: where the ML correction does NOT work well
+  (added 2026-07-15).** Take the worsening station-days (per-case CSVs:
+  `bias_after`/`rmse_after` vs `_before`, both refs; 4/75 fp-RMSE worseners +
+  the |bias| worseners) and the worst near-cloud land strata, and diagnose the
+  drivers by stratifying residuals on candidate regime variables: **high AOD**
+  (contam-block features: AOD components, dp_abp), **high latitude / high SZA**
+  (Ny-Ålesund already owned as the M7 subsection — fold the drift tree in),
+  **snow / bright surfaces** (snow data kept by default; albedo / exp-intercept
+  features; ties to the P3 WCO2 albedo-contrast sign rule), plus low-n
+  collocations and OOD-flag rate. Inputs all exist per footprint in the case
+  plot_data + input parquets; a small stratified-residual script over the
+  foldpca atrain tree would produce the table/figure. Feeds the M3
+  worsening-sites paragraph and the §7 high-latitude subsection — turns both
+  from "owned limitation" into "diagnosed limitation".
+- [ ] **Raw-vs-BC-vs-ML against TCCON: does the ML correction explain part of
+  the operational bias correction? (added 2026-07-15).** The reports already
+  carry the raw column (AK r100: mean |bias| raw 1.34 → bc 1.26 → ML 0.82;
+  per-case `bias_raw/rmse_raw` under BOTH direct and AK refs) — first present
+  that three-way table per ref/QF properly. Then the real question: how much
+  of the operational raw→bc correction is reproducible by the per-sounding ML
+  layer — (a) correlate per-footprint `mu` against the operational increment
+  `xco2_raw − xco2_bc` (near- vs far-cloud, per surface); (b) quantify with
+  the raw-base variant: `build_deepens_plot_data.py --correction-base raw`
+  and the existing `de_*_beta_nll_prof_reg_raw_*` models /
+  `de_prof_reg_mix_raw` + `reg_mix_bc_vs_raw` trees — score raw+ML directly
+  against TCCON next to bc and bc+ML. If raw+ML ≈ bc+ML on TCCON, the ML
+  layer subsumes a sizable part of the operational correction near clouds —
+  a strong Discussion point for B11-independence; if not, the two corrections
+  are complementary (also worth stating).
 - [ ] **MODIS cloud-product dependence (2026-07-08 decision: literature-first).**
   The Discussion paragraph is carried by (a) the Cluster 9 citations
   (TCCON_PAPERS doc: Ackerman 1998/2008, Frey 2008, Holz 2008, Stubenrauch
