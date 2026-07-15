@@ -8,7 +8,7 @@ For the production model this is the 25–55 % number plume/flux users must
 know about.  Rerunning the null with the feature-ablation variants
 attributes it:
 
-  full      production de_beta_nll_prof_reg_o05l15_m5 (xco2 + spec + rest),
+  full      production de_beta_nll_prof_reg_foldpca_o05l15_m5 (xco2 + spec + rest),
   no_spec   cumulants dropped  → removal unchanged ⇒ spec channel not the smoother,
   no_xco2   xco2 block dropped → removal collapses ⇒ the xco2_raw−apriori
                                   channel carries the smoothing.
@@ -18,7 +18,7 @@ nassar_channel_attribution.{csv,md} next to the variants.
 
 Usage:
   python workspace/Nassar_plume_analysis/nassar_channel_attribution.py \
-      [--base results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5]
+      [--base results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_foldpca_o05l15_m5]
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 
 DEFAULT_BASE = Path("results/model_comparison/deep_ensemble/"
-                    "de_beta_nll_prof_reg_o05l15_m5")
+                    "de_beta_nll_prof_reg_foldpca_o05l15_m5")
 
 
 def load(csv: Path, tag: str) -> pd.DataFrame:

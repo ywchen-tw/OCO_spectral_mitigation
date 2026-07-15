@@ -38,7 +38,7 @@ from plot_style import (apply_manuscript_style, panel_label, CMAPS,  # noqa: E40
 DEFAULT_PLANTS = Path(__file__).with_name("nassar_power_plants.csv")
 DEFAULT_PLOT_BASE = Path(
     "results/model_comparison/deep_ensemble/"
-    "de_beta_nll_prof_reg_o05l15_m5/nassar_plumes"
+    "de_beta_nll_prof_reg_foldpca_o05l15_m5/nassar_plumes"
 )
 DEFAULT_CSV_DIR = Path("results/csv_collection")
 DEFAULT_SCREEN = DEFAULT_PLOT_BASE / "nassar_plume_screen.csv"

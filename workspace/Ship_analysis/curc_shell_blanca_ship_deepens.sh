@@ -43,6 +43,13 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
 else
     export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+    # macOS: pip xgboost in ml310 lacks libomp.dylib — borrow one from a sibling
+    # conda env via DYLD_FALLBACK (nothing installed; no-op if already set).
+    if [[ -z "${DYLD_FALLBACK_LIBRARY_PATH:-}" ]]; then
+        for _d in "$HOME"/miniforge3/envs/*/lib; do
+            [[ -f "$_d/libomp.dylib" ]] && export DYLD_FALLBACK_LIBRARY_PATH="$_d" && break
+        done
+    fi
 fi
 export HDF5_USE_FILE_LOCKING=FALSE
 export OMP_NUM_THREADS=1
@@ -61,9 +68,13 @@ DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 
 # ─── model + cloud-classifier dirs (ocean r05, identical to the TCCON launcher) ──
-MODEL_TAG=de_beta_nll_prof_reg_o05l15_m5
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_r05_f*)
+# foldpca (2026-07-15): fold-specific ProfilePCA production models (leakage-safe).
+MODEL_TAG=de_beta_nll_prof_reg_foldpca_o05l15_m5
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05_f*)
 OCEAN_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_ocean_f*)
+# The xgb_cloud classifier only exists on CURC; locally, drop the (diagnostic-only)
+# P(near)/gate columns instead of crashing the build on an unexpanded glob.
+[[ -d "${OCEAN_CLOUD_DIRS[0]}" ]] && OCEAN_CLOUD_ARGS=(--ocean-cloud-model-dir "${OCEAN_CLOUD_DIRS[@]}") || OCEAN_CLOUD_ARGS=()
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
 # Own subtree under the shared MODEL_TAG dir so ship outputs never collide with
@@ -90,7 +101,7 @@ ship_case() {
     # (a) apply deep ensemble → plot_data.parquet
     python workspace/build_deepens_plot_data.py \
         --ocean-model-dir "${OCEAN_MODEL_DIRS[@]}" \
-        --ocean-cloud-model-dir "${OCEAN_CLOUD_DIRS[@]}" \
+        "${OCEAN_CLOUD_ARGS[@]}" \
         --input "$input" --output "$plotdata" \
         || { echo "  build failed"; return; }
 

@@ -29,7 +29,7 @@ from plot_style import apply_manuscript_style, panel_label  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 DEFAULT_OUT = os.path.join(REPO, "results/model_comparison/deep_ensemble/"
-                           "de_beta_nll_prof_reg_o05l15_m5/ship")
+                           "de_beta_nll_prof_reg_foldpca_o05l15_m5/ship")
 CORR = "deep_ensemble_corrected_xco2"   # overridable via --corr-col (linreg/xgb baselines)
 MODEL_LABEL = "DE-corrected"            # cosmetic (plot legends/titles)
 

@@ -38,7 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-TAG = "de_beta_nll_prof_reg_o05l15_m5"
+TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
 OUT_BASE = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
 MERGED_DIR = os.path.join(OUT_BASE, "atom_merged")   # merged profiles (input)
 # Share the Lite cache with ship_lite_collocate.py.

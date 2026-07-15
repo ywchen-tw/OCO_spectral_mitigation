@@ -58,11 +58,13 @@ export OCO2_DATAROOT="$DATA_ROOT"
 # ─── model config — KEEP IN SYNC with curc_shell_blanca_plot_corr_xco2_deepens.sh
 # Same production M=5 profile+reg mixed-radius DE (ocean r05 / land r15).  MODEL_TAG
 # namespaces OUT_BASE so we regenerate exactly the tree the report reads.
-MODEL_TAG=de_beta_nll_prof_reg_o05l15_m5
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_r05_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_r15_f*)
+MODEL_TAG=de_beta_nll_prof_reg_foldpca_o05l15_m5
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15_f*)
 OCEAN_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_ocean_f*)
 LAND_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_land_f*)
+[[ -d "${OCEAN_CLOUD_DIRS[0]}" ]] && OCEAN_CLOUD_ARGS=(--ocean-cloud-model-dir "${OCEAN_CLOUD_DIRS[@]}") || OCEAN_CLOUD_ARGS=()
+[[ -d "${LAND_CLOUD_DIRS[0]}"  ]] && LAND_CLOUD_ARGS=(--land-cloud-model-dir  "${LAND_CLOUD_DIRS[@]}")  || LAND_CLOUD_ARGS=()
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
 
@@ -119,9 +121,9 @@ PY
 
     local model_args=()
     [[ "$surf" == both || "$surf" == ocean ]] && \
-        model_args+=(--ocean-model-dir "${OCEAN_MODEL_DIRS[@]}" --ocean-cloud-model-dir "${OCEAN_CLOUD_DIRS[@]}")
+        model_args+=(--ocean-model-dir "${OCEAN_MODEL_DIRS[@]}" "${OCEAN_CLOUD_ARGS[@]}")
     [[ "$surf" == both || "$surf" == land  ]] && \
-        model_args+=(--land-model-dir  "${LAND_MODEL_DIRS[@]}"  --land-cloud-model-dir  "${LAND_CLOUD_DIRS[@]}")
+        model_args+=(--land-model-dir  "${LAND_MODEL_DIRS[@]}"  "${LAND_CLOUD_ARGS[@]}")
     local em=(); [[ "$EMIT_MEMBERS" == 1 ]] && em=(--emit-members)
 
     python workspace/build_deepens_plot_data.py \

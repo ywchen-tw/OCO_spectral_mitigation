@@ -49,11 +49,15 @@ export PYTHONPATH=src:${PYTHONPATH:-}
 DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 
-MODEL_TAG=de_beta_nll_prof_reg_o05l15_m5
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_r05_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_r15_f*)
+MODEL_TAG=de_beta_nll_prof_reg_foldpca_o05l15_m5
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15_f*)
 OCEAN_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_ocean_f*)
 LAND_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_land_f*)
+# The xgb_cloud classifier only exists on CURC; locally, drop the (diagnostic-only)
+# P(near)/gate columns instead of crashing the build on an unexpanded glob.
+[[ -d "${OCEAN_CLOUD_DIRS[0]}" ]] && OCEAN_CLOUD_ARGS=(--ocean-cloud-model-dir "${OCEAN_CLOUD_DIRS[@]}") || OCEAN_CLOUD_ARGS=()
+[[ -d "${LAND_CLOUD_DIRS[0]}"  ]] && LAND_CLOUD_ARGS=(--land-cloud-model-dir  "${LAND_CLOUD_DIRS[@]}")  || LAND_CLOUD_ARGS=()
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
 OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${MODEL_TAG}/nassar_plumes
@@ -100,15 +104,19 @@ nassar_date() {
 
     python workspace/build_deepens_plot_data.py \
         --ocean-model-dir "${OCEAN_MODEL_DIRS[@]}" \
-        --ocean-cloud-model-dir "${OCEAN_CLOUD_DIRS[@]}" \
+        "${OCEAN_CLOUD_ARGS[@]}" \
         --land-model-dir "${LAND_MODEL_DIRS[@]}" \
-        --land-cloud-model-dir "${LAND_CLOUD_DIRS[@]}" \
+        "${LAND_CLOUD_ARGS[@]}" \
         --input "$input" --output "$plotdata" \
         || { echo "  build failed"; return; }
     echo "  wrote $plotdata"
 }
 
-mapfile -t REQUESTED_DATES < <(load_dates "$@")
+# (while-read instead of mapfile: macOS ships bash 3.2, which lacks mapfile)
+REQUESTED_DATES=()
+while IFS= read -r _d; do
+    [[ -n "$_d" ]] && REQUESTED_DATES+=("$_d")
+done < <(load_dates "$@")
 if [[ "${#REQUESTED_DATES[@]}" -eq 0 ]]; then
     echo "No dates supplied after filtering." >&2
     exit 2

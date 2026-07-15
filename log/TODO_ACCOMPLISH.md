@@ -16,6 +16,25 @@ multi-scene demonstration deferred to a follow-up letter (§4).
 ACCEPTED for the appendix (A13) — the causal mechanism experiment the
 observational stratifications can't provide; §8d reframed from pure future
 work to "first demonstration included, PPDF closure + plume OSSE deferred".
+**Update (2026-07-15 — fold-PCA production rerun + L′ relabel; full detail in
+`log/FOLDPCA_RERUN_2026-07-15.md`):** production DE/XGB/LinReg retrained on
+CURC with FOLD-SPECIFIC ProfilePCA (closes the global-PCA train/test leak) and
+the entire local stack regenerated — new production tag
+**`de_beta_nll_prof_reg_foldpca_o05l15_m5`**. The leakage fix is metrically a
+near no-op: AK mean |bias| 1.26→**0.82** (was 0.81), fp-RMSE 2.67→**1.20**
+(was 1.19), 71/75 improved, Wilcoxon p=0.0063 — quote foldpca numbers + a
+one-sentence reproduction note. Regenerated: TCCON chains ×3 models (+drift),
+ATom (near-cloud 0.532→**0.445**), Ship, kfold aggregates, smoother-null
+(reproduced), uncertainty layer (locally, refit Side-A inflation; DL
+−0.32±0.09 r100 / −0.45±0.07 r50 — conclusions carry over), Nassar suite
+(control null again 5/7 + same 2 flags), comparison pptx (now scripted:
+`workspace/make_comparison_pptx.py`). Symbol changed **l′ → L′**
+(plot_style.py, plain Arial-italic mathtext; all figures regenerated today
+carry it — remaining l′ figures listed in the rerun doc). **⚠ OPEN: land
+fold f2 of EVERY feature-set variant DIVERGED in the retrain** (f1/f3 also
+under-converged; non-reg beta-NLL land instability) → the 2026-07-15
+ablation doc + Nassar channel attribution are PRELIMINARY; retrain queued
+(see §2-7).
 
 ---
 
@@ -42,7 +61,8 @@ work to "first demonstration included, PPDF closure + plume OSSE deferred".
       Westar 2023-06-26 transect = preserved +0.6 ppm bump (money figure).
 
 ### Models / ablations
-- [x] Production frozen: `de_beta_nll_prof_reg_o05l15_m5` (per-surface DE, M=5,
+- [x] Production frozen: `de_beta_nll_prof_reg_foldpca_o05l15_m5` (2026-07-15
+      fold-PCA retrain, metrically ≤0.01 ppm from the 07-08 freeze; per-surface DE, M=5,
       beta-NLL, lndo01 reg, ProfilePCA, no-SG k, ocean r05 / land r15 targets).
 - [x] Same-protocol baseline table: DE > XGB-mean > Ridge (near-cloud land tail
       fp-RMSE 1.30 < 1.68 < 2.37); TabM ≈ DE except that tail; 5-model
@@ -81,6 +101,9 @@ work to "first demonstration included, PPDF closure + plume OSSE deferred".
    but leaves the case bias untouched (|bias| 1.26 → 1.20–1.24 vs DE 0.81 ppm);
    fp-RMSE DE 1.19 < smoother 1.34–1.52 ppm. Figure:
    `smoother_null/smoother_null_r100km.png` (`workspace/smoother_null_figure.py`).
+   **Regenerated 2026-07-15 under the foldpca tag — conclusion identical**
+   (σ 2.23 → 0.35–0.66 vs DE 0.78; |bias| 1.26 → 1.20–1.24 vs DE 0.82;
+   fp-RMSE DE 1.20 < smoother 1.34–1.52).
 2. [x] **Full-parquet land-class + spec-sensitivity: RAN AND SCORED 2026-07-08.**
    The CURC job had already completed (downloaded to
    `results/figures/cld_dist_analysis/`; 2.44 M binned land rows, classifier
@@ -153,6 +176,23 @@ work to "first demonstration included, PPDF closure + plume OSSE deferred".
    expect, attributed to the xco2-departure channel and NOT to the spectral
    features.
 
+7. [ ] **Retrain the LAND feature-set-ablation variants on CURC (added
+   2026-07-15).** In the fold-PCA retrain, land f2 of every variant diverged
+   (held-out RMSE 3.8k–43k ppm) and f1/f3 under-converged (R² 0.01–0.24) —
+   the beta-NLL land instability the lndo01 reg ablation fixed for production;
+   the variants were trained WITHOUT reg. Launchers are PREPPED with
+   `--norm layer --dropout 0.1` added to the variant loops (variants then
+   differ from production `full` ONLY in feature set):
+   `sbatch curc_shell_blanca_de_profile_foldpca_r15.sh` (land — required) and
+   `..._r05.sh` (ocean — optional, config consistency; ocean folds healthy).
+   After download: revert the f2 exclusion in
+   `workspace/build_ablation_variant_trees.sh`, rebuild the 5 variant trees +
+   reports, rerun `workspace/make_featureset_ablation_doc.py`, and redo the
+   Nassar variant builds + `nassar_channel_attribution.py`. Until then the
+   2026-07-15 ablation doc (no_spec pooled Δ ≈ +0.8 ppm!) and the 55/44/28 %
+   channel attribution (spec +11 pp, was +1 pp) are NOT quotable — the
+   2026-07-08 numbers (healthy variants, global PCA) remain the reference.
+
 ## 3. SHOULD-DO (strengthens, not blocking)
 
 - [ ] **MODIS cloud-product dependence (2026-07-08 decision: literature-first).**
@@ -183,8 +223,21 @@ work to "first demonstration included, PPDF closure + plume OSSE deferred".
   calibrated vs the anomaly target (Phase 2b k(cld_dist)). TOST δ=0.5:
   1/75 equivalent, 14/75 differ — quote the DL CI as the global statement,
   not per-case equivalence. Full read in `log/PROJECT_REVIEW.md` §3.1.
+  **Regenerated LOCALLY 2026-07-15 on the foldpca tag** (Side-A inflation
+  refit from the new held-out predictions; runs locally now — the new atrain
+  plot_data carries mu_NN): DL −0.32 ± 0.09 (r100) / −0.45 ± 0.07 (r50),
+  τ 0.22 → 0.52 ppm with radius, ⟨z²⟩ 1.80/2.39, TOST 1/75 equivalent —
+  every conclusion of the CURC edition carries over.
 - [ ] **Manuscript figure pass (style LOCKED 2026-07-09; user-approved on 3
-  vetted samples: bu 2018-10-24, iz 2019-03-13, ra 2016-09-11).**
+  vetted samples: bu 2018-10-24, iz 2019-03-13, ra 2016-09-11).
+  SYMBOL CHANGE 2026-07-15: l′ → L′** (plot_style.py MEAN_L_LABEL/VAR_L_LABEL,
+  now plain Arial-italic mathtext — the Times \mathcal hack was only needed
+  for the bad lowercase glyph; paper LaTeX should use $L'$). Carrying L′
+  already: all 75 foldpca TCCON cases + aggregates, drift, ATom, Ship, Nassar,
+  smoother-null, Fig 2 heatmap, Fig 4 case figures, A1 atlases. Still l′:
+  run_all heavy figures (Fig 1b,c / Fig 3 / A11 — CURC), A5 savgol (CURC),
+  composed make_*.py figures (fig01a/05b/07/08/09b — re-check numbers against
+  the NEW reports before regen), poster.
   Shared module `workspace/plot_style.py`: Arial + Arial mathtext (AMT;
   unicode ₂ has no Arial glyph → mathtext $X_{CO2}$ everywhere), base 10 pt,
   CVD-safe maps (plasma XCO2/spec, magma σ, cividis cld-dist, RdBu_r μ),
@@ -494,11 +547,11 @@ the locked AMT style; new composed figures generated by
      (held-out R² 0.53 ocean / 0.39 land).
 6. **TCCON before/after headline** (production tag, AK reference)
    - per-case compact 2×3 (user-approved sample):
-     `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atrain/combined_2018-10-24_bu/corrected_xco2_vs_tccon.png`
+     `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_foldpca_o05l15_m5/atrain/combined_2018-10-24_bu/corrected_xco2_vs_tccon.png`
      (alternates: `combined_2019-03-13_iz`, `combined_2016-09-11_ra`; `_full`
      3×3 variant in the same dirs)
    - all-75-case dumbbell:
-     `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atrain/tccon_ak_bias_dumbbell_label_r100km.png`
+     `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_foldpca_o05l15_m5/atrain/tccon_ak_bias_dumbbell_label_r100km.png`
    - *Suggested caption:* **Figure 6.** TCCON validation. (a–f) One
      overpass (Burgos, 24 October 2018; station ±100 km view, dashed
      100-km collocation circle): OCO-2 Lite XCO2, ML-corrected XCO2,
@@ -543,7 +596,7 @@ the locked AMT style; new composed figures generated by
      effectiveness the path-length analysis of Sect. X explains.
 9. **Plume preservation**
    - (a) transect (Westar 2023-06-26 money figure):
-     `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/nassar_plumes/plume_preservation/transects/nassar_transect_westar_2023-06-26.png`
+     `results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_foldpca_o05l15_m5/nassar_plumes/plume_preservation/transects/nassar_transect_westar_2023-06-26.png`
    - (b) band-resolved k1 fingerprint (cloud vs plume discriminator):
      `results/figures/manuscript/fig09b_k1_contrast.png`
    - *Suggested caption:* **Figure 9.** The correction preserves real CO2
@@ -562,7 +615,9 @@ the locked AMT style; new composed figures generated by
      channel is ≤ 0.21 ppm.
 
 **Appendix / supporting figures (proposed set, with paths;** base
-`results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5`
+`results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_foldpca_o05l15_m5`
+(the 2026-07-15 fold-PCA production tree; the old
+`de_beta_nll_prof_reg_o05l15_m5` tree is retained for reference)
 abbreviated `<TAG>`**):**
 
 - **A1 case-study category atlases:** `results/figures/cld_dist_analysis/spec_case_study/atlas_{good_land_1,good_land_2,good_ocean_1,good_ocean_2,false_positive_1,false_positive_2,cloud_no_bias}.png`

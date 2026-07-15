@@ -20,7 +20,7 @@ import numpy as np, pandas as pd
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CSV_DIR = os.path.join(REPO, "results", "csv_collection")
-TAG = "de_beta_nll_prof_reg_o05l15_m5"
+TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
 OUT_BASE = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
 MERGED_DIR = os.path.join(OUT_BASE, "atom_merged")   # merged profiles (input)
 EPOCH = dt.datetime(1970, 1, 1)

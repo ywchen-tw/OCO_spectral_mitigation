@@ -37,6 +37,13 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
 else
     export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+    # macOS: pip xgboost in ml310 lacks libomp.dylib — borrow one from a sibling
+    # conda env via DYLD_FALLBACK (nothing installed; no-op if already set).
+    if [[ -z "${DYLD_FALLBACK_LIBRARY_PATH:-}" ]]; then
+        for _d in "$HOME"/miniforge3/envs/*/lib; do
+            [[ -f "$_d/libomp.dylib" ]] && export DYLD_FALLBACK_LIBRARY_PATH="$_d" && break
+        done
+    fi
 fi
 export HDF5_USE_FILE_LOCKING=FALSE
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
@@ -85,7 +92,7 @@ esac
 CSV_DIR="$DATA_ROOT"/results/csv_collection
 OUT_BASE="$DATA_ROOT"/results/model_comparison/${OUT_SUBDIR}/${MODEL_TAG}/atom
 # atom_merged/ is model-independent → reuse the DE tree's already-built profiles.
-DE_ATOM="$DATA_ROOT"/results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atom
+DE_ATOM="$DATA_ROOT"/results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_foldpca_o05l15_m5/atom
 MERGED_DIR="$DE_ATOM/atom_merged"
 
 # ATom-coincident OCO-2 dates (same set as the DE launcher).

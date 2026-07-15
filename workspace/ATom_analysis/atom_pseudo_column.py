@@ -36,7 +36,7 @@ from plot_style import apply_manuscript_style, panel_label       # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CSV_DIR = os.path.join(REPO, "results", "csv_collection")
-TAG = "de_beta_nll_prof_reg_o05l15_m5"
+TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
 DE_ATOM = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
 # The following four are DEFAULTS (production DE); --out-base/--plot-base/--merged-dir/
 # --corr-col override them so the SAME pipeline scores the linreg/xgb baselines against

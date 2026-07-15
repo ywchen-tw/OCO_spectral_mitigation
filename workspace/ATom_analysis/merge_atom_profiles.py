@@ -42,7 +42,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 DATA_ROOT = os.path.join(REPO, "data", "Other")
 PICARRO_DIR = os.path.join(DATA_ROOT, "ATom_Picarro_Instrument_Data_1732", "data")
 NAV_DIR = os.path.join(DATA_ROOT, "ATom_nav_1613", "data")
-TAG = "de_beta_nll_prof_reg_o05l15_m5"
+TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
 OUT_BASE = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
 OUT_DIR = os.path.join(OUT_BASE, "atom_merged")   # merged profiles + profile plots
 

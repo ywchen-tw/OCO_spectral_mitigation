@@ -28,7 +28,7 @@ from plot_style import apply_manuscript_style, CMAPS, XCO2_LABEL  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CSV_DIR = os.path.join(REPO, "results", "csv_collection")
-TAG = "de_beta_nll_prof_reg_o05l15_m5"
+TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
 PLOT_BASE = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
 MERGED_DIR = os.path.join(PLOT_BASE, "atom_merged")     # merged profiles (input)
 TILES_DIR = os.path.join(PLOT_BASE, "_modis_tiles")     # cached GIBS tiles

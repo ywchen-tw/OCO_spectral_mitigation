@@ -31,6 +31,13 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
 else
     export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+    # macOS: pip xgboost in ml310 lacks libomp.dylib — borrow one from a sibling
+    # conda env via DYLD_FALLBACK (nothing installed; no-op if already set).
+    if [[ -z "${DYLD_FALLBACK_LIBRARY_PATH:-}" ]]; then
+        for _d in "$HOME"/miniforge3/envs/*/lib; do
+            [[ -f "$_d/libomp.dylib" ]] && export DYLD_FALLBACK_LIBRARY_PATH="$_d" && break
+        done
+    fi
 fi
 export HDF5_USE_FILE_LOCKING=FALSE
 export OMP_NUM_THREADS=1
@@ -73,10 +80,13 @@ export OCO2_DATAROOT="$DATA_ROOT"
 # versions never overwrite each other's plot outputs.
 # Mixed near-cloud anomaly-feature radius per surface: OCEAN uses the r05 (0.5°)
 # variant, LAND uses r15 (1.5°) — each surface's best-performing profile+reg model
-# (from curc_shell_blanca_de_profile_r05.sh / _r15.sh).  Tag reflects the mix.
-MODEL_TAG=de_beta_nll_prof_reg_o05l15_m5
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_r05_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_r15_f*)
+# (from curc_shell_blanca_de_profile_foldpca_r05.sh / _r15.sh).  Tag reflects the mix.
+# foldpca (2026-07-15): each fold's ProfilePCA EOF basis is fit on that fold's
+# TRAIN dates only (leakage-safe), replacing the former global-PCA production
+# models (de_*_beta_nll_prof_reg_r{05,15}_f*, tag de_beta_nll_prof_reg_o05l15_m5).
+MODEL_TAG=de_beta_nll_prof_reg_foldpca_o05l15_m5
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15_f*)
 
 # ─── cloud classifier (xgb_cloud fold dirs; per-surface) ──────────────────────
 # When set, build_deepens_plot_data.py also emits P(near) and the two extra
@@ -85,6 +95,10 @@ LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_
 # under-correct — kept for diagnostics, not the production correction.
 OCEAN_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_ocean_f*)
 LAND_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_land_f*)
+# The xgb_cloud classifier only exists on CURC; locally, drop the (diagnostic-only)
+# P(near)/gate columns instead of crashing the build on an unexpanded glob.
+[[ -d "${OCEAN_CLOUD_DIRS[0]}" ]] && OCEAN_CLOUD_ARGS=(--ocean-cloud-model-dir "${OCEAN_CLOUD_DIRS[@]}") || OCEAN_CLOUD_ARGS=()
+[[ -d "${LAND_CLOUD_DIRS[0]}"  ]] && LAND_CLOUD_ARGS=(--land-cloud-model-dir  "${LAND_CLOUD_DIRS[@]}")  || LAND_CLOUD_ARGS=()
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
 # OUT_BASE is namespaced by MODEL_TAG so each DE model version writes to its own
@@ -141,10 +155,12 @@ run_case() {
         echo "  SKIP build (SKIP_BUILD=1) — reusing $plotdata"
     else
         local model_args=()
-        [[ "$surf" == both || "$surf" == ocean ]] && model_args+=(--ocean-model-dir "${OCEAN_MODEL_DIRS[@]}" --ocean-cloud-model-dir "${OCEAN_CLOUD_DIRS[@]}")
-        [[ "$surf" == both || "$surf" == land  ]] && model_args+=(--land-model-dir  "${LAND_MODEL_DIRS[@]}" --land-cloud-model-dir "${LAND_CLOUD_DIRS[@]}")
+        [[ "$surf" == both || "$surf" == ocean ]] && model_args+=(--ocean-model-dir "${OCEAN_MODEL_DIRS[@]}" "${OCEAN_CLOUD_ARGS[@]}")
+        [[ "$surf" == both || "$surf" == land  ]] && model_args+=(--land-model-dir  "${LAND_MODEL_DIRS[@]}" "${LAND_CLOUD_ARGS[@]}")
+        # --emit-members: write per-member mu_NN columns so the uncertainty layer
+        # (tccon_uncertainty_stats.py) can run on this tree without a rebuild.
         python workspace/build_deepens_plot_data.py \
-            "${model_args[@]}" --input "$input" --output "$plotdata" || { echo "  build failed"; return; }
+            "${model_args[@]}" --emit-members --input "$input" --output "$plotdata" || { echo "  build failed"; return; }
     fi
 
     # (5) plot
