@@ -430,6 +430,19 @@ def main():
                          f"{r.coef_ppm_per_sd:+.3f} | {r.t:+.1f} | {flag} |")
         return lines
 
+    # direct-only |bias| worseners: material worsening under direct while
+    # improving under AK — reference artifact (large-ak_delta stations).
+    dw_lines = ["| site | date | tree | ak_delta | AK bias before→after | "
+                "direct bias before→after | n_oco |",
+                "|---|---|---|---|---|---|---|"]
+    dwo = worse[(worse.d_absbias_direct >= 0.25) & (worse.d_absbias < 0)]
+    for r in dwo.sort_values("d_absbias_direct", ascending=False).itertuples():
+        dw_lines.append(
+            f"| {r.site} | {r.date} | {r.tree} | {r.ak_delta:+.2f} | "
+            f"{r.bias_before:+.2f}→{r.bias_after:+.2f} | "
+            f"{r.bias_before_direct:+.2f}→{r.bias_after_direct:+.2f} | "
+            f"{r.n_oco:,} |")
+
     # md table: RMSE worseners + MATERIAL |bias| worseners (Δ|bias| ≥ 0.25 ppm);
     # the full 35-row list (incl. near-zero-before sign flips) is in the CSV.
     w_lines = ["| site | date | tree | RMSE before→after | bias before→after | "
@@ -467,6 +480,15 @@ def main():
         "list in `worseners_r100km.csv`.",
         "",
         *w_lines, "",
+        "### Direct-only worseners (reference artifact, not ML failure)", "",
+        "Cases that WORSEN in |bias| under the direct reference while "
+        "IMPROVING under AK — the AK/direct disagreement implicates the "
+        "un-harmonized reference. Expected at stations with large ak_delta "
+        "(e.g. high-altitude Izaña, ak_delta ≈ +0.4–0.9 ppm: the raw window "
+        "mean sits ~1 ppm below the harmonized reference, so correcting "
+        "toward the truth reads as drifting away from the biased raw "
+        "reference).", "",
+        *dw_lines, "",
         "## 2. Driver stratification (decile bins)", "",
         f"Footprint table: `failure_modes/footprints_{rtag}.parquet` "
         f"({len(d):,} rows). Figure: `{fig_p.name}` (per-driver fp-RMSE "
