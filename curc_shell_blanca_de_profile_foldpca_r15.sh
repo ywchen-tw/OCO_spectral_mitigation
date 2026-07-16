@@ -14,9 +14,9 @@
 #SBATCH --job-name=oco_train_de_foldpca_r15
 #SBATCH --account=blanca-airs
 ###SBATCH --partition=blanca-airs
-#SBATCH --partition=blanca-curc-gpu
+###SBATCH --partition=blanca-curc-gpu
 #SBATCH --qos=preemptable
-###SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:1
 #SBATCH --array=0-4
 #SBATCH --requeue
 
