@@ -10,6 +10,8 @@ Two manuscript figures per run (Arial, plasma XCO2 maps, panel letters):
       nearest-cloud-distance maps in a middle row.
 (a)+(b) share one horizontal XCO2 colorbar; map view extent defaults to the
 TCCON station ±100 km (--extent-radius-km, 0 = legacy lon/lat-range extent).
+The plotted TCCON series is AK/prior-harmonized by DEFAULT (2026-07-16, shifts
+by the case-constant ak_delta; labels say "(AK)"); --tccon-direct for raw.
 
 Usage:
     python src/plot_corrected_xco2.py \\
@@ -52,6 +54,16 @@ from utils import get_storage_dir
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_style import (apply_manuscript_style, panel_label, CMAPS,
                         XCO2_LABEL, station_extent)
+from ak_harmonize import operator_from_dataframe, ak_adjusted_ref_from_operator
+
+# Set in main() when the plotted TCCON series has been AK/prior-harmonized
+# (the default since 2026-07-16, matching the report's 'ak' reference);
+# every TCCON label then advertises it.
+_TCCON_AK = False
+
+
+def _tc_label(base: str) -> str:
+    return f'{base} (AK)' if _TCCON_AK else base
 
 # ── Styling constants ──────────────────────────────────────────────────────────
 # Sequential XCO2 colormap (perceptually uniform, CVD-safe; AMT-friendly).
@@ -600,7 +612,7 @@ def _histogram_panel(ax, oco_df: pd.DataFrame, tccon_df: pd.DataFrame,
     # ── TCCON on twin right-hand axis ─────────────────────────────────────────
     ax_twin = ax.twinx()
     if len(tccon_df) > 0:
-        _draw(ax_twin, tccon_df['xco2'], 'TCCON (ground)', 'red', lw=1.5)
+        _draw(ax_twin, tccon_df['xco2'], _tc_label('TCCON ground'), 'red', lw=1.5)
     ax_twin.set_ylabel('Density (TCCON)', color='dimgray')
     ax_twin.tick_params(axis='y', labelcolor='dimgray')
 
@@ -765,7 +777,8 @@ def _save_poster_comparison_figure(
     _draw_hist(hist_df['xco2_bc'].values, 'OCO-2 Lite $X_{\mathrm{CO2}}$', 'black')
     _draw_hist(hist_df[model_col].values, 'Corrected $X_{\mathrm{CO2}}$', 'green')
     if len(tccon_df) > 0:
-        _draw_hist(tccon_df['xco2'].values, 'TCCON $X_{\mathrm{CO2}}$', 'coral', linestyle='--')
+        _draw_hist(tccon_df['xco2'].values, _tc_label('TCCON $X_{\mathrm{CO2}}$'),
+                   'coral', linestyle='--')
 
     ax_hist.set_title('$X_{\mathrm{CO2}}$ distributions', fontsize=23, weight='bold', pad=14)
     ax_hist.set_xlabel('$X_{\mathrm{CO2}}$ (ppm)', fontsize=18)
@@ -921,7 +934,7 @@ def _compose_case_figure(*, full, oco, oco_hist, tccon, active,
 
     _hh, _ll = _histogram_panel(ax_h, oco_hist, tccon, vmin, vmax)
     panel_label(ax_h, next(_tags))
-    _tccon_panel(ax_t, tccon, vmin, vmax, f'TCCON {XCO2_LABEL}',
+    _tccon_panel(ax_t, tccon, vmin, vmax, _tc_label(f'TCCON {XCO2_LABEL}'),
                  fp_times=fp_times)
     panel_label(ax_t, next(_tags))
 
@@ -951,6 +964,57 @@ def _compose_case_figure(*, full, oco, oco_hist, tccon, active,
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
+
+def _compute_ak_delta(oco, tccon_nc_path, st_lon, st_lat, *, date_str,
+                      radius_km, window_min, storage_dir):
+    """Case-constant AK/prior harmonization shift (ppm) for the TCCON series.
+
+    Mirrors tccon_comparison_report.py's 'ak' reference (Rodgers & Connor 2003 /
+    Wunch et al. 2017): build the mean OCO-2 column operator from the collocated
+    footprints' own ak_NN/pwf_NN/co2_ap_NN/plev_NN columns (merged from the
+    day's source parquet) and apply it to the TCCON window.  NaN when the
+    operator columns / source parquet are unavailable.
+    """
+    import pyarrow.parquet as apq
+    name = f'combined_{date_str}_all_orbits.parquet'
+    src = None
+    for base in (Path('results/csv_collection'),
+                 Path(storage_dir) / 'results/csv_collection'):
+        if (base / name).exists():
+            src = base / name
+            break
+    if src is None:
+        return np.nan
+    avail = set(apq.ParquetFile(src).schema_arrow.names)
+    ak_cols = sorted(c for c in avail
+                     if any(c.startswith(p) and c[len(p):].isdigit()
+                            for p in ('ak_', 'pwf_', 'co2_ap_', 'plev_')))
+    if not ak_cols:
+        return np.nan
+    d = _haversine_km(oco['lon'].values, oco['lat'].values, st_lon, st_lat)
+    # xco2_apriori is required by operator_from_dataframe; take it from the
+    # plot_data when present, else pull it from the source parquet.
+    keep = ['time', 'lon', 'lat'] + (['xco2_apriori'] if 'xco2_apriori'
+                                     in oco.columns else [])
+    near = oco.loc[d <= radius_km, keep]
+    if not len(near):
+        return np.nan
+    if 'xco2_apriori' not in near.columns and 'xco2_apriori' in avail:
+        ak_cols = ak_cols + ['xco2_apriori']
+    sub = (pd.read_parquet(src, columns=['time', 'lon', 'lat'] + ak_cols)
+             .drop_duplicates(['time', 'lon', 'lat']))
+    near = near.merge(sub, on=['time', 'lon', 'lat'], how='left')
+    op = operator_from_dataframe(near)
+    if op is None:
+        return np.nan
+    ot = pd.to_datetime(near['time'], unit='s', utc=True, errors='coerce').dropna()
+    if not len(ot):
+        return np.nan
+    adj = ak_adjusted_ref_from_operator(
+        op, tccon_nc_path, ot.min().tz_localize(None), ot.max().tz_localize(None),
+        window_min=window_min)
+    return adj['ak_delta'] if adj is not None else np.nan
+
 
 def main():
     global _CMAP
@@ -1012,6 +1076,11 @@ def main():
                         help='Restrict the histogram comparison to footprints within this '
                              'great-circle distance (km) of the TCCON station. Maps and the '
                              'time series still use the full lon/lat box. Default: no limit.')
+    parser.add_argument('--tccon-direct', action='store_true',
+                        help='Plot the RAW TCCON series. Default since 2026-07-16: the '
+                             'plotted TCCON series is AK/prior-harmonized (shifted by the '
+                             'case-constant ak_delta from the collocated footprints\' own '
+                             'column operators), matching the report\'s primary reference.')
     parser.add_argument('--tccon-window-min', type=float, default=60.0,
                         help='Half-width (minutes) of the TCCON time window around the OCO-2 '
                              'footprint pass: TCCON is kept within [first footprint − W, '
@@ -1150,6 +1219,35 @@ def main():
         print(f"  View extent: station ±{args.extent_radius_km:g} km → "
               f"lon [{station_ext[0]:.2f}, {station_ext[1]:.2f}] "
               f"lat [{station_ext[2]:.2f}, {station_ext[3]:.2f}]", flush=True)
+
+    # ── AK/prior harmonization of the plotted TCCON series (default) ─────────
+    # Shift the whole series by the case-constant ak_delta so the figures
+    # compare against the same harmonized reference the report quotes;
+    # --tccon-direct restores the raw series.  Failure → raw series + warning.
+    global _TCCON_AK
+    if (not args.tccon_direct) and len(tccon) > 0 and tccon_lon is not None:
+        date_str = args.date_plot
+        if not date_str and 'time' in oco.columns and len(oco):
+            date_str = pd.to_datetime(float(np.nanmedian(oco['time'])),
+                                      unit='s', utc=True).strftime('%Y-%m-%d')
+        ak_delta = np.nan
+        if date_str:
+            try:
+                ak_delta = _compute_ak_delta(
+                    oco, tccon_path, tccon_lon, tccon_lat, date_str=date_str,
+                    radius_km=(args.hist_radius_km or args.extent_radius_km or 100.0),
+                    window_min=args.tccon_window_min, storage_dir=storage_dir)
+            except Exception as e:                      # noqa: BLE001 — raw fallback
+                print(f"  ⚠ AK harmonization failed: {e}", flush=True)
+        if np.isfinite(ak_delta):
+            tccon = tccon.copy()
+            tccon['xco2'] = tccon['xco2'] + float(ak_delta)
+            _TCCON_AK = True
+            print(f"  TCCON series AK/prior-harmonized: Δ = {ak_delta:+.3f} ppm",
+                  flush=True)
+        else:
+            print("  ⚠ AK harmonization unavailable — plotting RAW TCCON series",
+                  flush=True)
 
     # ── Shared colour range ───────────────────────────────────────────────────
     _pool = []
