@@ -195,20 +195,28 @@ ablation doc + Nassar channel attribution are PRELIMINARY; retrain queued
 
 ## 3. SHOULD-DO (strengthens, not blocking)
 
-- [ ] **Failure-mode analysis: where the ML correction does NOT work well
-  (added 2026-07-15).** Take the worsening station-days (per-case CSVs:
-  `bias_after`/`rmse_after` vs `_before`, both refs; 4/75 fp-RMSE worseners +
-  the |bias| worseners) and the worst near-cloud land strata, and diagnose the
-  drivers by stratifying residuals on candidate regime variables: **high AOD**
-  (contam-block features: AOD components, dp_abp), **high latitude / high SZA**
-  (Ny-Ålesund already owned as the M7 subsection — fold the drift tree in),
-  **snow / bright surfaces** (snow data kept by default; albedo / exp-intercept
-  features; ties to the P3 WCO2 albedo-contrast sign rule), plus low-n
-  collocations and OOD-flag rate. Inputs all exist per footprint in the case
-  plot_data + input parquets; a small stratified-residual script over the
-  foldpca atrain tree would produce the table/figure. Feeds the M3
-  worsening-sites paragraph and the §7 high-latitude subsection — turns both
-  from "owned limitation" into "diagnosed limitation".
+- [x] **Failure-mode analysis: where the ML correction does NOT work well —
+  DONE 2026-07-16.** →
+  `results/model_comparison/deep_ensemble/FAILURE_MODES_2026-07-16.md`
+  (generator `workspace/analyze_failure_modes.py`; artifacts incl. the
+  163,917-footprint driver table + per-driver figure under
+  `<TAG>/failure_modes/`; atrain 75 + drift 21 station-days, AK primary /
+  direct check, Ny-Ålesund included). Verdicts: (1) failure rare & small —
+  5/96 fp-RMSE worseners (max +0.44 ppm), zero guard activity; (2) **high AOD
+  is NOT a relative failure mode** — top land decile has the BEST skill
+  (6.10→1.88) but the largest remaining residual (strongest land OLS driver
+  +0.26 ppm/SD, t≈98): under-corrected in amplitude, not mis-corrected;
+  (3) **bright surfaces are the per-footprint failure stratum** — top alb_o2a
+  decile (>0.40) frac-worse 0.47 (df 2021-02-10 dossier = its case instance;
+  ties to WCO2 albedo sign rule); (4) **snow is NOT a failure mode**
+  (snow_flag=1: 9.39→2.73; biggest improver ny 2017-05-25 is the snow case);
+  (5) **high lat fails at the BIAS level, not scatter** (ny 2020-07-11
+  correction inert on +1.7 ppm bias; largest worsener = high-lat drift
+  ka 2023-09-11; abs_lat tiny in footprint OLS) — station-day anchoring, not
+  footprint noise; (6) **σ self-awareness**: land frac-worse falls 0.46→0.06
+  from lowest to highest σ decile — worsening is small corrections dithering
+  small residuals; large-correction footprints almost never worsen. Feeds M3
+  worsening-sites + §7 high-lat: both now "diagnosed limitation".
 - [x] **Raw-vs-BC-vs-ML against TCCON: does the ML correction explain part of
   the operational bias correction? — DONE 2026-07-16.** →
   `results/model_comparison/deep_ensemble/RAW_BC_ML_TCCON_2026-07-16.md`
