@@ -209,21 +209,24 @@ ablation doc + Nassar channel attribution are PRELIMINARY; retrain queued
   foldpca atrain tree would produce the table/figure. Feeds the M3
   worsening-sites paragraph and the §7 high-latitude subsection — turns both
   from "owned limitation" into "diagnosed limitation".
-- [ ] **Raw-vs-BC-vs-ML against TCCON: does the ML correction explain part of
-  the operational bias correction? (added 2026-07-15).** The reports already
-  carry the raw column (AK r100: mean |bias| raw 1.34 → bc 1.26 → ML 0.82;
-  per-case `bias_raw/rmse_raw` under BOTH direct and AK refs) — first present
-  that three-way table per ref/QF properly. Then the real question: how much
-  of the operational raw→bc correction is reproducible by the per-sounding ML
-  layer — (a) correlate per-footprint `mu` against the operational increment
-  `xco2_raw − xco2_bc` (near- vs far-cloud, per surface); (b) quantify with
-  the raw-base variant: `build_deepens_plot_data.py --correction-base raw`
-  and the existing `de_*_beta_nll_prof_reg_raw_*` models /
-  `de_prof_reg_mix_raw` + `reg_mix_bc_vs_raw` trees — score raw+ML directly
-  against TCCON next to bc and bc+ML. If raw+ML ≈ bc+ML on TCCON, the ML
-  layer subsumes a sizable part of the operational correction near clouds —
-  a strong Discussion point for B11-independence; if not, the two corrections
-  are complementary (also worth stating).
+- [x] **Raw-vs-BC-vs-ML against TCCON: does the ML correction explain part of
+  the operational bias correction? — DONE 2026-07-16.** →
+  `results/model_comparison/deep_ensemble/RAW_BC_ML_TCCON_2026-07-16.md`
+  (generator `workspace/make_raw_bc_ml_report.py`; ML-on-raw tree
+  `de_prof_reg_mix_raw` REBUILT over the 75 current cases with
+  `build_ablation_variant_trees.sh raw_base` + its own r100 report; raw-model
+  folds all healthy, lndo01). Verdicts: (1) keep correcting bc — ML-on-bc
+  best station-equal |bias| everywhere, best direct RMSE, far better ocean
+  (AK 0.98 vs 1.55); (2) the ML layer CAN subsume most of the operational
+  correction — ML-on-raw pooled AK 1.18 vs 1.22, and the raw-trained DE
+  rediscovers the increment with r(Δmu, inc)=0.79 pooled / 0.86 near-cloud
+  land at 53–66 % amplitude (60 % / 73 % of var(inc)) — B11-independence
+  Discussion point secured; (3) near-cloud LAND the operational BC
+  over-corrects (raw→bc AK RMSE 3.35→3.84, bias −0.90→−1.22, while helping
+  QF=0 pool 1.47→1.01) and the production correction is ANTI-correlated with
+  the increment there (r=−0.34) — the two layers are complementary, ML partly
+  reverses the near-cloud over-application. Supersedes the four-series part
+  of `reg_mix_bc_vs_raw/BC_VS_RAW_COMPARISON.md` (2026-07-04).
 - [ ] **MODIS cloud-product dependence (2026-07-08 decision: literature-first).**
   The Discussion paragraph is carried by (a) the Cluster 9 citations
   (TCCON_PAPERS doc: Ackerman 1998/2008, Frey 2008, Holz 2008, Stubenrauch

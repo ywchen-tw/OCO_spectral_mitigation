@@ -15,6 +15,11 @@
 # loads, cloud-classifier args dropped when the dirs are absent, libomp
 # borrowed via DYLD_FALLBACK.
 #
+# Special arm 'raw_base' (2026-07-16, raw-vs-bc-vs-ML analysis): rebuilds the
+# ML-on-raw tree de_prof_reg_mix_raw with the healthy prof_reg_raw models
+# (target xco2_raw_anomaly, lndo01, global PCA — no foldpca retrain exists;
+# fold-PCA is a ≤0.01 ppm no-op on production) and --correction-base raw.
+#
 # Usage:  bash workspace/build_ablation_variant_trees.sh no_spec
 
 set -u
@@ -35,16 +40,25 @@ fi
 DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_prof_foldpca_r05_f*)
-# Land fold f2 of EVERY variant diverged in the 2026-07 CURC retrain (held-out
-# RMSE 3.8k-43k ppm; see FOLDPCA_RERUN_2026-07-15.md) — pool the 4 healthy land
-# folds until the retrain lands.  Ocean folds are all healthy.
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_${VARIANT}_prof_foldpca_r15_f{0,1,3,4})
+EXTRA_BUILD_ARGS=()
+if [[ "$VARIANT" == raw_base ]]; then
+    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_raw_r05_f*)
+    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_raw_r15_f*)
+    EXTRA_BUILD_ARGS=(--correction-base raw)
+    OUT_BASE_NAME=de_prof_reg_mix_raw
+else
+    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_prof_foldpca_r05_f*)
+    # Land fold f2 of EVERY variant diverged in the 2026-07 CURC retrain (held-out
+    # RMSE 3.8k-43k ppm; see FOLDPCA_RERUN_2026-07-15.md) — pool the 4 healthy land
+    # folds until the retrain lands.  Ocean folds are all healthy.
+    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_${VARIANT}_prof_foldpca_r15_f{0,1,3,4})
+    OUT_BASE_NAME=de_prof_mix_${VARIANT}
+fi
 [[ -d "${OCEAN_MODEL_DIRS[0]}" && -d "${LAND_MODEL_DIRS[0]}" ]] || {
     echo "variant model dirs not found for '$VARIANT'" >&2; exit 2; }
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection
-OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/de_prof_mix_${VARIANT}
+OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${OUT_BASE_NAME}
 SRC_SCRIPT="${SRC_SCRIPT:-curc_shell_blanca_plot_corr_xco2_deepens.sh}"
 REQUIRE_TCCON="${REQUIRE_TCCON:-1}"
 
@@ -64,7 +78,8 @@ run_case_build() {
     [[ "$surf" == both || "$surf" == ocean ]] && model_args+=(--ocean-model-dir "${OCEAN_MODEL_DIRS[@]}")
     [[ "$surf" == both || "$surf" == land  ]] && model_args+=(--land-model-dir  "${LAND_MODEL_DIRS[@]}")
     python workspace/build_deepens_plot_data.py \
-        "${model_args[@]}" --input "$input" --output "$outdir/plot_data.parquet" \
+        "${model_args[@]}" ${EXTRA_BUILD_ARGS[@]+"${EXTRA_BUILD_ARGS[@]}"} \
+        --input "$input" --output "$outdir/plot_data.parquet" \
         || echo "  build FAILED"
 }
 
