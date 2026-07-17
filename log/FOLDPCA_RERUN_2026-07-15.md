@@ -143,3 +143,17 @@ All four deferred layers were rerun locally, plus the comparison slide deck.
   python-pptx installed into ml310 for this.
 - The r50 robustness report for the new tag also now exists
   (`tccon_comparison_r50km.*`, from the uncertainty launcher pass).
+
+## Follow-up 2026-07-17: variant retrain landed — preliminary numbers superseded
+
+The lndo01 variant retrain (r15 + r05) downloaded and the whole variant stack
+was rerun (trees + reports + ablation doc + Nassar builds + attribution).
+**All folds healthy** (land f2 restored; no divergence). The 2026-07-15
+PRELIMINARY numbers above are superseded and the verdicts revert to the
+2026-07-08 story: `no_spec` TCCON-neutral again (pooled ΔRMSE +0.021 ppm, was
+"+0.8"), and the channel attribution is full 55 % [40–63] / no_spec 54 %
+(Δ +1 pp, was +11) / no_xco2 29 % (Δ +26 pp). Quotable editions:
+`FEATURESET_ABLATION_QF_2026-07-17.md` + the regenerated
+`nassar_channel_attribution.{csv,md}`. Minor leftover: land f4 of no_contam
+and no_contam_and_xco2 kept the old unreg checkpoint (healthy fold; preempted
+array tail) — optional `--array=4` top-up.

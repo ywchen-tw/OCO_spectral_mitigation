@@ -30,11 +30,23 @@ ATom (near-cloud 0.532→**0.445**), Ship, kfold aggregates, smoother-null
 (control null again 5/7 + same 2 flags), comparison pptx (now scripted:
 `workspace/make_comparison_pptx.py`). Symbol changed **l′ → L′**
 (plot_style.py, plain Arial-italic mathtext; all figures regenerated today
-carry it — remaining l′ figures listed in the rerun doc). **⚠ OPEN: land
-fold f2 of EVERY feature-set variant DIVERGED in the retrain** (f1/f3 also
-under-converged; non-reg beta-NLL land instability) → the 2026-07-15
-ablation doc + Nassar channel attribution are PRELIMINARY; retrain queued
-(see §2-7).
+carry it — remaining l′ figures listed in the rerun doc). **RESOLVED
+2026-07-17: the feature-set variants were RETRAINED with lndo01 on CURC and
+the full downstream stack rerun (see §2-7) — the preliminary 2026-07-15
+ablation/attribution numbers are superseded; verdicts revert to the
+2026-07-08 story (no_spec TCCON-neutral; attribution 55/54/29 %).**
+**Update (2026-07-16 — advisor big-picture discussion):** framing decisions
+recorded in the new §5 "Framing spine" block: (1) unifying claim =
+spectrum-internal cloud awareness (the photon path-length PDF as the single
+object behind phenomenology / mechanism / correction / safety); (2)
+**land/ocean sign difference ELEVATED** from stratification detail to
+mechanism evidence (ocean = dark endpoint of the albedo-contrast axis; one
+mechanism, three manifestations: Fig 1b/c + Fig 2 + Fig 3); (3) **imager
+independence stated as three tiers** (deployment / spectral sensitivity /
+cross-sensor transfer) with the honest training-vs-inference caveat; (4)
+skill-vs-trust line resolves the ablation tension in abstract + conclusions;
+(5) both emphasis points go into title/abstract keywords (differentiation vs
+Mauceri/Keely 2025 under scoop risk).
 
 ---
 
@@ -174,24 +186,28 @@ ablation doc + Nassar channel attribution are PRELIMINARY; retrain queued
    retrieval-state/MET/geometry features).** Manuscript statement for §8a:
    quote 54 % [36–64 %] as the local-contrast smoothing plume/flux users must
    expect, attributed to the xco2-departure channel and NOT to the spectral
-   features.
+   features. **2026-07-17 lndo01-retrained-variant rerun CONFIRMS: full 55 %
+   [40–63], no_spec 54 % (Δ +1 pp), no_xco2 29 % (Δ +26 pp) — quote the
+   2026-07-17 edition (same conclusions, fold-PCA + reg-consistent variants).**
 
-7. [ ] **Retrain the LAND feature-set-ablation variants on CURC (added
-   2026-07-15).** In the fold-PCA retrain, land f2 of every variant diverged
-   (held-out RMSE 3.8k–43k ppm) and f1/f3 under-converged (R² 0.01–0.24) —
-   the beta-NLL land instability the lndo01 reg ablation fixed for production;
-   the variants were trained WITHOUT reg. Launchers are PREPPED with
-   `--norm layer --dropout 0.1` added to the variant loops (variants then
-   differ from production `full` ONLY in feature set):
-   `sbatch curc_shell_blanca_de_profile_foldpca_r15.sh` (land — required) and
-   `..._r05.sh` (ocean — optional, config consistency; ocean folds healthy).
-   After download: revert the f2 exclusion in
-   `workspace/build_ablation_variant_trees.sh`, rebuild the 5 variant trees +
-   reports, rerun `workspace/make_featureset_ablation_doc.py`, and redo the
-   Nassar variant builds + `nassar_channel_attribution.py`. Until then the
-   2026-07-15 ablation doc (no_spec pooled Δ ≈ +0.8 ppm!) and the 55/44/28 %
-   channel attribution (spec +11 pp, was +1 pp) are NOT quotable — the
-   2026-07-08 numbers (healthy variants, global PCA) remain the reference.
+7. [x] **Retrain the LAND feature-set-ablation variants on CURC — DONE
+   2026-07-17.** Both r15 + r05 variant arms retrained with lndo01 and
+   downloaded; ALL folds healthy (land f2 restored: RMSE 0.53–0.67, R²
+   0.28–0.53; no divergence anywhere). Full downstream stack rerun: f2
+   exclusion reverted in `build_ablation_variant_trees.sh`, 5 variant trees
+   rebuilt (75 cases each, 0 failures) + reports, ablation doc regenerated →
+   `FEATURESET_ABLATION_QF_2026-07-17.md` (QUOTABLE; supersedes 07-15
+   preliminary + 07-08 global-PCA editions), Nassar no_spec/no_xco2 rebuilt +
+   control nulls + `nassar_channel_attribution.{csv,md}`. **Verdicts revert
+   to the 2026-07-08 story:** no_spec TCCON-neutral (pooled ΔRMSE +0.021 ppm;
+   near-cloud land QF1 +0.041), no_contam neutral (+0.028), xco2 block carries
+   the correction (no_xco2 +0.79 pooled / +1.28 near-cloud land QF1);
+   attribution full 55 % [40–63] / no_spec 54 % (Δ +1 pp) / no_xco2 29 %
+   (Δ +26 pp). Held-out ordering full > no_spec > no_contam > no_xco2 >
+   combos on both surfaces. Known leftover (minor, documented in the doc):
+   land f4 of no_contam and no_contam_and_xco2 kept the old unreg checkpoint
+   (healthy fold; preempted array tail) — optional `sbatch --array=4` top-up
+   for config purity.
 
 ## 3. SHOULD-DO (strengthens, not blocking)
 
@@ -387,6 +403,12 @@ ablation doc + Nassar channel attribution are PRELIMINARY; retrain queued
   - [ ] Co-authorship / provenance settled with the cohort member.
 - [ ] Writing-time subsections: Ny-Ålesund/high-latitude; five worsening sites;
   M5 parallax/advection bound sentences; M9(f) convergence-radius caveat.
+- [ ] **Framing-spine writing tasks (advisor discussion 2026-07-16, see §5
+  spine):** (a) abstract second sentence = imager-independence tiers; (b)
+  land/ocean albedo-contrast unification sentence in §3 + §4 + Discussion
+  echo; (c) skill-vs-trust line in abstract + conclusions; (d) "so what"
+  sampling-bias sentence in the Introduction; (e) title/abstract keywords
+  carry both emphasis points.
 
 ## 4. EXPLICITLY DEFERRED (state in reply-to-reviewers if asked)
 
@@ -410,6 +432,51 @@ Target: **AMT**. Title shape: *"Correcting cloud-proximity biases in OCO-2
 XCO2 with photon path-length statistics and deep ensembles, validated against
 TCCON, aircraft, and shipborne observations."*
 
+**Framing spine (advisor big-picture discussion, 2026-07-16) — the paper must
+read as one claim with four faces, not a pipeline + validations:**
+
+- **Unifying claim:** 3D cloud effects leave a physically interpretable
+  fingerprint — the photon path-length PDF, read as cumulants — in every
+  single-footprint spectrum, sufficient to *diagnose, understand, correct,
+  and audit* cloud-proximity bias. Phenomenology (§3), mechanism (§4),
+  correction (§5–7), and safety (§8) are four faces of that one object.
+- **"So what" sentence (agency-level reader):** QF filtering is a spatially
+  CORRELATED sampling bias — it preferentially deletes the cloudy tropics
+  where flux inversions are hungriest, at the ~1 ppm level of the signals
+  they chase; the correction converts that sampling bias into usable data.
+- **EMPHASIS 1 — land/ocean sign difference = mechanism evidence, not a
+  stratification detail:** ocean is the DARK ENDPOINT of the same
+  cloud−surface albedo-contrast axis behind the WCO2 land-cover sign rule;
+  one mechanism, three independent manifestations (Fig 1b/c opposite-sign
+  decays, Fig 2 sign rule, Fig 3 shadow/brightening split). State the
+  unification explicitly in §3 + §4 and echo in the Discussion — it
+  justifies the per-surface model split physically, not just empirically.
+  Supporting operational hook: raw-vs-BC (2026-07-16) found B11
+  OVER-corrects near-cloud land — the operational correction does not
+  resolve the surface dependence; ours does.
+- **EMPHASIS 2 — imager independence in three tiers (claim precisely):**
+  Tier 1 *deployment* — no cloud input, no neighboring footprints at
+  inference; runs unchanged in the post-2022 Aqua free-drift NoMODIS era
+  (A7 = proof by existence). Tier 2 *sensitivity* — the spectrum itself
+  carries cloud-proximity information (spec-only classifier AUC 0.72/0.66,
+  sub-pixel monotonicity below the 1-km MODIS floor — A11); the claim no
+  imager-dependent method (Massie/Mauceri line) can make. Tier 3
+  *transfer* — requirements are only a resolved band + per-channel prior τ
+  + a single-footprint spectrum → OCO-3/CO2M/GOSAT-GW/TEMPO (A12). Honest
+  caveat that makes it bulletproof: TRAINING used MODIS once (labels +
+  validation stratification), INFERENCE never does — "the imager is
+  scaffolding: used to build and verify the correction, then removed."
+  Structure §1 contributions, §9, and the abstract's second sentence
+  around the tiers.
+- **Skill-vs-trust line (resolves the ablation tension head-on):** the
+  retrieval-state feature supplies the skill; the path-length physics
+  supplies the trust — mechanism, plume-safety audit (the ≤0.21 ppm bound
+  and the all-band k1 discriminator, which no xco2-based feature can
+  provide about itself), and the imager-free sensitivity floor. Skill
+  without trust is a black box nobody deploys on a climate record. One
+  line in abstract + conclusions.
+- Both emphasis points → title/abstract keywords.
+
 1. **Introduction.** OCO-2 XCO2 widely used (flux inversion, plume/emission
    quantification, trend monitoring) at sub-ppm accuracy requirements → but
    cloud-induced 3D-RT biases documented (Merrelli 2015; Massie 2017/2021/2023;
@@ -419,7 +486,8 @@ TCCON, aircraft, and shipborne observations."*
    (Keely 2023; Mauceri/Keely 2025) or imager-dependent. Contributions: physics
    features from the photon path-length PDF; per-footprint, imager-free
    deployment (abstract sentence); triple independent validation; audited
-   plume safety.
+   plume safety. **Structure the contribution list around the three
+   imager-independence tiers (framing spine, EMPHASIS 2).**
 2. **Data.** OCO-2 L2 Lite v11 glint (2016–2020, 116 dates, 17.8M soundings),
    L1B radiances, MET/CO2-prior profiles; Aqua-MODIS MYD35 collocation and the
    nearest-cloud-distance definition (±time buffers, Cloudy+Uncertain, 1-km
@@ -429,6 +497,9 @@ TCCON, aircraft, and shipborne observations."*
 3. **Phenomenology.** Anomaly-vs-cloud-distance decay: **positive bias over
    land (within ~15 km), negative over ocean (within ~5 km)** — motivates the
    per-surface targets (land r15 / ocean r05). QF throughput vs distance.
+   **State here (and unify in §4) that the land/ocean sign difference is
+   mechanism evidence — the dark-vs-bright endpoints of the albedo-contrast
+   axis (framing spine, EMPHASIS 1).**
 4. **Photon path-length statistics.** Cumulant expansion of ln T vs slant
    optical depth → k1 (mean path enhancement), k2 (variance), exp-intercept −
    albedo (reflectance mismatch); no-SG fit in production, SG as robustness.
@@ -499,9 +570,14 @@ TCCON, aircraft, and shipborne observations."*
    in-scene cloud proximity; points to appendix Fig A12) → CH4 in text only
    (TROPOMI/GOSAT-GW viable; EMIT-class band-integrated sampling an open
    question) + the CH4 plume-community hook sentence; post-2022 NoMODIS-era
-   deployability.
-10. **Conclusions.** Close with the outlook sentence pair: MC/PPDF validation
-    (§8d) and transfer to imager-free correction for OCO-3 / GOSAT-GW / CO2M.
+   deployability. **Present the whole section as Tier 3 of the
+   imager-independence framing (Tier 1 deployment in §5/§7, Tier 2
+   spectral sensitivity in §6/A11 — framing spine, EMPHASIS 2), with the
+   training-vs-inference "imager as scaffolding" caveat stated once here.**
+10. **Conclusions.** Restate the skill-vs-trust line (framing spine) and the
+    land/ocean-unifying mechanism sentence; close with the outlook sentence
+    pair: MC/PPDF validation (§8d) and transfer to imager-free correction
+    for OCO-3 / GOSAT-GW / CO2M.
 
 **Main-figure budget (~9) — paths (all figures EXIST as of 2026-07-11; all in
 the locked AMT style; new composed figures generated by

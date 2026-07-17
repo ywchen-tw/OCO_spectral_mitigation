@@ -201,24 +201,20 @@ def main():
         f"Production **fold-PCA mix deep ensemble** (`{TAG}`; ocean r05 / land r15, "
         "profile) with feature GROUPS removed, scored on TCCON (100 km / 60 min, "
         "AK-harmonized). `full` is the PRODUCTION model (lndo01 reg); the variants "
-        "are the `no_*_prof_foldpca` retrains (norm none / dropout 0 — same as the "
-        "2026-07-08 edition). Every tree shares the same footprints (asserted) and "
-        "the same `xco2_bc` before-column, so the tables isolate each feature "
-        "group. Regenerated from the fold-PCA retrained models; supersedes "
-        "`FEATURESET_ABLATION_QF_2026-07-08.md`.",
+        "are the `no_*_prof_foldpca` models **retrained 2026-07-17 with the same "
+        "lndo01 regularization** (`--norm layer --dropout 0.1`) — variants now "
+        "differ from `full` ONLY in feature set. Every tree shares the same "
+        "footprints (asserted) and the same `xco2_bc` before-column, so the "
+        "tables isolate each feature group. All 5 land + 5 ocean folds pooled "
+        "per variant (25 members). Supersedes the 2026-07-15 PRELIMINARY "
+        "edition (land-f2 divergence, unreg variants) and "
+        "`FEATURESET_ABLATION_QF_2026-07-08.md` (global PCA).",
         "",
-        "> **MODEL-HEALTH CAVEAT (2026-07-15) — treat the variant columns as "
-        "PRELIMINARY.** In the fold-PCA retrain, **land fold f2 of every "
-        "variant diverged** (held-out RMSE 3.8k–43k ppm); the variant trees "
-        "here pool the four healthy land folds (f0,f1,f3,f4; 20 members) while "
-        "`full` keeps all 5 production folds. Land f1/f3 of the variants also "
-        "look under-converged (held-out R² 0.01–0.24 vs 0.44–0.50 for f0/f4 — "
-        "the variants train WITHOUT the lndo01 regularization, exactly the "
-        "beta-NLL land instability the reg ablation fixed for production). The "
-        "variant deltas below are therefore UPPER BOUNDS on the feature-group "
-        "cost; the 2026-07-08 edition (healthy variants, global PCA) found "
-        "`no_spec` TCCON-neutral. Retrain the land variants (ideally with "
-        "`--norm layer --dropout 0.1`) before quoting these numbers.",
+        "> **Known leftover (minor):** land f4 of `no_contam` and "
+        "`no_contam_and_xco2` still carries the OLD un-regularized checkpoint "
+        "(the retrain array's tail was preempted) — a HEALTHY fold in both "
+        "trainings (held-out R² 0.43 / 0.24), so it is pooled; config purity "
+        "for those two arms would need a `sbatch --array=4` top-up on CURC.",
         "",
         "## Pooled and surface splits (AK reference)", "",
         *pooled, "",

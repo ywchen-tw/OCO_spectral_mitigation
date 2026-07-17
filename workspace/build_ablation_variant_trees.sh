@@ -48,10 +48,11 @@ if [[ "$VARIANT" == raw_base ]]; then
     OUT_BASE_NAME=de_prof_reg_mix_raw
 else
     OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_prof_foldpca_r05_f*)
-    # Land fold f2 of EVERY variant diverged in the 2026-07 CURC retrain (held-out
-    # RMSE 3.8k-43k ppm; see FOLDPCA_RERUN_2026-07-15.md) — pool the 4 healthy land
-    # folds until the retrain lands.  Ocean folds are all healthy.
-    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_${VARIANT}_prof_foldpca_r15_f{0,1,3,4})
+    # 2026-07-17: variants RETRAINED with lndo01 (--norm layer --dropout 0.1) —
+    # land f2 healthy again, all 5 folds pooled.  (Known leftover: land f4 of
+    # no_contam and no_contam_and_xco2 kept the old unreg checkpoint — healthy
+    # fold, config mismatch only; see FOLDPCA_RERUN_2026-07-15.md.)
+    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_${VARIANT}_prof_foldpca_r15_f*)
     OUT_BASE_NAME=de_prof_mix_${VARIANT}
 fi
 [[ -d "${OCEAN_MODEL_DIRS[0]}" && -d "${LAND_MODEL_DIRS[0]}" ]] || {
