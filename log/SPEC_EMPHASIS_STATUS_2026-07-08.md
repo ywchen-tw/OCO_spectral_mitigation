@@ -16,6 +16,25 @@ retrieval-state features are the operationally sufficient predictor of it.
 Three spec-feature "jobs": (1) mechanism/phenomenology, (2) plume
 safety/selectivity, (3) MODIS-free cloud sensitivity.
 
+**Update (2026-07-17):** every quantitative anchor of this doc now has a
+fold-PCA, reg-consistent edition and the framing SURVIVES unchanged:
+- Ablation → `FEATURESET_ABLATION_QF_2026-07-17.md` (lndo01-retrained
+  variants, all folds healthy): `no_spec` pooled ΔRMSE **+0.021 ppm**
+  (TCCON-neutral confirmed; near-cloud land QF1 +0.041), `no_contam` +0.028;
+  the xco2 block carries the correction (`no_xco2` +0.79 pooled / +1.28
+  near-cloud land QF1). Quote these instead of the −0.006 below.
+- The §2-item-3 open number is CLOSED by the channel attribution
+  (`nassar_plumes_variants/nassar_channel_attribution.md`): full removes
+  **55 % [40–63]** of control-window clear-sky spread, no_spec **54 %**
+  (Δ +1 pp — cumulants do none of the smoothing), no_xco2 **29 %**
+  (Δ +26 pp) — the smoothing flows through the xco2-departure channel,
+  exactly as §3 argues.
+- Related new evidence for §3's "auditability" axis: the raw/bc/ML analysis
+  (`RAW_BC_ML_TCCON_2026-07-16.md`) shows the ML layer rediscovers 60–73 % of
+  the operational bias-correction variance from footprint-local features and
+  partly REVERSES the operational near-cloud over-correction on land — the
+  B11-independence companion to the plume-safety bound.
+
 ---
 
 ## 1. Built and tested (all first-look numbers from ~1–6M-row subsets; regenerate on the full 116-date parquet before quoting)
@@ -146,8 +165,11 @@ plume_preservation/):**
 4. **Wind direction** (MERRA-2/ERA5 → `--wind-file`) → downwind−upwind
    enhancement before/after correction ← DEFERRED (user decision 2026-07-08)
 5. **Feature-set variants** (full vs no_spec vs no_xco2 through the same
-   diagnostic — quantifies item-3's open number) ← BLOCKED on variant
-   checkpoints / CURC plot-data for the Nassar dates
+   diagnostic — quantifies item-3's open number) ← **DONE 2026-07-17** (on
+   the lndo01-retrained foldpca variants; first pass 07-15 was preliminary):
+   `nassar_channel_attribution.{csv,md}` — full 55 % [40–63], no_spec 54 %
+   (Δ +1 pp), no_xco2 29 % (Δ +26 pp). Item-3's 25–55 % is attributed to the
+   xco2 channel; the spec channel does none of the smoothing.
 6. **Dose-response** (mu vs plant emission rate flat; enhancement not) ←
    needs per-plant emission rates (Nassar 2021 table)
 
@@ -213,7 +235,12 @@ readout of the same perturbation.
 
 ## 4. Open items elsewhere
 - Regenerate land_class + spec_sensitivity on the full combined parquet
-  (CURC or long local run) before quoting numbers.
+  (CURC or long local run) before quoting numbers. ← land_class DONE on the
+  full parquet (2026-07: prereg P1–P5 mostly FAIL as written; the sign rule
+  lives in WCO2 — dk1 savanna +0.43σ vs barren −0.40σ; GOTCHA: raw vs
+  ref-corrected baselining reverses class ordering). spec_sensitivity
+  full-parquet regen still pending (needs CURC/large-RAM, with the l′→L′
+  figure pass).
 - MCD12C1 purity-filter robustness row (only if reviewers ask).
 - TCCON `run_case` training-date manifest guard; Phase-3 failure accounting
   (§3-Minor of the project review) — unchanged.

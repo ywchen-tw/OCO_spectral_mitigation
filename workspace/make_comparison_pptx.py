@@ -1,13 +1,15 @@
-"""make_comparison_pptx.py — regenerate the 6-slide DE/XGB/LinReg TCCON
+"""make_comparison_pptx.py — regenerate the 7-slide DE/XGB/LinReg TCCON
 comparison deck (results/model_comparison/tccon_r100_comparison_tables.pptx)
 from the per-tree report CSVs, so the deck always matches the current models.
 
 Sources (all from tccon_comparison_report.py runs, r=100 km / ±60 min):
   tccon_metrics_{ak,direct}_r100km.csv   pooled per-slice footprint RMSE
   tccon_comparison_r100km.csv            per-case biases (station-equal table)
+  deep_ensemble/de_prof_mix_*/           feature-set-ablation variant trees
 
 Slides: 1 pooled/QF RMSE (AK) · 2 same (direct) · 3 near-cloud land tail (AK)
-· 4 same (direct) · 5 station-equal mean |bias| · 6 takeaways.
+· 4 same (direct) · 5 station-equal mean |bias| · 6 feature-set ablation (AK,
+2026-07-17 lndo01-retrained variants) · 7 takeaways.
 
 Usage:  PYTHONPATH=src python workspace/make_comparison_pptx.py \
             [--out results/model_comparison/tccon_r100_comparison_tables.pptx]
@@ -70,6 +72,40 @@ def slice_table(slices, ref):
         for m in MODELS:
             after = rr[m].rmse_after
             cells.append(f"{after:.2f}  ({1 - after / before:.2f})")
+        rows.append(cells)
+    return rows
+
+
+ABL_BASE = Path("results/model_comparison/deep_ensemble")
+ABL_VARIANTS = ["no_spec", "no_contam", "no_xco2", "no_xco2_and_spec",
+                "no_contam_and_xco2"]
+ABL_SLICES = [
+    ("Pooled, QF 0+1", "all", "all", "all"),
+    ("Pooled, QF=0 (good)", "qf0", "all", "all"),
+    ("Pooled, QF=1", "qf1", "all", "all"),
+    ("Land, QF 0+1", "all", "land", "all"),
+    ("Land ≤10 km of cloud, QF 0+1", "all", "land", "0–10 km"),
+    ("Land ≤10 km of cloud, QF=1", "qf1", "land", "0–10 km"),
+    ("Land ≥10 km (far), QF 0+1", "all", "land", "≥10 km"),
+]
+
+
+def ablation_table():
+    """Rows for the feature-set-ablation slide (AK reference)."""
+    trees = {"full": TREES["Deep Ensemble"]}
+    trees.update({v: ABL_BASE / f"de_prof_mix_{v}" for v in ABL_VARIANTS})
+    mets = {m: pd.read_csv(p / "tccon_metrics_ak_r100km.csv")
+            for m, p in trees.items()}
+    rows = []
+    for label, qf, surface, cld in ABL_SLICES:
+        rr = {m: srow(mets[m], qf, surface, cld) for m in trees}
+        ns = {int(r.n_footprints) for r in rr.values()}
+        assert len(ns) == 1, f"footprint mismatch {label}: {ns}"
+        cells = [label, f"{ns.pop():,}", f"{rr['full'].rmse_before:.2f}",
+                 f"{rr['full'].rmse_after:.2f}"]
+        for v in ABL_VARIANTS:
+            cells.append(f"{rr[v].rmse_after:.2f}  "
+                         f"({rr[v].rmse_after - rr['full'].rmse_after:+.2f})")
         rows.append(cells)
     return rows
 
@@ -223,6 +259,19 @@ def main():
         note="DE's RMSE edge comes from reducing per-footprint scatter and the "
              "tail, not the mean station offset.")
 
+    abl = ablation_table()
+    add_table_slide(
+        prs, "Feature-set ablation — mix DE, AK-harmonized (fold-PCA, lndo01 variants)",
+        "Production full vs no_* group-removal retrains (2026-07-17; identical reg/arch/"
+        "folds — variants differ ONLY in feature set) · same footprints & before-column "
+        "(asserted) · RMSE in ppm (Δ vs full)",
+        ["Slice", "n footprints", "Before", "full"] + ABL_VARIANTS,
+        abl,
+        note="no_spec and no_contam are TCCON-neutral (Δ ≤ 0.04 ppm everywhere) — "
+             "spec + contam are parsimony-droppable; the xco2-departure block carries "
+             "the correction (no_xco2 +0.79 pooled, +1.28 near-cloud land QF=1). "
+             "Full detail: FEATURESET_ABLATION_QF_2026-07-17.md.")
+
     def g(rows, i, j):
         return rows[i][j].split()[0]
     bullets = [
@@ -237,9 +286,14 @@ def main():
         f"{g(dr_tail,1,3)} < {g(dr_tail,1,4)} < {g(dr_tail,1,5)} ppm.",
         "Station-equal mean bias: DE ≈ XGB — DE's advantage is scatter/tail "
         "reduction, not mean offset. LinReg trails throughout.",
+        f"Feature groups: no_spec {abl[0][4].split()[0]} ≈ no_contam "
+        f"{abl[0][5].split()[0]} ≈ full {abl[0][3]} pooled (spec + contam "
+        f"parsimony-droppable); no_xco2 {abl[0][6].split()[0]} — the "
+        "xco2-departure block carries the correction.",
         "Models: fold-PCA production retrains (2026-07-15) — "
         "de_beta_nll_prof_reg_foldpca_o05l15_m5 vs xgb/linreg *_prof_foldpca "
-        "pooled 5-fold ensembles; identical features, folds, and TCCON chain.",
+        "pooled 5-fold ensembles; identical features, folds, and TCCON chain; "
+        "ablation variants retrained with lndo01 (2026-07-17).",
     ]
     add_bullets_slide(prs, "Takeaways — DE > XGB > LinReg, on both references",
                       bullets)

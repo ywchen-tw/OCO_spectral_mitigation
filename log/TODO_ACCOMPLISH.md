@@ -35,6 +35,22 @@ carry it — remaining l′ figures listed in the rerun doc). **RESOLVED
 the full downstream stack rerun (see §2-7) — the preliminary 2026-07-15
 ablation/attribution numbers are superseded; verdicts revert to the
 2026-07-08 story (no_spec TCCON-neutral; attribution 55/54/29 %).**
+**Update (2026-07-17 — variant retrain landed; §2 MUST-DO fully closed):**
+the lndo01 feature-set-variant retrain (r15+r05) downloaded, all folds
+healthy, full downstream stack rerun (§2-7 DONE) — quotable editions are now
+`FEATURESET_ABLATION_QF_2026-07-17.md` (no_spec +0.021 / no_contam +0.028
+pooled = TCCON-neutral; no_xco2 +0.79 pooled / +1.28 near-cloud land QF1) and
+the regenerated `nassar_channel_attribution.{csv,md}` (55 % [40–63] / no_spec
+54 %, Δ +1 pp / no_xco2 29 %, Δ +26 pp). Also this window (07-16): two §3
+analyses DONE — raw/bc/ML vs TCCON (`RAW_BC_ML_TCCON_2026-07-16.md`: ML layer
+rediscovers 60–73 % of the operational increment variance; near-cloud land the
+operational BC over-corrects and ML partly reverses it) and the failure-mode
+analysis (`FAILURE_MODES_2026-07-16.md`: bright surfaces = the per-footprint
+failure stratum; snow fine; high-lat fails at bias level; land σ flags
+failures; direct-only worseners = large-ak_delta reference artifact, incl.
+Izaña). Case figures (`corrected_xco2_vs_tccon{,_full}.png`, all 96) now plot
+the AK-harmonized TCCON series by default. Comparison pptx extended with the
+ablation table slide.
 **Update (2026-07-16 — advisor big-picture discussion):** framing decisions
 recorded in the new §5 "Framing spine" block: (1) unifying claim =
 spectrum-internal cloud awareness (the photon path-length PDF as the single
