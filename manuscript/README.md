@@ -26,10 +26,16 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
   generator are COPIES from the analysis trees (sources and status in the
   Display items blocks of `log/MANUSCRIPT_FLOW_PLAN.md`): fig05
   (pre-restyle `results/figures/cld_dist_analysis/` output — regenerate
-  via `run_all.py` on the next full-parquet pass), figG_case_tasman
-  (Appendix G Tasman showcase, Times-italic l′ — final convention),
-  fig07a, fig08, fig09a, fig09b, fig10a, fig11 (production
-  fold-PCA report tree `de_beta_nll_prof_reg_foldpca_o05l15_m5`). Draft
+  via `run_all.py` on the next full-parquet pass), figF1_case_tasman
+  (Appendix F Tasman showcase, Times-italic l′ — final convention),
+  fig07a, fig08, fig09a, fig09b, fig10a, and the appendix copies staged
+  2026-07-22o — figD2a/figD2b (QF0/QF1 TCCON), figD3 (r50), figD4
+  (station summary), figE2a/figE2b (far-cloud/clear-day controls), figE3
+  (failure modes) — all from the production fold-PCA report tree
+  `de_beta_nll_prof_reg_foldpca_o05l15_m5`.
+  `internal_qf1_recovery_candidate` has no manuscript number (main-text
+  Fig. 11 dropped). Appendix letters follow the 2026-07-22n mapping table
+  in the flow plan. Draft
   captions for all figures: `log/MANUSCRIPT_FLOW_PLAN.md` §4.
 - `tables/` — generated LaTeX tables (`tab_*.tex`), written directly by
   `scripts/make_manuscript_tables.py` from the report CSVs under
@@ -68,7 +74,7 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
     7a is the copied station-day dumbbell `fig07a_tccon_dumbbell`)
   - `make_k1_contrast_figure.py` → fig10b (Results 4.7 plume-safety panel;
     10a is the copied Westar transect `fig10a_westar_transect`)
-  - `make_cv_design_figure.py` → figD1b (Appendix D CV-design schematic;
+  - `make_cv_design_figure.py` → figC3b (Appendix C CV-design schematic;
     falls back to a stylized timeline when the fold manifests are not
     local — regenerate on a machine with the production fold dirs before
     submission)

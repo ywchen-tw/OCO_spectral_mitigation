@@ -127,6 +127,17 @@ mapping table added at the top of §5; changelog entries BEFORE this one
 keep the former letters. This supersedes the 2026-07-22m statement that
 H would not merge into E — the merge keeps the ocean material as a
 separate closing subsection with the do-not-pool rule inside.  
+**Updated:** 2026-07-22o — figure files re-synced to final letters
+(figC3b_cv_design, figF1_case_tasman, internal_qf1_recovery_candidate;
+cv_design generator basename updated) and available appendix figures
+STAGED into manuscript/figures from the production tree: figD2a/b (QF0/
+QF1 TCCON), figD3 (r50), figD4 (station summary, optional), figE2a/b
+(far-cloud ATom + clear-day ship controls), figE3 (failure modes).
+Still to produce: C1/C2 (diagrams), C3a+C4–C7 (need frozen fold
+metrics), D1 (3×3 coincidence composite), D5 (forest plot), D6
+(only if beyond Fig. 9a), E4 (high-lat/post-2022 composite), F2
+(transect sheet), B2 (likely redundant with Fig. 3), G1 (MC sim), H1
+(TEMPO).  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -778,7 +789,7 @@ State the skill-versus-trust synthesis here for the first time.
 - **Table 2** — `manuscript/tables/tab_featureset_ablation.tex`: mix-DE
   feature-group ablation, AK-harmonized.
 - The date-blocked skill/ceiling figure and CV-design schematic
-  (`manuscript/figures/figD1b_cv_design`,
+  (`manuscript/figures/figC3b_cv_design`,
   `manuscript/scripts/make_cv_design_figure.py`) belong to Appendix C
   (Figs. C3–C4), not here.
 
@@ -1050,7 +1061,8 @@ End Results by defining the boundary of reliability:
   trim): §4.8 stays at two paragraphs of prose (failure strata +
   uncertainty-as-flag), and Discussion 5.4 carries the QF1 candidate
   counts in a single sentence. The QF1-recovery figure copy
-  (`manuscript/figures/fig11_qf1_recovery_candidate`) is retained as an
+  (`manuscript/figures/internal_qf1_recovery_candidate`, renamed from
+  fig11_* 2026-07-22o) is retained as an
   internal artifact and remains available to Appendix D/E if a reviewer
   asks. Worsening-case and strata tables are Appendix E (Tables E1–E2),
   uncertainty components Appendix D (Table D4).
@@ -1265,9 +1277,10 @@ before 2026-07-22n use the FORMER letters):**
 | H | Cross-sensor feasibility, TEMPO (KEEP) | K |
 | — | Spectrum-internal sensitivity → Supplement S4 | I |
 
-Working FILE names keep their historical identifiers
-(`figD1b_cv_design`, `figG_case_tasman`, `fig11_qf1_recovery_candidate`);
-only the manuscript letters changed.
+File names were re-synced to the final letters 2026-07-22o:
+`figD1b_cv_design`→`figC3b_cv_design`, `figG_case_tasman`→
+`figF1_case_tasman`, `fig11_qf1_recovery_candidate`→
+`internal_qf1_recovery_candidate` (no manuscript number).
 
 ### Appendix A: Spectral fitting and photon path-length derivation
 
@@ -1409,8 +1422,8 @@ Planned items:
 
 - **Fig. C3:** random-split inflation relative to date-blocked estimates
   (panel b, the CV-design schematic, exists:
-  `manuscript/figures/figD1b_cv_design` — file keeps its historical
-  D1b name — `manuscript/scripts/make_cv_design_figure.py`);
+  `manuscript/figures/figC3b_cv_design` — renamed from figD1b
+  2026-07-22o — `manuscript/scripts/make_cv_design_figure.py`);
 - **Fig. C4:** date-blocked skill versus the label-noise ceiling by surface
   and cloud-distance regime (absorbs the skill/ceiling panel formerly planned
   for the former main-text skill figure; that panel is now Appendix-D-only);
@@ -1457,11 +1470,16 @@ Include:
 Planned items:
 
 - **Fig. D1:** 3-by-3 coincidence sensitivity, sourced from working figure A2;
-- **Fig. D2:** QF0 and QF1 station-day comparisons, sourced from A3;
-- **Fig. D3:** r50 robustness comparison, sourced from A3;
+- **Fig. D2:** QF0 and QF1 station-day comparisons — staged 2026-07-22o:
+  `figD2a_tccon_qf0` + `figD2b_tccon_qf1` (copies of
+  `<TAG>/atrain/tccon_ak_bias_qf{0,1}_r100km.png`);
+- **Fig. D3:** r50 robustness comparison — staged 2026-07-22o:
+  `figD3_tccon_r50` (copy of `<TAG>/atrain/tccon_ak_bias_r50km.png`);
 - **Fig. D4:** compact station-grouped summary ONLY (all 75 individual
   station-day before/after panels move to Supplement S1, 2026-07-22m;
-  drop D4 entirely if the summary duplicates Fig. 7a);
+  drop D4 entirely if the summary duplicates Fig. 7a) — candidate
+  staged 2026-07-22o: `figD4_station_summary` (copy of
+  `<TAG>/atrain/tccon_ak_by_site_bias_r100km.png`);
 - **Fig. D5:** random-effects residual forest plot, derived from working A9;
 - **Table D1:** station inventory and coincidence counts;
 - **Table D2:** complete AK-harmonized metrics;
@@ -1515,8 +1533,12 @@ Include:
 Planned items:
 
 - **Fig. E1:** smoother null, sourced from working figure A4;
-- **Fig. E2:** far-cloud and clear-day control cases;
-- **Fig. E3:** failure rates and residuals by environmental driver;
+- **Fig. E2:** far-cloud and clear-day control cases — staged
+  2026-07-22o: `figE2a_atom_farcloud_control` (ATom 2017-10-09) +
+  `figE2b_ship_clearday_control` (ship 2019-06-22);
+- **Fig. E3:** failure rates and residuals by environmental driver —
+  staged 2026-07-22o: `figE3_failure_modes` (copy of
+  `<TAG>/failure_modes/fig_failure_modes_r100km.png`);
 - **Fig. E4:** high-latitude and post-2022 cases, sourced from working A7;
 - **Table E1:** all worsening cases and diagnosed cause;
 - **Table E2:** performance by bright surface, snow, AOD, latitude, and
@@ -1543,7 +1565,8 @@ Planned items:
 
 - **Fig. F1:** Tasman Sea 2018-05-01 single-case showcase (moved from
   main-text Fig. 5b, 2026-07-22c) — exists:
-  `manuscript/figures/figG_case_tasman` (file keeps its historical name) (2026-07-11 Times-italic l′ —
+  `manuscript/figures/figF1_case_tasman` (renamed from figG_*
+  2026-07-22o) (2026-07-11 Times-italic l′ —
   consistent with the final convention, no re-render needed);
 - ~~Figs. G2–G8~~: the seven case-atlas pages move to Supplement S3
   (2026-07-22m; resolves the previous conflict with the §4 Supplement
