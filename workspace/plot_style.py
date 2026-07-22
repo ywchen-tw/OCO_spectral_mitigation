@@ -15,13 +15,14 @@ Colormap policy (CVD-safe, AMT-friendly): sequential fields use
 perceptually-uniform maps — XCO2 'viridis', predictive sigma 'magma',
 nearest-cloud distance 'cividis' (CMAPS below).  No rainbow/jet.
 
-Photon path-length symbol L' (changed from l' 2026-07-15): always use
-MEAN_L_LABEL / VAR_L_LABEL, never retype the mathtext.  The capital L
-renders cleanly in Arial mathtext italic (unlike lowercase l, whose bad
-glyph forced the earlier Times-italic ``\\mathcal`` workaround), so the
-symbol is now plain mathtext + a unicode prime (U+2032), consistent
-with the rest of the math (k_1, X_CO2).  The paper's LaTeX should use
-$L'$.
+Photon path-length symbol l' — lowercase Times ITALIC (final form
+2026-07-22, after the capital-L experiment of 07-15 and a brief upright
+trial): always use MEAN_L_LABEL / VAR_L_LABEL, never retype the mathtext.
+Arial's italic lowercase l is a bare slash, so l is typeset through the
+``\\mathcal`` slot (mapped to Times New Roman italic below) + a unicode
+prime (U+2032).  If Times is missing (bare CURC node), matplotlib warns
+and falls back — rebuild manuscript figures locally.  The paper's LaTeX
+should use plain math-italic $l'$.
 """
 from __future__ import annotations
 
@@ -39,12 +40,11 @@ CMAPS = {
 
 XCO2_LABEL = r"$X_{\mathrm{CO2}}$"
 # Spectral-fit cumulants shown with their physical meaning: k1 = mean and
-# k2 = variance of the relative photon path L' (k_n defined in the text).
-# Rendering: plain Arial mathtext italic capital L + unicode prime U+2032
-# (tight).  (The former lowercase l' needed a Times-italic \mathcal
-# workaround — Arial's italic l is a bare slash; capital L is clean.)
-MEAN_L_LABEL = "$\\langle L′ \\rangle$"
-VAR_L_LABEL = "var($L′$)"
+# k2 = variance of the relative photon path l' (k_n defined in the text).
+# Rendering: Times-italic l via the \mathcal slot (Arial's italic l is a
+# bare slash) + unicode prime U+2032 (tight).
+MEAN_L_LABEL = "$\\langle \\mathcal{l}′ \\rangle$"
+VAR_L_LABEL = "var($\\mathcal{l}′$)"
 
 
 def station_extent(lon0: float, lat0: float, radius_km: float = 100.0) -> list:
@@ -113,9 +113,9 @@ def apply_manuscript_style(base_size: float = 10.0) -> None:
         "mathtext.rm": "Arial",
         "mathtext.it": "Arial:italic",
         "mathtext.bf": "Arial:bold",
-        # \mathcal slot kept mapped to Times italic for backward compat with
-        # figures still typesetting the retired lowercase l' via \mathcal
-        # (current MEAN_L_LABEL/VAR_L_LABEL use plain mathtext L′).
+        # \mathcal slot maps to Times ITALIC: it typesets the lowercase l
+        # of MEAN_L_LABEL/VAR_L_LABEL (Arial's italic l is a bare slash;
+        # final form 2026-07-22).
         "mathtext.cal": "Times New Roman:italic",
         "mathtext.fallback": "stixsans",
         "axes.linewidth": 0.8,

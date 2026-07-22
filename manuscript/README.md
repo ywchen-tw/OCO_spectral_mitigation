@@ -24,10 +24,11 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
 - `figures/` — final manuscript figures (pdf+png), written directly by the
   generators in `scripts/` where one exists. Figures without a local
   generator are COPIES from the analysis trees (sources and status in the
-  Display items blocks of `log/MANUSCRIPT_FLOW_PLAN.md`): fig04 + fig05a
-  (pre-restyle `results/figures/cld_dist_analysis/` outputs — regenerate
-  via `run_all.py` on the next full-parquet pass), fig05b (Tasman case,
-  current style), fig07a, fig08, fig09a, fig09b, fig10a, fig11 (production
+  Display items blocks of `log/MANUSCRIPT_FLOW_PLAN.md`): fig05
+  (pre-restyle `results/figures/cld_dist_analysis/` output — regenerate
+  via `run_all.py` on the next full-parquet pass), figG_case_tasman
+  (Appendix G Tasman showcase, Times-italic l′ — final convention),
+  fig07a, fig08, fig09a, fig09b, fig10a, fig11 (production
   fold-PCA report tree `de_beta_nll_prof_reg_foldpca_o05l15_m5`). Draft
   captions for all figures: `log/MANUSCRIPT_FLOW_PLAN.md` §4.
 - `tables/` — generated LaTeX tables (`tab_*.tex`), written directly by
@@ -54,11 +55,19 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
   - `make_anomaly_decay_figure.py` → fig03 (Results 4.1; two panels —
     common r10 target motivating the radii, then adopted r05/r15 targets;
     reads the combined 2016–2020 parquet directly)
+  - `make_landclass_heatmap_figure.py` → fig04 (Results 4.2 sign-rule
+    heatmap, ocean column + IGBP land classes; needs the combined parquet
+    and `data/MODIS/MCD12C1/` HDFs; QF0 + snow-free filter is
+    load-bearing; default reference is PER-SURFACE r05/r15 — the common-r10
+    robustness variant writes `_r10`-suffixed files via
+    `--reference common-r10`; `--qf {0,1,all}` selects the quality-flag
+    population for the sensitivity comparison, writing `_qf1`/`_allqf`
+    files — only the barren column is QF-sensitive, see plan 2026-07-22g)
   - `make_baseline_ablation_figure.py` → fig06 (Results 4.3)
   - `make_significance_panel.py` → fig07b (Results 4.4 significance panel;
-    the before/after headline panel 7a is still to compose)
+    7a is the copied station-day dumbbell `fig07a_tccon_dumbbell`)
   - `make_k1_contrast_figure.py` → fig10b (Results 4.7 plume-safety panel;
-    10a is the Westar transect, still to compose)
+    10a is the copied Westar transect `fig10a_westar_transect`)
   - `make_cv_design_figure.py` → figD1b (Appendix D CV-design schematic;
     falls back to a stylized timeline when the fold manifests are not
     local — regenerate on a machine with the production fold dirs before
