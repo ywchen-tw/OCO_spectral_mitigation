@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manuscript Fig. 8 — baseline comparison + feature-set ablation (table-figure).
+"""Manuscript Fig. 6 — baseline comparison + feature-set ablation (table-figure).
 
 (a) TCCON per-footprint RMSE after correction, per model, split into the pooled
     QF 0+1 set and the decisive near-cloud land tail (<=10 km).  Replaces the
@@ -16,7 +16,7 @@ Every number is copied verbatim from the generated comparison reports:
   [C] results/model_comparison/deep_ensemble/FEATURESET_ABLATION_QF_2026-07-08.md
       (6-feature-set TCCON ablation, Delta-RMSE-vs-full tables)
 
-Output: results/figures/manuscript/fig08_baseline_ablation.{png,pdf}
+Output: manuscript/figures/fig06_baseline_ablation.{png,pdf}
 """
 from __future__ import annotations
 
@@ -26,13 +26,13 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # workspace/
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "workspace"))  # plot_style
 from plot_style import XCO2_LABEL, apply_manuscript_style, panel_label
 
 apply_manuscript_style()
 
 REPO = Path(__file__).resolve().parents[2]
-OUT_DIR = REPO / "results" / "figures" / "manuscript"
+OUT_DIR = REPO / "manuscript" / "figures"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ----------------------------------------------------------------------------
@@ -171,7 +171,7 @@ def main() -> None:
     fig.tight_layout(w_pad=2.2)
 
     for ext in ("png", "pdf"):
-        out = OUT_DIR / f"fig08_baseline_ablation.{ext}"
+        out = OUT_DIR / f"fig06_baseline_ablation.{ext}"
         fig.savefig(out)
         print(f"wrote {out}")
 

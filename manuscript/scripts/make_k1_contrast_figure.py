@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Manuscript Fig. 9b — plume-vs-cloud k1 fingerprint contrast.
+"""Manuscript Fig. 10b — plume-vs-cloud k1 fingerprint contrast.
 
-Companion panel to the plume-preservation transect (Fig. 9a, Westar
+Companion panel to the plume-preservation transect (Fig. 10a, Westar
 2023-06-26).  For the two cases flagged by the matched control-region null
 (Lipetsk 2015-08-01, Westar 2023-03-13) and the two clean clear-sky controls
 (Westar 2023-06-26, Ghent 2024-04-15), shows the measured per-band k1 shift
@@ -19,7 +19,7 @@ Data (read directly, one row per case):
     nassar_plumes/plume_preservation/nassar_k1_contrast.csv
 Context: log/SPEC_EMPHASIS_STATUS_2026-07-08.md section 2 (item 3).
 
-Output: results/figures/manuscript/fig09b_k1_contrast.{png,pdf}
+Output: manuscript/figures/fig10b_k1_contrast.{png,pdf}
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # workspace/
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "workspace"))  # plot_style
 from plot_style import MEAN_L_LABEL, apply_manuscript_style, panel_label
 
 apply_manuscript_style()
@@ -42,7 +42,7 @@ REPO = Path(__file__).resolve().parents[2]
 CSV = (REPO / "results" / "model_comparison" / "deep_ensemble"
        / "de_beta_nll_prof_reg_o05l15_m5" / "nassar_plumes"
        / "plume_preservation" / "nassar_k1_contrast.csv")
-OUT_DIR = REPO / "results" / "figures" / "manuscript"
+OUT_DIR = REPO / "manuscript" / "figures"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Cases: the two control-null flagged windows (verdict: cloud) and the two
@@ -148,7 +148,7 @@ def main() -> None:
 
     fig.tight_layout()
     for ext in ("png", "pdf"):
-        out = OUT_DIR / f"fig09b_k1_contrast.{ext}"
+        out = OUT_DIR / f"fig10b_k1_contrast.{ext}"
         fig.savefig(out)
         print(f"wrote {out}")
 

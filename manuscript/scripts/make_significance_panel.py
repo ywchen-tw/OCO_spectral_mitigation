@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manuscript Fig. 7 — TCCON significance + coincidence-criteria robustness.
+"""Manuscript Fig. 7b — TCCON significance + coincidence-criteria robustness.
 
 (a) Forest plot of the site-clustered bootstrap deltas (corrected - uncorrected)
     at the primary coincidence criteria (r = 100 km, +/-60 min), AK-harmonized
@@ -17,7 +17,7 @@ Inputs (existing CSVs, no recomputation):
       coincidence_sensitivity/coincidence_sensitivity.csv
 
 Output:
-  results/figures/manuscript/fig07_significance_robustness.png / .pdf
+  manuscript/figures/fig07b_significance_robustness.png / .pdf
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # workspace/
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "workspace"))  # plot_style
 from plot_style import CMAPS, apply_manuscript_style, panel_label  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,7 +36,7 @@ ATRAIN = (ROOT / 'results' / 'model_comparison' / 'deep_ensemble'
           / 'de_beta_nll_prof_reg_o05l15_m5' / 'atrain')
 SIG_CSV = ATRAIN / 'tccon_significance_r100km.csv'
 COIN_CSV = ATRAIN / 'coincidence_sensitivity' / 'coincidence_sensitivity.csv'
-OUT_DIR = ROOT / 'results' / 'figures' / 'manuscript'
+OUT_DIR = ROOT / 'manuscript' / 'figures'
 
 # Okabe-Ito
 C_ALL = '#0072B2'      # blue    — all sites
@@ -166,9 +166,9 @@ def main() -> None:
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     for ext in ('png', 'pdf'):
-        fig.savefig(OUT_DIR / f'fig07_significance_robustness.{ext}')
+        fig.savefig(OUT_DIR / f'fig07b_significance_robustness.{ext}')
     plt.close(fig)
-    print('wrote', OUT_DIR / 'fig07_significance_robustness.png')
+    print('wrote', OUT_DIR / 'fig07b_significance_robustness.png')
 
 
 if __name__ == '__main__':

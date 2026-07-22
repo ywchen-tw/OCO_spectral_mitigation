@@ -1,4 +1,5 @@
-"""Manuscript Fig. 5b: date-blocked cross-validation design schematic.
+"""Manuscript Fig. D1b (Appendix D): date-blocked cross-validation design schematic
+(panel b of Fig. D1; panel a is the random-split inflation result).
 
 Companion to the deep-ensemble architecture schematic
 (``src/models/make_deep_ensemble_figure.py``) and drawn in the same muted,
@@ -15,7 +16,7 @@ stylized 116-date semi-monthly timeline (2016-2020) with the same block
 structure is drawn.
 
 Run:
-  python3 workspace/manuscript_figures/make_cv_design_figure.py
+  python3 manuscript/scripts/make_cv_design_figure.py
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, Rectangle
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKSPACE = Path(__file__).resolve().parents[1]
+WORKSPACE = ROOT / "workspace"
 if str(WORKSPACE) not in sys.path:
     sys.path.insert(0, str(WORKSPACE))
 
@@ -277,7 +278,7 @@ def build(out_dir: Path, *, dpi: int, formats: tuple[str, ...],
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
     for ext in formats:
-        path = out_dir / f"fig05b_cv_design.{ext}"
+        path = out_dir / f"figD1b_cv_design.{ext}"
         fig.savefig(path, dpi=dpi, bbox_inches="tight", pad_inches=0.03)
         written.append(path)
         print(f"wrote {path}  (manifests: {'real' if used_real else 'stylized'})")
@@ -287,9 +288,9 @@ def build(out_dir: Path, *, dpi: int, formats: tuple[str, ...],
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Draw the date-blocked CV design schematic (Fig. 5b).")
+        description="Draw the date-blocked CV design schematic (Fig. D1b).")
     parser.add_argument("--out-dir", type=Path,
-                        default=ROOT / "results" / "figures" / "manuscript",
+                        default=ROOT / "manuscript" / "figures",
                         help="Output directory.")
     parser.add_argument("--dpi", type=int, default=300)
     parser.add_argument("--formats", default="png,pdf",

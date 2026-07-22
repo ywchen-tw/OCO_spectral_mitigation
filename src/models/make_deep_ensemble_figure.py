@@ -99,10 +99,12 @@ def _member_panel(ax, show_cloud_head: bool) -> None:
 
     _box(ax, 0.15, 5.15, 1.68, 1.25, "input\nfeatures", C_INPUT,
          fontsize=5.4)
-    _box(ax, 2.32, 5.15, 1.68, 1.25, "Linear 64\nReLU", C_BODY,
-         fontsize=5.5)
-    _box(ax, 4.49, 5.15, 1.68, 1.25, "Linear 32\nReLU", C_BODY,
-         fontsize=5.5)
+    _box(ax, 2.32, 5.15, 1.68, 1.25,
+         "Linear 64\nLayerNorm\nReLU\nDropout 0.1", C_BODY,
+         fontsize=4.7)
+    _box(ax, 4.49, 5.15, 1.68, 1.25,
+         "Linear 32\nLayerNorm\nReLU\nDropout 0.1", C_BODY,
+         fontsize=4.7)
     _arrow(ax, 1.83, 5.78, 2.32, 5.78)
     _arrow(ax, 4.00, 5.78, 4.49, 5.78)
 
@@ -147,9 +149,10 @@ def _member_panel(ax, show_cloud_head: bool) -> None:
         ax,
         0.15,
         1.45,
-        "The second head output is clamped to [-10, 10].\n"
-        "For Student-t loss it is interpreted as log scale;\n"
-        "otherwise it is log variance.",
+        "Each hidden block is Linear -> LayerNorm -> ReLU -> Dropout (p = 0.1);\n"
+        "dropout is active in training only, so there is no MC-dropout at inference.\n"
+        "The second head output is clamped to [-10, 10]. For Student-t loss it is\n"
+        "interpreted as log scale; otherwise it is log variance.",
     )
 
 
@@ -209,7 +212,7 @@ def _ensemble_panel(ax) -> None:
         1.72,
         "All interval variants share the same ensemble mean.\n"
         "Mondrian conformal uses per-bin residual quantiles\n"
-        "from predicted mean deciles or a physical column such as cloud distance.",
+        "from predicted-mean deciles, so no cloud information is needed at inference.",
         fontsize=6.2,
     )
 
@@ -256,6 +259,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--only", choices=["both", "cloud", "no-cloud"],
                         default="both",
                         help="Which schematic variant to write.")
+    parser.add_argument("--basename", default=None,
+                        help="Override the output basename (single-variant "
+                             "runs only, i.e. requires --only cloud|no-cloud); "
+                             "used for the manuscript copy "
+                             "(fig02_deep_ensemble_architecture).")
     return parser.parse_args()
 
 
@@ -265,11 +273,13 @@ def main() -> None:
                     if f.strip())
     if not formats:
         raise ValueError("--formats must include at least one file extension")
+    if args.basename and args.only == "both":
+        raise ValueError("--basename requires --only cloud|no-cloud")
 
     if args.only in ("both", "cloud"):
         build(
             show_cloud_head=True,
-            basename="deep_ensemble_architecture",
+            basename=args.basename or "deep_ensemble_architecture",
             out_dir=args.out_dir,
             dpi=args.dpi,
             formats=formats,
@@ -277,7 +287,7 @@ def main() -> None:
     if args.only in ("both", "no-cloud"):
         build(
             show_cloud_head=False,
-            basename="deep_ensemble_architecture_no_cloud",
+            basename=args.basename or "deep_ensemble_architecture_no_cloud",
             out_dir=args.out_dir,
             dpi=args.dpi,
             formats=formats,

@@ -1,0 +1,129 @@
+% Appendix C — DE-MLP loss, ensemble aggregation, and training configuration.
+% Moved out of Methods Sect. 3.3 (predictors + probabilistic model) to keep the
+% main text to predictor groups and essential architecture.
+%
+% Source of truth:
+%   src/models/deep_ensemble.py   (GaussianMLP, beta_nll, ensemble_predict, main)
+%   src/models/train_common.py    (TrainConfig: AdamW/OneCycle/grad-clip/early-stop)
+%   src/models/pipeline.py        (feature sets, target columns)
+%
+% Usage: \input{MANUSCRIPT_APPENDIX_MODEL.tex}
+% Requires in the main preamble:
+%   \usepackage{amsmath}
+%   \usepackage{booktabs}
+%   \usepackage{natbib}   % \citet  (or map to your journal's citation macro)
+%
+% NOTE: batch size / max-epoch values below are the production (Linux/HPC) run
+% settings; the macOS quick-iteration defaults (2048 / 100) are not used for the
+% frozen models.
+
+\section{Deep-ensemble loss, aggregation, and training configuration}
+\label{app:model}
+
+\subsection{Member architecture and probabilistic head}
+
+Each of the $M = 5$ ensemble members is a Gaussian-head multilayer perceptron
+with two hidden layers (64 and 32 units). Every hidden block applies, in order,
+a linear map, layer normalization, a ReLU activation, and 10\% dropout; dropout
+is active during training only, so there is no Monte-Carlo dropout at inference
+and the ensemble spread alone provides the epistemic uncertainty. For footprint
+$i$, member $m$ outputs a predicted mean $\mu_{m,i}$ and a raw second output that
+is clamped to $[-10, 10]$ and interpreted as the log-variance
+$s_{m,i} = \log\sigma_{m,i}^{2}$, giving a per-footprint predictive variance
+$\sigma_{m,i}^{2} = \exp(s_{m,i})$.
+
+\subsection{Training loss}
+
+Writing the target as $y_i \equiv \Delta \mathrm{X_{CO2,\,i}^{B11}}$, the standard
+Gaussian negative log-likelihood of one footprint is, up to an additive constant,
+%
+\begin{equation}
+  \ell^{\mathrm{NLL}}_{m,i}
+  = \frac{1}{2}\left[\,s_{m,i}
+  + \frac{(y_i-\mu_{m,i})^{2}}{\sigma_{m,i}^{2}}\,\right].
+  \label{eq:gauss-nll}
+\end{equation}
+%
+Because this loss down-weights high-variance footprints, the mean is poorly
+fitted exactly in the near-cloud regime where $\sigma_{m,i}^{2}$ is large. We
+therefore train the members with the $\beta$-NLL loss of
+\citet{seitzer2022pitfalls}, which multiplies each footprint's NLL by a
+stop-gradient function of its own predicted variance,
+%
+\begin{equation}
+  \ell^{\beta\text{-}\mathrm{NLL}}_{m,i}
+  = \bigl\lfloor\sigma_{m,i}^{2}\bigr\rfloor_{\mathrm{sg}}^{\,\beta}\;
+  \ell^{\mathrm{NLL}}_{m,i},
+  \qquad \beta = 0.5,
+  \label{eq:beta-nll}
+\end{equation}
+%
+where $\lfloor\cdot\rfloor_{\mathrm{sg}}$ denotes a stop-gradient (the weight is
+treated as a constant during backpropagation). Here $\beta = 0$ recovers the
+plain NLL of Eq.~\eqref{eq:gauss-nll} and $\beta = 1$ recovers a
+mean-squared-error weighting of the mean; the production choice $\beta = 0.5$
+restores the mean-fitting gradient in the high-variance near-cloud footprints
+while keeping a calibrated variance. The member loss is the average of
+Eq.~\eqref{eq:beta-nll} over the training footprints.
+
+\subsection{Ensemble aggregation}
+
+The five members differ only in their random seed (member $m$ uses seed
+$s_0 + m$), so their predictions decorrelate and the ensemble spread provides
+the epistemic uncertainty. The per-member means and variances are combined as a
+Gaussian mixture,
+%
+\begin{equation}
+  \mu^{*}_i = \frac{1}{M}\sum_{m=1}^{M}\mu_{m,i},
+  \qquad
+  \sigma^{*2}_i
+  = \underbrace{\frac{1}{M}\sum_{m=1}^{M}\sigma_{m,i}^{2}}_{\text{aleatoric}}
+  + \underbrace{\frac{1}{M}\sum_{m=1}^{M}\mu_{m,i}^{2} - \mu^{*2}_i}_{\text{epistemic}},
+  \label{eq:mixture}
+\end{equation}
+%
+which is the law of total variance: the first term is the mean aleatoric
+variance predicted by the heads and the second is the between-member (epistemic)
+variance. The ensemble mean $\mu^{*}_i$ is the point correction applied to each
+footprint.
+
+\subsection{Optimization and leakage control}
+
+Each member is optimized with AdamW (learning rate $10^{-3}$, weight decay
+$10^{-4}$) under a one-cycle learning-rate schedule with gradient-norm clipping
+at $1.0$, a batch size of $4096$, and up to $500$ epochs. Training is stopped
+early on the held-out calibration block (patience of $50$ epochs), and the
+checkpoint with the lowest calibration loss is kept; the calibration block is
+carved from the training dates and never overlaps the held-out fold or the
+validation references. The calibration block is also used to recalibrate the
+Mondrian conformal intervals, which are binned by predicted-anomaly deciles.
+Feature scaling and any profile-EOF transforms are fitted on the proper-training
+partition only. Table~\ref{tab:hyperparams} collects the full configuration.
+
+\begin{table}[t]
+\centering
+\caption{DE-MLP architecture and training configuration (production settings).}
+\label{tab:hyperparams}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Component & Setting \\
+\midrule
+Ensemble members $M$        & 5 (seeds $s_0 + m$) \\
+Hidden layers               & 64, 32 \\
+Hidden block                & Linear $\to$ LayerNorm $\to$ ReLU $\to$ Dropout(0.1) \\
+Output head                 & Linear $\to$ 2 (mean, log-variance) \\
+Log-variance clamp          & $[-10, 10]$ \\
+Loss                        & $\beta$-NLL, $\beta = 0.5$ \\
+Optimizer                   & AdamW \\
+Learning rate (max)         & $10^{-3}$ \\
+Weight decay                & $10^{-4}$ \\
+LR schedule                 & one-cycle (\texttt{pct\_start} 0.05, div 25, final div 1000) \\
+Gradient clipping           & 1.0 (max norm) \\
+Batch size                  & 4096 \\
+Maximum epochs              & 500 \\
+Early stopping              & patience 50, on the calibration block \\
+Calibration fraction        & 0.15 of the training dates \\
+Conformal intervals         & Mondrian, 10 predicted-anomaly decile bins \\
+\bottomrule
+\end{tabular}
+\end{table}

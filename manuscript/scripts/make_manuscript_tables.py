@@ -5,14 +5,14 @@ from the same report CSVs that feed the comparison deck and the markdown docs
 Style matches log/tccon_station_table_used_avail_yes.tex (booktabs
 \\specialrule top/bottom + \\midrule, \\small).
 
-Tables written to results/model_comparison/manuscript_tables/:
-  tab_model_comparison.tex   DE / XGB / Ridge fp-RMSE by slice, AK + direct
-  tab_station_equal_bias.tex station-equal mean |bias|, both refs × QF
+Tables written to manuscript/tables/:
+  tab_model_comparison.tex   DE / XGB / Ridge fp-RMSE by slice (AK)
+  tab_station_equal_bias.tex station-equal mean |bias| × QF (AK)
   tab_featureset_ablation.tex mix-DE feature-group ablation (AK)
   tab_raw_bc_ml.tex          raw / bc / ML-on-bc / ML-on-raw four series (AK)
   tab_nassar_attribution.tex clear-sky contrast smoothing channel attribution
 
-Usage:  PYTHONPATH=src python workspace/make_manuscript_tables.py
+Usage:  PYTHONPATH=src python manuscript/scripts/make_manuscript_tables.py
 """
 from __future__ import annotations
 
@@ -21,7 +21,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-BASE = Path("results/model_comparison")
+REPO = Path(__file__).resolve().parents[2]
+BASE = REPO / "results" / "model_comparison"
 DE_TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
 TREES = {
     "DE": BASE / "deep_ensemble" / DE_TAG / "atrain",
@@ -33,7 +34,7 @@ ABL_VARIANTS = ["no_spec", "no_contam", "no_xco2", "no_xco2_and_spec",
                 "no_contam_and_xco2"]
 ABL_HEADS = ["full", "$-$spec", "$-$contam", "$-$xco2", "$-$xco2$-$spec",
              "$-$xco2$-$contam"]
-OUT = BASE / "manuscript_tables"
+OUT = REPO / "manuscript" / "tables"
 
 SLICES = [
     ("Pooled, QF 0+1", "all", "all", "all"),
@@ -80,70 +81,61 @@ def bold_min(vals, fmts):
 
 
 def table_model_comparison():
-    mets = {ref: {m: pd.read_csv(p / f"tccon_metrics_{ref}_r100km.csv")
-                  for m, p in TREES.items()} for ref in ("ak", "direct")}
+    mets = {m: pd.read_csv(p / "tccon_metrics_ak_r100km.csv")
+            for m, p in TREES.items()}
     rows = []
     for label, qf, surface, cld in SLICES:
-        cells = [label]
-        r0 = srow(mets["ak"]["DE"], qf, surface, cld)
-        cells.append(f"{int(r0.n_footprints):,}".replace(",", "\\,"))
-        for ref in ("ak", "direct"):
-            rr = {m: srow(mets[ref][m], qf, surface, cld) for m in TREES}
-            ns = {int(r.n_footprints) for r in rr.values()}
-            assert len(ns) == 1
-            cells.append(f"{rr['DE'].rmse_before:.2f}")
-            cells += bold_min([rr[m].rmse_after for m in TREES], "%.2f")
+        rr = {m: srow(mets[m], qf, surface, cld) for m in TREES}
+        ns = {int(r.n_footprints) for r in rr.values()}
+        assert len(ns) == 1
+        cells = [label,
+                 f"{int(rr['DE'].n_footprints):,}".replace(",", "\\,"),
+                 f"{rr['DE'].rmse_before:.2f}"]
+        cells += bold_min([rr[m].rmse_after for m in TREES], "%.2f")
         rows.append(" & ".join(cells))
-    header = ("Slice & $n$ & \\multicolumn{4}{c}{AK-harmonized} & "
-              "\\multicolumn{4}{c}{Direct} \\\\\n"
-              "\\cmidrule(lr){3-6}\\cmidrule(lr){7-10}\n"
-              " & & Before & DE & XGB & Ridge & Before & DE & XGB & Ridge")
-    cap = ("Footprint RMSE against TCCON (ppm; 100\\,km / $\\pm$60\\,min, "
-           "75 station-days) before (\\xcobc) and after correction by the "
-           "deep ensemble (DE), XGBoost (XGB), and ridge regression (Ridge), "
-           "under the averaging-kernel-harmonized (AK) and direct TCCON "
-           "references. All models share the same footprints and "
-           "before-column; the best corrected value per slice and reference "
-           "is in bold. QF is the operational \\texttt{xco2\\_quality\\_flag}; "
+    header = "Slice & $n$ & Before & DE & XGB & Ridge"
+    cap = ("Footprint RMSE against AK-harmonized TCCON (ppm; 100\\,km / "
+           "$\\pm$60\\,min, 75 station-days) before (\\xcobc) and after "
+           "correction by the deep ensemble (DE), XGBoost (XGB), and ridge "
+           "regression (Ridge). All models share the same footprints and "
+           "before-column; the best corrected value per slice is in bold. "
+           "QF is the operational \\texttt{xco2\\_quality\\_flag}; "
            "cloud-distance slices use the pre-drift cases where the "
            "Aqua-MODIS collocation is reliable.")
-    return wrap("lrrrrrrrrr", header, rows, cap, "tab:model-comparison")
+    return wrap("lrrrrr", header, rows, cap, "tab:model-comparison")
 
 
 def table_station_equal():
     def per_model(tree):
         d = pd.read_csv(tree / "tccon_comparison_r100km.csv")
         out = {}
-        for ref, (b_col, a_col) in {
-                "ak": ("bias_before", "bias_after"),
-                "direct": ("bias_before_direct", "bias_after_direct")}.items():
-            for qf in ("all", "qf0", "qf1"):
-                g = d[(d.surface == "all") & (d.qf_group == qf)]
-                pb, pa = [], []
-                for _, s in g.groupby("site"):
-                    w = s["n_oco"].to_numpy(float)
-                    m = np.isfinite(w) & np.isfinite(s[a_col].to_numpy(float))
-                    if not m.any() or w[m].sum() == 0:
-                        continue
-                    pb.append(abs(np.average(s[b_col][m], weights=w[m])))
-                    pa.append(abs(np.average(s[a_col][m], weights=w[m])))
-                out[(ref, qf)] = (float(np.mean(pb)), float(np.mean(pa)))
+        b_col, a_col = "bias_before", "bias_after"          # AK-harmonized
+        for qf in ("all", "qf0", "qf1"):
+            g = d[(d.surface == "all") & (d.qf_group == qf)]
+            pb, pa = [], []
+            for _, s in g.groupby("site"):
+                w = s["n_oco"].to_numpy(float)
+                m = np.isfinite(w) & np.isfinite(s[a_col].to_numpy(float))
+                if not m.any() or w[m].sum() == 0:
+                    continue
+                pb.append(abs(np.average(s[b_col][m], weights=w[m])))
+                pa.append(abs(np.average(s[a_col][m], weights=w[m])))
+            out[qf] = (float(np.mean(pb)), float(np.mean(pa)))
         return out
     st = {m: per_model(p) for m, p in TREES.items()}
     rows = []
-    for ref, rlbl in (("ak", "AK"), ("direct", "Direct")):
-        for qf, qlbl in (("all", "QF 0+1"), ("qf0", "QF$\\,$=$\\,$0"),
-                         ("qf1", "QF$\\,$=$\\,$1")):
-            before = st["DE"][(ref, qf)][0]
-            afters = [st[m][(ref, qf)][1] for m in TREES]
-            rows.append(" & ".join([rlbl, qlbl, f"{before:.2f}"]
-                                   + bold_min(afters, "%.2f")))
-    header = "Reference & QF & Before & DE & XGB & Ridge"
-    cap = ("Station-equal mean absolute bias to TCCON (ppm): each station's "
-           "footprint-weighted mean bias is taken in absolute value and "
-           "averaged with equal station weights (18 stations). Best corrected "
-           "value per row in bold.")
-    return wrap("llrrrr", header, rows, cap, "tab:station-equal-bias")
+    for qf, qlbl in (("all", "QF 0+1"), ("qf0", "QF$\\,$=$\\,$0"),
+                     ("qf1", "QF$\\,$=$\\,$1")):
+        before = st["DE"][qf][0]
+        afters = [st[m][qf][1] for m in TREES]
+        rows.append(" & ".join([qlbl, f"{before:.2f}"]
+                               + bold_min(afters, "%.2f")))
+    header = "QF & Before & DE & XGB & Ridge"
+    cap = ("Station-equal mean absolute bias to AK-harmonized TCCON (ppm): "
+           "each station's footprint-weighted mean bias is taken in absolute "
+           "value and averaged with equal station weights (18 stations). "
+           "Best corrected value per row in bold.")
+    return wrap("lrrrr", header, rows, cap, "tab:station-equal-bias")
 
 
 def table_ablation():
@@ -245,7 +237,7 @@ def table_nassar():
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     preamble = (
-        "% Generated by workspace/make_manuscript_tables.py — do not hand-edit.\n"
+        "% Generated by manuscript/scripts/make_manuscript_tables.py — do not hand-edit.\n"
         "% Requires booktabs. Define in the preamble:\n"
         "%   \\newcommand{\\xcobc}{$X_{\\mathrm{CO2}}^{\\mathrm{bc}}$}\n"
         "%   \\newcommand{\\xcoraw}{$X_{\\mathrm{CO2}}^{\\mathrm{raw}}$}\n")

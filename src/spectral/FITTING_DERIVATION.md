@@ -1,184 +1,443 @@
 # Spectral transmittance fitting — derivation, assumptions, and code map
 
-This note records the physical hypothesis behind the cumulant/gamma transmittance
-fit in [`fitting.py`](fitting.py) and points to where each step is implemented.
+This note records the physical derivation behind the photon-path cumulant fit
+used by this project. The expanded manuscript-style treatment, literature
+discussion, and bibliography are in
+[`EQUIVALENCE_THEOREM_FITTING_REPORT.tex`](../../manuscript/tex/EQUIVALENCE_THEOREM_FITTING_REPORT.tex).
 
-The idea: the absorption spectrum within an OCO-2 band is a sampling of the
-**Laplace transform of the photon path-length distribution** `p(l')`. Sweeping
-wavelength across an absorption line scans the slant optical depth `S̄ŌD̄` from
-small to large, tracing out `T(S̄ŌD̄)`. Fitting `ln T` vs. optical depth recovers
-the cumulants of `p(l')` — chiefly the mean path enhancement and its variance.
+The central idea is the radiative-transfer **equivalence theorem**: within a
+narrow spectral band whose continuum scattering properties are approximately
+wavelength-independent, molecular absorption reweights one conservative photon
+trajectory ensemble by the Beer–Lambert survival probability. Under an
+additional scalar-path approximation, the normalized spectrum is the Laplace
+transform of a single conservative photon path distribution.
 
----
-
-## 1. Single photon — Beer–Lambert
-
-For one photon travelling a path of length `L` to the surface:
-
-```
-T_λ(L) = exp{ −∫₀ᴸ σ(l) n(l) dl } = exp{ −∫₀ᴸ α(l) dl }
-```
-
-with `α(l) = σ(l) n(l)` the absorption coefficient.
+The active estimator does **not** invert a complete PDF and does **not** impose a
+gamma PDF. It fits a truncated log-Laplace expansion. Under the stated
+assumptions, `k1` is the mean normalized absorber path and `k2` is its variance.
 
 ---
 
-## 2. Many photons — ensemble average → Laplace transform
+## 1. Define the conservative photon trajectory ensemble
 
-Average single-photon transmittance over `N` photons, each with its own path
-length `Lᵢ` and absorption profile `αᵢ`:
+Let `Γ` denote a complete photon trajectory from solar illumination to the
+detector, including atmospheric scattering and surface interactions. Define
 
-```
-T̄(αᵢ, Lᵢ) = (1/N) Σᵢ exp{ −∫₀^Lᵢ αᵢ(l) dl }
-```
-
-**Mean-absorption approximation** — replace the spatially varying `αᵢ(l)` with an
-effective constant `ᾱ`, so the only remaining randomness is the path length:
-
-```
-≈ (1/N) Σᵢ exp{ −ᾱ Lᵢ } = ∫₀^∞ p(l) exp{ −ᾱ l } dl
+```text
+P₀(Γ)
 ```
 
-The sum over photons becomes an integral over the path-length PDF `p(l)`. The
-right-hand side is exactly the **Laplace transform of `p(l)`** evaluated at `ᾱ`.
+as the distribution of trajectories reaching the detector in a conservative
+reference problem with:
+
+- the same illumination and viewing geometry;
+- the same surface boundary;
+- the same cloud, aerosol, Rayleigh, and polarization scattering properties;
+- no absorption by the target molecular line.
+
+For a sufficiently narrow band such as O2A, the continuum scattering properties
+are assumed to change slowly with wavelength compared with the large spectral
+variation of molecular absorption. Therefore, one `P₀(Γ)` is used for all
+retained channels in that band.
+
+**Assumption A1 — wavelength-invariant conservative ensemble:** introducing the
+target absorption, or moving between channels within the band, does not change
+the underlying scattering trajectories. Wavelength changes only their survival
+weights.
+
+This is the project-specific use of the equivalence theorem developed in the
+literature cited in the LaTeX report (Irvine, 1964; Partain et al., 2000;
+Stephens and Heidinger, 2000).
 
 ---
 
-## 3. Normalize to the slant optical depth
+## 2. Add molecular absorption along each trajectory
 
-Let `L̄` be the **direct geometric slant path** to the surface and normalize
-`l' = l / L̄` (so `dl' = dl / L̄`). Then `∫₀^Lᵢ ᾱ dl = ᾱ L̄ · lᵢ'`, and defining
-the **slant optical depth**
+For wavelength `λ`, the absorption optical depth accumulated along trajectory
+`Γ` is
 
-```
-S̄ŌD̄ = ᾱ · L̄
-```
-
-gives
-
-```
-T̄(S̄ŌD̄) = ∫₀^∞ p(l') exp{ −S̄ŌD̄ · l' } dl'
+```text
+A_λ(Γ) = ∫_Γ α_λ(r) ds,
 ```
 
-`l'` is the **path-length enhancement** relative to the direct slant path
-(`l' ≈ 1` with no scattering, `> 1` when scattering lengthens the path), so
-`⟨l'⟩` is a genuine free quantity ≥ 1 (not identically 1).
+where `α_λ(r)` contains the absorber number density, line strength, and local
+pressure and temperature dependence. The Beer–Lambert survival weight is
+
+```text
+w_λ(Γ) = exp[−A_λ(Γ)].
+```
+
+The normalized radiance of the absorbing problem is the conservative-ensemble
+average of this weight:
+
+```text
+𝒯_λ = E_{P₀}[w_λ]
+    = ∫ P₀(Γ) exp[−A_λ(Γ)] dΓ.                     (1)
+```
+
+Equation (1) is the general equivalence-theorem expression used here. It does
+not require a plane-parallel atmosphere or a gamma path distribution.
+
+**Assumption A2 — passive absorption:** molecular absorption removes photon
+weight but does not change the trajectory-generating scattering problem.
+Inelastic wavelength-changing processes are neglected or assumed corrected.
 
 ---
 
-## 4. Add surface reflectance
+## 3. Reduce each trajectory to a scalar normalized absorber path
 
-For a Lambertian surface of reflectance `γ`:
+Equation (1) is a functional average over complete, vertically structured
+trajectories. The project reduces it to one scalar path coordinate by assuming
 
+```text
+A_λ(Γ) ≈ τ_λ · l′(Γ),                              (2)
 ```
-πI = f₀ cos θ · γ · T̄
-⇒  πI / (f₀ cos θ) = γ T̄ = γ ∫₀^∞ p(l') exp{ −S̄ŌD̄ · l' } dl'
-```
 
-The measured "transmittance" used in the fit is therefore `γ T̄`, which → `γ` as
-`S̄ŌD̄ → 0`.
+where:
+
+- `τ_λ` is the modeled optical depth for the direct geometric slant path at
+  channel `λ` (`od["tau"]` in the code);
+- `l′(Γ)` is the effective absorber-path enhancement relative to that direct
+  slant reference.
+
+The scalar `l′` is not required to exceed one:
+
+- `l′ ≈ 1` corresponds to the selected direct surface-slant reference;
+- multiple scattering and cloud–surface interactions can produce `l′ > 1`;
+- cloud-top or aerosol reflection can remove below-scatter travel and produce
+  `0 ≤ l′ < 1`.
+
+This is consistent with the implementation, which constrains `k1 ≥ 0`, not
+`k1 ≥ 1`.
+
+**Assumption A3 — scalar-path approximation:** the layer-by-layer absorber path
+of a trajectory can be represented by one channel-independent multiplier
+`l′(Γ)`. This is stronger than assuming the absorber is well mixed. Pressure-
+and temperature-dependent line absorption can make two geometrically similar
+paths accumulate different absorption if they occupy different altitude
+ranges.
 
 ---
 
-## 5. Gamma assumption for `p(l')`
+## 4. Induce the conservative scalar path distribution
 
-Assume the path-length enhancement follows a gamma distribution:
+The conservative trajectory ensemble induces the normalized path distribution
 
-```
-p(l') = (κ/⟨l'⟩)^κ / Γ(κ) · l'^{κ−1} · exp{ −(κ/⟨l'⟩) l' }     with   κ = ⟨l'⟩² / var(l')
-```
-
-Its Laplace transform is closed-form:
-
-```
-∫₀^∞ p(l') exp{ −S̄ŌD̄ · l' } dl'  =  1 / (1 + (⟨l'⟩/κ) S̄ŌD̄)^κ
+```text
+p₀(l′) = ∫ P₀(Γ) δ[l′ − l′(Γ)] dΓ,
 ```
 
-so
+with
 
+```text
+∫₀^∞ p₀(l′) dl′ = 1.
 ```
-T(S̄ŌD̄) = πI / (f₀ cos θ) = γ / (1 + (⟨l'⟩/κ) S̄ŌD̄)^κ
+
+Substituting Equation (2) into Equation (1) gives
+
+```text
+𝒯(τ_λ) = ∫₀^∞ p₀(l′) exp(−τ_λ l′) dl′
+        = ℒ{p₀}(τ_λ).                              (3)
 ```
+
+Thus the absorption spectrum samples the Laplace transform of **one
+wavelength-independent conservative path distribution**. Wavelength changes
+the transform coordinate `τ_λ`; it does not introduce a separate fitted PDF for
+each channel.
+
+### Conservative paths versus detected paths
+
+The paths represented among photons detected inside an absorption channel have
+the conditional distribution
+
+```text
+p_det(l′ | τ) = p₀(l′) exp(−τl′) / 𝒯(τ).           (4)
+```
+
+Consequently, weak and strong absorption channels naturally detect different
+path populations. Strong absorption preferentially removes long paths. This is
+predicted by Equation (3) and does **not** violate the common-`p₀` assumption.
+
+The assumption fails only if the underlying conservative ensemble changes with
+wavelength, or if no common scalar `l′(Γ)` satisfies Equation (2) for all
+channels.
 
 ---
 
-## 6. Log + Taylor → cumulant expansion
+## 5. Include the continuum/surface factor
 
-```
-ln T(S̄ŌD̄) = ln γ − κ ln[ 1 + (⟨l'⟩/κ) S̄ŌD̄ ]
-```
+Under the idealized Lambertian single-reflection interpretation,
 
-Expanding `ln(1 + x) = x − x²/2 + x³/3 − …` with `x = (⟨l'⟩/κ) S̄ŌD̄`:
-
-```
-ln T = ln γ − [ ⟨l'⟩·S̄ŌD̄ − (var(l')/2)·S̄ŌD̄² + (κ(⟨l'⟩/κ)³/3)·S̄ŌD̄³ − … ]
+```text
+πI_λ = F₀,λ μ₀ · γ · 𝒯(τ_λ),
 ```
 
-The first two coefficients are exactly the **mean** and **variance** of `p(l')`.
+so the normalized quantity fitted by the project is
 
-### Coefficient identities
-
-Matching to the code's parameterization
-`ln T = intercept + Σᵢ (−1)ⁱ (kᵢ / i) S̄ŌD̄ⁱ` gives, for the gamma model:
-
-```
-kₙ = ⟨l'⟩ⁿ / κ^{n−1}
+```text
+T_λ ≡ πI_λ / (F₀,λ μ₀)
+    = γ ∫₀^∞ p₀(l′) exp(−τ_λ l′) dl′.              (5)
 ```
 
-| coefficient | meaning                | sign under gamma |
-|-------------|------------------------|------------------|
-| `intercept` | `ln γ`                 | —                |
-| `k1`        | `⟨l'⟩`  (mean)         | > 0              |
-| `k2`        | `var(l')`  (variance)  | > 0              |
-| `k3 …`      | higher cumulants `⟨l'⟩ⁿ/κⁿ⁻¹` | > 0 (gamma) |
+Therefore `T(0) = γ` and the ideal intercept is `ln γ`.
 
-Consequences:
-- **κ recovered from the fit:** `κ = ⟨l'⟩² / var(l') = k1² / k2`.
-- Under a *strict* gamma the `kₙ` are not independent — they form a geometric
-  sequence `kₙ = k1 (k2/k1)^{n−1}`. Fitting them freely (orders 7/3) is therefore
-  **more general than gamma**; in that general case only `k1` (mean) and `k2`
-  (variance) must be positive — higher cumulants of an arbitrary distribution may
-  be negative.
+In the implementation, `compute_transmittance` evaluates
+
+```text
+T = radiances / toa_sol · π
+```
+
+and masks `T > 1`. For real OCO-2 spectra, `exp(intercept)` should be described
+as an **effective continuum reflectance**, not necessarily the exact Lambertian
+surface albedo. It can absorb BRDF, polarization, multiple surface–atmosphere
+interactions, continuum spectral structure, and normalization errors.
+
+**Assumption A4 — adequate continuum normalization:** remaining channel-to-
+channel continuum structure is small enough that the fitted absorption
+curvature primarily represents photon-path effects.
 
 ---
 
-## 7. Assumptions (where the model can break)
+## 6. Expand the log Laplace transform in cumulants
 
-1. **Mean-absorption** `αᵢ(l) → ᾱ` (Section 2). Valid for a well-mixed absorber
-   weakly correlated with the scattering geometry; approximate for real O₂/CO₂.
-2. **`L̄` is the direct geometric slant path** (Section 3), so `S̄ŌD̄` is the known
-   geometric slant optical depth and `⟨l'⟩ = k1` is a free enhancement ≥ 1.
-3. **`p(l')` is wavelength-independent within a band** — required so the channels
-   of one band all sample the same Laplace transform.
-4. **Gamma form for `p(l')`** (Section 5) — a tractable 2-parameter choice; cannot
-   capture a bimodal direct-beam-plus-tail distribution.
-5. **Truncation convergence** — the Taylor series only converges for
-   `(⟨l'⟩/κ) S̄ŌD̄ < 1`. At line centres (large S̄ŌD̄) the truncated polynomial
-   departs from the true curve regardless of order.
-6. **Single Lambertian surface reflection** (Section 4).
+Let `C_n` be the ordinary cumulants of the conservative distribution `p₀(l′)`.
+Its cumulant-generating function is
+
+```text
+K(t) = ln E_{p₀}[exp(tl′)]
+     = Σₙ₌₁^∞ C_n tⁿ/n!.
+```
+
+Since Equation (3) is the moment-generating function evaluated at `t = −τ`,
+Equation (5) gives
+
+```text
+ln T(τ) = ln γ + Σₙ₌₁^∞ (−1)ⁿ C_n τⁿ/n!.          (6)
+```
+
+The code uses the parameterization
+
+```text
+ln T(τ) ≈ intercept + Σₙ₌₁ᴺ (−1)ⁿ (k_n/n) τⁿ.     (7)
+```
+
+Matching Equations (6) and (7) gives the exact coefficient convention
+
+```text
+intercept = ln γ,
+k_n = C_n/(n−1)!.                                  (8)
+```
+
+Therefore:
+
+| Project coefficient | Exact relation | Interpretation under A1–A4 |
+|---|---|---|
+| `k1` | `C1` | `E_{p₀}[l′]`, mean conservative path enhancement |
+| `k2` | `C2` | `var_{p₀}(l′)`, conservative path variance |
+| `k3` | `C3/2!` | scaled third cumulant |
+| `k4` | `C4/3!` | scaled fourth cumulant |
+| `k_n` | `C_n/(n−1)!` | scaled nth cumulant |
+
+The factorial distinction matters: `k1` and `k2` are exactly the ordinary first
+two cumulants, whereas `k3…` are scaled higher cumulants in the code's `/n`
+parameterization.
+
+The local derivatives at finite optical depth describe the absorption-selected
+distribution from Equation (4):
+
+```text
+−d ln 𝒯/dτ  = E_det,τ[l′],
+ d²ln 𝒯/dτ² = var_det,τ(l′).
+```
+
+By contrast, the fitted `k1` and `k2` target the derivatives at `τ = 0`, hence
+the moments of the conservative `p₀`.
 
 ---
 
-## 8. Code map
+## 7. Truncate the expansion and solve the project fit
 
-*(Updated 2026-07-06 for the module split: the fit core now lives in
-[`cumulant_fit.py`](cumulant_fit.py); [`fitting.py`](fitting.py) is the
-orchestration facade re-exporting the public names. The iterative `curve_fit`
-was replaced 2026-07-04 by an exact linear solve — same optimum, ×14 faster.)*
+For truncation order `N`, the design matrix is
+
+```text
+[1, −τ, +τ²/2, −τ³/3, …, (−1)ᴺτᴺ/N].
+```
+
+The model is linear in
+
+```text
+[intercept, k1, …, kN].
+```
+
+`fit_spectral_model` solves it with SVD least squares. If the unconstrained
+solution violates `k1 ≥ 0` or `k2 ≥ 0`, `_solve_cumulant` uses bounded-variable
+least squares (BVLS). Higher coefficients are allowed to be negative because
+higher cumulants of a general distribution need not be positive.
+
+The production band orders are
+
+```text
+(O2A, WCO2, SCO2) = (7, 3, 7).
+```
+
+WCO2 is limited to order 3 because its optical-depth range is much smaller than
+those of O2A and SCO2; higher powers are poorly identifiable and strongly
+collinear. See [`FIT_ORDER_EXPERIMENT.md`](FIT_ORDER_EXPERIMENT.md).
+
+The fitter produces both Savitzky–Golay-smoothed and raw (`_nosg`) coefficient
+sets. The raw/no-SG coefficients are the production ML inputs; the smoothed
+twins are retained for robustness analysis.
+
+**Assumption A5 — adequate finite-order approximation:** the retained channels
+constrain the derivatives of `ln T` about `τ = 0` sufficiently well. Strong line
+centers can be outside the useful Taylor region; increasing polynomial order
+does not guarantee physical validity.
+
+**Assumption A6 — existence and identifiability:** channel noise, continuum
+errors, and polynomial collinearity do not dominate the inferred `k1` and `k2`.
+The constraints `k1,k2 ≥ 0` are necessary for a physical PDF but do not ensure
+that the complete fitted polynomial is the log-Laplace transform of any
+nonnegative PDF.
+
+---
+
+## 8. Gamma PDF: an optional interpretive special case
+
+If, additionally, the conservative path enhancement follows a gamma PDF with
+mean `m` and shape `κ`,
+
+```text
+p₀(l′) = (κ/m)^κ / Γ(κ) · l′^(κ−1) exp[−(κ/m)l′],
+```
+
+then
+
+```text
+T(τ) = γ [1 + (m/κ)τ]^(−κ).                        (9)
+```
+
+The ordinary gamma cumulants are
+
+```text
+C_n = (n−1)! mⁿ/κ^(n−1),
+```
+
+so the project coefficients become
+
+```text
+k_n = mⁿ/κ^(n−1),
+k1 = m,
+k2 = m²/κ,
+κ = k1²/k2,
+k_n = k1 (k2/k1)^(n−1).                            (10)
+```
+
+The active fit does **not** enforce Equation (9) or the coefficient sequence in
+Equation (10). The closed-form `transmittance_model` exists in
+`cumulant_fit.py` but is unused by production. The stored `k1…k5` come from the
+free polynomial fit. Consequently, `k1²/k2` is only a gamma-equivalent shape
+diagnostic, not evidence that the path PDF is gamma.
+
+Gamma should therefore not be listed as a required assumption of the active
+estimator. It is a useful two-parameter physical reference that cannot represent
+all multilayer, direct-beam-plus-tail, or other multimodal path populations.
+
+---
+
+## 9. When the scalar path distribution is insufficient
+
+For a vertically structured atmosphere, describe trajectory `Γ` by its path
+lengths in atmospheric layers:
+
+```text
+L(Γ) = (L1, …, LZ).
+```
+
+The general conservative-ensemble expression becomes
+
+```text
+T_λ = γ_λ ∫ p₀(L1,…,LZ)
+      exp[−Σ_z α_λ,z L_z] dL1…dLZ.                 (11)
+```
+
+Equation (11) is a multidimensional Laplace transform. It reduces to the
+project's Equation (3) only if the layer paths are approximately proportional
+to a common reference profile:
+
+```text
+L_z(Γ) ≈ l′(Γ) L̄_z.
+```
+
+Possible violations include:
+
+- cloud-top reflection truncating the below-cloud path;
+- 3-D horizontal transport concentrated near cloud altitude;
+- lower-tropospheric aerosol scattering;
+- repeated cloud–surface interactions;
+- pressure- and temperature-dependent differences between line centers and
+  wings;
+- wavelength-dependent surface BRDF, polarization, or aerosol scattering.
+
+These effects do not invalidate the general equivalence theorem in Equation
+(1). They invalidate only the reduction to one scalar, wavelength-independent
+`p₀(l′)`. In that case, the fitted coefficients remain useful **band-effective
+absorber-path summaries**, but they are not exact geometrical-path cumulants.
+
+---
+
+## 10. Assumption ledger
+
+| ID | Assumption | Needed for | If it fails |
+|---|---|---|---|
+| A1 | Conservative scattering ensemble is constant within a band | One `P₀(Γ)` for all channels | Spectrum combines different underlying trajectory ensembles |
+| A2 | Absorption passively applies Beer–Lambert weights | General equivalence theorem | Requires wavelength-changing/coupled radiative transfer |
+| A3 | `A_λ(Γ) ≈ τ_λ l′(Γ)` | One-dimensional Laplace transform | `k1`, `k2` become effective absorber- and channel-weighted coefficients |
+| A4 | Continuum and surface normalization is adequate | Intercept and curvature interpretation | BRDF/instrument/continuum structure leaks into fitted coefficients |
+| A5 | Truncated expansion represents the retained `τ` range | Recover zero-absorption derivatives | Strong channels bias or destabilize cumulants |
+| A6 | Moments are identifiable and a physical PDF is locally plausible | Probabilistic interpretation | Polynomial may fit well without corresponding to a nonnegative PDF |
+| Optional | Gamma form | Closed-form Equation (9), `κ = k1²/k2` interpretation | No impact on active free-polynomial estimator |
+
+---
+
+## 11. Code map
+
+The fit core is in [`cumulant_fit.py`](cumulant_fit.py). [`fitting.py`](fitting.py)
+is the orchestration facade and re-exports the public fitting names.
 
 | Derivation step | Code |
-|-----------------|------|
-| `T = γ T̄ = πI/(f₀cosθ)` measured transmittance (Section 4) | `compute_transmittance` — `T = radiances / toa_sol * π`, masks `T > 1` (`cumulant_fit.py`) |
-| `ln T` cumulant polynomial, order `N` (Section 6) | `log_transmittance_model_1 … _9` + `LOG_TRANSMITTANCE_MODELS` dispatch (`cumulant_fit.py`) |
-| Closed-form gamma `T(S̄ŌD̄)` (Section 5) | `transmittance_model(tau, l_mean, kappa, intercept)` (`cumulant_fit.py`) — unused in active fit |
-| Design matrix `1, −τ, +½τ², …` (Section 6) | `get_design_matrix` (`cumulant_fit.py`) — now the core of the exact solver |
-| Fit `ln T` vs. `τ` (Section 6) | `fit_spectral_model` (`cumulant_fit.py`) — exact `lstsq` on the design matrix; **dual fit**: Savitzky-Golay-smoothed AND raw (no-SG) inputs. The no-SG k's are the **production default** (`models/pipeline._USE_NOSG_K`, `_nosg` suffix); SG twins kept for the robustness comparison (`compare_savgol_fits.py`) |
-| **k1, k2 ≥ 0 bounds** (Section 6 positivity) | BVLS fallback when the unconstrained lstsq solution violates k1,k2 ≥ 0 (`cumulant_fit.py`) |
-| `S̄ŌD̄ ≡ τ` per channel (Section 3) | `od["tau"]` from `oco_fp_atm_abs`; edge channels dropped `[1:-1]` (`orbit_data.py` / `fitting.py`) |
-| Store k1…k5 + intercept | `kappa_fitting`, `intercept_fitting` → `output_dict` (`fitting.py`) |
-| **κ = k1²/k2** (Section 6 identity) | `gamma_kappa`, NaN where `k2 ≤ 0`; written as `{band}_kappa` (`fitting.py`) |
-| Per-band orders `(o2a, wco2, sco2)` | `constants.FIT_ORDER = (7, 3, 7)` — rationale in [`FIT_ORDER_EXPERIMENT.md`](FIT_ORDER_EXPERIMENT.md) |
+|---|---|
+| `T = πI/toa_sol` normalized radiance, Equation (5) | `compute_transmittance`; masks `T > 1` (`cumulant_fit.py`) |
+| Per-channel direct-slant optical depth `τ_λ` | `od["tau"]` from `oco_fp_atm_abs`; edge channels `[1:-1]` are dropped (`orbit_data.py`, `fitting.py`) |
+| Project expansion, Equation (7) | `log_transmittance_model_1 … _9` and `LOG_TRANSMITTANCE_MODELS` (`cumulant_fit.py`) |
+| Design matrix `[1, −τ, +τ²/2, …]` | `get_design_matrix` (`cumulant_fit.py`) |
+| Exact linear solve | `_solve_cumulant` and `fit_spectral_model`: `lstsq`, with BVLS fallback (`cumulant_fit.py`) |
+| `k1,k2 ≥ 0` | Bounds applied only to the first two coefficients in `_solve_cumulant` |
+| Raw and SG fit products | Dual fit in `_fit_chunk`; `_nosg` coefficients are production inputs (`models/pipeline._USE_NOSG_K`) |
+| Band orders `(7,3,7)` | `constants.FIT_ORDER` |
+| Store `k1…k5` and intercept | `kappa_fitting`, `intercept_fitting` → `output_dict` (`fitting.py`) |
+| Gamma-equivalent `κ = k1²/k2` | `gamma_kappa`, NaN where `k2 ≤ 0` (`fitting.py`) |
+| Closed-form gamma Equation (9) | `transmittance_model`; present but unused by the active fit (`cumulant_fit.py`) |
 
-> Note: `transmittance_model` (closed-form gamma) is **not** used in the active
-> fit. The stored `k1…k5` and the derived `κ` all come from the polynomial
-> `log_transmittance_model_*` fits.
+---
+
+## 12. Recommended manuscript wording
+
+> Following the equivalence theorem, we define `p₀(l′)` as the normalized
+> absorber-path distribution induced by the conservative photon trajectory
+> ensemble for a fixed geometry and continuum scattering problem. Within each
+> narrow OCO-2 band, wavelength is assumed to modify photon contributions only
+> through the Beer–Lambert weight `exp(−τ_λl′)`, giving
+> `T(τ_λ) = γ∫p₀(l′)exp(−τ_λl′)dl′`. Expanding the log Laplace transform yields
+> `ln T = intercept + Σ_n(−1)^n(k_n/n)τ^n`, where `k1` and `k2` are respectively
+> the mean and variance of `p₀(l′)` under the scalar-path approximation. The
+> fitted distribution is the common conservative ensemble, not the
+> absorption-selected path population within each channel; the latter naturally
+> varies with optical depth.
+
+The main caveat should follow immediately:
+
+> Because real line absorption is vertically pressure- and temperature-
+> dependent, the scalar relation `A_λ(Γ) ≈ τ_λl′(Γ)` is approximate. We therefore
+> interpret the fitted coefficients as band-effective absorber-path cumulants;
+> exact geometrical-path moments require closure against layer-resolved photon
+> trajectories.

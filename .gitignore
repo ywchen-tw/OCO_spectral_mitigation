@@ -92,3 +92,24 @@ AGENTS.md
 !src/abs_util/abs/log.txt
 !src/abs_util/abs/sol/solar.txt
 fonts/
+
+# Manuscript — track everything under manuscript/ (tex, bib, scripts,
+# figures, tables), overriding the global data/figure ignores above ...
+!manuscript/**
+# ... except OS junk and Python/LaTeX build intermediates
+manuscript/**/.DS_Store
+manuscript/**/__pycache__/
+manuscript/**/*.aux
+manuscript/**/*.log
+manuscript/**/*.blg
+manuscript/**/*.out
+manuscript/**/*.toc
+manuscript/**/*.lof
+manuscript/**/*.lot
+manuscript/**/*.fls
+manuscript/**/*.fdb_latexmk
+manuscript/**/*.synctex.gz
+manuscript/**/*.bcf
+manuscript/**/*.run.xml
+manuscript/**/*.nav
+manuscript/**/*.snm

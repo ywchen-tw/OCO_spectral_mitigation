@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manuscript Fig. 1a — OCO-2 / MODIS collocation + nearest-cloud-distance
+"""Manuscript Fig. 1 (Methods 3.1) — OCO-2 / MODIS collocation + nearest-cloud-distance
 geometry schematic, built from real pipeline output (analysis date 2020-01-01).
 
 Main panel: Aqua-MODIS MYD35 Cloudy/Uncertain pixels (grey) with the OCO-2
@@ -8,9 +8,9 @@ sounding is annotated with an arrow to its nearest cloud pixel and the
 distance labelled.  A small inset shows the whole granule track for context.
 
 Usage (from repo root or anywhere):
-    python3 workspace/manuscript_figures/make_collocation_schematic.py
+    python3 manuscript/scripts/make_collocation_schematic.py
     ... [--granule 29265a_GL] [--date 2020-01-01] [--annotate-sid SID]
-    ... [--extent LON0 LON1 LAT0 LAT1] [--out results/figures/manuscript/...]
+    ... [--extent LON0 LON1 LAT0 LAT1] [--out manuscript/figures/...]
 """
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ import numpy as np
 
 # workspace/ (plot_style) and src/ (pickle dataclasses) on the path
 _HERE = Path(__file__).resolve()
-sys.path.insert(0, str(_HERE.parents[1]))          # workspace/
 _REPO = _HERE.parents[2]
+sys.path.insert(0, str(_REPO / "workspace"))       # plot_style
 sys.path.insert(0, str(_REPO / "src"))
 
 import matplotlib
@@ -73,8 +73,8 @@ def main() -> None:
                    help="sounding_id of the representative footprint")
     p.add_argument("--vmax", type=float, default=25.0, help="colorbar upper bound (km)")
     p.add_argument("--out", default=None,
-                   help="output PNG path (default results/figures/manuscript/"
-                        "fig01a_collocation_schematic.png); a .pdf twin is saved too")
+                   help="output PNG path (default manuscript/figures/"
+                        "fig01_collocation_schematic.png); a .pdf twin is saved too")
     args = p.parse_args()
 
     dt = datetime.strptime(args.date, "%Y-%m-%d")
@@ -152,7 +152,6 @@ def main() -> None:
     ax.set_aspect(1.0 / max(np.cos(np.radians(mid_lat)), 0.05))
     ax.set_xlabel("Longitude ($\\degree$E)")
     ax.set_ylabel("Latitude ($\\degree$N)")
-    panel_label(ax, "(a)")
     ax.text(1.0, 1.02, f"OCO-2 orbit {args.granule.split('a')[0]} (glint), {args.date}",
             transform=ax.transAxes, fontsize=9, ha="right", va="bottom")
 
@@ -196,7 +195,7 @@ def main() -> None:
 
     # --- save -----------------------------------------------------------------
     out_png = Path(args.out) if args.out else (
-        _REPO / "results" / "figures" / "manuscript" / "fig01a_collocation_schematic.png")
+        _REPO / "manuscript" / "figures" / "fig01_collocation_schematic.png")
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png)
     fig.savefig(out_png.with_suffix(".pdf"))
