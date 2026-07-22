@@ -33,8 +33,7 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
   (station summary), figE2a/figE2b (far-cloud/clear-day controls), figE3
   (failure modes) — all from the production fold-PCA report tree
   `de_beta_nll_prof_reg_foldpca_o05l15_m5`.
-  `internal_qf1_recovery_candidate` has no manuscript number (main-text
-  Fig. 11 dropped). Appendix letters follow the 2026-07-22n mapping table
+  Appendix letters follow the 2026-07-22n mapping table
   in the flow plan. Draft
   captions for all figures: `log/MANUSCRIPT_FLOW_PLAN.md` §4.
 - `tables/` — generated LaTeX tables (`tab_*.tex`), written directly by

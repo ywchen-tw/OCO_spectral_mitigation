@@ -1061,10 +1061,10 @@ End Results by defining the boundary of reliability:
   trim): §4.8 stays at two paragraphs of prose (failure strata +
   uncertainty-as-flag), and Discussion 5.4 carries the QF1 candidate
   counts in a single sentence. The QF1-recovery figure copy
-  (`manuscript/figures/internal_qf1_recovery_candidate`, renamed from
-  fig11_* 2026-07-22o) is retained as an
-  internal artifact and remains available to Appendix D/E if a reviewer
-  asks. Worsening-case and strata tables are Appendix E (Tables E1–E2),
+  (the former fig11 file was byte-identical to the QF1 report figure
+  now staged as `figD2a`/`figD2b`, so the duplicate was deleted
+  2026-07-22o — Fig. D2 is the surviving home of that panel; it
+  remains available if a reviewer asks.) Worsening-case and strata tables are Appendix E (Tables E1–E2),
   uncertainty components Appendix D (Table D4).
 
 ### 5 Discussion
