@@ -91,7 +91,8 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
   - `make_appendix_c_figures.py` → figC1_dataflow, figC2_fold_timeline
     (real training_dates.json fold manifests), figC3a_random_split_inflation
     (ocean-testbed numbers from ocean_robustness_comparison.md),
-    figC5_cv_model_comparison (parsed from the kfold_agg reports);
+    figC5_cv_model_comparison + tables/tabC5_cv_model_comparison.tex
+    (parsed from the kfold_agg reports);
     C4/C7 pending — see plan 2026-07-22q
   - `stage_supplement_figures.py` → `manuscript/supplement/S*_*/` (bulk
     Supplement assets, ~295 MB; git-ignored except the tracked

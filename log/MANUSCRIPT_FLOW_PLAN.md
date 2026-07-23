@@ -188,6 +188,14 @@ bootstrap, Wilcoxon cross-check). Verified against
 tccon_comparison_report._significance: "RMS bias" is the quadratic
 aggregate of station-day mean biases — NOT a footprint RMSE — so the
 row label stays "Δ RMS bias".  
+**Updated:** 2026-07-22x — §4.3 headline extended to THREE sentences:
+withheld-fold model ordering (DE ≥ XGB ≫ ridge) agrees with the TCCON
+ordering, covering each view's weakness (target-construction vs
+validation-chain artifacts), with the tail-divergence clause (fold gap
+~0.02–0.04 ppm vs 0.30 ppm TCCON near-cloud land). Matching sentence in
+the §4.3 draft results text; Table C5 now GENERATED as
+`manuscript/tables/tabC5_cv_model_comparison.tex` by
+`make_appendix_c_figures.py` (same kfold_agg parse as Fig. C5).  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -804,15 +812,22 @@ production anomaly targets of Sect.~3.1.
 
 #### 4.3 Model comparison and feature attribution
 
-Open with a two-sentence date-blocked headline so the model-selection result
-has a stated skill basis: quote the frozen date-blocked \(R^2\)/RMSE by
-surface, note that performance should be read against the label-noise ceiling
-(ocean approximately noise-limited; land headroom concentrated near cloud),
-and cite Appendix C for the full cross-validation analysis (random-split
-inflation, fold dispersion, ceilings, and uncertainty calibration). Do not
-expand beyond those two sentences — the detailed split-design material lives
-in Appendix C so it does not interrupt the path to the independent
-validation.
+Open with a THREE-sentence date-blocked headline (extended from two,
+2026-07-23) so the model-selection result has a stated skill basis:
+(1) quote the frozen date-blocked \(R^2\)/RMSE by surface; (2) read them
+against the label-noise ceiling (ocean approximately noise-limited; land
+headroom concentrated near cloud); (3) note that the model ordering on
+WITHHELD folds matches the TCCON ordering that follows (deep ensemble ≥
+XGBoost ≫ ridge; fold RMSE land 0.54/0.55/0.69 ppm, ocean 0.40/0.42/0.56
+— Fig. C5, Table C5) — internal held-out skill and independent validation
+agree, so neither the anomaly target nor the validation chain is driving
+the model selection — while the near-cloud land tail separates the top
+two models far more strongly at TCCON (1.31 vs 1.61 ppm) than aggregate
+fold RMSE suggests. Cite Appendix C for the full cross-validation
+analysis (random-split inflation, fold dispersion, ceilings, and
+uncertainty calibration). Do not expand beyond those three sentences —
+the detailed split-design material lives in Appendix C so it does not
+interrupt the path to the independent validation.
 
 Then present the common-protocol baseline table, emphasizing the difficult
 near-cloud land tail, and report:
@@ -858,7 +873,14 @@ values):**
 **Draft results text (moved out of the Fig. 6 caption, 2026-07-22h):**
 
 > The deep ensemble leads at every slice, and the model ordering is
-> decided in the near-cloud land tail (Fig. 6a). In the feature-group
+> decided in the near-cloud land tail (Fig. 6a). The same ordering holds
+> on the withheld date-blocked folds of the anomaly target (Appendix C,
+> Fig. C5): agreement between internal held-out skill and the independent
+> validation means neither the target construction nor the TCCON chain is
+> driving the selection — though the fold metrics understate the gap,
+> since XGBoost trails the deep ensemble by only ~0.02–0.04 ppm in fold
+> RMSE but by 0.30 ppm on the near-cloud land TCCON tail. In the
+> feature-group
 > ablation (Fig. 6b), dropping the spectral or contamination groups is
 > TCCON-neutral, whereas removing the retrieval-state departure
 > (xco2_raw − a priori) costs 0.7–1.1 ppm — the operationally
@@ -1587,8 +1609,11 @@ Planned items:
 - **Fig. C7:** raw/BC/ML increment relationship — PENDING (2026-07-22q):
   needs the ML-on-raw artifacts (local policy CSVs carry only
   uncorrected/full_mu scenarios);
-- **Table C5:** fold-resolved date-blocked metrics (the frozen values quoted
-  in §4.3);
+- **Table C5:** date-blocked fold metrics (the frozen values quoted in
+  §4.3) — GENERATED 2026-07-23 as
+  `manuscript/tables/tabC5_cv_model_comparison.tex`
+  (`make_appendix_c_figures.py`; DE/XGBoost/Ridge × surface,
+  RMSE and R² fold mean ± std with the land-Ridge median flagged);
 - **Table C6:** fold-resolved baseline results;
 - **Table C7:** complete ablation results, using the 2026-07-17 retrained
   variants only;
