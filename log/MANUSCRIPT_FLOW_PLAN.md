@@ -147,6 +147,13 @@ the final names directly). Supplement staging added:
 stage_supplement_figures.py fills manuscript/supplement/ (S1 75
 station-day panels, S2 12 ocean case pages, S4 spectrum-internal set;
 git-ignored, manifest tracked); S3/S5 sources still on CURC.  
+**Updated:** 2026-07-22q — Appendix C figures: figC1_dataflow,
+figC2_fold_timeline (REAL fold manifests), figC3a_random_split_inflation,
+figC5_cv_model_comparison GENERATED (`make_appendix_c_figures.py`); C4
+PENDING on ceiling-column semantics (achieved ocean R² exceeds
+r2max_ref_ret — resolve with the original ceiling analysis before
+plotting), C6 covered by Fig. 6b + Table C7, C7 pending ML-on-raw
+artifacts.  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -1402,8 +1409,16 @@ Include:
 
 Planned items:
 
-- **Fig. C1:** training and evaluation data-flow diagram;
-- **Fig. C2:** fold timeline showing contiguous date blocks;
+- **Fig. C1:** training and evaluation data-flow diagram — GENERATED
+  2026-07-22q: `figC1_dataflow` (`make_appendix_c_figures.py`; carries
+  the training-only cloud-information boundary, which also satisfies
+  Appendix B's data-flow include bullet — B1 slot stays retired);
+- **Fig. C2:** fold timeline showing contiguous date blocks — GENERATED
+  2026-07-22q: `figC2_fold_timeline` from the REAL per-fold
+  `training_dates.json` manifests (fold-PCA fold structure, read from
+  the linreg fold dirs; train/calibration/held roles per fold, both
+  surfaces). This supersedes the stylized-timeline caveat on figC3b —
+  the manifests ARE local;
 - **Table C1:** full predictor inventory;
 - **Table C2:** hyperparameters and training configuration;
 - **Table C3:** fold-level sample sizes and performance;
@@ -1437,15 +1452,33 @@ Include:
 Planned items:
 
 - **Fig. C3:** random-split inflation relative to date-blocked estimates
-  (panel b, the CV-design schematic, exists:
+  — panel a GENERATED 2026-07-22q: `figC3a_random_split_inflation`
+  (random / date-single / date-kfold R² for TabM/MLP/XGB on the ocean
+  testbed, from `ocean_robustness_comparison.md` — caption must say the
+  SPLIT effect is the point, the models are the 2026-06 comparison-era
+  ones, not the production DE); panel b exists:
   `manuscript/figures/figC3b_cv_design` — renamed from figD1b
   2026-07-22o — `manuscript/scripts/make_cv_design_figure.py`);
 - **Fig. C4:** date-blocked skill versus the label-noise ceiling by surface
-  and cloud-distance regime (absorbs the skill/ceiling panel formerly planned
-  for the former main-text skill figure; that panel is now Appendix-D-only);
-- **Fig. C5:** model comparison by surface and cloud-distance stratum;
-- **Fig. C6:** feature-ablation changes relative to the full model;
-- **Fig. C7:** raw/BC/ML increment relationship;
+  and cloud-distance regime — PENDING (2026-07-22q): NOT generatable from
+  `label_noise_ceiling_140dates.csv` alone; the achieved ocean fold R²
+  (0.708) exceeds that CSV's r2max_ref_ret (0.603), so the ceiling-column
+  semantics must come from the original ceiling analysis (and the §7
+  frozen metrics) before this figure can be drawn honestly;
+- **Fig. C5:** model comparison — surface-level version GENERATED
+  2026-07-22q: `figC5_cv_model_comparison` (fold mean ± std RMSE/R² for
+  DE/XGBoost/Ridge, both surfaces, parsed from the
+  `*_de_vs_baselines_kfold_agg.md` reports; land Ridge shown as fold
+  MEDIAN, hatched — outlier fold per the agg report). The
+  by-cloud-distance-stratum variant needs per-regime fold metrics (not
+  in the local agg reports);
+- **Fig. C6:** feature-ablation changes relative to the full model —
+  COVERED (2026-07-22q) by main-text Fig. 6b (TCCON ablation) + Table C7
+  (complete CV ablations); no separate figure unless a CV-side ablation
+  visual proves necessary;
+- **Fig. C7:** raw/BC/ML increment relationship — PENDING (2026-07-22q):
+  needs the ML-on-raw artifacts (local policy CSVs carry only
+  uncorrected/full_mu scenarios);
 - **Table C5:** fold-resolved date-blocked metrics (the frozen values quoted
   in §4.3);
 - **Table C6:** fold-resolved baseline results;
