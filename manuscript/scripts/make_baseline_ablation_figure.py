@@ -27,7 +27,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "workspace"))  # plot_style
-from plot_style import XCO2_LABEL, apply_manuscript_style, panel_label
+from plot_style import (XCO2_BC_LABEL, XCO2_LABEL,
+                        apply_manuscript_style, panel_label)
 
 apply_manuscript_style()
 
@@ -39,15 +40,15 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 # Data (ppm).  Slices: "pooled"     = pooled TCCON, QF 0+1 (n_fp = 105,683)
 #                      "near-cloud" = land <=10 km, QF 0+1 (n_fp = 75,157)
 # ----------------------------------------------------------------------------
-# Panel (a): sources [A] section 1 tables (DE, XGB, LinReg, before);
-#            [B] section 1 tables for Struct and TabM (same footprint set).
+# Panel (a): sources [A] section 1 tables (DE, XGB, LinReg, before).
+# TabM and Structured DCN EXCLUDED from the main text (user decision
+# 2026-07-23) — main-text baselines are DE / XGBoost / Ridge, matching
+# Table 1; the 5-model comparison stays in Appendix C.
 MODELS = [
     # label,                      pooled, near-cloud land, emphasized
-    ("No correction ($x_{bc}$)",   3.291, 3.843, False),
+    ("No correction (%s)" % XCO2_BC_LABEL, 3.291, 3.843, False),
     ("Deep ensemble",              1.196, 1.312, True),
-    ("Structured DCN",             1.379, 1.538, False),
     ("XGBoost",                    1.442, 1.607, False),
-    ("TabM",                       1.709, 1.945, False),
     ("Ridge linear",               2.242, 2.581, False),
 ]
 

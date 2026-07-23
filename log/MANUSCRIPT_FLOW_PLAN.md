@@ -167,6 +167,10 @@ table, plot_style constants XCO2_BC/RAW/ATOM/SHIP_LABEL +
 DXCO2_BC_LABEL); fig03, fig03alt, figB2, fig05(+ocean) regenerated with
 ΔX_CO2^B11 axes; copied report figures adopt it at their next
 re-render.  
+**Updated:** 2026-07-22t — TabM and Structured DCN removed from §4.3 /
+Fig. 6 (main-text baselines = DE/XGBoost/Ridge, matching Table 1; the
+5-model set stays in Appendix C); fig06 regenerated, uncorrected row
+relabeled X_CO2^B11.  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -495,8 +499,11 @@ Predefine:
 - site-clustered bootstrap;
 - random-effects residual comparison and representation error.
 
-Define the common-protocol baselines: Ridge, XGBoost, TabM, the deep ensemble,
-the feature-free orbit smoother, and feature-set ablations.
+Define the common-protocol baselines: Ridge, XGBoost, the deep ensemble,
+the feature-free orbit smoother, and feature-set ablations. TabM and the
+structured DCN are EXCLUDED from the main text (user decision
+2026-07-23) — they appear only in the Appendix C common-protocol
+results.
 
 #### 3.6 Safety and robustness experiments
 
@@ -816,7 +823,11 @@ State the skill-versus-trust synthesis here for the first time.
 - **Fig. 6** — baseline + feature-ablation composite, decided in the
   near-cloud land tail. Exists:
   `manuscript/figures/fig06_baseline_ablation`
-  (`manuscript/scripts/make_baseline_ablation_figure.py`).
+  (`manuscript/scripts/make_baseline_ablation_figure.py`). Panel (a)
+  models: DE / XGBoost / Ridge + uncorrected reference — TabM and
+  Structured DCN REMOVED from the main text 2026-07-23 (user decision;
+  matches Table 1); the 5-model comparison remains in Appendix C.
+  Uncorrected row labeled with X_CO2^B11 per the §6 notation.
 - **Table 1** — `manuscript/tables/tab_model_comparison.tex`: DE/XGB/Ridge
   fp-RMSE by slice, AK-harmonized only.
 - **Table 2** — `manuscript/tables/tab_featureset_ablation.tex`: mix-DE
