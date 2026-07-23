@@ -45,8 +45,9 @@ def main() -> None:
                  REPO / "workspace" / "ATom_analysis" / "atom_pseudo_column.py")
     ship = _load("plot_ship_summary",
                  REPO / "workspace" / "Ship_analysis" / "plot_ship_summary.py")
-    atom.MODEL_LABEL = "corrected"
-    ship.MODEL_LABEL = "corrected"
+    from plot_style import XCO2_DE_LABEL
+    atom.MODEL_LABEL = XCO2_DE_LABEL
+    ship.MODEL_LABEL = XCO2_DE_LABEL
 
     OUT.mkdir(parents=True, exist_ok=True)
     da = pd.read_csv(TAG / "atom" / "atom_pseudo_column_results.csv")

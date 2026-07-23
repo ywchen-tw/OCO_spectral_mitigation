@@ -211,6 +211,10 @@ all-case mean offset +0.99→+1.18 ppm, reference-scale dominated), B11
 notation adopted. New `make_ocean_validation_figure.py` drives the
 patched producers (panel_offset/suptitle/out_pdf kwargs) on the
 production CSVs.  
+**Updated:** 2026-07-22aa — Fig. 10 polish: panel titles padded off the
+axes box (pad=10 in both producers); "corrected" replaced by the new
+X_CO2^DE product label (XCO2_DE_LABEL; chosen over the too-long
+DE-corrected superscript), added to the §6 notation table.  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -1977,6 +1981,7 @@ in `plot_style.py`, macros in `supplement.tex` — never retype):**
 | ATom pseudo-column | \(X_{\mathrm{CO2}}^{\mathrm{ATom}}\) | `XCO2_ATOM_LABEL` |
 | shipborne EM27/SUN | \(X_{\mathrm{CO2}}^{\mathrm{ship}}\) | `XCO2_SHIP_LABEL` |
 | anomaly target (xco2_bc_anomaly) | \(\Delta X_{\mathrm{CO2}}^{\mathrm{B11}}\) | `DXCO2_BC_LABEL` |
+| deep-ensemble-corrected product | \(X_{\mathrm{CO2}}^{\mathrm{DE}}\) (define "DE" at first use; chosen over the too-long "DE-corrected" superscript, 2026-07-23) | `XCO2_DE_LABEL` |
 
 Applied 2026-07-23 to fig03/fig03alt/figB2/fig05 (+ ocean companion).
 The copied report figures that display XCO2 axes (fig07, fig09,

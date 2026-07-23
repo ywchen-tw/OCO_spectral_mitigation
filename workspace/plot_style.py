@@ -47,6 +47,7 @@ XCO2_RAW_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{raw}}$"     # xco2_raw
 XCO2_ATOM_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{ATom}}$"   # ATom pseudo-column
 XCO2_SHIP_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{ship}}$"   # shipborne EM27/SUN
 DXCO2_BC_LABEL = r"$\Delta X_{\mathrm{CO2}}^{\mathrm{B11}}$"  # xco2_bc_anomaly
+XCO2_DE_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{DE}}$"       # deep-ensemble-corrected
 # Spectral-fit cumulants shown with their physical meaning: k1 = mean and
 # k2 = variance of the relative photon path l' (k_n defined in the text).
 # Rendering: Times-italic l via the \mathcal slot (Arial's italic l is a
