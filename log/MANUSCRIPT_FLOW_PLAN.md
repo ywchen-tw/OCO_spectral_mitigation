@@ -182,6 +182,12 @@ draft paragraph (skill-versus-trust: xco2 channel operationally
 load-bearing, cumulants carry mechanism/safety/imager-independence;
 sourced from SPEC_EMPHASIS_STATUS_2026-07-08.md with the 2026-07-17
 fold-PCA numbers).  
+**Updated:** 2026-07-22w — Fig. 8a metric-definition LaTeX block added
+under the Fig. 8 caption (b_s / R_s, three aggregates, site-clustered
+bootstrap, Wilcoxon cross-check). Verified against
+tccon_comparison_report._significance: "RMS bias" is the quadratic
+aggregate of station-day mean biases — NOT a footprint RMSE — so the
+row label stays "Δ RMS bias".  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -952,6 +958,48 @@ comparison appears.
 > the change in station-day mean |bias|, RMS bias, and per-footprint RMSE
 > (all sites and excluding Ny-Ålesund), and the change in mean |bias|
 > across collocation radius (25/50/100 km) × window (±30/60/120 min).
+
+**Metric definitions for Fig. 8a (LaTeX draft, 2026-07-23; matches
+`tccon_comparison_report._significance` — note "RMS bias" is the quadratic
+aggregate of STATION-DAY MEAN biases, deliberately distinct from the
+footprint-level RMSE of the third row; do NOT relabel it RMSE):**
+
+```latex
+For each station-day $s$ (one TCCON site on one overpass date) with $n_s$
+collocated soundings, let
+$e_{s,i} = X_{\mathrm{CO2},i} - X^{\mathrm{TCCON}}_{\mathrm{CO2},i}$
+denote the footprint residual against the AK-harmonised TCCON reference,
+evaluated once for the uncorrected product and once after correction. The
+station-day mean bias and per-footprint root-mean-square error are
+\begin{equation}
+  b_s \;=\; \frac{1}{n_s}\sum_{i=1}^{n_s} e_{s,i},
+  \qquad
+  R_s \;=\; \Bigl(\frac{1}{n_s}\sum_{i=1}^{n_s} e_{s,i}^{2}\Bigr)^{1/2}.
+\end{equation}
+Figure~8a summarises the $S = 75$ station-days by three aggregates:
+the station-day-equal mean absolute bias
+$\overline{|b|} = S^{-1}\sum_s |b_s|$, which weights every station-day
+equally regardless of its footprint count; the root-mean-square bias
+$\mathrm{RMS}_b = (S^{-1}\sum_s b_s^{2})^{1/2}$, a quadratic aggregate of
+the same station-day mean biases that emphasises the largest-bias
+station-days (it is not a footprint-level error metric); and the mean
+per-footprint RMSE $\overline{R} = S^{-1}\sum_s R_s$, which measures
+footprint-level scatter about the reference. Each row of Fig.~8a shows
+the change $\Delta$ (corrected $-$ uncorrected) of one aggregate, so
+negative values are improvements: $\overline{|b|}$ and $\mathrm{RMS}_b$
+respond only to systematic station-day offsets, whereas $\overline{R}$
+also responds to within-overpass scatter. Confidence intervals and
+$p$-values come from a site-clustered bootstrap: the 18 sites are
+resampled with replacement, each drawn site contributing all of its
+station-days ($B = 10\,000$ resamples), which respects the strong
+within-site clustering of the sample (e.g.\ R\'eunion contributes 14
+station-days); the interval is the 2.5--97.5 percentile range of the
+resampled $\Delta$, and the two-sided
+$p = 2\min[P(\Delta \ge 0),\, P(\Delta \le 0)]$, floored at
+$2/(B+1)$. The paired Wilcoxon test quoted beneath the panel treats
+station-days as exchangeable pairs and is reported as a
+clustering-agnostic cross-check.
+```
 
 (No panel assembly — Figs. 7 and 8 are separate single-file floats since
 2026-07-23. fig08's internal panel tags from the generator stay.)
