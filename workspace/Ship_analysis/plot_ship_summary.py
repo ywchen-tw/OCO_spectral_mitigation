@@ -25,7 +25,7 @@ from plot_ship_comparison import load_ship, haversine_km, TABS  # noqa: E402
 ROOT_WORKSPACE = os.path.abspath(os.path.join(HERE, ".."))
 if ROOT_WORKSPACE not in sys.path:
     sys.path.insert(0, ROOT_WORKSPACE)
-from plot_style import apply_manuscript_style, panel_label  # noqa: E402
+from plot_style import XCO2_BC_LABEL, apply_manuscript_style, panel_label  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 DEFAULT_OUT = os.path.join(REPO, "results/model_comparison/deep_ensemble/"
@@ -81,7 +81,8 @@ def case_stats(date, ship, lonr, latr, out_base, radius_km, twin_s):
     )
 
 
-def make_summary_plot(df, out_png):
+def make_summary_plot(df, out_png, panel_offset=0, suptitle=True,
+                      out_pdf=None):
     d = df.sort_values("cld_med").reset_index(drop=True)
     y = np.arange(len(d))
     lbl = [f"{r.date[5:]} {r.ship}" for r in d.itertuples()]
@@ -96,14 +97,16 @@ def make_summary_plot(df, out_png):
     for yi, rb, rc in zip(y, d.resid_bc, d.resid_corr):
         ax1.plot([rb, rc], [yi, yi], "-", color="0.75", zorder=1)
     ax1.errorbar(d.resid_bc, y, xerr=d.oco_bc_sd, fmt="o", ms=7, color=RED, ecolor=RED,
-                 elinewidth=1, capsize=3, zorder=2, label="xco2_bc − ship")
+                 elinewidth=1, capsize=3, zorder=2,
+                 label=f"{XCO2_BC_LABEL} − ship")
     ax1.errorbar(d.resid_corr, y, xerr=d.oco_corr_sd, fmt="o", ms=7, color=BLUE, ecolor=BLUE,
                  elinewidth=1, capsize=3, zorder=3, label=f"{MODEL_LABEL} − ship")
     ax1.axvline(0, color="k", lw=0.7)
     ax1.set_yticks(y); ax1.set_yticklabels(lbl, fontsize=9); ax1.invert_yaxis()
     ax1.set_xlabel("OCO-2 − ship EM27/SUN (ppm)   [±1σ of collocated soundings]")
-    ax1.set_title(f"Per-case bias: xco2_bc → {MODEL_LABEL}"); ax1.legend(fontsize=8)
-    panel_label(ax1, "(a)")
+    ax1.set_title(f"Per-case bias: {XCO2_BC_LABEL} → {MODEL_LABEL}")
+    ax1.legend(fontsize=8)
+    panel_label(ax1, f"({chr(ord('a') + panel_offset)})")
 
     # (B) bias vs cloud distance, yerr = 1σ of the collocated OCO-2 soundings.
     # Grey band = ship measured XCO2 uncertainty about the (zero) reference, per case.
@@ -113,7 +116,7 @@ def make_summary_plot(df, out_png):
         ax2.fill_between([r.cld_med - xw, r.cld_med + xw], -r.ship_err, r.ship_err,
                          color=GREY, zorder=0, label=r"ship σ (meas$\oplus$var)" if k == 0 else None)
     ax2.errorbar(d.cld_med, d.resid_bc, yerr=d.oco_bc_sd, fmt="o", color=RED, mfc="none",
-                 ms=8, elinewidth=0.8, capsize=3, label="xco2_bc")
+                 ms=8, elinewidth=0.8, capsize=3, label=XCO2_BC_LABEL)
     ax2.errorbar(d.cld_med, d.resid_corr, yerr=d.oco_corr_sd, fmt="o", color=BLUE,
                  ms=8, elinewidth=0.8, capsize=3, label=MODEL_LABEL)
     for r in d.itertuples():
@@ -123,18 +126,22 @@ def make_summary_plot(df, out_png):
     ax2.set_xlabel("median cloud distance of collocated OCO-2 (km)")
     ax2.set_ylabel("OCO-2 − ship (ppm)"); ax2.set_title("Bias vs cloud distance")
     ax2.legend(fontsize=8)
-    panel_label(ax2, "(b)")
+    panel_label(ax2, f"({chr(ord('a') + panel_offset + 1)})")
 
     nc = d[d.cld_med <= 10]
-    sub = f"{len(nc)} near-cloud: mean bias {nc.resid_bc.mean():+.2f}→{nc.resid_corr.mean():+.2f} ppm  " if len(nc) else ""
-    fig.suptitle(
-        f"OCO-2 ocean-glint vs shipborne EM27/SUN — {len(d)} cases\n"
-        f"{sub}all: mean bias {d.resid_bc.mean():+.2f}±{d.resid_bc.std():.2f} → "
-        f"{d.resid_corr.mean():+.2f}±{d.resid_corr.std():.2f} ppm   "
-        f"(mean OCO σ {d.oco_bc_sd.mean():.2f}→{d.oco_corr_sd.mean():.2f}; "
-        f"mean ship σ {d.ship_err.mean():.2f})",
-        fontweight="bold")
-    fig.tight_layout(); fig.savefig(out_png); plt.close(fig)
+    if suptitle:
+        sub = f"{len(nc)} near-cloud: mean bias {nc.resid_bc.mean():+.2f}→{nc.resid_corr.mean():+.2f} ppm  " if len(nc) else ""
+        fig.suptitle(
+            f"OCO-2 ocean-glint vs shipborne EM27/SUN — {len(d)} cases\n"
+            f"{sub}all: mean bias {d.resid_bc.mean():+.2f}±{d.resid_bc.std():.2f} → "
+            f"{d.resid_corr.mean():+.2f}±{d.resid_corr.std():.2f} ppm   "
+            f"(mean OCO σ {d.oco_bc_sd.mean():.2f}→{d.oco_corr_sd.mean():.2f}; "
+            f"mean ship σ {d.ship_err.mean():.2f})",
+            fontweight="bold")
+    fig.tight_layout(); fig.savefig(out_png)
+    if out_pdf:
+        fig.savefig(out_pdf)
+    plt.close(fig)
     print(f"wrote {out_png}")
 
 

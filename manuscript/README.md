@@ -26,7 +26,7 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
   generator are COPIES from the analysis trees (sources and status in the
   Display items blocks of `log/MANUSCRIPT_FLOW_PLAN.md`): figF1_case_tasman
   (Appendix F Tasman showcase, Times-italic l′ — final convention),
-  fig07 (dumbbell), fig09 (smoother), fig10a/fig10b (ATom/ship),
+  fig07 (dumbbell), fig09 (smoother),
   fig11a (Westar), and the appendix copies staged
   2026-07-22o — figD2a/figD2b (QF0/QF1 TCCON), figD3 (r50), figD4
   (station summary), figE2a/figE2b (far-cloud/clear-day controls), figE3
@@ -80,6 +80,9 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
   - `make_significance_panel.py` → fig08 (Results 4.4 significance figure
     — split from the former two-panel Fig. 7, 2026-07-23; Fig. 7 is the
     copied station-day dumbbell `fig07_tccon_dumbbell`)
+  - `make_ocean_validation_figure.py` → fig10a/fig10b (Results 4.6 ATom +
+    ship summaries; drives the patched producers on the production CSVs —
+    continuous panel letters a–d, no suptitles, B11 notation)
   - `make_k1_contrast_figure.py` → fig11b (Results 4.7 plume-safety panel;
     11a is the copied Westar transect `fig11a_westar_transect`)
   - `make_cv_design_figure.py` → figC3b (Appendix C CV-design schematic;

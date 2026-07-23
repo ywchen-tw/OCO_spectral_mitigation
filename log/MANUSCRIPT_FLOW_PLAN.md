@@ -202,6 +202,15 @@ station-day unit, metric + bootstrap definitions incl. the former
 Fig. 8a LaTeX block) consolidated into Methods §3.5; §4.3 opens its
 baseline table with a Sect. 3.5 pointer; §4.4 item 1 reduced to a
 one-sentence recap — no Results section now depends on a later one.  
+**Updated:** 2026-07-22z — Fig. 10 regenerated with continuous panel
+letters (ATom a/b, ship c/d; duplicate-letter clash resolved),
+suptitles removed (numbers moved to the §4.6 draft results text —
+including two honest wrinkles: ATom near-cloud signed mean bias
+unchanged +0.19→+0.20 ppm, the gain is scatter/|residual|; ship
+all-case mean offset +0.99→+1.18 ppm, reference-scale dominated), B11
+notation adopted. New `make_ocean_validation_figure.py` drives the
+patched producers (panel_offset/suptitle/out_pdf kwargs) on the
+production CSVs.  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -1099,34 +1108,49 @@ reference-scale caveats.
 
 **Draft results text (moved out of the Fig. 10 caption, 2026-07-22h):**
 
-> Near-cloud ATom legs improve in median |residual| from 0.53 to 0.45 ppm,
-> while the far-cloud date (9 October 2017) is a negative control that the
-> correction leaves nearly unchanged (Fig. 10a). Against the shipborne
-> spectrometers the correction collapses footprint scatter
-> (σ 0.63 → 0.27 ppm) without moving the clear-sky control day
-> (22 June 2019); the residual ~+1 ppm absolute offset is dominated by
-> reference-scale differences, not created by the correction (Fig. 10b).
+> Across the 17 ATom legs (14 near-cloud), the near-cloud improvement is
+> a scatter reduction, not an offset shift: the median |residual| falls
+> from 0.53 to 0.45 ppm and the across-leg spread from ±0.72 to
+> ±0.58 ppm, while the signed mean bias is essentially unchanged
+> (+0.19 → +0.20 ppm, well within the per-leg pseudo-column σ of
+> 0.10–0.19 ppm); the far-cloud date (9 October 2017) is a negative
+> control that the correction leaves nearly unchanged (Fig. 10a, b).
+> Against the shipborne spectrometers (4 cases, 3 near-cloud) the
+> correction collapses footprint scatter (mean σ 0.63 → 0.27 ppm,
+> against a mean ship reference σ of 0.29 ppm) without moving the
+> clear-sky control day (22 June 2019); the residual absolute offset
+> (all-case mean +0.99 ± 0.70 before, +1.18 ± 0.81 ppm after) is
+> dominated by reference-scale differences, not created by the
+> correction (Fig. 10c, d).
 
 **Display items:**
 
 - **Fig. 10** — ATom + shipborne EM27/SUN summary with the far-cloud/clear-day
-  negative controls. Copies exist:
-  `manuscript/figures/fig10a_atom_summary` and
-  `manuscript/figures/fig10b_ship_summary` (from the production fold-PCA
-  tree `<TAG>/atom/atom_pseudo_column_summary.png` and
-  `<TAG>/ship/ship_comparison_summary.png`).
+  negative controls. REGENERATED 2026-07-23 by
+  `manuscript/scripts/make_ocean_validation_figure.py` (drives the
+  producers' own plotting functions on the production-tree CSVs):
+  CONTINUOUS panel letters across the composite — ATom (a)/(b), ship
+  (c)/(d) — resolving the duplicate-letter clash of the copied report
+  figures; stat-carrying suptitles REMOVED (numbers moved to the draft
+  results text below, per the caption rule); legends/titles use
+  X_CO2^B11. Files: `fig10a_atom_summary`, `fig10b_ship_summary`
+  (png+pdf).
 - No main-text table; leg/case inventories and residuals are Appendix D
   (Tables D5–D6).
 
 **Draft caption:**
 
-> **Figure 10.** Independent ocean corroboration. (a) ATom aircraft
+> **Figure 10.** Independent ocean corroboration. (a, b) ATom aircraft
 > pseudo-column comparison (8 dates, 17 collocated legs, AK-smoothed; the
 > unmeasured stratosphere is filled with the OCO-2 prior so it cancels in
 > the comparison), including the far-cloud negative-control date
-> (9 October 2017). (b) Shipborne EM27/SUN comparison (R/V Sonne MORE-2
-> and R/V Mirai MR21-01; 100 km / ±2 h), including the clear-sky control
-> day (22 June 2019).
+> (9 October 2017): per-leg signed bias before and after correction, and
+> the same residuals against median cloud distance; grey bands mark each
+> leg's own pseudo-column ±1σ. (c, d) Shipborne EM27/SUN comparison
+> (R/V Sonne MORE-2 and R/V Mirai MR21-01; 100 km / ±2 h), including the
+> clear-sky control day (22 June 2019), in the same two views; grey bands
+> mark the ship reference uncertainty (measurement ⊕ within-window
+> variability).
 
 **Panel assembly, Fig. 10 (LaTeX draft):**
 
@@ -1140,9 +1164,9 @@ reference-scale caveats.
 \end{figure}
 ```
 
-Panel letters: both are copied report figures without (a)/(b) tags —
-add letters when the panels are regenerated or composite them via a
-small `manuscript/scripts/` wrapper.
+Panel letters: native and continuous since 2026-07-23 — ATom carries
+(a)/(b), ship carries (c)/(d) from the producers' panel_offset kwarg;
+nothing to retag when compositing.
 
 #### 4.7 Plume preservation and correction safety
 
@@ -1956,7 +1980,8 @@ in `plot_style.py`, macros in `supplement.tex` — never retype):**
 
 Applied 2026-07-23 to fig03/fig03alt/figB2/fig05 (+ ocean companion).
 The copied report figures that display XCO2 axes (fig07, fig09,
-fig10a/b, figD2–D4, figE2) still carry generic labels — adopt the
+figD2–D4, figE2) still carry generic labels (fig10a/b adopted the
+superscripts at their 2026-07-23 re-render) — adopt the
 superscripts when their producers are next re-rendered (ATom/ship
 producers live in workspace/ATom_analysis + Ship_analysis).
 

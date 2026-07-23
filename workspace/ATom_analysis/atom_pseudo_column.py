@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)                       # for ak_harmonize (workspace/)
 sys.path.insert(0, os.path.join(HERE, ".."))
 from ak_harmonize import operator_from_dataframe, _haversine_km  # noqa: E402
-from plot_style import apply_manuscript_style, panel_label       # noqa: E402
+from plot_style import XCO2_BC_LABEL, apply_manuscript_style, panel_label  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CSV_DIR = os.path.join(REPO, "results", "csv_collection")
@@ -173,7 +173,8 @@ def process(date, oco, atom, radius_km, twin_s, min_n, strat_prior_sd=1.0):
     return rows
 
 
-def make_summary_plot(df, out_png):
+def make_summary_plot(df, out_png, panel_offset=0, suptitle=True,
+                      out_pdf=None):
     """Two-panel bias summary. Residual error bars = the collocated OCO-2 sounding
     spread (per leg). Each leg's OWN ATom pseudo-column-average ±1σ is drawn as a
     grey bar around the reference (0) — individual per leg, not a pooled mean."""
@@ -195,23 +196,24 @@ def make_summary_plot(df, out_png):
     for yi, rb, rc in zip(y, d.resid_bc, d.resid_corr):
         ax1.plot([rb, rc], [yi, yi], "-", color="0.75", zorder=1)
     ax1.errorbar(d.resid_bc, y, xerr=d.oco_bc_sd, fmt="o", ms=6, color=RED, ecolor=RED,
-                 elinewidth=1, capsize=2, zorder=2, label="xco2_bc − ATom")
+                 elinewidth=1, capsize=2, zorder=2,
+                 label=f"{XCO2_BC_LABEL} − ATom")
     ax1.errorbar(d.resid_corr, y, xerr=d.oco_corr_sd, fmt="o", ms=6, color=BLUE, ecolor=BLUE,
                  elinewidth=1, capsize=2, zorder=3, label=f"{MODEL_LABEL} − ATom")
     ax1.axvline(0, color="k", lw=0.7)
     ax1.set_yticks(y); ax1.set_yticklabels(lbl, fontsize=8); ax1.invert_yaxis()
     ax1.set_xlabel("OCO-2 − ATom pseudo-column (ppm)   [error bars = OCO sounding spread]")
-    ax1.set_title(f"Per-leg bias: xco2_bc → {MODEL_LABEL}")
+    ax1.set_title(f"Per-leg bias: {XCO2_BC_LABEL} → {MODEL_LABEL}")
     ax1.legend(handles=[Patch(facecolor=GREY, alpha=0.25, label="ATom pseudo-column ±1σ (per leg)"),
                         *ax1.get_legend_handles_labels()[0]], fontsize=7)
-    panel_label(ax1, "(a)")
+    panel_label(ax1, f"({chr(ord('a') + panel_offset)})")
 
     # (B) bias vs cloud distance; per-leg grey bar at each x = that leg's pseudo-column ±1σ
     ax2.errorbar(d.cld_med, np.zeros(len(d)), yerr=sd, fmt="none", ecolor=GREY,
                  elinewidth=6, alpha=0.3, capsize=0, zorder=0)
     ax2.axhline(0, color="k", lw=0.7)
     ax2.errorbar(d.cld_med, d.resid_bc, yerr=d.oco_bc_sd, fmt="o", color=RED, mfc="none",
-                 ms=7, elinewidth=0.8, capsize=2, label="xco2_bc")
+                 ms=7, elinewidth=0.8, capsize=2, label=XCO2_BC_LABEL)
     ax2.errorbar(d.cld_med, d.resid_corr, yerr=d.oco_corr_sd, fmt="o", color=BLUE,
                  ms=7, elinewidth=0.8, capsize=2, label=MODEL_LABEL)
     for r in d.itertuples():
@@ -220,17 +222,21 @@ def make_summary_plot(df, out_png):
     ax2.set_ylabel("OCO-2 − ATom (ppm)"); ax2.set_title("Bias vs cloud distance")
     ax2.legend(handles=[Patch(facecolor=GREY, alpha=0.3, label="ATom pseudo-column ±1σ (per leg)"),
                         *ax2.get_legend_handles_labels()[0]], fontsize=8)
-    panel_label(ax2, "(b)")
+    panel_label(ax2, f"({chr(ord('a') + panel_offset + 1)})")
 
     nc = d[d.cld_med <= 10]
-    fig.suptitle(
-        f"ATom pseudo-column vs OCO-2 ocean-glint (AK-harmonized) — "
-        f"{len(d)} legs, {len(nc)} near-cloud\n"
-        f"near-cloud mean bias {nc.resid_bc.mean():+.2f}±{nc.resid_bc.std():.2f} → "
-        f"{nc.resid_corr.mean():+.2f}±{nc.resid_corr.std():.2f} ppm  "
-        f"(±1σ across legs;  pseudo-column σ {sd.min():.2f}–{sd.max():.2f} per leg)",
-        fontweight="bold")
-    fig.tight_layout(); fig.savefig(out_png); plt.close(fig)
+    if suptitle:
+        fig.suptitle(
+            f"ATom pseudo-column vs OCO-2 ocean-glint (AK-harmonized) — "
+            f"{len(d)} legs, {len(nc)} near-cloud\n"
+            f"near-cloud mean bias {nc.resid_bc.mean():+.2f}±{nc.resid_bc.std():.2f} → "
+            f"{nc.resid_corr.mean():+.2f}±{nc.resid_corr.std():.2f} ppm  "
+            f"(±1σ across legs;  pseudo-column σ {sd.min():.2f}–{sd.max():.2f} per leg)",
+            fontweight="bold")
+    fig.tight_layout(); fig.savefig(out_png)
+    if out_pdf:
+        fig.savefig(out_pdf)
+    plt.close(fig)
     print(f"wrote {out_png}")
 
 
