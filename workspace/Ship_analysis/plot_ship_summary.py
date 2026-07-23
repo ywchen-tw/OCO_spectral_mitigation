@@ -31,7 +31,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 DEFAULT_OUT = os.path.join(REPO, "results/model_comparison/deep_ensemble/"
                            "de_beta_nll_prof_reg_foldpca_o05l15_m5/ship")
 CORR = "deep_ensemble_corrected_xco2"   # overridable via --corr-col (linreg/xgb baselines)
-MODEL_LABEL = "DE-corrected"            # cosmetic (plot legends/titles)
+from plot_style import XCO2_DE_LABEL as MODEL_LABEL  # cosmetic default (plot legends/titles)
 
 # (date, ship, (lon_min,lon_max), (lat_min,lat_max)) — same 4 cases as the runner
 CASES = [

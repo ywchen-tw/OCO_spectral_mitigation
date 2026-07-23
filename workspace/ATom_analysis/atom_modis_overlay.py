@@ -24,7 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))            # workspace/
 from plot_corrected_xco2 import download_modis_rgb       # noqa: E402
 from ak_harmonize import _haversine_km                   # noqa: E402
-from plot_style import apply_manuscript_style, CMAPS, XCO2_LABEL  # noqa: E402
+from plot_style import apply_manuscript_style, CMAPS, XCO2_LABEL, XCO2_DE_LABEL  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CSV_DIR = os.path.join(REPO, "results", "csv_collection")
@@ -122,7 +122,7 @@ def make_map(date, radius_km, twin_s, pad, do_modis):
     ax.plot(at_in.lon, at_in.lat, "-", color="magenta", lw=1.3, alpha=0.9, zorder=4,
             label="ATom track")
     cb = fig.colorbar(sc, ax=ax, shrink=0.8, pad=0.02)
-    cb.set_label(f"OCO-2 DE-corrected {XCO2_LABEL} (ppm)")
+    cb.set_label(f"OCO-2 {XCO2_DE_LABEL} (ppm)")
     ax.set_xlim(lon0, lon1); ax.set_ylim(lat0, lat1)
     ax.set_aspect(1.0 / max(np.cos(np.radians(0.5 * (lat0 + lat1))), 0.05))
     ax.set_xlabel("Longitude"); ax.set_ylabel("Latitude")

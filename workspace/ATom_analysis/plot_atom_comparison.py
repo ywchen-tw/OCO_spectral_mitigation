@@ -32,7 +32,7 @@ from atom_pseudo_column import (load_atom, load_oco, pseudo_profile_on_grid,   #
                                 PLOT_BASE, MERGED_DIR, DATES, CORR_COL)
 from ak_harmonize import operator_from_dataframe, _haversine_km               # noqa: E402
 from plot_corrected_xco2 import download_modis_rgb                            # noqa: E402
-from plot_style import apply_manuscript_style, panel_label, CMAPS, XCO2_LABEL  # noqa: E402
+from plot_style import apply_manuscript_style, panel_label, CMAPS, XCO2_LABEL, XCO2_DE_LABEL  # noqa: E402
 
 TILES_DIR = os.path.join(PLOT_BASE, "_modis_tiles")
 
@@ -125,7 +125,7 @@ def make_fig(date, radius_km, twin_s, do_modis):
 
     asp = 1.0 / max(np.cos(np.radians(0.5 * (lat0 + lat1))), 0.05)
     fig, ax = plt.subplots(2, 2, figsize=(15, 11))
-    fig.suptitle(f"OCO-2 (DeepEns-corrected) vs ATom aircraft pseudo-column — {date}\n"
+    fig.suptitle(f"OCO-2 ({XCO2_DE_LABEL}) vs ATom aircraft pseudo-column — {date}\n"
                  f"{len(pooled)} ocean-glint footprints ≤{radius_km:.0f} km / "
                  f"±{twin_s/60:.0f} min, {len(legs)} profile leg(s)",
                  weight="bold")
@@ -135,13 +135,13 @@ def make_fig(date, radius_km, twin_s, do_modis):
     a.scatter(inx.lon, inx.lat, c=inx[CORR_COL], s=10, cmap=CMAPS["xco2"], vmin=vmin, vmax=vmax,
               alpha=0.5, zorder=2, edgecolors="none")
     sc = a.scatter(pooled.lon, pooled.lat, c=pooled[CORR_COL], s=16, cmap=CMAPS["xco2"],
-                   vmin=vmin, vmax=vmax, zorder=3, edgecolors="none", label="OCO-2 corrected")
+                   vmin=vmin, vmax=vmax, zorder=3, edgecolors="none", label=f"OCO-2 {XCO2_DE_LABEL}")
     a.plot(at_in.lon, at_in.lat, "-", color="magenta", lw=1.2, alpha=0.9, zorder=4, label="ATom track")
     a.scatter([L["lon"] for L in legs], [L["lat"] for L in legs], c=c_aks, cmap=CMAPS["xco2"],
               vmin=vmin, vmax=vmax, s=180, marker="D", edgecolor="k", linewidth=1.2,
               zorder=6, label="ATom pseudo-column")
     a.set(xlim=(lon0, lon1), ylim=(lat0, lat1), xlabel="Lon (°E)", ylabel="Lat (°N)",
-          title=f"DeepEns-corrected {XCO2_LABEL} + ATom track" + (" (MODIS Aqua)" if bg is not None else ""))
+          title=f"{XCO2_DE_LABEL} + ATom track" + (" (MODIS Aqua)" if bg is not None else ""))
     a.set_aspect(asp)
     fig.colorbar(sc, ax=a, label=f"{XCO2_LABEL} (ppm)"); a.legend(loc="lower left", fontsize=8)
     panel_label(a, "(a)", inside=True)
@@ -190,7 +190,7 @@ def make_fig(date, radius_km, twin_s, do_modis):
                label="OCO-2 prior" if i == 0 else None)
     a.axvline(ref, color="tab:red", lw=2, ls="--", label=f"ATom pseudo-column {XCO2_LABEL}")
     a.axvline(np.nanmedian(o_orig), color="tab:blue", lw=1.5, label="OCO orig median")
-    a.axvline(np.nanmedian(o_corr), color="tab:green", lw=1.5, label="OCO corrected median")
+    a.axvline(np.nanmedian(o_corr), color="tab:green", lw=1.5, label=f"OCO {XCO2_DE_LABEL} median")
     a.invert_yaxis()
     a.set(xlabel=f"CO2 / {XCO2_LABEL} (ppm)", ylabel="Pressure (hPa)",
           title="Aircraft profile → pseudo-column (vs OCO-2 prior)")

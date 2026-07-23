@@ -50,7 +50,7 @@ EPOCH = dt.datetime(1970, 1, 1)
 DATES = ["2017-01-26", "2017-02-04", "2017-02-06", "2017-02-10", "2017-10-09",
          "2017-10-20", "2017-10-27", "2018-05-12"]
 CORR_COL = "deep_ensemble_corrected_xco2"
-MODEL_LABEL = "DE-corrected"                      # cosmetic (plot legends/titles)
+from plot_style import XCO2_DE_LABEL as MODEL_LABEL  # cosmetic default (plot legends/titles)
 
 # Flights whose OCO coincidence day (key everywhere) is the flight's 2nd UTC day, so
 # the merged ATom profile lives under the flight (1st) date.

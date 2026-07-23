@@ -215,6 +215,13 @@ production CSVs.
 axes box (pad=10 in both producers); "corrected" replaced by the new
 X_CO2^DE product label (XCO2_DE_LABEL; chosen over the too-long
 DE-corrected superscript), added to the §6 notation table.  
+**Updated:** 2026-07-22ab — model name decision: "deep ensemble (DE)",
+NOT "DE-MLP" (§6 prefer/avoid row; tex sources to update). All
+ATom/ship producers now default their cosmetic label to XCO2_DE_LABEL
+(atom_pseudo_column, plot_ship_summary, plot_atom_comparison,
+atom_modis_overlay, plot_ship_comparison — suptitles, map titles,
+legends, colorbars), so the per-case figures adopt X_CO2^DE at their
+next batch re-render; fig10a/b already carry it.  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -1967,6 +1974,7 @@ Use the following distinctions consistently:
 | WCO2 land-cover sign rule | forest sign flip or albedo ordering | The latter claims were not supported by the full-parquet analysis. |
 | complementary residual correction | replacement for B11 | The best result applies ML after the operational correction. |
 | independent corroboration | comprehensive ocean validation | ATom and shipborne samples are valuable but limited. |
+| deep ensemble (DE) | DE-MLP | Avoids collision with the standalone "MLP" point-predictor baseline of Appendix C's split-inflation panel; matches figure labels and the \(X_{\mathrm{CO2}}^{\mathrm{DE}}\) superscript; the members-are-MLPs detail lives in §3.3. Update the tex sources that currently say DE-MLP. |
 
 Keep XCO2 typesetting and notation consistent with the AMT figure style:
 \(X_{\mathrm{CO_2}}\), \(l'\), \(k_1\), and \(k_2\).

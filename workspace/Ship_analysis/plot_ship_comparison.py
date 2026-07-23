@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "workspace"))   # reuse the TCCON MODIS-RGB fetcher
-from plot_style import apply_manuscript_style, panel_label, CMAPS, XCO2_LABEL  # noqa: E402
+from plot_style import apply_manuscript_style, panel_label, CMAPS, XCO2_LABEL, XCO2_DE_LABEL  # noqa: E402
 
 EPOCH = dt.datetime(1970, 1, 1)
 TABS = {
@@ -154,7 +154,7 @@ def main():
     map_aspect = 1.0 / max(np.cos(np.radians(mean_lat)), 0.05)
 
     fig, ax = plt.subplots(2, 2, figsize=(15, 11))
-    fig.suptitle(f"OCO-2 (DeepEns-corrected) vs shipborne EM27/SUN — {site}  {args.date}\n"
+    fig.suptitle(f"OCO-2 ({XCO2_DE_LABEL}) vs shipborne EM27/SUN — {site}  {args.date}\n"
                  f"{len(near)} ocean-glint footprints ≤{args.radius_km:.0f} km / ±{args.window_min:.0f} min",
                  weight="bold")
 
@@ -162,12 +162,12 @@ def main():
     a = ax[0, 0]
     _bg(a)
     sc = a.scatter(near.lon, near.lat, c=near[corr_col], s=14, cmap=CMAPS["xco2"],
-                   vmin=args.vmin, vmax=args.vmax, label="OCO-2 corrected", zorder=3)
+                   vmin=args.vmin, vmax=args.vmax, label=f"OCO-2 {XCO2_DE_LABEL}", zorder=3)
     a.plot(ship.lon, ship.lat, "-", color="0.5", lw=0.8, alpha=0.7, zorder=4)
     a.scatter(ship.lon, ship.lat, c=ship.xco2, s=40, cmap=CMAPS["xco2"], vmin=args.vmin, vmax=args.vmax,
               edgecolor="k", linewidth=0.6, marker="D", zorder=6, label="ship EM27/SUN")
     a.set(xlim=args.lon_range, ylim=args.lat_range, xlabel="Lon (°E)", ylabel="Lat (°N)",
-          title=f"DeepEns-corrected {XCO2_LABEL} + ship track"
+          title=f"{XCO2_DE_LABEL} + ship track"
                 + (" (MODIS Aqua)" if bg_img is not None else ""))
     a.set_aspect(map_aspect)
     fig.colorbar(sc, ax=a, label=f"{XCO2_LABEL} (ppm)"); a.legend(loc="lower left", fontsize=8)
@@ -213,7 +213,7 @@ def main():
     ot_t = pd.to_datetime(near.time, unit="s", utc=True)
     a.axvspan(ot_t.min(), ot_t.max(), color="tab:blue", alpha=0.25, label="OCO-2 overpass")
     med_corr = np.nanmedian(o_corr)
-    a.axhline(med_corr, color="tab:green", lw=1.5, ls="--", label="OCO-2 corrected median")
+    a.axhline(med_corr, color="tab:green", lw=1.5, ls="--", label=f"OCO-2 {XCO2_DE_LABEL} median")
     a.set(xlabel="UTC", ylabel=f"{XCO2_LABEL} (ppm)",
           title=f"ship {XCO2_LABEL} time series  (n={len(ship)})")
     # Keep the median line inside the view (ylim otherwise follows ship data only).
