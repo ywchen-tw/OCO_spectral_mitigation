@@ -33,7 +33,7 @@ from plot_style import CMAPS, apply_manuscript_style, panel_label  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 ATRAIN = (ROOT / 'results' / 'model_comparison' / 'deep_ensemble'
-          / 'de_beta_nll_prof_reg_o05l15_m5' / 'atrain')
+          / 'de_beta_nll_prof_reg_foldpca_o05l15_m5' / 'atrain')
 SIG_CSV = ATRAIN / 'tccon_significance_r100km.csv'
 COIN_CSV = ATRAIN / 'coincidence_sensitivity' / 'coincidence_sensitivity.csv'
 OUT_DIR = ROOT / 'manuscript' / 'figures'

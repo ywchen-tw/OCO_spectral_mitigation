@@ -40,7 +40,7 @@ apply_manuscript_style()
 
 REPO = Path(__file__).resolve().parents[2]
 CSV = (REPO / "results" / "model_comparison" / "deep_ensemble"
-       / "de_beta_nll_prof_reg_o05l15_m5" / "nassar_plumes"
+       / "de_beta_nll_prof_reg_foldpca_o05l15_m5" / "nassar_plumes"
        / "plume_preservation" / "nassar_k1_contrast.csv")
 OUT_DIR = REPO / "manuscript" / "figures"
 OUT_DIR.mkdir(parents=True, exist_ok=True)

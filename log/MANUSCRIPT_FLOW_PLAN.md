@@ -357,6 +357,66 @@ dirs when Table C4 was generated), NOT "2016–2020" — that span is the
 TRAINING set, and the evaluation dates are disjoint from it by the
 leakage guard, which the corrected sentences now state explicitly (a
 stronger claim: the validation includes eras the model never saw).  
+**Updated:** 2026-07-23l — Fig. 8 legend adopts the product-resolved
+notation (X_CO2^raw / X_CO2^B11 / X_CO2^DE via the plot_style
+constants; `tccon_comparison_report._bias_dumbbell`), and the user's
+where-is-the-evidence question exposed that the 1.26→0.81 mean-|bias|
+aggregate appeared nowhere in Fig. 8: the stat box now prints
+"mean |bias|" beside the signed bias and footprint RMSE, and the
+quoted 0.81/1.19 turned out to be the SUPERSEDED pre-foldpca tag's
+values — the fold-PCA production CSV gives mean |b_s| = 0.816 → 0.82
+and mean R_s = 1.196 → 1.20 (exactly the numbers the
+tccon-correction-config note says to quote); fixed in the §4.4 prose,
+§2.2 abstract values, and §4.5 smoother text. Production report rerun with the EXACT launcher flags
+(--exclude-sites ny --cld-edges 0,10,inf, seeded bootstrap) — all
+production CSVs verified byte-equal after the rerun; fig08 restaged.  
+**Updated:** 2026-07-23m — Fig. 8 annotation iteration (user feedback):
+the STAT BOX (not just the legend) now uses the product labels, adds
+the std of |bias| (raw 1.34 ± 1.07 / B11 1.26 ± 1.33 / DE 0.82 ± 0.60),
+and moved OUTSIDE the axes (above-left) so it cannot cover station-day
+markers; the series legend is a one-row band above-right. Both changes
+live in the shared report helpers, so the scatter-style D-series
+figures inherit them (scatter legend labels updated to the product
+notation too); figD2a/b + figD4 restaged from the rerun tree, figD3
+(r50 edition) unchanged. CSVs re-verified byte-equal after every
+rerun.  
+**Updated:** 2026-07-23n — Fig. 8 layout iteration (user feedback): the
+series legend moved back INSIDE the frame at bottom-right (framed,
+`framealpha=0.85`; the bottom rows are the most-negative biases whose
+markers sit left, so the corner is clear), the stat box moved back
+INSIDE at top-left (top rows' markers all sit right of the box — nothing
+covered), and the labeled-dumbbell canvas grew 6.2→7.8 in tall
+(`_one` gained a per-figure `figsize` override) so the ~75 six-pt
+'site date' y-tick labels no longer overlap. `_bias_stat_box` is now
+style-aware (`inside=` flag): dumbbell styles get the inside box,
+scatter_clddist (D-series) keeps the outside-above box unchanged —
+figD2a/b + figD4 verified byte-identical after the rerun, only fig08
+restaged. Production CSVs re-verified byte-equal.  
+**Updated:** 2026-07-23o — Fig. D2a/b (user feedback): the outside stat
+box moved from above-left to above-CENTER (`_bias_stat_box` outside
+branch, ha='center' at x=0.5), freeing the top-left corner for new
+panel labels — the qf0/qf1 single-panel bias views now carry (a)/(b)
+via `_emit_figures` (`_qp = {'qf0': '(a)', 'qf1': '(b)'}`; the pooled
+'all' view stays unlabeled). Report rerun with exact launcher flags;
+production CSVs byte-equal; figD2a/b restaged; fig08 + figD4 verified
+byte-identical (dumbbell inside-box path and by-site grid untouched).  
+**Updated:** 2026-07-23p — Appendix D/E/F display-item sweep (new
+generator `make_appendix_def_figures.py`, item statuses updated in
+place): figD1 (3×3 coincidence sweep RERUN on the fold-PCA tag — 9
+local report runs + `coincidence_sensitivity_table.py`; production
+r100 CSVs verified byte-equal after the sweep), figD5 (DL forest,
+pool cross-checked exactly), figE1 (±10/±100 s smoother windows),
+figE4 (drift-tree report rerun with current styling, staged), figF2
+(transects regenerated on fold-PCA tag then 3-col grid), figF3
+(6-window k1 contrast). CONSISTENCY FIX discovered en route: fig09
+(significance panel) and fig12b (k1 contrast) still read the
+SUPERSEDED pre-foldpca tag — both retargeted to the fold-PCA tag and
+regenerated; fig12b byte-identical (k1 columns are model-independent),
+fig09 panel-b matrix cells shift ≤0.02 ppm displayed (old-tag sweep vs
+fold-PCA sweep ≤0.024 ppm — the fold-PCA no-op bound). NOT produced
+(no local data / not yet run): figA1 + figA2 (need fitting_details h5
+— CURC), figG1 (3-D RT experiment not run), figH1 (TEMPO not run);
+figD6 SKIPPED per plan condition (would duplicate main-text Fig. 11a).  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -428,8 +488,9 @@ Write the abstract in seven moves:
    barren surfaces.
 5. **Validation result:** report the current AK-harmonized TCCON headline and
    site-clustered significance. Current production values to verify at writing
-   time are mean absolute bias 1.26 to 0.81 ppm, footprint RMSE 2.67 to
-   1.19 ppm, and improvement in 71 of 75 station-days.
+   time are mean absolute bias 1.26 to 0.82 ppm, mean footprint RMSE
+   2.67 to 1.20 ppm, and improvement in 71 of 75 station-days
+   (rounding corrected 2026-07-23l: CSV values 0.816 / 1.196).
 6. **Trust boundary:** the correction outperforms a feature-free smoother,
    preserves the tested plume enhancements, and provides calibrated
    per-footprint uncertainty, while representation and high-latitude errors
@@ -1236,8 +1297,9 @@ comparison appears.
 > December 2021, every evaluation date disjoint from the 116 training
 > dates by the manifest-based leakage guard of Sect. 3.4) the
 > station-day mean
-> |bias| falls from 1.26 to 0.81 ppm and the per-footprint RMSE from 2.67
-> to 1.19 ppm, with 71/75 station-days improved (Fig. 8). The improvement
+> |bias| falls from 1.26 to 0.82 ppm and the mean per-footprint RMSE from
+> 2.67 to 1.20 ppm, with 71/75 station-days improved (Fig. 8; both
+> aggregates are printed in its annotation box). The improvement
 > is significant under a paired Wilcoxon test on station-day |bias|
 > (p = 0.0064, n = 75) and under site-clustered bootstrap intervals, with
 > and without Ny-Ålesund (Fig. 9), and it holds at every collocation
@@ -1299,7 +1361,7 @@ denoising.
 
 > The smoother collapses footprint scatter more strongly than the deep
 > ensemble (0.35–0.66 vs 0.78 ppm) yet leaves the TCCON station-day mean
-> |bias| essentially unmoved (1.20–1.24 ppm, against 0.81 ppm for the
+> |bias| essentially unmoved (1.20–1.24 ppm, against 0.82 ppm for the
 > model): variance removal alone cannot produce the observed bias
 > reduction.
 
@@ -2100,7 +2162,13 @@ Include:
 
 Planned items:
 
-- **Fig. D1:** 3-by-3 coincidence sensitivity, sourced from working figure A2;
+- **Fig. D1:** 3-by-3 coincidence sensitivity — GENERATED 2026-07-23p:
+  `figD1_coincidence_sensitivity` (before/after dumbbells of station-day
+  mean |bias| and fp-RMSE per combo, n annotated;
+  `make_appendix_def_figures.py`) from the 3×3 sweep RERUN on the
+  fold-PCA production tag (9 local report runs, exact launcher flags,
+  into `<TAG>/atrain/coincidence_sensitivity/`; r100/±60 row reproduces
+  the production headline 1.26→0.82 / 2.67→1.20 exactly);
 - **Fig. D2:** QF0 and QF1 station-day comparisons — staged 2026-07-22o:
   `figD2a_tccon_qf0` + `figD2b_tccon_qf1` (copies of
   `<TAG>/atrain/tccon_ak_bias_qf{0,1}_r100km.png`);
@@ -2111,7 +2179,11 @@ Planned items:
   drop D4 entirely if the summary duplicates Fig. 7) — candidate
   staged 2026-07-22o: `figD4_station_summary` (copy of
   `<TAG>/atrain/tccon_ak_by_site_bias_r100km.png`);
-- **Fig. D5:** random-effects residual forest plot, derived from working A9;
+- **Fig. D5:** random-effects residual forest plot — GENERATED
+  2026-07-23p: `figD5_uncertainty_forest` (75 station-day D ± 95% CI
+  from `tccon_uncertainty_r100km.csv`, DL pool recomputed in-script and
+  cross-checked EXACTLY against the md: μ = −0.32 ± 0.09 ppm,
+  τ = 0.52 ppm, I² = 51%; significant cases in vermillion);
 - **Table D1:** station inventory and coincidence counts;
 - **Table D2:** complete AK-harmonized metrics;
 - **Table D3:** paired Wilcoxon and site-clustered bootstrap results;
@@ -2200,14 +2272,26 @@ Include:
 
 Planned items:
 
-- **Fig. E1:** smoother null, sourced from working figure A4;
+- **Fig. E1:** smoother null, windows not in main-text Fig. 10 —
+  GENERATED 2026-07-23p: `figE1_smoother_windows` (2×2: ±10 s top /
+  ±100 s bottom rows, same scatter-collapse + |case bias| construction
+  as Fig. 10 which shows the ±30 s arm; |bias| 1.26→1.24 / 1.20 vs DE
+  0.82 — brackets the main-text numbers);
 - **Fig. E2:** far-cloud and clear-day control cases — staged
   2026-07-22o: `figE2a_atom_farcloud_control` (ATom 2017-10-09) +
   `figE2b_ship_clearday_control` (ship 2019-06-22);
 - **Fig. E3:** failure rates and residuals by environmental driver —
   staged 2026-07-22o: `figE3_failure_modes` (copy of
   `<TAG>/failure_modes/fig_failure_modes_r100km.png`);
-- **Fig. E4:** high-latitude and post-2022 cases, sourced from working A7;
+- **Fig. E4:** high-latitude and post-2022 cases — STAGED 2026-07-23p:
+  `figE4_drift_tccon` (copy of the drift-tree
+  `tccon_ak_bias_dumbbell_label_r100km.png`, RERUN with the current
+  report styling — product-label stat box + inside legend; 21 drift-era
+  station-days, |bias| 1.24→0.67 ppm, fp-RMSE 2.41→1.01; per-case drift
+  comparison CSV verified byte-equal, the significance CSV is the
+  current-code deterministic regeneration — no manuscript numbers quote
+  it. KNOWN NIT: top-row error-bar tails pass behind the
+  semi-transparent stat box; markers clear);
 - **Table E1:** all worsening cases and diagnosed cause;
 - **Table E2:** performance by bright surface, snow, AOD, latitude, and
   predictive-uncertainty strata.
@@ -2270,9 +2354,18 @@ Planned items:
 - ~~Figs. G2–G8~~: the seven case-atlas pages move to Supplement S3
   (2026-07-22m; resolves the previous conflict with the §4 Supplement
   list; renumbering resolved 2026-07-22n: transects/Δl′ are Figs. F2–F3);
-- **Fig. F2:** all Nassar transects with identical axes and annotations;
+- **Fig. F2:** all Nassar transects — GENERATED 2026-07-23p:
+  `figF2_nassar_transects` (3-column grid of the 10 renderable per-case
+  transects, REGENERATED first on the fold-PCA tag with the current
+  product-label styling via `nassar_plume_transects.py`; Sasan
+  2023-06-26 has no in-window footprints and Matimba 2024-04-15 no
+  overpass segment — state both exclusions in the caption);
 - **Fig. F3:** band-resolved \(\Delta l'\) for plume and cloud-contaminated
-  windows;
+  windows — GENERATED 2026-07-23p: `figF3_k1_contrast_full` (all SIX
+  audited windows in three groups: plume [Kozienice 2021-09-06, Taean
+  2021-09-08] / flagged [Lipetsk, Westar 2023-03-13] / clear-sky
+  controls [Westar 2023-06-26, Ghent]; main-text Fig. 12b keeps the
+  4-window subset; fold-PCA-tag `nassar_k1_contrast.csv`);
 - **Table F1:** vetted case inventory and category assignments;
 - **Table F2:** per-case plume-removal bounds and control-null results;
 - **Table F3:** full/no-spec/no-xco2 smoothing attribution — this IS the

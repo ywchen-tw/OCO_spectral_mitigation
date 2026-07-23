@@ -51,7 +51,8 @@ import matplotlib.pyplot as plt
 BIAS_STYLES = ('scatter_clddist', 'dumbbell_clddist', 'dumbbell_nolabel', 'dumbbell_label')
 
 sys.path.insert(0, str(Path(__file__).parent))
-from plot_style import XCO2_LABEL, apply_manuscript_style, panel_label
+from plot_style import (XCO2_BC_LABEL, XCO2_DE_LABEL, XCO2_LABEL,
+                        XCO2_RAW_LABEL, apply_manuscript_style, panel_label)
 from plot_corrected_xco2 import load_tccon, get_storage_dir
 from tccon_collocate import collocate, find_plotdata
 from ak_harmonize import (find_lite_file, ak_adjusted_ref,
@@ -487,23 +488,37 @@ def _draw_scatter(ax, cmp, panel=None):
     _panel_label(ax, panel)
 
 
-def _bias_stat_box(ax, cmp, has_raw):
-    """Shared before/after (and raw) station-bias ± σ + footprint-RMSE annotation box."""
+def _bias_stat_box(ax, cmp, has_raw, inside=False):
+    """Shared before/after (and raw) station-bias ± σ + footprint-RMSE annotation box.
+
+    ``inside=True`` places the box in the top-left corner INSIDE the axes
+    (dumbbell styles: top rows are the most-positive biases, whose markers sit
+    on the right, so the corner is clear); default keeps it above the frame
+    (scatter_clddist, where near-cloud points can occupy the top-left)."""
     _btxt = []
-    for _lbl, _col, _rcol in (('raw', 'bias_raw', 'rmse_raw'),
-                              ('before', 'bias_before', 'rmse_before'),
-                              ('after', 'bias_after', 'rmse_after')):
+    for _lbl, _col, _rcol in ((XCO2_RAW_LABEL, 'bias_raw', 'rmse_raw'),
+                              (XCO2_BC_LABEL, 'bias_before', 'rmse_before'),
+                              (XCO2_DE_LABEL, 'bias_after', 'rmse_after')):
         if _col == 'bias_raw' and not has_raw:
             continue
         _b = cmp[_col].to_numpy(float); _b = _b[np.isfinite(_b)]
         _r = cmp[_rcol].to_numpy(float); _r = _r[np.isfinite(_r)]
         if _b.size:
             _rtxt = f"   footprint RMSE {np.mean(_r):.2f}" if _r.size else ""
-            _btxt.append(f"{_lbl}:  station bias {np.mean(_b):+.2f} ± {np.std(_b):.2f}{_rtxt}")
+            _btxt.append(f"{_lbl}:  station bias {np.mean(_b):+.2f} ± {np.std(_b):.2f}"
+                         f"   |bias| {np.mean(np.abs(_b)):.2f} ± "
+                         f"{np.std(np.abs(_b)):.2f}{_rtxt}")
     if _btxt:
-        ax.text(0.04, 0.96, '\n'.join(_btxt), transform=ax.transAxes,
-                va='top', ha='left', fontsize=8,
-                bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
+        if inside:
+            ax.text(0.015, 0.99, '\n'.join(_btxt), transform=ax.transAxes,
+                    va='top', ha='left', fontsize=7, zorder=6,
+                    bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
+        else:
+            # OUTSIDE the axes (above, centered) so the box never covers data
+            # and leaves the top-left corner free for the panel label.
+            ax.text(0.5, 1.01, '\n'.join(_btxt), transform=ax.transAxes,
+                    va='bottom', ha='center', fontsize=7,
+                    bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
 
 
 def _bias_dumbbell(ax, cmp, sort_col, show_labels, has_raw):
@@ -521,15 +536,15 @@ def _bias_dumbbell(ax, cmp, sort_col, show_labels, has_raw):
         ax.errorbar(cmp['bias_raw'], y, xerr=cmp['raw_sd'], fmt='o', ms=6,
                     color='darkorange', ecolor='darkorange', elinewidth=0.8,
                     capsize=2.5, capthick=0.8, markeredgecolor='black',
-                    markeredgewidth=0.5, label='raw', zorder=2)
+                    markeredgewidth=0.5, label=XCO2_RAW_LABEL, zorder=2)
     ax.errorbar(cmp['bias_before'], y, xerr=cmp['orig_sd'], fmt='o', ms=6,
                 color='steelblue', ecolor='steelblue', elinewidth=0.8,
                 capsize=2.5, capthick=0.8, markeredgecolor='black',
-                markeredgewidth=0.5, label='before', zorder=3)
+                markeredgewidth=0.5, label=XCO2_BC_LABEL, zorder=3)
     ax.errorbar(cmp['bias_after'], y, xerr=cmp['corr_sd'], fmt='o', ms=6,
                 color='green', ecolor='green', elinewidth=0.8,
                 capsize=2.5, capthick=0.8, markeredgecolor='black',
-                markeredgewidth=0.5, label='after', zorder=4)
+                markeredgewidth=0.5, label=XCO2_DE_LABEL, zorder=4)
     ax.axvline(0, color='k', lw=1)
     _tccon_band(ax, cmp)
     if show_labels:
@@ -542,7 +557,9 @@ def _bias_dumbbell(ax, cmp, sort_col, show_labels, has_raw):
                   else 'pre-correction bias')
         ax.set_ylabel(f'station-day (sorted by {_order}; IDs in CSV)')
     ax.set_xlabel(f'{XCO2} bias to TCCON (ppm)')
-    ax.legend(loc='lower right', title='per station-day', fontsize=7)
+    # bottom-right corner is clear (bottom rows = most-negative biases, whose
+    # markers sit left), so the legend lives inside the frame there
+    ax.legend(loc='lower right', fontsize=7, framealpha=0.85)
     ax.grid(alpha=0.3, axis='x')
 
 
@@ -557,11 +574,11 @@ def _bias_scatter_clddist(ax, cmp, has_raw):
                 '-', color='lightgray', lw=0.8, zorder=1)
     if has_raw:
         ax.scatter(x, cmp['bias_raw'], s=26, color='darkorange', edgecolor='black',
-                   linewidths=0.4, alpha=0.7, label='raw', zorder=2)
+                   linewidths=0.4, alpha=0.7, label=XCO2_RAW_LABEL, zorder=2)
     ax.scatter(x, cmp['bias_before'], s=26, color='steelblue', edgecolor='black',
-               linewidths=0.4, alpha=0.8, label='before', zorder=3)
+               linewidths=0.4, alpha=0.8, label=XCO2_BC_LABEL, zorder=3)
     ax.scatter(x, cmp['bias_after'], s=30, color='green', edgecolor='black',
-               linewidths=0.4, alpha=0.85, label='after', zorder=4)
+               linewidths=0.4, alpha=0.85, label=XCO2_DE_LABEL, zorder=4)
     ax.axhline(0, color='k', lw=1)
     # Individual per-station-day TCCON σ (item 1): a short grey ±(reported xco2_error)
     # bar at that station's x — NOT the pooled mean band.  Reference-independent.
@@ -588,7 +605,7 @@ def _draw_bias(ax, cmp, style='scatter_clddist', panel=None):
         sort_col = 'cld_dist_mu' if style == 'dumbbell_clddist' else 'bias_before'
         _bias_dumbbell(ax, cmp, sort_col, show_labels=(style == 'dumbbell_label'),
                        has_raw=has_raw)
-    _bias_stat_box(ax, cmp, has_raw)
+    _bias_stat_box(ax, cmp, has_raw, inside=style.startswith('dumbbell'))
     _panel_label(ax, panel)
 
 
@@ -1203,9 +1220,9 @@ def main():
     #    no titles, (a)/(b)… letters on multi-panel stacks (item 4) ────────────
     _saved = []
 
-    def _one(draw, png, dpi=None):
+    def _one(draw, png, dpi=None, figsize=(7.2, 6.2)):
         """Single-panel figure: draw(ax) → its own file."""
-        fig, ax = plt.subplots(figsize=(7.2, 6.2))
+        fig, ax = plt.subplots(figsize=figsize)
         draw(ax)
         fig.tight_layout(); fig.savefig(png, dpi=dpi or args.dpi, bbox_inches='tight')
         plt.close(fig); _saved.append(png); return png
@@ -1261,7 +1278,10 @@ def main():
         if not len(allc):
             return
         _one(lambda ax: _draw_scatter(ax, allc), out_dir / f'tccon_{ref}_scatter{q}{sfx}.png')
-        _one(lambda ax: _draw_bias(ax, allc, _bs), out_dir / f'tccon_{ref}_bias{q}{sfx}.png')
+        # qf0/qf1 bias views are staged as manuscript Fig. D2 panels (a)/(b)
+        _qp = {'qf0': '(a)', 'qf1': '(b)'}.get(qf)
+        _one(lambda ax: _draw_bias(ax, allc, _bs, panel=_qp),
+             out_dir / f'tccon_{ref}_bias{q}{sfx}.png')
         # by surface (ocean/land) stacked
         _stack([(lambda ax, ltr, g=_sel(ref, s, 'all', qf), s=s: _draw_scatter(ax, g, panel=f'({ltr}) {s}'))
                 for s in ('ocean', 'land') if len(_sel(ref, s, 'all', qf))],
@@ -1306,8 +1326,12 @@ def main():
             allc0 = _sel(ref0, 'all', 'all')
             if len(allc0):
                 for st in BIAS_STYLES:
+                    # taller canvas for the labeled dumbbell so the ~75 per-row
+                    # 'site date' y-tick labels don't overlap at 6 pt
                     _one(lambda ax, allc0=allc0, st=st: _draw_bias(ax, allc0, st),
-                         out_dir / f'tccon_{ref0}_bias_{st}{sfx}.png')
+                         out_dir / f'tccon_{ref0}_bias_{st}{sfx}.png',
+                         figsize=(7.2, 7.8) if st == 'dumbbell_label'
+                         else (7.2, 6.2))
 
     # ── AK-vs-direct overlay + reference-shift, split into two single-panel files ──
     # One pair per quality-flag group (all/qf0/qf1); QF suffix keeps the 'all' names.

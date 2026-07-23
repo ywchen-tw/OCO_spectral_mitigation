@@ -20,11 +20,14 @@ Keep direct-reference results nearby but do not let the dual-reference
 explanation obscure the AK-harmonized primary result.
 
 
-After understanding the general performance of the \emph{DE} model in Sect.~\ref{sec:result-model_comp}, we then evaluate its correction capability compared to TCCON observations in detail. Again, all TCCON \xco are corrected following the description in Sect.~\ref{sec:method-eval-obs-xco2} to consider the difference in averaging kernels and prior profiles. The collocation search radius between the TCCON stations and the OCO-2 soundings is set to $100$~km, and the temporal search window to $\pm1$~h around the OCO-2 overpass. Note these 75 station-days for 18 sites from 2014 to 2021 are chosen manually, as we want to have more available data for stations near the coastline, and we are unable to run all OCO-2 overpass cases.
+After understanding the general performance of the \emph{DE} model in Sect.~\ref{sec:result-model_comp}, we then evaluate its correction capability compared to TCCON observations in detail. Again, all TCCON \xco are corrected following the description in Sect.~\ref{sec:method-eval-obs-xco2} to consider the difference in averaging kernels and prior profiles. The collocation search radius between the TCCON stations and the OCO-2 soundings is set to $100$~km, and the temporal search window to $\pm1$~h around the OCO-2 overpass. Note that these 75 station-days for 18 sites from December 2014 to December 2021 are chosen manually, as we want to have more available data for stations near the coastline, and we are unable to run all OCO-2 overpass cases.
 
 
+Across all 75 station-days, the station-day mean absolute bias (|bias|) falls from 1.26$\pm$1.33 to 0.81$\pm$0.60 ppm and the per-footprint RMSE from 2.67 to 1.20 ppm, with 71/75 station-days improved (Fig.~\ref{fig:tccon_dumbbel}). The improvement is significant under a paired Wilcoxon test on station-day |bias| (p = 0.0064, n = 75) and under site-clustered bootstrap intervals, with and without the high-latitude TCCON station Ny-Ålesund at 78.9 $^o$N (Fig.~\ref{fig:tccon_significance_robustness}). The improvement holds at every collocation radius $\times$ window combination (25/50/100 km $\times$ $\pm$30/60/120 min), and it is largest at a tighter 50 km $\times$ $\pm$30 min window. This is expected, given that the correction is a spatially localized process. However, we use a larger search window to obtain more statistics and follow the $\pm1$~h window as in \citet{das2025oco2_v111_tccon_ggg2020}.
 
-Across all 75 station-days, the station-day mean |bias| falls from 1.26 to 0.81 ppm and the per-footprint RMSE from 2.67 to 1.19 ppm, with 71/75 station-days improved (Fig.~\ref{fig:tccon_dumbbel}). The improvement is significant under a paired Wilcoxon test on station-day |bias| (p = 0.0064, n = 75) and under site-clustered bootstrap intervals, with and without Ny-Ålesund (Fig.~\ref{fig:tccon_significance_robustness}), and it holds at every collocation radius × window combination (25/50/100 km × ±30/60/120 min), largest at the tightest radii — as expected of a real, spatially localized correction.
+Additionally, we analyze QF=0 and QF=1 footprints separately (Fig.~\ref{app-fig:qf01_DE_eval}) and see that the |bias| significantly decreases for QF=1 from 1.57$\pm$1.43 to 0.89$\pm$0.62, with the footprint RMSE reduced from 3.19 to 1.31. The |bias| and footprint RMSE also improve for QF=0 but with smaller magnitudes. This is expected, as footprints with QF=0 have better retrieval quality and could be less influenced by clouds. We also see that the correction is larger when the station-mean nearest-cloud distance of OCO-2 footprints is small, confirming that our correction works in the right direction.
+
+
 
 
 
@@ -48,7 +51,7 @@ Across all 75 station-days, the station-day mean |bias| falls from 1.26 to 0.81 
 
 
 
-\input{tables/tab_station_equal_bias}
+%\input{tables/tab_station_equal_bias}
 
 
 
