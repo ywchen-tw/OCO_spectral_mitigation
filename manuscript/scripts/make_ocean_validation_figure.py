@@ -14,8 +14,8 @@ the manuscript versions cannot drift apart.
 
 Inputs: <TAG>/atom/atom_pseudo_column_results.csv
         <TAG>/ship/ship_comparison_summary.csv
-Output: manuscript/figures/fig10a_atom_summary.{png,pdf}
-        manuscript/figures/fig10b_ship_summary.{png,pdf}
+Output: manuscript/figures/fig11a_atom_summary.{png,pdf}
+        manuscript/figures/fig11b_ship_summary.{png,pdf}
 Also prints the suptitle-equivalent summary numbers for the draft text.
 """
 from __future__ import annotations
@@ -51,13 +51,13 @@ def main() -> None:
 
     OUT.mkdir(parents=True, exist_ok=True)
     da = pd.read_csv(TAG / "atom" / "atom_pseudo_column_results.csv")
-    atom.make_summary_plot(da, OUT / "fig10a_atom_summary.png",
+    atom.make_summary_plot(da, OUT / "fig11a_atom_summary.png",
                            panel_offset=0, suptitle=False,
-                           out_pdf=OUT / "fig10a_atom_summary.pdf")
+                           out_pdf=OUT / "fig11a_atom_summary.pdf")
     ds = pd.read_csv(TAG / "ship" / "ship_comparison_summary.csv")
-    ship.make_summary_plot(ds, OUT / "fig10b_ship_summary.png",
+    ship.make_summary_plot(ds, OUT / "fig11b_ship_summary.png",
                            panel_offset=2, suptitle=False,
-                           out_pdf=OUT / "fig10b_ship_summary.pdf")
+                           out_pdf=OUT / "fig11b_ship_summary.pdf")
 
     # summary numbers formerly carried by the suptitles -> draft text
     nca = da[da.cld_med <= 10]

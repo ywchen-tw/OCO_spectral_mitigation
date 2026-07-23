@@ -278,7 +278,7 @@ def build(out_dir: Path, *, dpi: int, formats: tuple[str, ...],
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
     for ext in formats:
-        path = out_dir / f"figC3b_cv_design.{ext}"
+        path = out_dir / f"internal_cv_design.{ext}"
         fig.savefig(path, dpi=dpi, bbox_inches="tight", pad_inches=0.03)
         written.append(path)
         print(f"wrote {path}  (manifests: {'real' if used_real else 'stylized'})")

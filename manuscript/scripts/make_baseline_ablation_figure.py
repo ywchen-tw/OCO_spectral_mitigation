@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """Manuscript Fig. 6 — baseline comparison + feature-set ablation (table-figure).
 
-(a) TCCON per-footprint RMSE after correction, per model, split into the pooled
-    QF 0+1 set and the decisive near-cloud land tail (<=10 km).  Replaces the
-    same-protocol baseline table.
+(a) TCCON per-footprint RMSE after correction, per model, on three slices:
+    the pooled QF 0+1 set and the near-cloud tails of BOTH surfaces at their
+    production target radii (ocean <=5 km, land <=15 km; 2026-07-23 —
+    replaces the single land <=10 km tail).  Replaces the same-protocol
+    baseline table.
 (b) Feature-set ablation of the production deep ensemble: Delta RMSE relative
-    to the `full` feature set on the same two slices.
+    to the `full` feature set on the same three slices.
 
-Every number is copied verbatim from the generated comparison reports:
+Every number is read from the per-surface-edge report CSVs
+(tccon_metrics_ak_cldo5_r100km.csv / _cldl15_, same trees as Tables 1-2 via
+make_manuscript_tables) so the figure cannot drift from the tables.
 
-  [A] results/model_comparison/MODEL_COMPARISON_manuscript_DE_XGB_LinReg.md
-      (3-model same-protocol table; DE/XGB/LinReg + `before` column)
-  [B] results/model_comparison/MODEL_COMPARISON_land_ocean_2026-07-08.md
-      (5-model writeup; adds Struct and TabM — DE/XGB/LinReg identical to [A])
-  [C] results/model_comparison/deep_ensemble/FEATURESET_ABLATION_QF_2026-07-08.md
-      (6-feature-set TCCON ablation, Delta-RMSE-vs-full tables)
+TabM and Structured DCN EXCLUDED from the main text (user decision
+2026-07-23) — main-text baselines are DE / XGBoost / Ridge, matching
+Table 1; the 5-model comparison stays in Appendix C.
 
 Output: manuscript/figures/fig06_baseline_ablation.{png,pdf}
 """
@@ -36,80 +37,100 @@ REPO = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO / "manuscript" / "figures"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ----------------------------------------------------------------------------
-# Data (ppm).  Slices: "pooled"     = pooled TCCON, QF 0+1 (n_fp = 105,683)
-#                      "near-cloud" = land <=10 km, QF 0+1 (n_fp = 75,157)
-# ----------------------------------------------------------------------------
-# Panel (a): sources [A] section 1 tables (DE, XGB, LinReg, before).
-# TabM and Structured DCN EXCLUDED from the main text (user decision
-# 2026-07-23) — main-text baselines are DE / XGBoost / Ridge, matching
-# Table 1; the 5-model comparison stays in Appendix C.
-MODELS = [
-    # label,                      pooled, near-cloud land, emphasized
-    ("No correction (%s)" % XCO2_BC_LABEL, 3.291, 3.843, False),
-    ("Deep ensemble",              1.196, 1.312, True),
-    ("XGBoost",                    1.442, 1.607, False),
-    ("Ridge linear",               2.242, 2.581, False),
-]
+sys.path.insert(0, str(REPO / "manuscript" / "scripts"))
+from make_manuscript_tables import (ABL_VARIANTS, BASE, RAW_TREE,  # noqa: F401
+                                    TREES, load_metrics, srow)
 
-# Panel (b): source [C], "Delta RMSE vs full" tables
-#   pooled QF 0+1 row and land <=10 km QF 0+1 row.  full reference RMSE:
-#   pooled 1.289 ppm / near-cloud land 1.424 ppm ([C] section tables).
-ABLATION = [
-    # label,                                 pooled Delta, near-cloud Delta
-    ("$-$ spectral",                          -0.006, -0.002),
-    ("$-$ contamination",                     +0.028, +0.044),
-    ("$-$ %s + spectral" % XCO2_LABEL,        +0.686, +0.826),
-    ("$-$ %s retrieval" % XCO2_LABEL,         +0.738, +0.887),
-    ("$-$ %s + contamination" % XCO2_LABEL,   +0.938, +1.127),
-]
-FULL_POOLED, FULL_NEAR = 1.289, 1.424  # [C] full-reference RMSE (ppm)
+# The three plotted slices: (qf, surface, cld_group, edition)
+SLICE_POOLED = ("all", "all", "all", "o5")
+SLICE_OCEAN = ("all", "ocean", "0–5 km", "o5")
+SLICE_LAND = ("all", "land", "0–15 km", "l15")
+
+
+def _three(mets):
+    """(pooled, ocean<=5, land<=15) rmse_after for one tree's metrics."""
+    return tuple(srow(mets[ed], qf, sfc, cld).rmse_after
+                 for qf, sfc, cld, ed in (SLICE_POOLED, SLICE_OCEAN,
+                                          SLICE_LAND))
+
+
+def _load_data():
+    mets = {m: load_metrics(p) for m, p in TREES.items()}
+    de = mets["DE"]
+    before = tuple(srow(de[ed], qf, sfc, cld).rmse_before
+                   for qf, sfc, cld, ed in (SLICE_POOLED, SLICE_OCEAN,
+                                            SLICE_LAND))
+    models = [("No correction (%s)" % XCO2_BC_LABEL, *before, False),
+              ("Deep ensemble", *_three(mets["DE"]), True),
+              ("XGBoost", *_three(mets["XGB"]), False),
+              ("Ridge linear", *_three(mets["Ridge"]), False)]
+    full = _three(mets["DE"])
+    # labels + order match Table 2's column heads: single drops first,
+    # then the double drops (2026-07-23: the old "- XCO2 + spectral"
+    # phrasing read as add-spectral and hid the single -xco2 row)
+    abl_labels = {
+        "no_spec": "$-$ spectral",
+        "no_contam": "$-$ contamination",
+        "no_xco2": "$-$ %s" % XCO2_LABEL,
+        "no_xco2_and_spec": "$-$ %s $-$ spectral" % XCO2_LABEL,
+        "no_contam_and_xco2": "$-$ %s $-$ contamination" % XCO2_LABEL,
+    }
+    ablation = []
+    for v in ("no_spec", "no_contam", "no_xco2", "no_xco2_and_spec",
+              "no_contam_and_xco2"):
+        vals = _three(load_metrics(BASE / "deep_ensemble"
+                                   / f"de_prof_mix_{v}"))
+        ablation.append((abl_labels[v],
+                         *(a - f for a, f in zip(vals, full))))
+    return models, ablation, full
+
 
 C_POOLED = "#9DC3E0"   # light blue  — pooled TCCON, QF 0+1
+C_OCEAN = "#009E73"    # green       — near-cloud ocean (<=5 km)
 C_NEAR = "#0B5D8E"     # dark blue   — near-cloud land tail (decisive slice)
-C_BEFORE_P = "#D9D9D9"  # gray pair for the no-correction reference row
-C_BEFORE_N = "#8C8C8C"
+C_BEFORE = ("#E3E3E3", "#B5B5B5", "#8C8C8C")   # gray triple, no-correction row
 INK = "#222222"
 
-BAR_H = 0.36
+BAR_H = 0.26
 
 
-def _pair_bars(ax, ys, pooled, near, colors_p, colors_n, fmt="%.2f",
-               label_off=0.03):
-    """Two thin horizontal bars per row + value printed at the bar end."""
-    b1 = ax.barh(ys + BAR_H / 2, pooled, height=BAR_H, color=colors_p,
-                 edgecolor="none", zorder=3)
-    b2 = ax.barh(ys - BAR_H / 2, near, height=BAR_H, color=colors_n,
-                 edgecolor="none", zorder=3)
-    for bars, vals in ((b1, pooled), (b2, near)):
+def _triple_bars(ax, ys, triples, row_colors, fmt="%.2f", label_off=0.03):
+    """Three thin horizontal bars per row + value printed at the bar end."""
+    out = []
+    for k in range(3):
+        vals = [t[k] for t in triples]
+        colors = [c[k] for c in row_colors]
+        bars = ax.barh(ys + (1 - k) * BAR_H, vals, height=BAR_H,
+                       color=colors, edgecolor="none", zorder=3)
+        out.append(bars)
         for rect, v in zip(bars, vals):
             x = rect.get_width()
             off = label_off * (ax.get_xlim()[1] - ax.get_xlim()[0])
             ha, xt = ("left", x + off) if x >= 0 else ("right", x - off)
             ax.text(xt, rect.get_y() + rect.get_height() / 2, fmt % v,
-                    va="center", ha=ha, fontsize=7.5, color=INK, zorder=4)
-    return b1, b2
+                    va="center", ha=ha, fontsize=6.6, color=INK, zorder=4)
+    return out
 
 
 def main() -> None:
+    models, ablation, full = _load_data()
     fig, (ax_a, ax_b) = plt.subplots(
-        1, 2, figsize=(7.2, 3.35), gridspec_kw={"width_ratios": [1.0, 1.0]})
+        1, 2, figsize=(7.2, 3.6), gridspec_kw={"width_ratios": [1.0, 1.0]})
 
     # ------------------------------------------------------------------ (a)
-    labels = [m[0] for m in MODELS]
-    pooled = np.array([m[1] for m in MODELS])
-    near = np.array([m[2] for m in MODELS])
-    ys = np.arange(len(MODELS))[::-1].astype(float)  # first row on top
+    labels = [m[0] for m in models]
+    triples = [m[1:4] for m in models]
+    ys = np.arange(len(models))[::-1].astype(float)  # first row on top
 
-    ax_a.set_xlim(0, 4.55)
-    colors_p = [C_BEFORE_P if i == 0 else C_POOLED for i in range(len(MODELS))]
-    colors_n = [C_BEFORE_N if i == 0 else C_NEAR for i in range(len(MODELS))]
-    _pair_bars(ax_a, ys, pooled, near, colors_p, colors_n)
+    ax_a.set_xlim(0, 4.75)
+    row_colors = [(C_BEFORE if i == 0 else (C_POOLED, C_OCEAN, C_NEAR))
+                  for i in range(len(models))]
+    _triple_bars(ax_a, ys, triples, row_colors)
 
     ax_a.set_yticks(ys)
     ax_a.set_yticklabels(labels)
-    for tick, m in zip(ax_a.get_yticklabels(), MODELS):
-        if m[3]:
+    for tick, m in zip(ax_a.get_yticklabels(), models):
+        if m[4]:
             tick.set_fontweight("bold")
     ax_a.set_xlabel("TCCON per-footprint RMSE after correction (ppm)")
     ax_a.xaxis.grid(True, color="0.9", lw=0.6, zorder=0)
@@ -118,32 +139,30 @@ def main() -> None:
         ax_a.spines[spine].set_visible(False)
     ax_a.tick_params(axis="y", length=0)
 
-    ax_a.set_ylim(-0.6, len(MODELS) - 0.4)
-    handles = [
-        plt.Rectangle((0, 0), 1, 1, color=C_POOLED),
-        plt.Rectangle((0, 0), 1, 1, color=C_NEAR),
-    ]
-    ax_a.legend(handles,
-                ["pooled, QF 0+1",
-                 "near-cloud land $\\leq$ 10 km"],
+    ax_a.set_ylim(-0.7, len(models) - 0.3)
+    handles = [plt.Rectangle((0, 0), 1, 1, color=c)
+               for c in (C_POOLED, C_OCEAN, C_NEAR)]
+    leg_labels = ["pooled, QF 0+1",
+                  "near-cloud ocean $\\leq$ 5 km",
+                  "near-cloud land $\\leq$ 15 km"]
+    ax_a.legend(handles, leg_labels,
                 loc="upper center", bbox_to_anchor=(0.5, -0.24),
-                ncols=2, columnspacing=1.4, frameon=False,
+                ncols=2, columnspacing=1.2, frameon=False,
                 handlelength=1.2, handletextpad=0.5, handleheight=1.0,
-                borderaxespad=0.0, fontsize=7.5)
+                borderaxespad=0.0, fontsize=7)
     panel_label(ax_a, "(a) baseline comparison")
 
     # ------------------------------------------------------------------ (b)
-    ab_labels = [a[0] for a in ABLATION]
-    d_pooled = np.array([a[1] for a in ABLATION])
-    d_near = np.array([a[2] for a in ABLATION])
-    ys_b = np.arange(len(ABLATION))[::-1].astype(float)
+    ab_labels = [a[0] for a in ablation]
+    d_triples = [a[1:4] for a in ablation]
+    ys_b = np.arange(len(ablation))[::-1].astype(float)
 
-    ax_b.set_xlim(-0.42, 1.45)
-    _pair_bars(ax_b, ys_b, d_pooled, d_near,
-               [C_POOLED] * len(ABLATION), [C_NEAR] * len(ABLATION),
-               fmt="%+.3f", label_off=0.018)
+    ax_b.set_xlim(-0.42, 1.55)
+    _triple_bars(ax_b, ys_b, d_triples,
+                 [(C_POOLED, C_OCEAN, C_NEAR)] * len(ablation),
+                 fmt="%+.3f", label_off=0.018)
     ax_b.axvline(0.0, color=INK, lw=0.9, zorder=2)
-    ax_b.set_ylim(-0.6, len(ABLATION) - 0.4 + 0.75)  # headroom for annotation
+    ax_b.set_ylim(-0.7, len(ablation) - 0.3 + 0.85)  # headroom for annotation
 
     ax_b.set_yticks(ys_b)
     ax_b.set_yticklabels(ab_labels)
@@ -155,18 +174,12 @@ def main() -> None:
     ax_b.tick_params(axis="y", length=0)
 
     # zero line = full feature set (reference RMSE), leader from the line top
-    ax_b.annotate("full feature set\n(RMSE 1.29 / 1.42 ppm)",
-                  xy=(0.0, ys_b[0] + 0.42), xycoords="data",
-                  xytext=(0.28, ys_b[0] + 0.72), textcoords="data",
-                  fontsize=7.5, color=INK, ha="left", va="center",
+    ax_b.annotate("full feature set (RMSE\n%.2f / %.2f / %.2f ppm)" % full,
+                  xy=(0.0, ys_b[0] + 0.55), xycoords="data",
+                  xytext=(0.30, ys_b[0] + 0.82), textcoords="data",
+                  fontsize=7, color=INK, ha="left", va="center",
                   arrowprops=dict(arrowstyle="-", lw=0.7, color=INK,
                                   shrinkA=2, shrinkB=1))
-    # takeaway, in the free upper-right region
-    ax_b.text(0.985, 0.80,
-              "spectral & contam.:\nfree to drop\n"
-              "%s group:\nload-bearing" % XCO2_LABEL,
-              transform=ax_b.transAxes, fontsize=7.5, ha="right",
-              va="top", color=INK, style="italic", linespacing=1.3)
     panel_label(ax_b, "(b) deep-ensemble feature-set ablation")
 
     fig.tight_layout(w_pad=2.2)

@@ -17,7 +17,7 @@ Inputs (existing CSVs, no recomputation):
       coincidence_sensitivity/coincidence_sensitivity.csv
 
 Output:
-  manuscript/figures/fig08_significance_robustness.png / .pdf
+  manuscript/figures/fig09_significance_robustness.png / .pdf
 """
 from __future__ import annotations
 
@@ -166,9 +166,9 @@ def main() -> None:
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     for ext in ('png', 'pdf'):
-        fig.savefig(OUT_DIR / f'fig08_significance_robustness.{ext}')
+        fig.savefig(OUT_DIR / f'fig09_significance_robustness.{ext}')
     plt.close(fig)
-    print('wrote', OUT_DIR / 'fig08_significance_robustness.png')
+    print('wrote', OUT_DIR / 'fig09_significance_robustness.png')
 
 
 if __name__ == '__main__':
