@@ -33,8 +33,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from plot_style import (MEAN_L_LABEL, XCO2_LABEL, apply_manuscript_style,
-                        panel_label)
+from plot_style import MEAN_L_LABEL, apply_manuscript_style, panel_label
 
 CSV = (REPO / "results" / "figures" / "cld_dist_analysis"
        / "spec_sensitivity" / "shadow_brightening_stats.csv")
@@ -48,7 +47,8 @@ BRANCHES = [("brightened", "#d95f02"),
 PANELS = [("dk1_o2a", f"$\\Delta${MEAN_L_LABEL} O$_2$A"),
           ("dk1_wco2", f"$\\Delta${MEAN_L_LABEL} WCO$_2$"),
           ("dk1_sco2", f"$\\Delta${MEAN_L_LABEL} SCO$_2$"),
-          ("xco2_bc_anomaly", f"{XCO2_LABEL} anomaly (ppm)")]
+          ("xco2_bc_anomaly",
+           "$\\Delta X_{\\mathrm{CO2}}^{\\mathrm{B11}}$ (ppm)")]
 
 
 def main() -> None:

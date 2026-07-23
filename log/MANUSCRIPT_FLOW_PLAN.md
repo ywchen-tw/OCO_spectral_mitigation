@@ -158,7 +158,9 @@ artifacts.
 `shadow_brightening_stats.csv` (new `make_shadow_brightening_figure.py`;
 legend moved below the panels — it covered the O2A curves — and the
 pre-restyle/full-parquet caveat is cleared); ocean companion written to
-`internal_shadow_brightening_ocean`.  
+`internal_shadow_brightening_ocean`. Panel (d) label uses
+$\Delta X_{\mathrm{CO2}}^{\mathrm{B11}}$ (user request — matches the
+supplement.tex \xcobc macro family).  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
