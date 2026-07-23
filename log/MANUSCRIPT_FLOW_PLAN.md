@@ -196,6 +196,12 @@ validation-chain artifacts), with the tail-divergence clause (fold gap
 the §4.3 draft results text; Table C5 now GENERATED as
 `manuscript/tables/tabC5_cv_model_comparison.tex` by
 `make_appendix_c_figures.py` (same kfold_agg parse as Fig. C5).  
+**Updated:** 2026-07-22y — TCCON-protocol flow fix (user): the
+comparison protocol (sample/coincidence, AK-harmonised reference,
+station-day unit, metric + bootstrap definitions incl. the former
+Fig. 8a LaTeX block) consolidated into Methods §3.5; §4.3 opens its
+baseline table with a Sect. 3.5 pointer; §4.4 item 1 reduced to a
+one-sentence recap — no Results section now depends on a later one.  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -514,15 +520,68 @@ only the two-sentence headline in Results 4.3).
 
 #### 3.5 Evaluation framework
 
+THE single home of the TCCON comparison protocol (2026-07-23 flow fix):
+every Results section that quotes TCCON metrics — §4.3's model/ablation
+comparison as much as §4.4's validation — rests on the definitions here,
+so no Results section depends on a later one.
+
 Predefine:
 
 - date-blocked target \(R^2\) and RMSE;
-- station-day bias and absolute bias;
+- the TCCON sample and coincidence definition (r = 100 km / ±60 min
+  primary; 25/50 km and ±30/120 min as sensitivity variants) and the
+  AK/prior-harmonised reference as the sole reported comparison basis
+  (moved here from §4.4 item 1, 2026-07-23);
+- the station-day evaluation unit, station-day bias and absolute bias;
 - footprint RMSE and scatter;
 - calibration and interval coverage;
 - paired Wilcoxon tests;
 - site-clustered bootstrap;
 - random-effects residual comparison and representation error.
+
+**TCCON evaluation-metric definitions (LaTeX draft, 2026-07-23, moved
+here from the Fig. 8 caption block; matches
+`tccon_comparison_report._significance` — note "RMS bias" is the quadratic
+aggregate of STATION-DAY MEAN biases, deliberately distinct from the
+footprint-level RMSE of the third row; do NOT relabel it RMSE):**
+
+```latex
+For each station-day $s$ (one TCCON site on one overpass date) with $n_s$
+collocated soundings, let
+$e_{s,i} = X_{\mathrm{CO2},i} - X^{\mathrm{TCCON}}_{\mathrm{CO2},i}$
+denote the footprint residual against the AK-harmonised TCCON reference,
+evaluated once for the uncorrected product and once after correction. The
+station-day mean bias and per-footprint root-mean-square error are
+\begin{equation}
+  b_s \;=\; \frac{1}{n_s}\sum_{i=1}^{n_s} e_{s,i},
+  \qquad
+  R_s \;=\; \Bigl(\frac{1}{n_s}\sum_{i=1}^{n_s} e_{s,i}^{2}\Bigr)^{1/2}.
+\end{equation}
+Figure~8a (Results 4.4) summarises the $S = 75$ station-days by three aggregates:
+the station-day-equal mean absolute bias
+$\overline{|b|} = S^{-1}\sum_s |b_s|$, which weights every station-day
+equally regardless of its footprint count; the root-mean-square bias
+$\mathrm{RMS}_b = (S^{-1}\sum_s b_s^{2})^{1/2}$, a quadratic aggregate of
+the same station-day mean biases that emphasises the largest-bias
+station-days (it is not a footprint-level error metric); and the mean
+per-footprint RMSE $\overline{R} = S^{-1}\sum_s R_s$, which measures
+footprint-level scatter about the reference. Each row of Fig.~8a shows
+the change $\Delta$ (corrected $-$ uncorrected) of one aggregate, so
+negative values are improvements: $\overline{|b|}$ and $\mathrm{RMS}_b$
+respond only to systematic station-day offsets, whereas $\overline{R}$
+also responds to within-overpass scatter. Confidence intervals and
+$p$-values come from a site-clustered bootstrap: the 18 sites are
+resampled with replacement, each drawn site contributing all of its
+station-days ($B = 10\,000$ resamples), which respects the strong
+within-site clustering of the sample (e.g.\ R\'eunion contributes 14
+station-days); the interval is the 2.5--97.5 percentile range of the
+resampled $\Delta$, and the two-sided
+$p = 2\min[P(\Delta \ge 0),\, P(\Delta \le 0)]$, floored at
+$2/(B+1)$. The paired Wilcoxon test quoted beneath the panel treats
+station-days as exchangeable pairs and is reported as a
+clustering-agnostic cross-check.
+```
+
 
 Define the common-protocol baselines: Ridge, XGBoost, the deep ensemble,
 the feature-free orbit smoother, and feature-set ablations. TabM and the
@@ -829,8 +888,11 @@ uncertainty calibration). Do not expand beyond those three sentences —
 the detailed split-design material lives in Appendix C so it does not
 interrupt the path to the independent validation.
 
-Then present the common-protocol baseline table, emphasizing the difficult
-near-cloud land tail, and report:
+Then present the common-protocol baseline table — opening with the
+half-sentence pointer "evaluated under the TCCON protocol of
+Sect. 3.5" (the protocol is fully defined in Methods, so no forward
+reference to §4.4 is needed) — emphasizing the difficult near-cloud
+land tail, and report:
 
 - the full ensemble performs best overall;
 - `no_spec` is approximately TCCON-neutral;
@@ -926,9 +988,11 @@ difference is explained by the documented B7-to-B11 direct-TCCON anchoring
 chain, and cite Appendix D. Report the current production values only after
 regenerating the manuscript table from the frozen tag.
 
-The paragraph order should be:
+The paragraph order should be (item 1 re-scoped 2026-07-23 — the
+protocol definition lives in Methods §3.5):
 
-1. sample and coincidence definition;
+1. one-sentence recap of the sample and coincidence criteria, citing
+   Sect. 3.5;
 2. mean absolute bias and footprint RMSE;
 3. number of improved station-days;
 4. Wilcoxon and site-clustered bootstrap results;
@@ -981,47 +1045,10 @@ comparison appears.
 > (all sites and excluding Ny-Ålesund), and the change in mean |bias|
 > across collocation radius (25/50/100 km) × window (±30/60/120 min).
 
-**Metric definitions for Fig. 8a (LaTeX draft, 2026-07-23; matches
-`tccon_comparison_report._significance` — note "RMS bias" is the quadratic
-aggregate of STATION-DAY MEAN biases, deliberately distinct from the
-footprint-level RMSE of the third row; do NOT relabel it RMSE):**
-
-```latex
-For each station-day $s$ (one TCCON site on one overpass date) with $n_s$
-collocated soundings, let
-$e_{s,i} = X_{\mathrm{CO2},i} - X^{\mathrm{TCCON}}_{\mathrm{CO2},i}$
-denote the footprint residual against the AK-harmonised TCCON reference,
-evaluated once for the uncorrected product and once after correction. The
-station-day mean bias and per-footprint root-mean-square error are
-\begin{equation}
-  b_s \;=\; \frac{1}{n_s}\sum_{i=1}^{n_s} e_{s,i},
-  \qquad
-  R_s \;=\; \Bigl(\frac{1}{n_s}\sum_{i=1}^{n_s} e_{s,i}^{2}\Bigr)^{1/2}.
-\end{equation}
-Figure~8a summarises the $S = 75$ station-days by three aggregates:
-the station-day-equal mean absolute bias
-$\overline{|b|} = S^{-1}\sum_s |b_s|$, which weights every station-day
-equally regardless of its footprint count; the root-mean-square bias
-$\mathrm{RMS}_b = (S^{-1}\sum_s b_s^{2})^{1/2}$, a quadratic aggregate of
-the same station-day mean biases that emphasises the largest-bias
-station-days (it is not a footprint-level error metric); and the mean
-per-footprint RMSE $\overline{R} = S^{-1}\sum_s R_s$, which measures
-footprint-level scatter about the reference. Each row of Fig.~8a shows
-the change $\Delta$ (corrected $-$ uncorrected) of one aggregate, so
-negative values are improvements: $\overline{|b|}$ and $\mathrm{RMS}_b$
-respond only to systematic station-day offsets, whereas $\overline{R}$
-also responds to within-overpass scatter. Confidence intervals and
-$p$-values come from a site-clustered bootstrap: the 18 sites are
-resampled with replacement, each drawn site contributing all of its
-station-days ($B = 10\,000$ resamples), which respects the strong
-within-site clustering of the sample (e.g.\ R\'eunion contributes 14
-station-days); the interval is the 2.5--97.5 percentile range of the
-resampled $\Delta$, and the two-sided
-$p = 2\min[P(\Delta \ge 0),\, P(\Delta \le 0)]$, floored at
-$2/(B+1)$. The paired Wilcoxon test quoted beneath the panel treats
-station-days as exchangeable pairs and is reported as a
-clustering-agnostic cross-check.
-```
+**Metric definitions:** the b_s/R_s/aggregate definitions and the
+bootstrap machinery MOVED to Methods §3.5 (2026-07-23) so that §4.3's
+TCCON-based comparison can precede §4.4 without forward references —
+Fig. 8's caption cites Sect. 3.5.
 
 (No panel assembly — Figs. 7 and 8 are separate single-file floats since
 2026-07-23. fig08's internal panel tags from the generator stay.)
