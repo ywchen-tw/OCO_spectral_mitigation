@@ -171,6 +171,17 @@ re-render.
 Fig. 6 (main-text baselines = DE/XGBoost/Ridge, matching Table 1; the
 5-model set stays in Appendix C); fig06 regenerated, uncorrected row
 relabeled X_CO2^B11.  
+**Updated:** 2026-07-22u — Figs. 7a/7b SPLIT into separate floats (user
+decision): Fig. 7 = TCCON dumbbell, Fig. 8 = significance/robustness;
+downstream renumber 8→9 (smoother), 9→10 (ATom+ship), 10→11 (plume);
+main text now ELEVEN figures. Files and generator stems renamed;
+captions split; Fig. 7 panel assembly removed. Changelog entries before
+this one use the OLD numbers.  
+**Updated:** 2026-07-22v — §4.3 gains the spec-emphasis synthesis
+draft paragraph (skill-versus-trust: xco2 channel operationally
+load-bearing, cumulants carry mechanism/safety/imager-independence;
+sourced from SPEC_EMPHASIS_STATUS_2026-07-08.md with the 2026-07-17
+fold-PCA numbers).  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -808,6 +819,36 @@ near-cloud land tail, and report:
 
 State the skill-versus-trust synthesis here for the first time.
 
+**Draft discussion text — spec-emphasis synthesis (added 2026-07-23 from
+`log/SPEC_EMPHASIS_STATUS_2026-07-08.md`; numbers are the 2026-07-17
+fold-PCA edition — quote those, not the doc's superseded first-look
+values):**
+
+> The ablation separates two roles a predictor group can play. The
+> retrieval-state departure (xco2_raw − a priori) is the operationally
+> load-bearing channel: removing it costs 0.7–1.1 ppm at TCCON (up to
+> +1.28 ppm for near-cloud land QF1 soundings), whereas removing the
+> spectral path-length group is TCCON-neutral (+0.021 ppm pooled) — for
+> prediction alone, the cumulants are dispensable. Their value lies in
+> three roles the load-bearing channel cannot fill. First, mechanism: the
+> sign rule and shadow/brightening branches of Sect. 4.2 establish that
+> the corrected signal is a photon path-length effect — something the
+> retrieval-state channel exploits but cannot demonstrate. Second,
+> safety: the band-resolved fingerprint of Sect. 4.7 bounds what the
+> correction may remove; the channel attribution shows the full model
+> removes 55 % [40–63 %] of plume-free local clear-sky spread, the
+> no-spectral variant removes 54 % (the cumulants contribute essentially
+> none of the smoothing), and the no-retrieval-state variant removes
+> 29 % — local smoothing flows through the retrieval-state channel while
+> the spectral channel supplies the plume-versus-cloud discriminator.
+> Third, imager independence: the spectrum's own cloud-proximity
+> sensitivity, including below the MODIS resolution floor (Supplement
+> S4), is what makes imager-free deployment and cross-sensor transfer
+> (Sect. 5.3, Appendix H) conceivable. In short, the cumulants establish
+> what the bias is and bound what the correction may touch; the
+> retrieval-state features are the operationally sufficient predictor of
+> it.
+
 **Draft results text (moved out of the Fig. 6 caption, 2026-07-22h):**
 
 > The deep ensemble leads at every slice, and the model ordering is
@@ -874,24 +915,25 @@ comparison appears.
 
 > Across all 75 station-days (18 sites, 2016–2020) the station-day mean
 > |bias| falls from 1.26 to 0.81 ppm and the per-footprint RMSE from 2.67
-> to 1.19 ppm, with 71/75 station-days improved (Fig. 7a). The improvement
+> to 1.19 ppm, with 71/75 station-days improved (Fig. 7). The improvement
 > is significant under a paired Wilcoxon test on station-day |bias|
 > (p = 0.0064, n = 75) and under site-clustered bootstrap intervals, with
-> and without Ny-Ålesund (Fig. 7b), and it holds at every collocation
+> and without Ny-Ålesund (Fig. 8), and it holds at every collocation
 > radius × window combination (25/50/100 km × ±30/60/120 min), largest at
 > the tightest radii — as expected of a real, spatially localised
 > correction.
 
 **Display items:**
 
-- **Fig. 7** — TCCON before/after validation (AK-harmonized), with the
-  significance/robustness evidence. Both panels exist: (a) headline
-  station-day before/after dumbbell —
-  `manuscript/figures/fig07a_tccon_dumbbell` (copied from the production
-  fold-PCA tree `<TAG>/atrain/tccon_ak_bias_dumbbell_label_r100km.png`);
-  (b) significance/robustness —
-  `manuscript/figures/fig07b_significance_robustness`
-  (`manuscript/scripts/make_significance_panel.py`).
+- **Fig. 7** — headline TCCON station-day before/after dumbbell
+  (AK-harmonized). Exists: `manuscript/figures/fig07_tccon_dumbbell`
+  (copied from the production fold-PCA tree
+  `<TAG>/atrain/tccon_ak_bias_dumbbell_label_r100km.png`).
+- **Fig. 8** — significance/robustness panel. Exists:
+  `manuscript/figures/fig08_significance_robustness`
+  (`manuscript/scripts/make_significance_panel.py`). SPLIT from the
+  former two-panel Fig. 7 (user decision 2026-07-23); downstream figures
+  renumbered 8→9, 9→10, 10→11 (changelog 2026-07-22u).
 - **Table 3** — `manuscript/tables/tab_station_equal_bias.tex`:
   station-equal mean |bias| by QF, AK-harmonized only.
 - Full coincidence matrix, station audit, and uncertainty budget are
@@ -901,29 +943,18 @@ comparison appears.
 
 > **Figure 7.** Independent TCCON validation (AK-harmonised reference;
 > harmonisation follows Rodgers and Connor, 2003, and Wunch et al., 2017;
-> before-vs-after differences are invariant to it). (a) Station-day mean
+> before-vs-after differences are invariant to it): station-day mean
 > bias before and after correction for all 75 station-days (18 sites,
-> 2016–2020; r = 100 km, ±60 min). (b) Site-clustered bootstrap estimates
-> with 95 % confidence intervals for the change in station-day mean
-> |bias|, RMS bias, and per-footprint RMSE (all sites and excluding
-> Ny-Ålesund), and the change in mean |bias| across collocation radius
-> (25/50/100 km) × window (±30/60/120 min).
+> 2016–2020; r = 100 km, ±60 min).
 
-**Panel assembly, Fig. 7 (LaTeX draft):**
+> **Figure 8.** Significance and robustness of the TCCON validation:
+> site-clustered bootstrap estimates with 95 % confidence intervals for
+> the change in station-day mean |bias|, RMS bias, and per-footprint RMSE
+> (all sites and excluding Ny-Ålesund), and the change in mean |bias|
+> across collocation radius (25/50/100 km) × window (±30/60/120 min).
 
-```latex
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.95\textwidth]{figures/fig07a_tccon_dumbbell.png}\\[4pt]
-\includegraphics[width=0.95\textwidth]{figures/fig07b_significance_robustness.pdf}
-\caption{<insert draft caption above>}
-\label{fig:tccon-validation}
-\end{figure}
-```
-
-Panel letters: fig07b carries its own internal tags from the
-generator — retag when composing; fig07a (copied report figure) has
-no panel letter yet.
+(No panel assembly — Figs. 7 and 8 are separate single-file floats since
+2026-07-23. fig08's internal panel tags from the generator stay.)
 
 #### 4.5 Distinguishing correction from smoothing
 
@@ -936,7 +967,7 @@ Place the feature-free smoother immediately after TCCON:
 This establishes that the validation improvement is not merely local
 denoising.
 
-**Draft results text (moved out of the Fig. 8 caption, 2026-07-22h):**
+**Draft results text (moved out of the Fig. 9 caption, 2026-07-22h):**
 
 > The smoother collapses footprint scatter more strongly than the deep
 > ensemble (0.35–0.66 vs 0.78 ppm) yet leaves the TCCON station-day mean
@@ -946,8 +977,8 @@ denoising.
 
 **Display items:**
 
-- **Fig. 8** — smoother-null two-panel (scatter collapse vs unmoved
-  station-day bias). Copy exists: `manuscript/figures/fig08_smoother_null`
+- **Fig. 9** — smoother-null two-panel (scatter collapse vs unmoved
+  station-day bias). Copy exists: `manuscript/figures/fig09_smoother_null`
   (from the production fold-PCA tree
   `<TAG>/atrain/smoother_null/smoother_null_r100km.png`,
   `workspace/smoother_null_figure.py`).
@@ -956,7 +987,7 @@ denoising.
 
 **Draft caption:**
 
-> **Figure 8.** Correction versus smoothing null test. A feature-free
+> **Figure 9.** Correction versus smoothing null test. A feature-free
 > orbit-local running-mean smoother (±10/30/100 s half-widths, screened by
 > the same input guards as the production correction) compared with the
 > deep ensemble on footprint scatter (left) and TCCON station-day mean
@@ -969,22 +1000,22 @@ correction is nearly inert. Treat these as independent corroboration, not as
 equivalent in statistical weight to TCCON. State the limited sample and
 reference-scale caveats.
 
-**Draft results text (moved out of the Fig. 9 caption, 2026-07-22h):**
+**Draft results text (moved out of the Fig. 10 caption, 2026-07-22h):**
 
 > Near-cloud ATom legs improve in median |residual| from 0.53 to 0.45 ppm,
 > while the far-cloud date (9 October 2017) is a negative control that the
-> correction leaves nearly unchanged (Fig. 9a). Against the shipborne
+> correction leaves nearly unchanged (Fig. 10a). Against the shipborne
 > spectrometers the correction collapses footprint scatter
 > (σ 0.63 → 0.27 ppm) without moving the clear-sky control day
 > (22 June 2019); the residual ~+1 ppm absolute offset is dominated by
-> reference-scale differences, not created by the correction (Fig. 9b).
+> reference-scale differences, not created by the correction (Fig. 10b).
 
 **Display items:**
 
-- **Fig. 9** — ATom + shipborne EM27/SUN summary with the far-cloud/clear-day
+- **Fig. 10** — ATom + shipborne EM27/SUN summary with the far-cloud/clear-day
   negative controls. Copies exist:
-  `manuscript/figures/fig09a_atom_summary` and
-  `manuscript/figures/fig09b_ship_summary` (from the production fold-PCA
+  `manuscript/figures/fig10a_atom_summary` and
+  `manuscript/figures/fig10b_ship_summary` (from the production fold-PCA
   tree `<TAG>/atom/atom_pseudo_column_summary.png` and
   `<TAG>/ship/ship_comparison_summary.png`).
 - No main-text table; leg/case inventories and residuals are Appendix D
@@ -992,7 +1023,7 @@ reference-scale caveats.
 
 **Draft caption:**
 
-> **Figure 9.** Independent ocean corroboration. (a) ATom aircraft
+> **Figure 10.** Independent ocean corroboration. (a) ATom aircraft
 > pseudo-column comparison (8 dates, 17 collocated legs, AK-smoothed; the
 > unmeasured stratosphere is filled with the OCO-2 prior so it cancels in
 > the comparison), including the far-cloud negative-control date
@@ -1000,13 +1031,13 @@ reference-scale caveats.
 > and R/V Mirai MR21-01; 100 km / ±2 h), including the clear-sky control
 > day (22 June 2019).
 
-**Panel assembly, Fig. 9 (LaTeX draft):**
+**Panel assembly, Fig. 10 (LaTeX draft):**
 
 ```latex
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.95\textwidth]{figures/fig09a_atom_summary.png}\\[4pt]
-\includegraphics[width=0.95\textwidth]{figures/fig09b_ship_summary.png}
+\includegraphics[width=0.95\textwidth]{figures/fig10a_atom_summary.png}\\[4pt]
+\includegraphics[width=0.95\textwidth]{figures/fig10b_ship_summary.png}
 \caption{<insert draft caption above>}
 \label{fig:ocean-validation}
 \end{figure}
@@ -1033,22 +1064,22 @@ The required interpretation is:
 > Local smoothing is primarily attributable to the retrieval-state channel,
 > not to the photon path-length features.
 
-**Draft results text (moved out of the Fig. 10 caption, 2026-07-22h):**
+**Draft results text (moved out of the Fig. 11 caption, 2026-07-22h):**
 
 > The ~+0.6 ppm enhancement at closest approach to the Westar plant
-> survives the correction essentially unchanged (Fig. 10a). In the two
+> survives the correction essentially unchanged (Fig. 11a). In the two
 > flagged removal windows the O2A band shifts as strongly as the CO2
-> bands (Fig. 10b) — the all-band fingerprint of cloud contamination
+> bands (Fig. 11b) — the all-band fingerprint of cloud contamination
 > rather than of a real plume, whose signature would be confined to the
 > CO2 bands; the worst-case plume signal removable through the spectral
 > channel is ≤ 0.21 ppm.
 
 **Display items:**
 
-- **Fig. 10** — plume-preservation composite: (a) preserved Westar 2023-06-26
-  corrected transect — copy exists: `manuscript/figures/fig10a_westar_transect`
+- **Fig. 11** — plume-preservation composite: (a) preserved Westar 2023-06-26
+  corrected transect — copy exists: `manuscript/figures/fig11a_westar_transect`
   (from `<TAG>/nassar_plumes/plume_preservation/transects/`); (b) plume-vs-cloud k1
-  fingerprint contrast — exists: `manuscript/figures/fig10b_k1_contrast`
+  fingerprint contrast — exists: `manuscript/figures/fig11b_k1_contrast`
   (`manuscript/scripts/make_k1_contrast_figure.py`).
 - **Table 4 → Appendix F (2026-07-22m; letter per 2026-07-22n merge).**
   `manuscript/tables/tab_nassar_attribution.tex` (control/plant removal
@@ -1061,7 +1092,7 @@ The required interpretation is:
 
 **Draft caption:**
 
-> **Figure 10.** Plume preservation and the spectral cloud fingerprint.
+> **Figure 11.** Plume preservation and the spectral cloud fingerprint.
 > (a) Along-track transect over the Westar power plant (26 June 2023,
 > clear sky, nearest cloud ≈ 50 km; overpass from the Nassar et al.
 > catalogue) before and after correction; lower panels: predicted
@@ -1071,20 +1102,20 @@ The required interpretation is:
 > plume (Δ⟨l′⟩ ≈ ⟨l′⟩·ΔXCO2/XCO2 in the CO2 bands via the prior-based
 > optical depth; exactly zero in O2A).
 
-**Panel assembly, Fig. 10 (LaTeX draft):**
+**Panel assembly, Fig. 11 (LaTeX draft):**
 
 ```latex
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.95\textwidth]{figures/fig10a_westar_transect.png}\\[4pt]
-\includegraphics[width=0.95\textwidth]{figures/fig10b_k1_contrast.pdf}
+\includegraphics[width=0.95\textwidth]{figures/fig11a_westar_transect.png}\\[4pt]
+\includegraphics[width=0.95\textwidth]{figures/fig11b_k1_contrast.pdf}
 \caption{<insert draft caption above>}
 \label{fig:plume-preservation}
 \end{figure}
 ```
 
-Panel letters: fig10b already carries its "(b)" tag from the
-generator; fig10a (copied transect) needs an "(a)" tag added.
+Panel letters: fig11b already carries its "(b)" tag from the
+generator; fig11a (copied transect) needs an "(a)" tag added.
 
 #### 4.8 Uncertainty and failure modes
 
@@ -1212,9 +1243,11 @@ Suggested final sentence:
 
 ## 4. Evidence and figure flow
 
-The main text uses exactly ten figures (2026-07-21c/d renumbering; the
-optional eleventh figure was DROPPED 2026-07-22m — §4.8 carries no display
-item and Discussion 5.4 carries the QF1 counts in one sentence).
+The main text uses exactly ELEVEN figures (2026-07-23: the former
+two-panel Fig. 7 split into Fig. 7 dumbbell + Fig. 8 significance, so
+8→9, 9→10, 10→11; the former optional-eleventh QF1/failure figure stays
+DROPPED per 2026-07-22m — §4.8 carries no display item and Discussion
+5.4 carries the QF1 counts in one sentence).
 (The earlier option of compositing the decay curves with the k1/k2 distance
 responses lapsed when Fig. 3 moved to Results 4.1, 2026-07-21g; if a
 figure must be cut, fold the k1/k2 distance responses into Fig. 4
@@ -1228,11 +1261,12 @@ instead.)
 | 4 | Results 4.2 | WCO2 land-cover response changes sign across the measured albedo-contrast axis. |
 | 5 | Results 4.2 | Shadow and brightening branches connect spectral response to opposite XCO2 anomalies. |
 | 6 | Results 4.3 | Baseline/feature-ablation comparison decided in the near-cloud land tail; date-blocked skill and noise ceiling carried as a headline sentence, detail in Appendix C. |
-| 7 | Results 4.4 | TCCON before/after validation with AK-harmonized primary reference and uncertainty. |
-| 8 | Results 4.5 | The feature-free smoother removes scatter but not station-day bias. |
-| 9 | Results 4.6 | ATom and shipborne ocean validation plus far-cloud negative controls. |
-| 10 | Results 4.7 | Plume-preservation transect and channel-attribution safety budget. |
-| ~~11~~ | — | DROPPED 2026-07-22m (was: failure boundary / QF1 recovery); QF1 counts are one sentence in Discussion 5.4. |
+| 7 | Results 4.4 | TCCON before/after station-day dumbbell (AK-harmonized). |
+| 8 | Results 4.4 | Significance/robustness of the TCCON validation (bootstrap CIs, radius × window). |
+| 9 | Results 4.5 | The feature-free smoother removes scatter but not station-day bias. |
+| 10 | Results 4.6 | ATom and shipborne ocean validation plus far-cloud negative controls. |
+| 11 | Results 4.7 | Plume-preservation transect and channel-attribution safety budget. |
+| — | — | The former optional QF1/failure figure stays DROPPED (2026-07-22m); QF1 counts are one sentence in Discussion 5.4. |
 
 Main-text table budget (THREE tables since 2026-07-22m, all AK-harmonized
 only, generated by `manuscript/scripts/make_manuscript_tables.py` into
@@ -1268,7 +1302,7 @@ caption.
 
 Draft captions live under each section's **Display items** block (moved
 2026-07-21f for easier reading), together with LaTeX panel-assembly drafts
-for the multi-file figures (5, 7, 9, 10). Shared caveats: numerical values
+for the multi-file figures (10, 11). Shared caveats: numerical values
 must be re-verified against the frozen fold-PCA tag at writing time (§7);
 captions use the lowercase italic l′ notation (2026-07-22 final) and the AK-only reference decision; internal
 "Sect. X" references to be resolved in LaTeX.
@@ -1552,7 +1586,7 @@ Planned items:
   `figD3_tccon_r50` (copy of `<TAG>/atrain/tccon_ak_bias_r50km.png`);
 - **Fig. D4:** compact station-grouped summary ONLY (all 75 individual
   station-day before/after panels move to Supplement S1, 2026-07-22m;
-  drop D4 entirely if the summary duplicates Fig. 7a) — candidate
+  drop D4 entirely if the summary duplicates Fig. 7) — candidate
   staged 2026-07-22o: `figD4_station_summary` (copy of
   `<TAG>/atrain/tccon_ak_by_site_bias_r100km.png`);
 - **Fig. D5:** random-effects residual forest plot, derived from working A9;
@@ -1580,7 +1614,7 @@ Include:
 Planned items:
 
 - **Fig. D6:** ATom summary, sourced from working figure A8 — include only
-  if it adds beyond main-text Fig. 9a, else the ocean subsection is
+  if it adds beyond main-text Fig. 10a, else the ocean subsection is
   methods + tables only;
 - ~~Figs. H2–Hn, ship individual cases~~: all per-date ATom panels and
   individual ship cases move to Supplement S2 (2026-07-22m; the ocean
@@ -1821,8 +1855,8 @@ in `plot_style.py`, macros in `supplement.tex` — never retype):**
 | anomaly target (xco2_bc_anomaly) | \(\Delta X_{\mathrm{CO2}}^{\mathrm{B11}}\) | `DXCO2_BC_LABEL` |
 
 Applied 2026-07-23 to fig03/fig03alt/figB2/fig05 (+ ocean companion).
-The copied report figures that display XCO2 axes (fig07a, fig08,
-fig09a/b, figD2–D4, figE2) still carry generic labels — adopt the
+The copied report figures that display XCO2 axes (fig07, fig09,
+fig10a/b, figD2–D4, figE2) still carry generic labels — adopt the
 superscripts when their producers are next re-rendered (ATom/ship
 producers live in workspace/ATom_analysis + Ship_analysis).
 
@@ -1848,7 +1882,7 @@ summary text:
 7. **Notation:** regenerate remaining figures that still use the retired
    capital \(L'\) (2026-07-22 final form: lowercase Times-italic \(l'\) —
    the 2026-07-11 Times-italic figures are already consistent; fig04 and
-   fig10b regenerated).
+   the k1-contrast figure (now fig11b) regenerated).
 8. **Near-cloud coverage statistics:** re-freeze the Results 4.1 sentence on
    the final analysis cohort. 2026-07-21 values from
    `combined_2016_2020_dates.parquet` (17.75 M valid-cloud-distance

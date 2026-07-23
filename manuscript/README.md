@@ -26,7 +26,8 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
   generator are COPIES from the analysis trees (sources and status in the
   Display items blocks of `log/MANUSCRIPT_FLOW_PLAN.md`): figF1_case_tasman
   (Appendix F Tasman showcase, Times-italic l′ — final convention),
-  fig07a, fig08, fig09a, fig09b, fig10a, and the appendix copies staged
+  fig07 (dumbbell), fig09 (smoother), fig10a/fig10b (ATom/ship),
+  fig11a (Westar), and the appendix copies staged
   2026-07-22o — figD2a/figD2b (QF0/QF1 TCCON), figD3 (r50), figD4
   (station summary), figE2a/figE2b (far-cloud/clear-day controls), figE3
   (failure modes) — all from the production fold-PCA report tree
@@ -76,10 +77,11 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
     from spec_sensitivity/shadow_brightening_stats.csv, bottom legend;
     --surface ocean → internal_shadow_brightening_ocean)
   - `make_baseline_ablation_figure.py` → fig06 (Results 4.3)
-  - `make_significance_panel.py` → fig07b (Results 4.4 significance panel;
-    7a is the copied station-day dumbbell `fig07a_tccon_dumbbell`)
-  - `make_k1_contrast_figure.py` → fig10b (Results 4.7 plume-safety panel;
-    10a is the copied Westar transect `fig10a_westar_transect`)
+  - `make_significance_panel.py` → fig08 (Results 4.4 significance figure
+    — split from the former two-panel Fig. 7, 2026-07-23; Fig. 7 is the
+    copied station-day dumbbell `fig07_tccon_dumbbell`)
+  - `make_k1_contrast_figure.py` → fig11b (Results 4.7 plume-safety panel;
+    11a is the copied Westar transect `fig11a_westar_transect`)
   - `make_cv_design_figure.py` → figC3b (Appendix C CV-design schematic;
     falls back to a stylized timeline when the fold manifests are not
     local — regenerate on a machine with the production fold dirs before

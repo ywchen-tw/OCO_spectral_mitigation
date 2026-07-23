@@ -19,7 +19,7 @@ Data (read directly, one row per case):
     nassar_plumes/plume_preservation/nassar_k1_contrast.csv
 Context: log/SPEC_EMPHASIS_STATUS_2026-07-08.md section 2 (item 3).
 
-Output: manuscript/figures/fig10b_k1_contrast.{png,pdf}
+Output: manuscript/figures/fig11b_k1_contrast.{png,pdf}
 """
 from __future__ import annotations
 
@@ -148,7 +148,7 @@ def main() -> None:
 
     fig.tight_layout()
     for ext in ("png", "pdf"):
-        out = OUT_DIR / f"fig10b_k1_contrast.{ext}"
+        out = OUT_DIR / f"fig11b_k1_contrast.{ext}"
         fig.savefig(out)
         print(f"wrote {out}")
 
