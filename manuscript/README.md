@@ -24,9 +24,7 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
 - `figures/` — final manuscript figures (pdf+png), written directly by the
   generators in `scripts/` where one exists. Figures without a local
   generator are COPIES from the analysis trees (sources and status in the
-  Display items blocks of `log/MANUSCRIPT_FLOW_PLAN.md`): fig05
-  (pre-restyle `results/figures/cld_dist_analysis/` output — regenerate
-  via `run_all.py` on the next full-parquet pass), figF1_case_tasman
+  Display items blocks of `log/MANUSCRIPT_FLOW_PLAN.md`): figF1_case_tasman
   (Appendix F Tasman showcase, Times-italic l′ — final convention),
   fig07a, fig08, fig09a, fig09b, fig10a, and the appendix copies staged
   2026-07-22o — figD2a/figD2b (QF0/QF1 TCCON), figD3 (r50), figD4
@@ -74,6 +72,9 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
     `--qf {0,1,all}` selects the quality-flag population, writing the
     Appendix B4 files `figB4a_landclass_qf1`/`figB4b_landclass_allqf` —
     only the barren column is QF-sensitive, see plan 2026-07-22g)
+  - `make_shadow_brightening_figure.py` → fig05 (Results 4.2; redraws
+    from spec_sensitivity/shadow_brightening_stats.csv, bottom legend;
+    --surface ocean → internal_shadow_brightening_ocean)
   - `make_baseline_ablation_figure.py` → fig06 (Results 4.3)
   - `make_significance_panel.py` → fig07b (Results 4.4 significance panel;
     7a is the copied station-day dumbbell `fig07a_tccon_dumbbell`)

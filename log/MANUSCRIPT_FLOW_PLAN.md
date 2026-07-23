@@ -154,6 +154,11 @@ PENDING on ceiling-column semantics (achieved ocean R² exceeds
 r2max_ref_ret — resolve with the original ceiling analysis before
 plotting), C6 covered by Fig. 6b + Table C7, C7 pending ML-on-raw
 artifacts.  
+**Updated:** 2026-07-22r — Fig. 5 regenerated in the locked style from
+`shadow_brightening_stats.csv` (new `make_shadow_brightening_figure.py`;
+legend moved below the panels — it covered the O2A curves — and the
+pre-restyle/full-parquet caveat is cleared); ocean companion written to
+`internal_shadow_brightening_ocean`.  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -693,11 +698,13 @@ long); category atlases are in Supplement S3.
   only without the QF filter) are not interpreted.
 - **Fig. 5** — shadow vs brightening branches (O2A exp-intercept split) with
   opposite XCO2 responses; single panel since 2026-07-22c (the Tasman RGB
-  case study moved to Appendix F — too long for the main text). Copy
-  exists: `manuscript/figures/fig05_shadow_brightening_land` (from
-  `results/figures/cld_dist_analysis/spec_sensitivity/`; PREDATES the
-  locked style — regenerate on the next full-parquet pass; ocean variant
-  available as appendix companion).
+  case study moved to Appendix F — too long for the main text).
+  REGENERATED in the locked style 2026-07-22r by
+  `manuscript/scripts/make_shadow_brightening_figure.py` (redraws from the
+  saved `shadow_brightening_stats.csv` — no parquet run needed; legend
+  moved BELOW the panels, the old in-panel legend covered the O2A curves;
+  pre-restyle caveat cleared). Ocean companion staged as
+  `internal_shadow_brightening_ocean` until it gets a slot.
 - No main-text table; the Tasman case is Appendix F (Fig. F1); category
   atlases and inventories are Supplement S3.
 
