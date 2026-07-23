@@ -228,6 +228,9 @@ as Fig. 10): fingerprint panel retagged (b)→(d) so the composite runs
 and expected-signature legend (MEAN_L_LABEL); Westar transect
 regenerated with X_CO2^B11 / X_CO2^DE legend labels
 (nassar_plume_transects.py adopts the plot_style constants).  
+**Updated:** 2026-07-22ad — Fig. 11 caption: "±1 SE" spelled out
+(standard error of the window-mean difference; plume + background
+SEMs in quadrature — verified against nassar_k1_contrast.py).  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -1240,7 +1243,9 @@ The required interpretation is:
 > catalogue): XCO2 before and after correction (a), the predicted
 > correction μ (b), and nearest-cloud distance (c). (d) Band-resolved
 > Δ⟨l′⟩ (plume window minus background; ±1 SE) for the two flagged
-> removal windows and two clear-sky controls. Black ticks: signature
+> removal windows and two clear-sky controls; error bars are ±1 standard
+> error of the window-mean difference (plume-window and background SEMs
+> combined in quadrature). Black ticks: signature
 > expected of a real CO2 plume (Δ⟨l′⟩ ≈ ⟨l′⟩·ΔXCO2/XCO2 in the CO2 bands
 > via the prior-based optical depth; exactly zero in O2A).
 
