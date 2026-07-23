@@ -1,0 +1,349 @@
+\begin{thebibliography}{48}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\providecommand{\urlprefix}{}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{https://doi.org/\discretionary{}{}{}#1}\else
+  \providecommand{\doi}{https://doi.org/\discretionary{}{}{}\begingroup
+  \urlstyle{rm}\Url}\fi
+
+\bibitem[{Buschmann et~al.(2022)Buschmann, Petri, Palm, Warneke, and
+  Notholt}]{tccon-ny-dataref}
+Buschmann, M., Petri, C., Palm, M., Warneke, T., and Notholt, J.: TCCON data
+  from Ny-Ålesund, Svalbard (NO), Release GGG2020.R0,
+  \doi{10.14291/TCCON.GGG2020.NYALESUND01.R0}, 2022.
+
+\bibitem[{Das et~al.(2025)}]{das2025oco2_v111_tccon_ggg2020}
+Das, S. et~al.: Comparisons of v11.1 OCO-2 XCO2 with GGG2020 TCCON, Earth and
+  Space Science, 12, e2024EA003\,935, \doi{10.1029/2024EA003935}, 2025.
+
+\bibitem[{De~Mazière et~al.(2022)De~Mazière, Sha, Desmet, Hermans, Scolas,
+  Kumps, Zhou, Metzger, Duflot, and Cammas}]{tccon-ra-dataref}
+De~Mazière, M., Sha, M.~K., Desmet, F., Hermans, C., Scolas, F., Kumps, N.,
+  Zhou, M., Metzger, J.-M., Duflot, V., and Cammas, J.-P.: TCCON data from
+  Réunion Island (RE), Release GGG2020.R0,
+  \doi{10.14291/TCCON.GGG2020.REUNION01.R0}, 2022.
+
+\bibitem[{Deutscher et~al.(2023{\natexlab{a}})Deutscher, Griffith, Paton-Walsh,
+  Jones, Velazco, Wilson, Macatangay, Kettlewell, Buchholz, Riggenbach, Bukosa,
+  John, Walker, and Nawaz}]{tccon-wg-dataref}
+Deutscher, N.~M., Griffith, D.~W., Paton-Walsh, C., Jones, N.~B., Velazco,
+  V.~A., Wilson, S.~R., Macatangay, R.~C., Kettlewell, G.~C., Buchholz, R.~R.,
+  Riggenbach, M.~O., Bukosa, B., John, S.~S., Walker, B.~T., and Nawaz, H.:
+  TCCON data from Wollongong (AU), Release GGG2020.R0,
+  \doi{10.14291/TCCON.GGG2020.WOLLONGONG01.R0}, 2023{\natexlab{a}}.
+
+\bibitem[{Deutscher et~al.(2023{\natexlab{b}})Deutscher, Griffith, Paton-Walsh,
+  Velazco, Wennberg, Blavier, Washenfelder, Yavin, Keppel-Aleks, Toon, Jones,
+  Kettlewell, Connor, Macatangay, Wunch, Roehl, and Bryant}]{tccon-db-dataref}
+Deutscher, N.~M., Griffith, D.~W., Paton-Walsh, C., Velazco, V.~A., Wennberg,
+  P.~O., Blavier, J.-F., Washenfelder, R.~A., Yavin, Y., Keppel-Aleks, G.,
+  Toon, G.~C., Jones, N.~B., Kettlewell, G.~C., Connor, B.~J., Macatangay,
+  R.~C., Wunch, D., Roehl, C., and Bryant, G.~W.: TCCON data from Darwin (AU),
+  Release GGG2020.R0, \doi{10.14291/TCCON.GGG2020.DARWIN01.R0},
+  2023{\natexlab{b}}.
+
+\bibitem[{Deutscher et~al.({2010})Deutscher, Griffith, Bryant, Wennberg, Toon,
+  Washenfelder, Keppel-Aleks, Wunch, Yavin, Allen, Blavier, Jimenez, Daube,
+  Bright, Matross, Wofsy, and Park}]{tccon-db-siteref}
+Deutscher, N.~M., Griffith, D. W.~T., Bryant, G.~W., Wennberg, P.~O., Toon,
+  G.~C., Washenfelder, R.~A., Keppel-Aleks, G., Wunch, D., Yavin, Y.~G., Allen,
+  N.~T., Blavier, J.-F.~L., Jimenez, R., Daube, B.~C., Bright, A.~V., Matross,
+  D.~M., Wofsy, S.~C., and Park, S.: {Total column CO2 measurements at Darwin,
+  Australia - site description and calibration against in situ aircraft
+  profiles}, {Atmos. Meas. Tech.}, {3}, {947--958},
+  \doi{{10.5194/amt-3-947-2010}}, {2010}.
+
+\bibitem[{Dubey et~al.(2022)Dubey, Henderson, Allen, Blavier, Roehl, and
+  Wunch}]{tccon-ma-dataref}
+Dubey, M.~K., Henderson, B.~G., Allen, N.~T., Blavier, J.-F., Roehl, C.~M., and
+  Wunch, D.: TCCON data from Manaus (BR), Release GGG2020.R0,
+  \doi{10.14291/TCCON.GGG2020.MANAUS01.R0}, 2022.
+
+\bibitem[{Dubey et~al.({2016})Dubey, Parker, Wennberg, Wunch, Jacobson, Kawa,
+  Keppel-Aleks, Basu, O'Dell, Frankenberg, Michalak, Baker, Christofferson,
+  Restrepo-Coupe, Saleska, De~Araujo, and Miller}]{tccon-ma-siteref}
+Dubey, M.~K., Parker, H.~A., Wennberg, P.~O., Wunch, D., Jacobson, A.~R., Kawa,
+  S.~R., Keppel-Aleks, G., Basu, S., O'Dell, C., Frankenberg, C., Michalak,
+  A.~M., Baker, D.~F., Christofferson, B., Restrepo-Coupe, N., Saleska, S.~R.,
+  De~Araujo, A.~C., and Miller, J.~B.: {Seasonal \& Daily Amazon Column CO2 \&
+  CO Observations from Ground \& Space Used to Evaluate Tropical Ecosystem
+  Models, American Geophysical Union, Fall Meeting 2016, abstract \#B33C-0623},
+  {2016}.
+
+\bibitem[{Friedl and Sulla-Menashe(2022)}]{friedl2022mcd12c1_v061}
+Friedl, M. and Sulla-Menashe, D.: MCD12C1 MODIS/Terra+Aqua Land Cover Type
+  Yearly L3 Global 0.05 degree CMG, Version 061,
+  \doi{10.5067/MODIS/MCD12C1.061}, 2022.
+
+\bibitem[{García et~al.(2022)García, Schneider, Herkommer, Gross, Hase,
+  Blumenstock, and Sepúlveda}]{tccon-iz-dataref}
+García, O.~E., Schneider, M., Herkommer, B., Gross, J., Hase, F., Blumenstock,
+  T., and Sepúlveda, E.: TCCON data from Izana (ES), Release GGG2020.R1,
+  \doi{10.14291/TCCON.GGG2020.IZANA01.R1}, 2022.
+
+\bibitem[{Hanft et~al.(2021)Hanft, Kleinschek, Knapp, and
+  Butz}]{hanft2021mr2101_pangaea}
+Hanft, V., Kleinschek, R., Knapp, M., and Butz, A.: Column-averaged dry-air
+  mole fractions of CO2, CH4, and CO from direct sunlight measurements above
+  the Western North Pacific during the MR21-01 campaign 2021,
+  \doi{10.1594/PANGAEA.937933}, 2021.
+
+\bibitem[{Hase et~al.(2024)Hase, Herkommer, Groß, Blumenstock, Kiel, and
+  Dohe}]{tccon-ka-dataref}
+Hase, F., Herkommer, B., Groß, J., Blumenstock, T., Kiel, M., and Dohe, S.:
+  TCCON data from Karlsruhe (DE), Release GGG2020.R2,
+  \doi{10.14291/TCCON.GGG2020.KARLSRUHE01.R2}, 2024.
+
+\bibitem[{Iraci et~al.(2022)Iraci, Podolske, Roehl, Wennberg, Blavier, Allen,
+  Wunch, and Osterman}]{tccon-df-dataref}
+Iraci, L.~T., Podolske, J.~R., Roehl, C., Wennberg, P.~O., Blavier, J.-F.,
+  Allen, N., Wunch, D., and Osterman, G.~B.: TCCON data from Edwards (US),
+  Release GGG2020.R0, \doi{10.14291/TCCON.GGG2020.EDWARDS01.R0}, 2022.
+
+\bibitem[{Irvine(1964)}]{irvine1964}
+Irvine, W.~M.: The Formation of Absorption Bands and the Distribution of Photon
+  Optical Paths in a Scattering Atmosphere, Bulletin of the Astronomical
+  Institutes of the Netherlands, 17, 266--279, 1964.
+
+\bibitem[{Knapp et~al.(2020)Knapp, Kleinschek, and
+  Butz}]{knapp2020more2_pangaea}
+Knapp, M., Kleinschek, R., and Butz, A.: Column-averaged dry-air mole fractions
+  of CO2, CH4, and CO from direct sunlight measurements above the Pacific
+  during the MORE-2 campaign 2019, \doi{10.1594/PANGAEA.917240}, 2020.
+
+\bibitem[{Laughner et~al.(2024)Laughner, Toon, Mendonca, Petri, Roche, Wunch,
+  Blavier, Griffith, Heikkinen, Keeling, Kiel, Kivi, Roehl, Stephens, Baier,
+  Chen, Choi, Deutscher, DiGangi, Gross, Herkommer, Jeseck, Laemmel, Lan,
+  McGee, McKain, Miller, Morino, Notholt, Ohyama, Pollard, Rettinger, Riris,
+  Rousogenous, Sha, Shiomi, Strong, Sussmann, Te, Velazco, Wofsy, Zhou, and
+  Wennberg}]{laughner2024ggg2020}
+Laughner, J.~L., Toon, G.~C., Mendonca, J., Petri, C., Roche, S., Wunch, D.,
+  Blavier, J.-F., Griffith, D. W.~T., Heikkinen, P., Keeling, R.~F., Kiel, M.,
+  Kivi, R., Roehl, C.~M., Stephens, B.~B., Baier, B.~C., Chen, H., Choi, Y.,
+  Deutscher, N.~M., DiGangi, J.~P., Gross, J., Herkommer, B., Jeseck, P.,
+  Laemmel, T., Lan, X., McGee, E., McKain, K., Miller, J., Morino, I., Notholt,
+  J., Ohyama, H., Pollard, D.~F., Rettinger, M., Riris, H., Rousogenous, C.,
+  Sha, M.~K., Shiomi, K., Strong, K., Sussmann, R., Te, Y., Velazco, V.~A.,
+  Wofsy, S.~C., Zhou, M., and Wennberg, P.~O.: The Total Carbon Column
+  Observing Network's GGG2020 data version, Earth System Science Data, 16,
+  2197--2260, \doi{10.5194/essd-16-2197-2024}, 2024.
+
+\bibitem[{McKain and Sweeney(2021)}]{mckain2021atom_picarro}
+McKain, K. and Sweeney, C.: ATom: CO2, CH4, and CO Measurements from Picarro,
+  2016-2018, \doi{10.3334/ORNLDAAC/1732}, 2021.
+
+\bibitem[{Morino et~al.(2022{\natexlab{a}})Morino, Ohyama, Hori, and
+  Ikegami}]{tccon-rj-dataref}
+Morino, I., Ohyama, H., Hori, A., and Ikegami, H.: TCCON data from Rikubetsu
+  (JP), Release GGG2020.R0, \doi{10.14291/TCCON.GGG2020.RIKUBETSU01.R0},
+  2022{\natexlab{a}}.
+
+\bibitem[{Morino et~al.(2022{\natexlab{b}})Morino, Velazco, Hori, Uchino, and
+  Griffith}]{tccon-bu-dataref}
+Morino, I., Velazco, V.~A., Hori, A., Uchino, O., and Griffith, D.~W.: TCCON
+  data from Burgos, Ilocos Norte (PH), Release GGG2020.R0,
+  \doi{10.14291/TCCON.GGG2020.BURGOS01.R0}, 2022{\natexlab{b}}.
+
+\bibitem[{{NASA Goddard Earth Sciences Data and Information Services
+  Center}(2019)}]{oco2_l2_co2prior_11r}
+{NASA Goddard Earth Sciences Data and Information Services Center}: OCO-2 Level
+  2 CO2 prior based on CO2 monthly flask record, global meteorology, and age of
+  air, Retrospective Processing V11r (OCO2\_L2\_CO2Prior) at GES DISC,
+  \urlprefix\url{https://disc.gsfc.nasa.gov/datacollection/OCO2\_L2\_CO2Prior\_11r.html},
+  2019.
+
+\bibitem[{{NASA Goddard Earth Sciences Data and Information Services
+  Center}(2022{\natexlab{a}})}]{oco2_l1b_science_11r}
+{NASA Goddard Earth Sciences Data and Information Services Center}: OCO-2 Level
+  1B calibrated, geolocated science spectra, Retrospective Processing V11r
+  (OCO2\_L1B\_Science) at GES DISC,
+  \urlprefix\url{https://disc.gsfc.nasa.gov/datacollection/OCO2\_L1B\_Science\_11r.html},
+  2022{\natexlab{a}}.
+
+\bibitem[{{NASA Goddard Earth Sciences Data and Information Services
+  Center}(2022{\natexlab{b}})}]{oco2_l2_lite_fp_112r}
+{NASA Goddard Earth Sciences Data and Information Services Center}: OCO-2 Level
+  2 bias-corrected XCO2 and other select fields from the full-physics retrieval
+  aggregated as daily files, Retrospective processing V11.2r
+  (OCO2\_L2\_Lite\_FP) at GES DISC,
+  \urlprefix\url{https://disc.gsfc.nasa.gov/datacollection/OCO2\_L2\_Lite\_FP\_11.2r.html},
+  2022{\natexlab{b}}.
+
+\bibitem[{{NASA Goddard Earth Sciences Data and Information Services
+  Center}(2022{\natexlab{c}})}]{oco2_l2_met_11r}
+{NASA Goddard Earth Sciences Data and Information Services Center}: OCO-2 Level
+  2 meteorological parameters interpolated from global assimilation model for
+  each sounding, Retrospective Processing V11r (OCO2\_L2\_Met) at GES DISC,
+  \urlprefix\url{https://disc.gsfc.nasa.gov/datacollection/OCO2\_L2\_Met\_11r.html},
+  2022{\natexlab{c}}.
+
+\bibitem[{{NASA Goddard Earth Sciences Data and Information Services
+  Center}(2024{\natexlab{a}})}]{oco2_l1b_science_112r}
+{NASA Goddard Earth Sciences Data and Information Services Center}: OCO-2 Level
+  1B calibrated, geolocated science spectra Retrospective Processing V11.2r
+  (OCO2\_L1B\_Science) at GES DISC,
+  \urlprefix\url{https://disc.gsfc.nasa.gov/datacollection/OCO2\_L1B\_Science\_11.2r.html},
+  2024{\natexlab{a}}.
+
+\bibitem[{{NASA Goddard Earth Sciences Data and Information Services
+  Center}(2024{\natexlab{b}})}]{oco2_l2_co2prior_112r}
+{NASA Goddard Earth Sciences Data and Information Services Center}: OCO-2 Level
+  2 CO2 prior based on CO2 monthly flask record, global meteorology, and age of
+  air Retrospective Processing V11.2r (OCO2\_L2\_CO2Prior) at GES DISC,
+  \urlprefix\url{https://disc.gsfc.nasa.gov/datacollection/OCO2\_L2\_CO2Prior\_11.2r.html},
+  2024{\natexlab{b}}.
+
+\bibitem[{{NASA Goddard Earth Sciences Data and Information Services
+  Center}(2024{\natexlab{c}})}]{oco2_l2_met_112r}
+{NASA Goddard Earth Sciences Data and Information Services Center}: OCO-2 Level
+  2 meteorological parameters interpolated from global assimilation model for
+  each sounding Retrospective Processing V11.2r (OCO2\_L2\_Met) at GES DISC,
+  \urlprefix\url{https://disc.gsfc.nasa.gov/datacollection/OCO2\_L2\_Met\_11.2r.html},
+  2024{\natexlab{c}}.
+
+\bibitem[{{NASA Goddard Earth Sciences Data and Information Services
+  Center}(2026)}]{oco2_l2_lite_fp_113r}
+{NASA Goddard Earth Sciences Data and Information Services Center}: OCO-2 Level
+  2 bias-corrected XCO2 and other select fields from the full-physics retrieval
+  aggregated as daily files, Retrospective processing V11.3r
+  (OCO2\_L2\_Lite\_FP) at GES DISC,
+  \urlprefix\url{https://disc.gsfc.nasa.gov/datacollection/OCO2\_L2\_Lite\_FP\_11.3r.html},
+  2026.
+
+\bibitem[{{NASA Level-1 and Atmosphere Archive and Distribution System
+  Distributed Active Archive Center}(2021{\natexlab{a}})}]{myd03_061}
+{NASA Level-1 and Atmosphere Archive and Distribution System Distributed Active
+  Archive Center}: MODIS/Aqua Geolocation Fields 5-Min L1A Swath 1km,
+  Collection 6.1 (MYD03), \doi{10.5067/MODIS/MYD03.061}, 2021{\natexlab{a}}.
+
+\bibitem[{{NASA Level-1 and Atmosphere Archive and Distribution System
+  Distributed Active Archive Center}(2021{\natexlab{b}})}]{myd35_l2_061}
+{NASA Level-1 and Atmosphere Archive and Distribution System Distributed Active
+  Archive Center}: MODIS/Aqua Cloud Mask and Spectral Test Results 5-Min L2
+  Swath 250m and 1km, Collection 6.1 (MYD35\_L2),
+  \doi{10.5067/MODIS/MYD35_L2.061}, 2021{\natexlab{b}}.
+
+\bibitem[{{OCO-2/OCO-3 Science Team} and Payne(2026)}]{oco2_absco_tables_v52}
+{OCO-2/OCO-3 Science Team} and Payne, V.: OCO-2 Ancillary Absorption
+  Coefficient Tables V5.2, \doi{10.5067/GLXITH8Z0BIF}, please acknowledge NASA
+  and the ACOS/OCO-2/OCO-3 projects when using these tables, 2026.
+
+\bibitem[{Ohyama et~al.({2015})Ohyama, Kawakami, Tanaka, Morino, Uchino, Inoue,
+  Sakai, Nagai, Yamazaki, Uchiyama, Fukamachi, Sakashita, Kawasaki, Akaho,
+  Arai, and Okumura}]{tccon-js-siteref}
+Ohyama, H., Kawakami, S., Tanaka, T., Morino, I., Uchino, O., Inoue, M., Sakai,
+  T., Nagai, T., Yamazaki, A., Uchiyama, A., Fukamachi, T., Sakashita, M.,
+  Kawasaki, T., Akaho, T., Arai, K., and Okumura, H.: {Observations of XCO2 and
+  XCH4 with ground-based high-resolution FTS at Saga, Japan, and comparisons
+  with GOSAT products}, {Atmos. Meas. Tech.}, {8}, {5263--5276},
+  \doi{{10.5194/amt-8-5263-2015}}, {2015}.
+
+\bibitem[{Partain et~al.(2000)Partain, Heidinger, and Stephens}]{partain2000}
+Partain, P.~T., Heidinger, A.~K., and Stephens, G.~L.: High Spectral Resolution
+  Atmospheric Radiative Transfer: Application of the Equivalence Theorem,
+  Journal of Geophysical Research: Atmospheres, 105, 2163--2177,
+  \doi{10.1029/1999JD900328}, 2000.
+
+\bibitem[{Rodgers and Connor(2003)}]{rodgers2003intercomparison}
+Rodgers, C.~D. and Connor, B.~J.: Intercomparison of remote sounding
+  instruments, Journal of Geophysical Research: Atmospheres, 108, 4116,
+  \doi{10.1029/2002JD002299}, 2003.
+
+\bibitem[{Seitzer et~al.(2022)Seitzer, Tavakoli, Antic, and
+  Martius}]{seitzer2022pitfalls}
+Seitzer, M., Tavakoli, A., Antic, D., and Martius, G.: On the pitfalls of
+  heteroscedastic uncertainty estimation with probabilistic neural networks,
+  arXiv preprint arXiv:2203.09168, 2022.
+
+\bibitem[{Shiomi et~al.(2022)Shiomi, Kawakami, Ohyama, Arai, Okumura, Ikegami,
+  and Usami}]{tccon-js-dataref}
+Shiomi, K., Kawakami, S., Ohyama, H., Arai, K., Okumura, H., Ikegami, H., and
+  Usami, M.: TCCON data from Saga (JP), Release GGG2020.R0,
+  \doi{10.14291/TCCON.GGG2020.SAGA01.R0}, 2022.
+
+\bibitem[{Stephens and Heidinger(2000)}]{stephens2000}
+Stephens, G.~L. and Heidinger, A.~K.: Molecular Line Absorption in a Scattering
+  Atmosphere. Part {I}: Theory, Journal of the Atmospheric Sciences, 57,
+  1599--1614, \doi{10.1175/1520-0469(2000)057<1599:MLAIAS>2.0.CO;2}, 2000.
+
+\bibitem[{Té et~al.(2022)Té, Jeseck, and Janssen}]{tccon-pr-dataref}
+Té, Y., Jeseck, P., and Janssen, C.: TCCON data from Paris (FR), Release
+  GGG2020.R0, \doi{10.14291/TCCON.GGG2020.PARIS01.R0}, 2022.
+
+\bibitem[{Velazco et~al.({2017})Velazco, Morino, Uchino, Hori, Kiel, Bukosa,
+  Deutscher, Sakai, Nagai, Bagtasa, Izumi, Yoshida, and
+  Griffith}]{tccon-bu-siteref}
+Velazco, V., Morino, I., Uchino, O., Hori, A., Kiel, M., Bukosa, B., Deutscher,
+  N., Sakai, T., Nagai, T., Bagtasa, G., Izumi, T., Yoshida, Y., and Griffith,
+  D.: {TCCON Philippines: First Measurement Results, Satellite Data and Model
+  Comparisons in Southeast Asia}, {Remote Sensing}, {9}, {1228},
+  \doi{{10.3390/rs9121228}}, {2017}.
+
+\bibitem[{Warneke et~al.(2024)Warneke, Petri, Notholt, and
+  Buschmann}]{tccon-or-dataref}
+Warneke, T., Petri, C., Notholt, J., and Buschmann, M.: TCCON data from
+  Orléans (FR), Release GGG2020.R1, \doi{10.14291/TCCON.GGG2020.ORLEANS01.R1},
+  2024.
+
+\bibitem[{Washenfelder et~al.({2006})Washenfelder, Toon, Blavier, Yang, Allen,
+  Wennberg, Vay, Matross, and Daube}]{tccon-pa-siteref}
+Washenfelder, R.~A., Toon, G.~C., Blavier, J.-F.~L., Yang, Z., Allen, N.~T.,
+  Wennberg, P.~O., Vay, S.~A., Matross, D.~M., and Daube, B.~C.: {Carbon
+  dioxide column abundances at the Wisconsin Tall Tower site}, {J. Geophys.
+  Res. Atmos.}, {111}, {D22\,305}, \doi{{10.1029/2006JD007154}}, {2006}.
+
+\bibitem[{Wennberg et~al.(2022{\natexlab{a}})Wennberg, Roehl, Wunch, Blavier,
+  Toon, Allen, Treffers, and Laughner}]{tccon-ci-dataref}
+Wennberg, P.~O., Roehl, C., Wunch, D., Blavier, J.-F., Toon, G.~C., Allen,
+  N.~T., Treffers, R., and Laughner, J.: TCCON data from Caltech (US), Release
+  GGG2020.R0, \doi{10.14291/TCCON.GGG2020.PASADENA01.R0}, 2022{\natexlab{a}}.
+
+\bibitem[{Wennberg et~al.(2022{\natexlab{b}})Wennberg, Roehl, Wunch, Toon,
+  Blavier, Washenfelder, Keppel-Aleks, and Allen}]{tccon-pa-dataref}
+Wennberg, P.~O., Roehl, C.~M., Wunch, D., Toon, G.~C., Blavier, J.-F.,
+  Washenfelder, R., Keppel-Aleks, G., and Allen, N.~T.: TCCON data from Park
+  Falls (US), Release GGG2020.R1, \doi{10.14291/TCCON.GGG2020.PARKFALLS01.R1},
+  2022{\natexlab{b}}.
+
+\bibitem[{Wennberg et~al.(2025)Wennberg, Wunch, Roehl, Blavier, Toon, and
+  Allen}]{tccon-oc-dataref}
+Wennberg, P.~O., Wunch, D., Roehl, C.~M., Blavier, J.-F., Toon, G.~C., and
+  Allen, N.~T.: TCCON data from Lamont (US), Release GGG2020.R1,
+  \doi{10.14291/TCCON.GGG2020.LAMONT01.R1}, 2025.
+
+\bibitem[{Wofsy and {ATom Science Team}(2018)}]{wofsy2018atom_nav}
+Wofsy, S.~C. and {ATom Science Team}: ATom: Aircraft Flight Track and
+  Navigational Data, \doi{10.3334/ORNLDAAC/1613}, 2018.
+
+\bibitem[{Wunch et~al.(2011)Wunch, Toon, Blavier, Washenfelder, Notholt,
+  Connor, Griffith, Sherlock, and Wennberg}]{wunch2011tccon_network}
+Wunch, D., Toon, G.~C., Blavier, J.-F.~L., Washenfelder, R.~A., Notholt, J.,
+  Connor, B.~J., Griffith, D. W.~T., Sherlock, V., and Wennberg, P.~O.: The
+  Total Carbon Column Observing Network, Philosophical Transactions of the
+  Royal Society A: Mathematical, Physical and Engineering Sciences, 369,
+  2087--2112, \doi{10.1098/rsta.2010.0240}, 2011.
+
+\bibitem[{Wunch et~al.(2022)Wunch, Mendonca, Colebatch, Allen, Blavier, Kunz,
+  Roche, Hedelius, Neufeld, Springett, Worthy, Kessler, and
+  Strong}]{tccon-et-dataref}
+Wunch, D., Mendonca, J., Colebatch, O., Allen, N.~T., Blavier, J.-F., Kunz, K.,
+  Roche, S., Hedelius, J., Neufeld, G., Springett, S., Worthy, D., Kessler, R.,
+  and Strong, K.: TCCON data from East Trout Lake, SK (CA), Release GGG2020.R0,
+  \doi{10.14291/TCCON.GGG2020.EASTTROUTLAKE01.R0}, 2022.
+
+\bibitem[{Yang et~al.({2020})Yang, Zhou, Langerock, Sha, Hermans, Wang, Ji,
+  Vigouroux, Kumps, Wang, De~Mazi\`ere, and Wang}]{tccon-xh-siteref}
+Yang, Y., Zhou, M., Langerock, B., Sha, M.~K., Hermans, C., Wang, T., Ji, D.,
+  Vigouroux, C., Kumps, N., Wang, G., De~Mazi\`ere, M., and Wang, P.: {New
+  ground-based Fourier-transform near-infrared solar absorption measurements of
+  XCO2, XCH4 and XCO at Xianghe, China}, {Earth Syst. Sci. Data}, {12},
+  {1679--1696}, \doi{{10.5194/essd-12-1679-2020}}, {2020}.
+
+\bibitem[{Zhou et~al.(2022)Zhou, Wang, Kumps, Hermans, and
+  Nan}]{tccon-xh-dataref}
+Zhou, M., Wang, P., Kumps, N., Hermans, C., and Nan, W.: TCCON data from
+  Xianghe, China, Release GGG2020.R0,
+  \doi{10.14291/TCCON.GGG2020.XIANGHE01.R0}, 2022.
+
+\end{thebibliography}

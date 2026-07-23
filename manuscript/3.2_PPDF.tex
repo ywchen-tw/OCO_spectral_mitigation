@@ -1,0 +1,316 @@
+\subsection{Spectrum-internal Features from Photon-Path Distribution Function}
+\label{sec:methods_photon_path}
+
+%\subsubsection{HEADING}
+
+We derived spectral features based on the photon path distribution function (PPDF) assumptions that summarize the distribution of atmospheric
+photon paths represented in each OCO-2 absorption band. The derivation follows
+the radiative-transfer equivalence theorem
+\citep{irvine1964,partain2000,stephens2000}. 
+
+
+For a fixed illumination and viewing geometry with solar zenith angle (SZA) and viewing zenith angle (VZA), let $P_0(l)$ denote the ensemble of photon trajectories $l$ from the top of the atmosphere (TOA) reaching the detector in a conservative reference atmosphere with the same surface boundary and continuum scattering properties. The photon trajectories $l$ are mainly determined by multiple-scattering within the atmosphere by air molecules, clouds, and aerosols. Across each narrow OCO-2 band, we assume that these scattering properties vary slowly relative to molecular line absorption, so $P_0(l)$ is the same within each narrow band.  Wavelengths then changes the contribution $w_\lambda$ of a trajectory primarily through its Beer--Lambert survival probability,
+%
+\begin{equation}
+  w_\lambda(l)
+  = \exp[-\tau_\lambda(l)],
+  \qquad
+  \tau_\lambda(l)
+  = \int_{l} \alpha_\lambda(s)\,\mathrm{d}s,
+  \label{eq:main_path_weight}
+\end{equation}
+%
+where $\alpha_\lambda$ is the local molecular absorption coefficient, and $\tau_\lambda$ is the total optical depth of each photon trajectory $l$.  The
+normalized radiance is therefore the conservative-ensemble mean
+%
+\begin{equation}
+  \mathcal T_\lambda
+  = \int P_0(l)
+      \exp[-\tau_\lambda(l)]\,\mathrm{d}l.
+  \label{eq:main_equivalence}
+\end{equation}
+%
+This construction separates the multiple-scattering calculation from molecular
+absorption and remains applicable to three-dimensional cloud fields because the
+cloud geometry is encoded in $P_0(l)$ \citep{stephens2000}.
+%
+%
+%
+For the direct geometrical slant path $L$, we define the modeled molecular slant optical depth $\mathrm{\overline{SOD}}_\lambda$ along $L$,
+%
+\begin{equation}
+  \mathrm{\overline{SOD}}_\lambda
+  = \int_0^{L} \tau_\lambda(s)\,\mathrm{d}s,
+  \label{eq:main_SOD}
+\end{equation}
+%
+
+To obtain a tractable scalar representation, we define the relative path length $l'$ for non-absorbing wavelength or an effective absorber-path enhancement relative to the direct geometrical slant as 
+
+\begin{equation}
+  l'
+  = l/L,
+  \label{eq:main_relative_path_length}
+\end{equation}
+
+Thus, we can approximate the absorber amount along each trajectory as
+\begin{equation}
+  A_\lambda(l')
+  \simeq \mathrm{\overline{SOD}}_\lambda l',
+  \label{eq:main_scalar_path}
+\end{equation}
+
+The conservative ensemble induces a normalized distribution $p_0(l')$, so Eq.~\eqref{eq:main_equivalence} reduces to
+
+\begin{equation}
+  \mathcal T(\mathrm{\overline{SOD}}_\lambda)
+  = \int_0^\infty p_0(l')
+      \exp(-\mathrm{\overline{SOD}}_\lambda l')\,\mathrm{d}l'.
+  \label{eq:main_laplace}
+\end{equation}
+
+Thus, the resolved absorption spectrum samples the Laplace transform of one
+wavelength-independent conservative path distribution within each band.  This
+does not imply that weak and strong channels detect identical photon
+populations: absorption reweights the detected paths as
+$p_{\mathrm{det}}(l'\mid\mathrm{SOD})\propto
+p_0(l')\exp(-\mathrm{SOD}\cdot l')$, preferentially suppressing long paths at large
+$\mathrm{SOD}$.
+
+We normalized the measured radiance as
+\begin{equation}
+  T_\lambda
+  = \frac{\pi I_\lambda}{F_{0,\lambda}^{ILS}\mu_0}
+  = \gamma\,\mathcal T(\tau_\lambda),
+  \label{eq:main_transmittance}
+\end{equation}
+where $F_{0,\lambda}^{ILS}$ is the Earth-Sun distance corrected, Doppler stretch corrected, and
+ILS-convolved top-of-atmosphere solar irradiance, $\mu_0$ is the
+cosine of the SZA, and $\gamma$ is an effective continuum
+reflectance.  In practice, $\gamma$ can include surface bidirectional
+reflectance, polarization, and surface--atmosphere coupling and is not
+interpreted as an exact Lambertian albedo.
+
+Let $C_n$ denote the ordinary cumulants of $p_0(l')$.  Expanding the log
+Laplace transform about zero absorption gives
+\begin{equation}
+  \ln T(\mathrm{\overline{SOD}})
+  = \ln\gamma
+    + \sum_{n=1}^{\infty}
+      \frac{(-1)^n C_n}{n!}\tau^n.
+  \label{eq:main_cumulant}
+\end{equation}
+For each sounding and band, we fitted the truncated form
+\begin{equation}
+  \ln T(\mathrm{\overline{SOD}})
+  \simeq b
+    + \sum_{n=1}^{N}
+      \frac{(-1)^n k_n}{n}\tau^n,
+  \qquad
+  k_n=\frac{C_n}{(n-1)!},
+  \label{eq:main_fit}
+\end{equation}
+where $b$ is the fitted continuum intercept.  Under the equivalence-theorem and
+scalar-path assumptions, $k_1=\mathrm{E}_{p_0}[l']$ is the mean absorber-path
+enhancement and $k_2=\mathrm{var}_{p_0}(l')$ is its variance; coefficients
+$k_{n\geq3}$ are scaled higher cumulants.
+
+The model is linear in $(b,k_1,\ldots,k_N)$.  We solved it by singular-value
+least squares and used bounded-variable least squares only when the
+unconstrained solution violated $k_1,k_2\geq0$.  We excluded the two edge
+channels and channels with $T_\lambda>1$.  The truncation orders were 7, 3, and
+7 for the O$_2$A, WCO$_2$, and SCO$_2$ bands, respectively; the lower
+WCO$_2$ order reflects its smaller optical-depth range and the resulting
+poor identifiability of high-order terms. 
+
+We interpret these quantities as \emph{band-effective absorber-path cumulants}.
+The scalar approximation in Eq.~\eqref{eq:main_scalar_path} can fail when
+pressure- and temperature-dependent line absorption weights atmospheric layers
+differently, or when surface, aerosol, or polarization properties vary within a
+band.  A layer-resolved formulation and the distinction from a gamma path model
+are given in Appendix~\ref{app:spectral_fit_derivation}.
+
+
+
+
+
+
+
+
+
+
+% For a single photon with wavelength $\lambda$ traveling from the top of the atmosphere (TOA) to the satellite sensor along the path $L$, we can express its transmittance $T_\lambda(L)$ as
+
+% \begin{equation}
+%     T_\lambda(L)
+%     =
+%     \exp\left\{-\int_0^L\sum_i \left[\sigma_{i,\lambda}(l)n_i(l)\right]dl\right\}
+%     =
+%     \exp\left\{-\int_0^L\sum_i \left[\alpha_{i,\lambda}(l)\right]dl\right\}
+%     =
+%     \exp\left\{-\int_0^L\alpha_{t,\lambda}(l)dl\right\},
+% \label{eq:single_photon_transmittance}
+% \end{equation}
+
+% where $l$ is the partial path along the total path $L$, $\sigma_{i,\lambda}(l)$ is the extinction coefficient at wavelength $\lambda$ on the path $l$ for gas $i$, $n_i(l)$ is the number concentration of the path $l$ for gas $i$. $\alpha_{i,\lambda}$ is the extinction at $\lambda$ for gas $i$, while $\alpha_{t,\lambda}$ is the total extinction considering all gases.
+
+
+% For multiple photons, we can calculate an average transmittance $\overline{T_\lambda(\alpha_{t,p}, L_p)}$ as 
+
+
+
+% \begin{equation}
+% \begin{split}
+%     \overline{T_\lambda(\alpha_{t,p}, L_p)}
+%     &=
+%     \frac{1}{N}\sum_{p=1}^{N}
+%     \exp\left\{-\int_0^{L_p}\alpha_{t,p}(l)dl\right\} \\
+%     &\approx
+%     \frac{1}{N}\sum_{p=1}^{N}
+%     \exp\left\{-\int_0^{L_p}\overline{\alpha_t}dl\right\}
+%     &=
+%     \frac{1}{N}\sum_{p=1}^{N}
+%     \exp\left\{\overline{\alpha_t}L_p\right\}
+% \end{split}
+% \label{eq:multi_photon_transmittance}
+% \end{equation}
+
+
+% where $\alpha_{t,p}(l)$ is the total extinction of the photon $p$ at the partial path $l$, and $L_p$ is the total path length of the photon $p$, $N$ is the total photon number. $\overline{\alpha_t}$ is the vertical mean total extinction, which is independent on photons. \\
+
+
+% Equation \ref{eq:multi_photon_transmittance} can be expressed in the photon path distribution function $p(L)$
+
+
+% \begin{equation}
+% \begin{split}
+%     \overline{T_\lambda(\alpha_{t,p}, L_p)}
+%     &=
+%     \int_0^{L\to \infty} p(L)
+%     \exp\left\{-\overline{\alpha_t}L\right\}dL,
+% \end{split}
+% \label{eq:multi_photon_transmittance_2}
+% \end{equation}
+
+% Now we can define the relative photon path length $L'=L/L_{geo}$, where $L_{geo}$ is the reference geometric photon path length, or the vertical distance from TOA to the surface multiply by the geometric two-way airmass $m$,
+
+% \begin{equation}
+% m
+% =
+% \frac{1}{\cos\theta} + \frac{1}{\cos\phi} ,
+% \label{eq:airmass_sod}
+% \end{equation}
+
+% where $\theta$ and $\phi$ are the solar and viewing zenith angles.
+
+% \begin{equation}
+% L_{geo}
+% =
+% m\,L_{\mathrm{TOA-surface}} ,
+% \label{eq:airmass_photon_path_geo}
+% \end{equation}
+
+
+% \begin{equation}
+% \begin{split}
+%     \overline{T_\lambda(\alpha_{t,p}, L_p)}
+%     &=
+%     \int_0^\infty p(L)
+%     \exp\left\{-\overline{\alpha_t}L\right\}dL,
+% \end{split}
+% \label{eq:multi_photon_transmittance_2}
+% \end{equation}
+
+
+% \begin{equation}
+% \overline{\mathrm{SOD}}_c(\lambda)
+% =
+% \bar{\alpha}(\lambda)\bar{L},
+% \label{eq:slant_optical_depth}
+% \end{equation}
+
+
+% For each footprint and spectral band, we use an
+% instrument lineshape-convolved effective slant optical depth,
+% $\overline{\mathrm{SOD}}_c$, as the spectral coordinate. The high-resolution
+% vertical optical depth ($\tau_v(\lambda)\}$) is first multiplied by the geometric two-way airmass,
+
+
+
+
+
+
+% The slant optical depth is then computed in transmission space,
+% \begin{equation}
+% \overline{\mathrm{SOD}}_j
+% =
+% -\ln
+% \left[
+% \frac{
+% \sum_q R_j(\lambda_q)
+% \exp\{-m\tau_v(\lambda_q)\}
+% }{
+% \sum_q R_j(\lambda_q)
+% }
+% \right],
+% \label{eq:ils_sod}
+% \end{equation}
+% where $j$ indexes the discrete wavelength samples in an OCO-2 band and
+% $q$ indexes the high-resolution wavelength grid used for the ILS convolution. $R_j(\lambda)$ is the instrument lineshape (ILS) for pixel or discrete wavelength $j$ and $\tau_v(\lambda_q)$ is the high-resolution vertical optical depth, including molecular absorption and Rayleigh extinction.
+
+
+
+
+% The measured spectral transmittance used in the fit is
+% \begin{equation}
+% T(\lambda)
+% =
+% \frac{\pi I(\lambda)}{\mathcal{F}_{0}^{ILS}(\lambda)\cos\theta},
+% \label{eq:measured_transmittance}
+% \end{equation}
+
+% where $I(\lambda)$ is the calibrated OCO-2 radiance and $\mathcal{F}_{0}^{ILS}(\lambda)$ is the Earth-Sun distance corrected, Doppler stretch corrected, and
+% ILS-convolved solar normalization used in the spectral fit. See details in \ref{eq:solar_distance_doppler}, \ref{eq:solar_ils_convolution}, \ref{eq:effective_solar_normalization}.
+
+
+
+
+
+
+
+
+
+
+
+% \begin{equation}
+% T(\overline{\mathrm{SOD}}_c)
+% =
+% \gamma
+% \int_0^\infty
+% p(l')
+% \exp(-\overline{\mathrm{SOD}}_c \; l')
+% \,\mathrm{d}l' ,
+% \label{eq:transmittance_laplace}
+% \end{equation}
+
+% \begin{equation}
+% \ln T(\overline{\mathrm{SOD}}_c)
+% =
+% \ln\gamma
+% +
+% \sum_{n=1}^{N}
+% (-1)^n
+% \frac{k_n}{n}
+% \overline{\mathrm{SOD}}_c^n .
+% \label{eq:cumulant_fit}
+% \end{equation}
+
+
+% \begin{equation}
+% k_1 = \langle l' \rangle,
+% \qquad
+% k_2 = \operatorname{var}(l'),
+% \qquad
+% \kappa = \frac{k_1^2}{k_2}.
+% \label{eq:coefficient_interpretation}
+% \end{equation}

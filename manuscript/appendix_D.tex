@@ -1,0 +1,256 @@
+\section{Cross-validation, baselines, and feature attribution}
+\label{app:evaluation}
+
+
+
+
+\subsection{Averaging-kernel and Prior Harmonization Operation}
+\label{app:ak_operation}
+For the valid OCO-2 soundings \(s\in\mathcal S\) collocated with a TCCON station, the case-level mean observation operator is
+
+
+
+\begin{equation}
+    \bar{h}_j = \frac{1}{N_{\mathrm{OCO}}}
+             \sum_{s\in\mathcal{S}} h_{s,j}, \\
+\end{equation}
+
+\begin{equation}
+    \bar{A}_j = \frac{1}{N_{\mathrm{OCO}}}
+             \sum_{s\in\mathcal{S}} A_{s,j}, \\
+\end{equation}
+
+\begin{equation}
+    \bar{x}_{a,j}^{\mathrm{OCO}} =
+             \frac{1}{N_{\mathrm{OCO}}}
+             \sum_{s\in\mathcal{S}} x_{a,s,j}^{\mathrm{OCO}}, \\
+\end{equation}
+
+\begin{equation}
+    \bar{p}_j^{\mathrm{OCO}} =
+             \frac{1}{N_{\mathrm{OCO}}}
+             \sum_{s\in\mathcal{S}} p_{s,j}^{\mathrm{OCO}}, \\
+\end{equation}
+
+\begin{equation}
+    \bar{X}_{a}^{\mathrm{OCO}} =
+             \frac{1}{N_{\mathrm{OCO}}}
+             \sum_{s\in\mathcal{S}} X_{a,s}^{\mathrm{OCO}},
+\end{equation}
+
+
+
+
+where \(h_j\) is the pressure-weighting function, \(A_j\) is the normalized column averaging kernel, ($x_{a,j}^{\mathrm{OCO}}$) is the OCO-2 prior profile, and ($X_a^{\mathrm{OCO}}$) is prior ($\mathrm{X_{CO2}}$).
+
+
+
+For each TCCON observation \(i\), its prior profile is scaled by the retrieved column ratio:
+
+\begin{equation}
+\gamma_i =
+\frac{X_{\mathrm{CO_2},i}^{\mathrm{TCCON}}}
+     {X_{a,i}^{\mathrm{TCCON}}},
+\qquad
+x_i^{\mathrm{TCCON}}(p)
+=
+\gamma_i\,x_{a,i}^{\mathrm{TCCON}}(p).
+\end{equation}
+
+
+The scaled profile is interpolated linearly in log-pressure onto the mean OCO-2 pressure grid:
+
+\begin{equation}
+\tilde{x}_{i,j}^{\mathrm{TCCON}}
+=
+\mathcal{I}_{\ln p}
+\left[
+x_i^{\mathrm{TCCON}}(p)
+\right]
+\left(\bar{p}_j^{\mathrm{OCO}}\right).
+\end{equation}
+
+
+The TCCON profile as it would be observed by OCO-2 is then
+
+\begin{equation}
+\widehat{X}_{\mathrm{CO_2},i}^{\mathrm{TCCON}\rightarrow\mathrm{OCO}}
+=
+\bar{X}_{a}^{\mathrm{OCO}}
++
+\sum_{j=1}^{N_{\mathrm{lev}}}
+\bar{h}_j\,\bar{A}_j
+\left(
+\tilde{x}_{i,j}^{\mathrm{TCCON}}
+-
+\bar{x}_{a,j}^{\mathrm{OCO}}
+\right),
+\end{equation}
+
+with \(N_{\mathrm{lev}}=20\) for the OCO-2 Lite product.
+
+Finally, the harmonized case reference is
+
+\begin{equation}
+\overline{X}_{\mathrm{CO_2}}^{\mathrm{TCCON}\rightarrow\mathrm{OCO}}
+=
+\frac{1}{N_{\mathrm{TCCON}}}
+\sum_{i=1}^{N_{\mathrm{TCCON}}}
+\widehat{X}_{\mathrm{CO_2},i}^{\mathrm{TCCON}\rightarrow\mathrm{OCO}},
+\end{equation}
+
+and the reported averaging-kernel/prior adjustment is
+
+\begin{equation}
+\Delta_{\mathrm{AK}}
+=
+\overline{X}_{\mathrm{CO_2}}^{\mathrm{TCCON}\rightarrow\mathrm{OCO}}
+-
+\overline{X}_{\mathrm{CO_2}}^{\mathrm{TCCON}}.
+\end{equation}
+
+
+The code reports the population standard deviation:
+
+\begin{equation}
+\sigma_{\mathrm{AK}}
+=
+\left[
+\frac{1}{N_{\mathrm{TCCON}}}
+\sum_{i=1}^{N_{\mathrm{TCCON}}}
+\left(
+\widehat{X}_{\mathrm{CO_2},i}^{\mathrm{TCCON}\rightarrow\mathrm{OCO}}
+-
+\overline{X}_{\mathrm{CO_2}}^{\mathrm{TCCON}\rightarrow\mathrm{OCO}}
+\right)^2
+\right]^{1/2}.
+\end{equation}
+
+% ---------------------------------------------------------------------------
+% Table -- TCCON stations used
+% ---------------------------------------------------------------------------
+\begin{table}[htbp]
+\centering
+\caption{TCCON GGG2020 stations used in the validation set. Coordinates are from the public TCCON site metadata pages. The near-ocean flag is a qualitative coastal, island, or near-coast classification for interpreting validation geography; it is not a GIS-derived coastline-distance metric.} 
+\label{tab:tccon-stations-used}
+\small
+\begin{tabularx}{\textwidth}{llrrcX}
+\specialrule{1.2pt}{0pt}{2pt}
+Code & Site & Longitude & Latitude & Near ocean & Reference \\
+\midrule
+bu & burgos01 & 120.6496 & 18.5325 & Yes & \citep{tccon-bu-dataref,tccon-bu-siteref} \\
+ci & pasadena01 & -118.1270 & 34.1360 & Yes & \citep{tccon-ci-dataref} \\
+db & darwin01 & 130.9266 & -12.4559 & Yes & \citep{tccon-db-dataref,tccon-db-siteref} \\
+df & edwards01 & -117.8811 & 34.9599 & No & \citep{tccon-df-dataref} \\
+et & easttroutlake01 & -104.9867 & 54.3537 & No & \citep{tccon-et-dataref} \\
+iz & izana01 & -16.5000 & 28.3000 & Yes & \citep{tccon-iz-dataref} \\
+js & saga01 & 130.2882 & 33.2410 & Yes & \citep{tccon-js-dataref,tccon-js-siteref} \\
+ka & karlsruhe01 & 8.4380 & 49.1000 & No & \citep{tccon-ka-dataref} \\
+ma & manaus01 & -60.5983 & -3.2133 & No & \citep{tccon-ma-dataref,tccon-ma-siteref} \\
+ny & nyalesund01 & 11.9230 & 78.9230 & Yes & \citep{tccon-ny-dataref} \\
+oc & lamont01 & -97.4860 & 36.6040 & No & \citep{tccon-oc-dataref} \\
+or & orleans01 & 2.1130 & 47.9700 & No & \citep{tccon-or-dataref} \\
+pa & parkfalls01 & -90.2730 & 45.9450 & No & \citep{tccon-pa-dataref,tccon-pa-siteref} \\
+pr & paris01 & 2.3560 & 48.8460 & No & \citep{tccon-pr-dataref} \\
+ra & reunion01 & 55.4850 & -20.9010 & Yes & \citep{tccon-ra-dataref} \\
+rj & rikubetsu01 & 143.7700 & 43.4600 & No & \citep{tccon-rj-dataref} \\
+wg & wollongong01 & 150.8798 & -34.4060 & Yes & \citep{tccon-wg-dataref} \\
+xh & xianghe01 & 116.9600 & 39.7500 & No & \citep{tccon-xh-dataref,tccon-xh-siteref} \\
+\specialrule{1.2pt}{2pt}{0pt}
+\end{tabularx}
+\end{table}
+
+
+% ---------------------------------------------------------------------------
+% Table -- training / analysis dates
+% ---------------------------------------------------------------------------
+\begin{table}[t]
+\centering
+\caption{Dates of the 2016--2020 training and analysis set. Entries give the
+day of month sampled in each month; the nominal sampling is the 1st and the
+15th of every month, and a neighbouring day is substituted where the nominal
+date has no usable OCO-2 or MODIS granule. A dash marks a month with no
+available data. The set contains 116 dates in total.}
+\label{tab:dates_training}
+\setlength{\tabcolsep}{3.2pt}
+\footnotesize
+\begin{tabular}{@{}lcccccccccccc@{}}
+\toprule
+Year & Jan & Feb & Mar & Apr & May & Jun & Jul & Aug & Sep & Oct & Nov & Dec \\
+\midrule
+2016 & 1, 15 & 1, 15 & 1, 15 & 5, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 21 & 1, 15 & 1, 15 & 1, 15 & 1, 15 \\
+2017 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & -- & -- & 1, 15 & 5, 15 & 1, 15 \\
+2018 & 1, 15 & 1, 12 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 17 & 1, 15 \\
+2019 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 \\
+2020 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 1, 15 & 3, 15 & 1, 15 & 1, 15 & 1, 15 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------------
+% Table -- observation comparison set
+% ---------------------------------------------------------------------------
+\begin{longtable}{@{}llcp{0.52\textwidth}@{}}
+\caption{Dates of the observation-comparison set, by validation reference. The
+TCCON cases are separated into the A-Train period, during which Aqua and OCO-2
+flew in formation, and the free-drift period after Aqua left the A-Train in
+2022, for which the MODIS collocation window is widened
+(Sect.~\ref{sec:method-cld_dist_xco2_anom}). One case is one station--day.
+None of the 82 distinct comparison dates appears in the training and analysis
+set of Table~\ref{tab:dates_training}.}
+\label{tab:dates_comparison}\\
+\toprule
+Reference & Code & $N$ & Dates \\
+\midrule
+\endfirsthead
+\toprule
+Reference & Code & $N$ & Dates \\
+\midrule
+\endhead
+\midrule \multicolumn{4}{r}{\emph{continued on next page}} \\
+\endfoot
+\bottomrule
+\endlastfoot
+
+\multicolumn{4}{@{}l}{\textbf{TCCON, A-Train period (2014--2021)} --- 75 cases, 18 stations} \\
+Burgos          & \texttt{bu} & 2  & 2018-10-24, 2020-03-30 \\
+Caltech         & \texttt{ci} & 1  & 2018-06-03 \\
+Darwin          & \texttt{db} & 3  & 2015-06-05, 2015-08-01, 2021-06-21 \\
+East Trout Lake & \texttt{et} & 4  & 2017-02-06, 2018-06-03, 2021-05-26, 2021-09-06 \\
+Edwards         & \texttt{df} & 7  & 2015-07-06, 2015-07-15, 2017-02-03, 2019-07-10, 2021-02-10, 2021-09-06, 2021-09-26 \\
+Iza\~{n}a       & \texttt{iz} & 3  & 2019-03-13, 2019-07-10, 2020-04-05 \\
+Karlsruhe       & \texttt{ka} & 2  & 2018-10-10, 2019-07-30 \\
+Lamont          & \texttt{oc} & 3  & 2018-06-03, 2021-04-24, 2021-12-29 \\
+Manaus          & \texttt{ma} & 3  & 2014-12-03, 2015-03-23, 2015-07-06 \\
+Ny-\AA{}lesund  & \texttt{ny} & 10 & 2015-06-05, 2015-07-15, 2016-09-10, 2017-05-25, 2017-06-17, 2019-06-09, 2020-07-11, 2020-07-26, 2021-07-03, 2021-09-08 \\
+Orl\'{e}ans     & \texttt{or} & 2  & 2015-07-15, 2018-08-17 \\
+Paris           & \texttt{pr} & 3  & 2015-07-15, 2018-08-17, 2020-09-16 \\
+Park Falls      & \texttt{pa} & 2  & 2016-11-05, 2021-10-16 \\
+R\'{e}union     & \texttt{ra} & 14 & 2015-03-17, 2015-05-18, 2015-05-20, 2015-07-14, 2015-07-23, 2015-08-01, 2016-09-11, 2016-11-05, 2017-03-22, 2017-04-23, 2017-05-16, 2017-05-25, 2020-03-30, 2020-07-11 \\
+Rikubetsu       & \texttt{rj} & 1  & 2020-03-30 \\
+Saga            & \texttt{js} & 6  & 2017-02-03, 2018-09-02, 2019-03-13, 2020-10-05, 2021-03-18, 2021-09-26 \\
+Wollongong      & \texttt{wg} & 7  & 2018-08-17, 2019-07-30, 2019-09-14, 2020-09-16, 2020-12-23, 2021-03-29, 2021-07-03 \\
+Xianghe         & \texttt{xh} & 2  & 2019-06-09, 2020-02-11 \\
+\addlinespace
+
+\multicolumn{4}{@{}l}{\textbf{TCCON, Aqua free-drift period (2023--2024)} --- 21 cases, 7 stations} \\
+Burgos          & \texttt{bu} & 3  & 2023-01-23, 2023-02-10, 2023-03-23 \\
+East Trout Lake & \texttt{et} & 1  & 2024-06-26 \\
+Edwards         & \texttt{df} & 1  & 2023-06-26 \\
+Karlsruhe       & \texttt{ka} & 3  & 2023-04-04, 2023-08-10, 2023-09-11 \\
+Park Falls      & \texttt{pa} & 2  & 2023-03-19, 2024-03-10 \\
+Wollongong      & \texttt{wg} & 10 & 2023-01-28, 2023-04-25, 2023-05-06, 2023-05-20, 2024-04-22, 2024-07-27, 2024-08-03, 2024-09-20, 2024-11-23, 2024-12-02 \\
+Xianghe         & \texttt{xh} & 1  & 2023-08-14 \\
+\addlinespace
+
+\multicolumn{4}{@{}l}{\textbf{ATom airborne campaign} --- 8 dates, 17 vertical profile legs} \\
+ATom-1 (Pacific)   & \texttt{atom} & 4 & 2017-01-26 (2), 2017-02-04 (2), 2017-02-06 (3), 2017-02-10 (1) \\
+ATom-3 (Pacific)   & \texttt{atom} & 3 & 2017-10-09 (2), 2017-10-20 (4), 2017-10-27 (1) \\
+ATom-4             & \texttt{atom} & 1 & 2018-05-12 (2) \\
+\addlinespace
+
+\multicolumn{4}{@{}l}{\textbf{Shipborne campaigns} --- 4 dates, 2 cruises} \\
+SONNE SO268     & \texttt{so268}  & 3 & 2019-06-09, 2019-06-14, 2019-06-22 \\
+Mirai MR21-01   & \texttt{mr2101} & 1 & 2021-03-15 \\
+
+\end{longtable}

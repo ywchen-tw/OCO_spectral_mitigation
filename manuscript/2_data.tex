@@ -1,0 +1,25 @@
+\section{Data}
+\label{sec:data}
+
+\subsubsection*{OCO-2 data}
+This research uses OCO-2 version 11 data to analyze and compare the data. We use the v11r and v11.2r level 2 meteorological data (OCO2\_L2\_Met) and \ce{CO2} prior data (OCO2\_L2\_CO2Prior) for the atmospheric pressure, temperature, water vapor, \ce{O2}, and \ce{CO2} profiles \citep{oco2_l2_co2prior_11r, oco2_l2_co2prior_112r, oco2_l2_met_11r, oco2_l2_met_112r}. The version 5.2 ACOS/OCO-2/OCO-3 absorption coefficient (ABSCO) lookup  tables are used to calculate the gas absorption optical depths \citep{oco2_absco_tables_v52}. The level 1B version v11r and version v11.2r data provide detailed geometry information and calibrated spectra \citep{oco2_l1b_science_11r, oco2_l1b_science_112r}. The calibrated \ce{O2}A, \ce{WCO2}, and \ce{SCO2} spectra are used to fit the photon path parameters. The version 11r and 11.2r are used depend on dates before or after April 1st, 2024. Variables from full-physics retrieval results and the operational bias-corrected $\mathrm{X_{CO2}}$, $\mathrm{X_{CO2}^{B11}}$ of the v11.2r and v11.3r (before and after April 1st, 2024) Lite product are used for data anlysis, bias-correction training, and correction comparison \citep{oco2_l2_lite_fp_112r, oco2_l2_lite_fp_113r}. All nadir, glint, and target modes for ocean and land with quality flags of 0 and 1 are used in the analysis. 
+
+
+
+\subsubsection*{MODIS products}
+Because OCO-2 and MODIS Aqua satellites were both flying along A-train orbit, with only 6 minutes away, MODIS Aqua data are good information about the nearby conditions for OCO-2 footprints. We used MODIS Aqua 1km Geolocation data (MYD03, collection 6.1) and Cloud Mask and Spectral Test Results (MYD35, collection 6.1) as the truth for cloud locations near OCO-2 footprints \citep{myd03_061, myd35_l2_061}. Cloudy and uncertain classes are utilized to calculate the nearest cloud distance for OCO-2 footprints. See details in \ref{sec:method-cld_dist_xco2_anom}. Note that the cloud distance derived from MODIS products contributes to target construction and analysis only, it is not supplied to the correction model. In addition to MODIS cloud products, we also use MODIS yearly land cover type (MCD12C1, collection 6.1) for data anlysis and Aqua RGB imagery for data visualization \citep{friedl2022mcd12c1_v061}.
+
+
+\subsubsection*{Independent reference observations}
+We compared the $\mathrm{X_{CO2}^{B11}}$ and cloud-proximity-corrected $\mathrm{X_{CO2}}$ ($\mathrm{X_{CO2}^{corr}}$) against TCCON GGG2020 data \citep{laughner2024ggg2020} from the stations listed in Table \ref{tab:tccon-stations-used}. In addition to TCCON data, we also used airborne in-situ measurements from the Atmospheric Tomography Mission (ATom) to create pseudo-column $\mathrm{X_{CO2}}$ ($\mathrm{X_{CO2}^{ATom}}$) and shipborne EM27/SUN measurements during the Measuring Ocean REferences 2 (MORE-2) campaign in June 2019 and the research vessel Mirai campaign MR21-01 in 2021 as additional OCO-2 ocean footprints comparison \citep{wofsy2018atom_nav, mckain2021atom_picarro, knapp2020more2_pangaea, hanft2021mr2101_pangaea}. We apply the averaging-kernel and prior harmonization for comparison between $\mathrm{X_{CO2}^{corr}}$ and $\mathrm{X_{CO2}^{TCCON}}$, with details described in Section \ref{sec:method-eval-obs-xco2} and Appendix \ref{app:ak_operation}. The conversion of pseudo-column $\mathrm{X_{CO2}^{ATom}}$ from in-situ \ce{CO2} mixing ratios is discuessed in \ref{sec:method-eval-obs-xco2}.
+
+%%%
+%Throughout, $X_{CO2}^{B11}$ denotes the operationally bias-corrected XCO2 of the OCO-2 v11 Lite product (the xco2 variable; O'Dell et al., 2018), and $X_{CO2}^{corr} = X_{CO2}^{B11} - \mu$ denotes our cloud-proximity-corrected product, where $\mu$ is the per-sounding bias predicted by the deep ensemble.
+
+
+
+
+
+
+
+% plume-overpass catalogues

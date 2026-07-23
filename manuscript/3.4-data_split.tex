@@ -1,0 +1,47 @@
+\subsection{Analysis, training, validation splits, and leakage control}
+\label{sec:method-daataset-split}
+
+
+For the analysis and for training the $\mathrm{X_{CO2}^{B11}}$ bias correction, we use data from the 1st and the 15th of each month (or the closest available date) from 2016 to 2020. Other individual dates from 2014 to 2024 are reserved for validating the correction against $\mathrm{X_{CO2}}$ from TCCON stations, from the ATom airborne campaign, and from two shipborne campaigns. The training and analysis dates are listed in Table~\ref{tab:dates_training}, and the
+observation-comparison dates in Table~\ref{tab:dates_comparison}.
+
+The 2016--2020 training and analysis set contains 116 dates. Two months (August
+and September 2017) have no usable data, and six nominal dates are replaced by a
+neighbouring day where no OCO-2 or MODIS granule is available
+(Table~\ref{tab:dates_training}). Across these dates there are $1.05\times10^{7}$
+ocean and $7.22\times10^{6}$ land soundings with a valid
+$\mathrm{X_{CO2}^{B11}}$, including the nadir, glint, and target modes and both
+quality flags 0 and 1. Among them, only $7.85\times10^{6}$ ocean ($74.4\,\%$) and
+$3.84\times10^{6}$ land ($53.2\,\%$) soundings have a valid within-orbit anomaly
+$\Delta\mathrm{X_{CO2}^{B11}}$; the remaining soundings do not have enough stable,
+away-from-cloud reference footprints nearby
+(Sect.~\ref{sec:method-cld_dist_xco2_anom}). The lower fraction over land reflects
+the smaller number of qualifying reference footprints there. All soundings with a
+valid $\Delta\mathrm{X_{CO2}^{B11}}$ are used in the analysis and in the training
+(Sect.~\ref{sec:result-cld_dist} and Sect.~\ref{sec:result-spec_anal}).
+
+We split the data by date rather than by sounding, using a five-fold block
+rotation. The 116 dates are sorted and partitioned into five contiguous blocks.
+Each fold holds out one block ($\sim$24 dates) as the test subset, so every date
+serves as a test date exactly once across the five folds. Of the remaining
+$\sim$92 dates, $15\,\%$ form the calibration subset and the rest are the
+proper-training subset, which gives about $67:12:21$ dates for
+training\,:\,calibration\,:\,test. Figure~\ref{fig:5fold_illustration} illustrates
+this design. Splitting by date keeps soundings from the same orbit out of two
+different subsets, and the contiguous blocks avoid placing adjacent dates in both
+the training and the test subsets.
+
+Within each fold, every fitted transform is derived from the proper-training
+subset alone. The EOF decomposition of the temperature, water vapour, and
+\ce{CO2} profiles is therefore fitted five times, once per fold, and the feature
+scaling is fitted the same way. The calibration subset is used only for early
+stopping and for the conformal recalibration, and the test subset is used only for
+reporting. In this way no information from the calibration dates, the test dates,
+or the external validation references enters any fitted transform.
+
+
+
+The trained models are then applied to the comparison sets, which comprise 96
+TCCON station-days, 8 ATom flight days, and 4 shipborne days
+(Table~\ref{tab:dates_comparison}). None of the 82 distinct comparison dates
+appears in the training and analysis set.

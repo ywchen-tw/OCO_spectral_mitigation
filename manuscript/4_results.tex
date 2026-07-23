@@ -1,0 +1,127 @@
+\section{Results}
+
+\input{4.1_cloud_dist_phenomanon}
+
+\input{4.2_spectral_features}
+
+\input{4.3_model_comparison}
+
+\input{4.4_tccon_val}
+
+\input{4.5_correction_vs_smoothing}
+
+\input{4.6_ocean_far_cld}
+
+\input{4.7_plume}
+
+\input{4.8_uncertainty}
+
+% 4.2 Spectral evidence for a common 3-D mechanism
+
+% Build a three-part evidence chain:
+
+% 1. band- and surface-resolved \(k_1/k_2\) responses with cloud distance;
+% 2. the WCO2 land-cover sign rule: savanna approximately \(+0.43\sigma\) and
+%    barren approximately \(-0.40\sigma\);
+% 3. shadow and brightening branches with opposite XCO2 responses.
+
+% Interpret ocean as the dark endpoint of the cloud–surface contrast axis, but
+% label this as a synthesis supported by the observations rather than a closed
+% quantitative derivation.
+
+% Use the verified wording:
+
+% > The sign of the WCO2 response follows the measured contrast where land
+% > classes straddle the cloud albedo; response magnitudes do not monotonically
+% > follow contrast.
+
+% Do not use the superseded “forest sign flip” or “albedo-contrast ordering”
+% claims. Close with one RGB case study; move category atlases to the Supplement.
+
+% 4.3 Cross-validated correction performance
+
+% Report random-split inflation versus date-blocked performance, land/ocean and
+% near/far-cloud skill, label-noise ceilings, and uncertainty calibration.
+
+% Interpret performance against the estimated ceiling rather than against
+% \(R^2=1\): ocean global skill is approximately noise-limited, while land has
+% remaining headroom concentrated in the near-cloud regime.
+
+% 4.4 Model comparison and feature attribution
+
+% Present the common-protocol baseline table, emphasizing the difficult
+% near-cloud land tail. Then report:
+
+% - the full ensemble performs best overall;
+% - `no_spec` is approximately TCCON-neutral;
+% - `no_xco2` degrades strongly, particularly for near-cloud land QF1;
+% - spectral features remain conditionally informative when the XCO2-departure
+%   block is removed.
+
+% State the skill-versus-trust synthesis here for the first time.
+
+% 4.5 Independent TCCON validation
+
+% Use AK-harmonized TCCON as the primary reference and direct TCCON as a
+% documented secondary comparison. Report the current production values only
+% after regenerating the manuscript table from the frozen tag.
+
+% The paragraph order should be:
+
+% 1. sample and coincidence definition;
+% 2. mean absolute bias and footprint RMSE;
+% 3. number of improved station-days;
+% 4. Wilcoxon and site-clustered bootstrap results;
+% 5. radius/window and QF0/QF1 sensitivity;
+% 6. high-latitude and worsening cases.
+
+% Keep direct-reference results nearby but do not let the dual-reference
+% explanation obscure the AK-harmonized primary result.
+
+% 4.6 Distinguishing correction from smoothing
+
+% Place the feature-free smoother immediately after TCCON:
+
+% - it reduces footprint scatter more than the model;
+% - it leaves station-day bias nearly unchanged;
+% - the model reduces both bias and RMSE.
+
+% This establishes that the validation improvement is not merely local
+% denoising.
+
+% 4.7 Ocean validation and far-cloud controls
+
+% Present ATom, shipborne EM27/SUN, and the far-cloud/clear-day cases where the
+% correction is nearly inert. Treat these as independent corroboration, not as
+% equivalent in statistical weight to TCCON. State the limited sample and
+% reference-scale caveats.
+
+% 4.8 Plume preservation and correction safety
+
+% Report:
+
+% - matched control-window nulls;
+% - the preserved Westar transect enhancement;
+% - the all-band versus CO2-band \(k_1\) discriminator;
+% - the spectral-channel removal bound of at most 0.21 ppm in the worst tested
+%   case and at most 0.01 ppm in clear cases;
+% - approximately 55% [40–63%] removal of plume-free local spread by the full
+%   model, 54% by `no_spec`, and 29% by `no_xco2`.
+
+% The required interpretation is:
+
+% > Local smoothing is primarily attributable to the retrieval-state channel,
+% > not to the photon path-length features.
+
+% 4.9 Uncertainty and failure modes
+
+% End Results by defining the boundary of reliability:
+
+% - random-effects residual offset and its reference-scale interpretation;
+% - representation error increasing with coincidence radius;
+% - under-dispersed whole-budget uncertainty if between-case variance is
+%   omitted;
+% - bright surfaces as the main footprint-level failure stratum;
+% - high-latitude residuals as station-day bias failures;
+% - predictive uncertainty as a useful land-failure indicator that cannot
+%   remove reference-scale bias.

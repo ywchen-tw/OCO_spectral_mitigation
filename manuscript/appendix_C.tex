@@ -1,0 +1,239 @@
+\section{Model architecture, training, and reproducibility}
+\label{app:model}
+
+
+
+\subsection{Deep-ensemble Member architecture and probabilistic head}
+
+Each of the $M = 5$ ensemble members is a Gaussian-head multilayer perceptron
+with two hidden layers (64 and 32 units). Every hidden block applies, in order,
+a linear map, layer normalization, a ReLU activation, and 10\% dropout; dropout
+is active during training only, so there is no Monte-Carlo dropout at inference
+and the ensemble spread alone provides the epistemic uncertainty. For footprint
+$i$, member $m$ outputs a predicted mean $\mu_{m,i}$ and a raw second output that is clamped to $[-10, 10]$ and interpreted as the log-variance
+$s_{m,i} = \log\sigma_{m,i}^{2}$, giving a per-footprint predictive variance
+$\sigma_{m,i}^{2} = \exp(s_{m,i})$.
+
+\subsection{Training loss}
+
+Writing the target as $y_i \equiv \Delta \mathrm{X_{CO2,\,i}^{B11}}$, the standard
+Gaussian negative log-likelihood of one footprint is, up to an additive constant,
+%
+\begin{equation}
+  \ell^{\mathrm{NLL}}_{m,i}
+  = \frac{1}{2}\left[\,s_{m,i}
+  + \frac{(y_i-\mu_{m,i})^{2}}{\sigma_{m,i}^{2}}\,\right].
+  \label{eq:gauss-nll}
+\end{equation}
+%
+Because this loss down-weights high-variance footprints, the mean is poorly
+fitted exactly in the near-cloud regime where $\sigma_{m,i}^{2}$ is large. We
+therefore train the members with the $\beta$-NLL loss of
+\citet{seitzer2022pitfalls}, which multiplies each footprint's NLL by a
+stop-gradient function of its own predicted variance,
+%
+\begin{equation}
+  \ell^{\beta\text{-}\mathrm{NLL}}_{m,i}
+  = \bigl\lfloor\sigma_{m,i}^{2}\bigr\rfloor_{\mathrm{sg}}^{\,\beta}\;
+  \ell^{\mathrm{NLL}}_{m,i},
+  \qquad \beta = 0.5,
+  \label{eq:beta-nll}
+\end{equation}
+%
+where $\lfloor\cdot\rfloor_{\mathrm{sg}}$ denotes a stop-gradient (the weight is
+treated as a constant during backpropagation). Here $\beta = 0$ recovers the
+plain NLL of Eq.~\eqref{eq:gauss-nll} and $\beta = 1$ recovers a
+mean-squared-error weighting of the mean; the production choice $\beta = 0.5$
+restores the mean-fitting gradient in the high-variance near-cloud footprints
+while keeping a calibrated variance. The member loss is the average of
+Eq.~\eqref{eq:beta-nll} over the training footprints.
+
+\subsection{Ensemble aggregation}
+
+The five members differ only in their random seed (member $m$ uses seed
+$s_0 + m$), so their predictions decorrelate and the ensemble spread provides
+the epistemic uncertainty. The per-member means and variances are combined as a
+Gaussian mixture,
+%
+\begin{equation}
+  \mu^{*}_i = \frac{1}{M}\sum_{m=1}^{M}\mu_{m,i},
+  \qquad
+  \sigma^{*2}_i
+  = \underbrace{\frac{1}{M}\sum_{m=1}^{M}\sigma_{m,i}^{2}}_{\text{aleatoric}}
+  + \underbrace{\frac{1}{M}\sum_{m=1}^{M}\mu_{m,i}^{2} - \mu^{*2}_i}_{\text{epistemic}},
+  \label{eq:mixture}
+\end{equation}
+%
+which is the law of total variance: the first term is the mean aleatoric
+variance predicted by the heads and the second is the between-member (epistemic)
+variance. The ensemble mean $\mu^{*}_i$ is the point correction applied to each
+footprint.
+
+\subsection{Optimization and leakage control}
+
+Each member is optimized with AdamW (learning rate $10^{-3}$, weight decay
+$10^{-4}$) under a one-cycle learning-rate schedule with gradient-norm clipping
+at $1.0$, a batch size of $4096$, and up to $500$ epochs. Training is stopped
+early on the held-out calibration block (patience of $50$ epochs), and the
+checkpoint with the lowest calibration loss is kept; the calibration block is
+carved from the training dates and never overlaps the held-out fold or the
+validation references. The calibration block is also used to recalibrate the
+Mondrian conformal intervals, which are binned by predicted-anomaly deciles.
+Feature scaling and any profile-EOF transforms are fitted on the proper-training
+partition only. Table~\ref{tab:hyperparams} collects the full configuration.
+
+\begin{table}[t]
+\centering
+\caption{DE-MLP architecture and training configuration (production settings).}
+\label{tab:hyperparams}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Component & Setting \\
+\midrule
+Ensemble members $M$        & 5 (seeds $s_0 + m$) \\
+Hidden layers               & 64, 32 \\
+Hidden block                & Linear $\to$ LayerNorm $\to$ ReLU $\to$ Dropout(0.1) \\
+Output head                 & Linear $\to$ 2 (mean, log-variance) \\
+Log-variance clamp          & $[-10, 10]$ \\
+Loss                        & $\beta$-NLL, $\beta = 0.5$ \\
+Optimizer                   & AdamW \\
+Learning rate (max)         & $10^{-3}$ \\
+Weight decay                & $10^{-4}$ \\
+LR schedule                 & one-cycle (\texttt{pct\_start} 0.05, div 25, final div 1000) \\
+Gradient clipping           & 1.0 (max norm) \\
+Batch size                  & 4096 \\
+Maximum epochs              & 500 \\
+Early stopping              & patience 50, on the calibration block \\
+Calibration fraction        & 0.15 of the training dates \\
+Conformal intervals         & Mondrian, 10 predicted-anomaly decile bins \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsection{Loss function for \emph{Ridge} and \emph{XGBoost} models}
+
+The LR and XGBoost models are trained with the following objectives, all on the same target $y_i \equiv \Delta \mathrm{X_{CO2,\,i}^{B11}}$ and the same
+train-only-standardized features $\mathbf{x}_i$.
+
+\subsubsection*{Ridge} 
+A linear predictor $\hat{y}_i = \mathbf{x}_i^{\top}\bm{\beta}$
+trained by $\ell_2$-penalized least squares,
+%
+\begin{equation}
+  \mathcal{L}_{\mathrm{Ridge}}(\bm{\beta})
+  = \sum_i \bigl(y_i - \mathbf{x}_i^{\top}\bm{\beta}\bigr)^{2}
+  + \alpha\,\lVert\bm{\beta}\rVert_{2}^{2},
+  \label{eq:ridge}
+\end{equation}
+%
+with the penalty $\alpha$ selected from $\{0.1, 1, 10, 100\}$ by lowest RMSE on
+the calibration block.
+
+\subsection*{XGBoost} 
+A gradient-boosted tree ensemble
+$\hat{y}_i = \sum_{t} f_t(\mathbf{x}_i)$ minimizing a regularized squared-error
+objective,
+%
+\begin{equation}
+  \mathcal{L}_{\mathrm{XGB}}
+  = \sum_i \bigl(y_i - \hat{y}_i\bigr)^{2}
+  + \sum_t \Omega(f_t),
+  \qquad
+  \Omega(f) = \tfrac{1}{2}\lambda\lVert w \rVert_{2}^{2},
+  \label{eq:xgb}
+\end{equation}
+%
+where $\Omega$ penalizes the leaf weights $w$ ($\lambda = 1$) and the number of
+boosting rounds is early-stopped on the calibration block (maximum tree depth
+$6$).
+
+% \paragraph{DE-MLP.} Each of the $M = 5$ members minimizes the mean $\beta$-NLL
+% loss of Eq.~\eqref{eq:beta-nll}; the ensemble prediction follows
+% Eq.~\eqref{eq:mixture}.
+
+
+\subsection{Model Predictors}
+
+\input{tables/tabC1_predictor_inventory}
+
+
+
+\subsection{Data split}
+
+
+
+%
+\begin{figure}[t]
+\includegraphics[width=\textwidth]{figures/figC1_dataflow.png}
+\caption{Scheme of the data flow from training to inference/bias correction.}
+\label{fig:train_infer_flow}
+\end{figure}
+%
+
+\begin{figure}[t]
+\includegraphics[width=\textwidth]{figures/figC2_fold_timeline.png}
+\caption{Five-fold block-rotation cross-validation design over the 116
+training and analysis dates. Each fold holds out one contiguous block of dates as
+the test subset, and the remaining dates are divided into the proper-training and
+the calibration subsets.}
+\label{fig:5fold_illustration}
+\end{figure}
+%
+
+
+
+\subsection{Model comparison}
+\label{app:model_compare}
+
+
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/figC5_cv_model_comparison.png}
+\caption{Date-blocked five-fold cross-validation of the anomaly target: held-out fold RMSE (left) and $R^2$ (right), mean ± std over folds, for the deep ensemble, XGBoost, and ridge baselines per surface. Ridge predictions pass the production output guard (Table C5 note).}
+\label{fig:model_cv_compare}
+\end{figure}
+
+
+
+\input{tables/tabC2_training_config}
+
+\input{tables/tabC3_fold_sizes_metrics}
+
+\input{tables/tabC4_manifest_verification}
+
+\input{tables/tabC5_cv_model_comparison}
+
+\input{tables/tabC6_fold_resolved_baselines}
+
+\input{tables/tabC7_cv_ablation}
+
+\input{tables/tabC8_raw_bc_ml}
+
+
+
+
+Include:
+
+- full feature dictionary with units, transformations, and source products;
+- land and ocean architecture, beta-NLL definition, regularization, optimizer,
+  learning-rate schedule, early stopping, and seeds;
+- fold construction, calibration split, scaler and fold-PCA fitting rules;
+- ensemble aggregation and predictive-variance decomposition;
+- Mondrian conformal procedure and cloud-distance-dependent inflation, where
+  applicable;
+- leakage-guard logic and the verified training/evaluation date intersection;
+- model and feature-set production tags.
+
+Planned items:
+
+- **Fig. C1:** training and evaluation data-flow diagram;
+- **Fig. C2:** fold timeline showing contiguous date blocks;
+- **Table C1:** full predictor inventory;
+- **Table C2:** hyperparameters and training configuration;
+- **Table C3:** fold-level sample sizes and performance;
+- **Table C4:** training manifests and zero-overlap verification.
+
+Keep the main text to predictor groups and essential architecture. Individual
+features and hyperparameters belong here.
