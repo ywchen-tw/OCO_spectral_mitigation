@@ -222,6 +222,12 @@ ATom/ship producers now default their cosmetic label to XCO2_DE_LABEL
 atom_modis_overlay, plot_ship_comparison — suptitles, map titles,
 legends, colorbars), so the per-case figures adopt X_CO2^DE at their
 next batch re-render; fig10a/b already carry it.  
+**Updated:** 2026-07-22ac — Fig. 11 duplicate-letter fix (same problem
+as Fig. 10): fingerprint panel retagged (b)→(d) so the composite runs
+(a–c) transect + (d) fingerprint; k1 → ⟨l′⟩ in the fingerprint title
+and expected-signature legend (MEAN_L_LABEL); Westar transect
+regenerated with X_CO2^B11 / X_CO2^DE legend labels
+(nassar_plume_transects.py adopts the plot_style constants).  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -1199,19 +1205,23 @@ The required interpretation is:
 **Draft results text (moved out of the Fig. 11 caption, 2026-07-22h):**
 
 > The ~+0.6 ppm enhancement at closest approach to the Westar plant
-> survives the correction essentially unchanged (Fig. 11a). In the two
+> survives the correction essentially unchanged (Fig. 11a–c). In the two
 > flagged removal windows the O2A band shifts as strongly as the CO2
-> bands (Fig. 11b) — the all-band fingerprint of cloud contamination
+> bands (Fig. 11d) — the all-band fingerprint of cloud contamination
 > rather than of a real plume, whose signature would be confined to the
 > CO2 bands; the worst-case plume signal removable through the spectral
 > channel is ≤ 0.21 ppm.
 
 **Display items:**
 
-- **Fig. 11** — plume-preservation composite: (a) preserved Westar 2023-06-26
-  corrected transect — copy exists: `manuscript/figures/fig11a_westar_transect`
-  (from `<TAG>/nassar_plumes/plume_preservation/transects/`); (b) plume-vs-cloud k1
-  fingerprint contrast — exists: `manuscript/figures/fig11b_k1_contrast`
+- **Fig. 11** — plume-preservation composite with CONTINUOUS panel
+  letters (2026-07-23): (a–c) preserved Westar 2023-06-26 corrected
+  transect (XCO2, correction μ, nearest-cloud distance) — REGENERATED
+  from `nassar_plume_transects.py --pair westar:2023-06-26` with
+  X_CO2^B11 / X_CO2^DE legend labels:
+  `manuscript/figures/fig11a_westar_transect`; (d) plume-vs-cloud ⟨l′⟩
+  fingerprint contrast (retagged from "(b)", k1 → ⟨l′⟩ in title and
+  expected-signature legend): `manuscript/figures/fig11b_k1_contrast`
   (`manuscript/scripts/make_k1_contrast_figure.py`).
 - **Table 4 → Appendix F (2026-07-22m; letter per 2026-07-22n merge).**
   `manuscript/tables/tab_nassar_attribution.tex` (control/plant removal
@@ -1225,14 +1235,14 @@ The required interpretation is:
 **Draft caption:**
 
 > **Figure 11.** Plume preservation and the spectral cloud fingerprint.
-> (a) Along-track transect over the Westar power plant (26 June 2023,
+> (a–c) Along-track transect over the Westar power plant (26 June 2023,
 > clear sky, nearest cloud ≈ 50 km; overpass from the Nassar et al.
-> catalogue) before and after correction; lower panels: predicted
-> correction μ and nearest-cloud distance. (b) Band-resolved Δ⟨l′⟩ (plume
-> window minus background; ±1 SE) for the two flagged removal windows and
-> two clear-sky controls. Black ticks: signature expected of a real CO2
-> plume (Δ⟨l′⟩ ≈ ⟨l′⟩·ΔXCO2/XCO2 in the CO2 bands via the prior-based
-> optical depth; exactly zero in O2A).
+> catalogue): XCO2 before and after correction (a), the predicted
+> correction μ (b), and nearest-cloud distance (c). (d) Band-resolved
+> Δ⟨l′⟩ (plume window minus background; ±1 SE) for the two flagged
+> removal windows and two clear-sky controls. Black ticks: signature
+> expected of a real CO2 plume (Δ⟨l′⟩ ≈ ⟨l′⟩·ΔXCO2/XCO2 in the CO2 bands
+> via the prior-based optical depth; exactly zero in O2A).
 
 **Panel assembly, Fig. 11 (LaTeX draft):**
 
@@ -1246,8 +1256,8 @@ The required interpretation is:
 \end{figure}
 ```
 
-Panel letters: fig11b already carries its "(b)" tag from the
-generator; fig11a (copied transect) needs an "(a)" tag added.
+Panel letters: native and continuous since 2026-07-23 — the transect
+carries (a)/(b)/(c), the fingerprint carries (d); nothing to retag.
 
 #### 4.8 Uncertainty and failure modes
 

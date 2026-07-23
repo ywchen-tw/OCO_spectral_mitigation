@@ -138,13 +138,13 @@ def main() -> None:
                           color=INK))
     leg_labels = [b[3] for b in BANDS]
     leg_labels.append("expected for a real CO$_2$ plume\n"
-                      "($k_1\\Delta X_{\\mathrm{CO2}}/X_{\\mathrm{CO2}}$;"
+                      f"({MEAN_L_LABEL}$\\,\\Delta X_{{\\mathrm{{CO2}}}}/X_{{\\mathrm{{CO2}}}}$;"
                       " O$_2$A $= 0$)")
     ax.legend(handles, leg_labels, loc="lower right", frameon=False,
               handlelength=1.2, handleheight=1.0, borderaxespad=0.2,
               ncols=2, columnspacing=1.2)
 
-    panel_label(ax, "(b) band-resolved $k_1$ fingerprint")
+    panel_label(ax, f"(d) band-resolved {MEAN_L_LABEL} fingerprint")
 
     fig.tight_layout()
     for ext in ("png", "pdf"):

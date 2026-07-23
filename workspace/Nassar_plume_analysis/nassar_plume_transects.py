@@ -31,7 +31,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 ROOT_WORKSPACE = Path(__file__).resolve().parents[1]
 if str(ROOT_WORKSPACE) not in sys.path:
     sys.path.insert(0, str(ROOT_WORKSPACE))
-from plot_style import apply_manuscript_style, panel_label, XCO2_LABEL  # noqa: E402
+from plot_style import (apply_manuscript_style, panel_label, XCO2_LABEL,
+                        XCO2_BC_LABEL, XCO2_DE_LABEL)  # noqa: E402
 from analyze_nassar_plume_preservation import (  # noqa: E402
     DEFAULT_PLANTS,
     DEFAULT_PLOT_BASE,
@@ -86,8 +87,8 @@ def transect_case(pair, plants, plot_base, outdir, max_km=100.0):
     x = seg["x_km"].to_numpy()
     ax.plot(x, seg["xco2_bc"], ".", color="C0", ms=3, alpha=0.4)
     ax.plot(x, seg["deep_ensemble_corrected_xco2"], ".", color="C3", ms=3, alpha=0.4)
-    for col, c, lbl in (("xco2_bc", "C0", "original"),
-                        ("deep_ensemble_corrected_xco2", "C3", "corrected")):
+    for col, c, lbl in (("xco2_bc", "C0", XCO2_BC_LABEL),
+                        ("deep_ensemble_corrected_xco2", "C3", XCO2_DE_LABEL)):
         xs, med = rolling(x, seg[col].to_numpy())
         ax.plot(xs, med, "-", color=c, lw=1.8, label=f"{lbl} (5 km median)")
     ax.axvline(0, color="k", lw=1, ls="--")
