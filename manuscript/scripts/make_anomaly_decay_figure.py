@@ -37,7 +37,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from plot_style import XCO2_LABEL, apply_manuscript_style, panel_label
+from plot_style import DXCO2_BC_LABEL, apply_manuscript_style, panel_label
 
 PARQUET = REPO / "results" / "csv_collection" / "combined_2016_2020_dates.parquet"
 OUT_DIR = REPO / "manuscript" / "figures"
@@ -144,7 +144,7 @@ def make_boxplot_version(t, d, ocean, land) -> None:
     for ax in axes[1]:
         ax.set_xlabel("Nearest-cloud distance (km)")
     for ax in axes[:, 0]:
-        ax.set_ylabel(f"{XCO2_LABEL} anomaly (ppm)")
+        ax.set_ylabel(f"{DXCO2_BC_LABEL} (ppm)")
     axes[0, 0].set_ylim(-2.0, 1.5)
     axes[1, 0].set_ylim(-2.0, 1.5)
     axes[0, 1].set_ylim(-2.5, 3.2)
@@ -177,7 +177,7 @@ def make_target_sensitivity(t, d, ocean, land) -> None:
         ax.set_title(name, fontsize=9, loc="left")
         ax.legend(frameon=False, fontsize=8,
                   title="clear-sky reference", title_fontsize=8)
-    axes[0].set_ylabel(f"{XCO2_LABEL} anomaly (ppm)")
+    axes[0].set_ylabel(f"{DXCO2_BC_LABEL} (ppm)")
     fig.tight_layout()
     for ext in ("png", "pdf"):
         out = OUT_DIR / f"figB2_target_sensitivity.{ext}"
@@ -229,7 +229,7 @@ def main() -> None:
         ax.set_xlim(0, 30)
         ax.set_xlabel("Nearest-cloud distance (km)")
         ax.legend(frameon=False, loc="upper right", fontsize=8)
-    axa.set_ylabel(f"{XCO2_LABEL} anomaly (ppm)")
+    axa.set_ylabel(f"{DXCO2_BC_LABEL} (ppm)")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()

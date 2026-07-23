@@ -161,6 +161,12 @@ pre-restyle/full-parquet caveat is cleared); ocean companion written to
 `internal_shadow_brightening_ocean`. Panel (d) label uses
 $\Delta X_{\mathrm{CO2}}^{\mathrm{B11}}$ (user request — matches the
 supplement.tex \xcobc macro family).  
+**Updated:** 2026-07-22s — product-resolved XCO2 notation adopted
+paper-wide (B11/raw/ATom/ship superscripts + ΔX for the anomaly; §6
+table, plot_style constants XCO2_BC/RAW/ATOM/SHIP_LABEL +
+DXCO2_BC_LABEL); fig03, fig03alt, figB2, fig05(+ocean) regenerated with
+ΔX_CO2^B11 axes; copied report figures adopt it at their next
+re-render.  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -1791,6 +1797,23 @@ Use the following distinctions consistently:
 
 Keep XCO2 typesetting and notation consistent with the AMT figure style:
 \(X_{\mathrm{CO_2}}\), \(l'\), \(k_1\), and \(k_2\).
+
+**Product-resolved XCO2 notation (user convention 2026-07-23; constants
+in `plot_style.py`, macros in `supplement.tex` — never retype):**
+
+| Quantity | Symbol | plot_style constant |
+|---|---|---|
+| xco2_bc (operational B11 BC) | \(X_{\mathrm{CO2}}^{\mathrm{B11}}\) | `XCO2_BC_LABEL` |
+| xco2_raw | \(X_{\mathrm{CO2}}^{\mathrm{raw}}\) | `XCO2_RAW_LABEL` |
+| ATom pseudo-column | \(X_{\mathrm{CO2}}^{\mathrm{ATom}}\) | `XCO2_ATOM_LABEL` |
+| shipborne EM27/SUN | \(X_{\mathrm{CO2}}^{\mathrm{ship}}\) | `XCO2_SHIP_LABEL` |
+| anomaly target (xco2_bc_anomaly) | \(\Delta X_{\mathrm{CO2}}^{\mathrm{B11}}\) | `DXCO2_BC_LABEL` |
+
+Applied 2026-07-23 to fig03/fig03alt/figB2/fig05 (+ ocean companion).
+The copied report figures that display XCO2 axes (fig07a, fig08,
+fig09a/b, figD2–D4, figE2) still carry generic labels — adopt the
+superscripts when their producers are next re-rendered (ATom/ship
+producers live in workspace/ATom_analysis + Ship_analysis).
 
 ## 7. Values that must be frozen before prose drafting
 
