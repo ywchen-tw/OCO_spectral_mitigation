@@ -36,6 +36,10 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
   Appendix letters follow the 2026-07-22n mapping table
   in the flow plan. Draft
   captions for all figures: `log/MANUSCRIPT_FLOW_PLAN.md` §4.
+- `supplement/` — GIT-IGNORED staging area for the Supplement PDF
+  (S1 station-day panels, S2 ocean cases, S4 spectrum-internal set),
+  rebuilt by `scripts/stage_supplement_figures.py`; assembled by
+  `tex/supplement.tex`. Only `supplement_manifest.txt` is tracked.
 - `tables/` — generated LaTeX tables (`tab_*.tex`), written directly by
   `scripts/make_manuscript_tables.py` from the report CSVs under
   `results/model_comparison/`. Don't hand-edit; regenerate.
@@ -58,16 +62,18 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
     --only no-cloud --out-dir manuscript/figures
     --basename fig02_deep_ensemble_architecture`)
   - `make_anomaly_decay_figure.py` → fig03 (Results 4.1; two panels —
-    common r10 target motivating the radii, then adopted r05/r15 targets;
-    reads the combined 2016–2020 parquet directly)
+    common r10 target motivating the radii, then adopted r05/r15 targets)
+    + figB2_target_sensitivity (Appendix B2: each surface under all three
+    reference radii; reads the combined 2016–2020 parquet directly)
   - `make_landclass_heatmap_figure.py` → fig04 (Results 4.2 sign-rule
     heatmap, ocean column + IGBP land classes; needs the combined parquet
     and `data/MODIS/MCD12C1/` HDFs; QF0 + snow-free filter is
     load-bearing; default reference is PER-SURFACE r05/r15 — the common-r10
-    robustness variant writes `_r10`-suffixed files via
-    `--reference common-r10`; `--qf {0,1,all}` selects the quality-flag
-    population for the sensitivity comparison, writing `_qf1`/`_allqf`
-    files — only the barren column is QF-sensitive, see plan 2026-07-22g)
+    robustness variant writes `internal_landclass_r10*` via
+    `--reference common-r10` (internal check, not in the manuscript);
+    `--qf {0,1,all}` selects the quality-flag population, writing the
+    Appendix B4 files `figB4a_landclass_qf1`/`figB4b_landclass_allqf` —
+    only the barren column is QF-sensitive, see plan 2026-07-22g)
   - `make_baseline_ablation_figure.py` → fig06 (Results 4.3)
   - `make_significance_panel.py` → fig07b (Results 4.4 significance panel;
     7a is the copied station-day dumbbell `fig07a_tccon_dumbbell`)
@@ -79,3 +85,6 @@ build intermediates stay ignored — see the manuscript block in `.gitignore`).
     submission)
   - `make_manuscript_tables.py` → all `tables/tab_*.tex` (AK-harmonized
     only since 2026-07-21)
+  - `stage_supplement_figures.py` → `manuscript/supplement/S*_*/` (bulk
+    Supplement assets, ~295 MB; git-ignored except the tracked
+    `supplement_manifest.txt`; S3/S5 sources still on CURC)

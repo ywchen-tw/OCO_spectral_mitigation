@@ -33,8 +33,11 @@ locked AMT style with the L′ typesetting.
 
 Data:  results/csv_collection/combined_2016_2020_dates.parquet
        data/MODIS/MCD12C1/MCD12C1.A{2016..2020}001.061.*.hdf
-Output: manuscript/figures/fig04_landclass_effect_heatmap.{png,pdf}
-        manuscript/figures/fig04_landclass_effect_sizes.csv
+Output (naming follows the final appendix letters, 2026-07-22p):
+  primary        fig04_landclass_effect_heatmap.{png,pdf} + _effect_sizes.csv
+  --qf 1         figB4a_landclass_qf1.*        (Appendix B4)
+  --qf all       figB4b_landclass_allqf.*      (Appendix B4)
+  --reference common-r10  internal_landclass_r10.*  (internal check only)
 """
 from __future__ import annotations
 
@@ -122,16 +125,26 @@ def main() -> None:
                     help="clear-sky reference for the spectral deltas: the "
                          "production per-surface radii (ocean r05, land r15 "
                          "— PRIMARY since 2026-07-22e) or the common 10-km "
-                         "reference (robustness variant; outputs get a _r10 "
-                         "suffix)")
+                         "reference (internal check only; outputs named "
+                         "internal_landclass_r10*)")
     ap.add_argument("--qf", choices=["0", "1", "all"], default="0",
                     help="quality-flag population (snow-free always): 0 = "
-                         "primary scored population (no suffix), 1 = "
-                         "flagged-only (_qf1 suffix), all = no QF filter "
-                         "(_allqf suffix)")
+                         "primary scored population (fig04_*), 1 = "
+                         "flagged-only (figB4a_*), all = no QF filter "
+                         "(figB4b_*)")
     args = ap.parse_args()
-    suffix = ("" if args.reference == "per-surface" else "_r10") + \
-             {"0": "", "1": "_qf1", "all": "_allqf"}[args.qf]
+    # Output naming follows the 2026-07-22n appendix letters: the QF
+    # variants are Appendix B4 items, the common-r10 variant is an
+    # internal check with no manuscript number (decision 2026-07-22j).
+    qf_tag = {"0": "", "1": "_qf1", "all": "_allqf"}[args.qf]
+    if args.reference == "common-r10":
+        base = "internal_landclass_r10" + qf_tag
+    elif args.qf == "1":
+        base = "figB4a_landclass_qf1"
+    elif args.qf == "all":
+        base = "figB4b_landclass_allqf"
+    else:
+        base = "fig04_landclass"
 
     df = load(args.qf)
     if args.reference == "common-r10":
@@ -153,8 +166,7 @@ def main() -> None:
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     eff = build_effect_sizes(df, LAND_CLASS_DELTA_VARS, str(OUT_DIR), groups,
-                             n_min=N_MIN, group_col="grp",
-                             prefix=f"fig04_landclass{suffix}")
+                             n_min=N_MIN, group_col="grp", prefix=base)
 
     # ---- manuscript heatmap -------------------------------------------------
     apply_manuscript_style()
@@ -204,8 +216,10 @@ def main() -> None:
     fig.colorbar(im, ax=ax, label="near $-$ far effect (z)", pad=0.015)
 
     fig.tight_layout()
+    fname = ("fig04_landclass_effect_heatmap" if base == "fig04_landclass"
+             else base)
     for ext in ("png", "pdf"):
-        out = OUT_DIR / f"fig04_landclass_effect_heatmap{suffix}.{ext}"
+        out = OUT_DIR / f"{fname}.{ext}"
         fig.savefig(out)
         print(f"wrote {out}")
 

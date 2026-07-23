@@ -138,6 +138,15 @@ metrics), D1 (3×3 coincidence composite), D5 (forest plot), D6
 (only if beyond Fig. 9a), E4 (high-lat/post-2022 composite), F2
 (transect sheet), B2 (likely redundant with Fig. 3), G1 (MC sim), H1
 (TEMPO).  
+**Updated:** 2026-07-22p — Appendix B display items filled: figB2
+GENERATED (target-radius sensitivity, ocean invariant / land truncated
+at the reference radius) and the QF heatmaps renamed to their B4 slots
+(figB4a_landclass_qf1 / figB4b_landclass_allqf; r10 files →
+internal_landclass_r10*, duplicate r10 CSV deleted; generator writes
+the final names directly). Supplement staging added:
+stage_supplement_figures.py fills manuscript/supplement/ (S1 75
+station-day panels, S2 12 ocean case pages, S4 spectrum-internal set;
+git-ignored, manifest tracked); S3/S5 sources still on CURC.  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -643,7 +652,8 @@ long); category atlases are in Supplement S3.
   −1.29σ once the r15 reference removes the contamination); per-surface is
   also consistent with the production target radii. The common-r10 variant
   is kept as an INTERNAL check only (`--reference common-r10` →
-  `fig04_landclass_effect_heatmap_r10` + `fig04_landclass_effect_sizes_r10.csv`);
+  `internal_landclass_r10` + `internal_landclass_r10_effect_sizes.csv`,
+  renamed 2026-07-22p);
   per decision 2026-07-22j it is NOT discussed in the manuscript, main text
   or appendix (the QF0/QF1 sensitivity of B4 is the only Fig. 4 robustness
   presented). Author-side caveats worth remembering: the stricter r15
@@ -657,9 +667,10 @@ long); category atlases are in Supplement S3.
   so the L2 quality flag has no mechanical link to them; the QF0 filter
   instead controls the *physical population* (flag rate is distance- and
   class-dependent; flagged scenes carry competing scattering perturbations).
-  Variants: `fig04_landclass_effect_heatmap_qf1` (QF1-only) and `_allqf`
-  (no QF filter), CSVs alongside (`fig04_landclass_qf1_effect_sizes.csv`,
-  `fig04_landclass_allqf_effect_sizes.csv`); snow-free always. Result:
+  Variants: `figB4a_landclass_qf1` (QF1-only) and `figB4b_landclass_allqf`
+  (no QF filter), CSVs alongside (`figB4a_landclass_qf1_effect_sizes.csv`,
+  `figB4b_landclass_allqf_effect_sizes.csv`; renamed to the B4 letters
+  2026-07-22p); snow-free always. Result:
   every vegetated/ocean sign is stable across the three populations
   (WCO2 Δ⟨l′⟩ savanna +0.48/+0.54/+0.56σ for QF0/QF1/all); ONLY barren
   flips (−1.29σ QF0 → +0.47σ QF1 → −0.23σ all-QF), and 67 % of barren
@@ -1335,8 +1346,13 @@ Planned items:
 - **Fig. B1:** SUPERSEDED 2026-07-21d — the no-cloud architecture
   schematic is now main-text Fig. 2 (Methods 3.3). Keep a B-figure slot only
   if a more detailed training-vs-inference data-flow variant proves needed;
-- **Fig. B2:** target sensitivity for r05/r10/r15, if a compact version can be
-  generated without duplicating main-text Fig. 3;
+- **Fig. B2:** target sensitivity for r05/r10/r15 — GENERATED
+  2026-07-22p: `figB2_target_sensitivity` (each surface under all three
+  reference radii, bin means; `make_anomaly_decay_figure.py`).
+  Complementary to Fig. 3's arrangement, no duplication: it shows the
+  ocean curve is target-invariant while the land response is truncated
+  at whichever radius the reference allows — the label-robustness
+  argument for the 15 km land radius;
 - **Table B1:** cohort inventory and attrition from raw soundings to fitted,
   labeled, training, and evaluation populations;
 - **Table B2:** all target parameters and reference-population guards;
@@ -1346,8 +1362,8 @@ Planned items:
   the common-r10 reference variant is NOT discussed anywhere, main text or
   appendix, per decision 2026-07-22j; its `_r10` files remain in the repo
   as an internal check only). QF1-only and all-flag heatmaps
-  (`fig04_landclass_effect_heatmap_{qf1,allqf}`, CSVs
-  `fig04_landclass_{qf1,allqf}_effect_sizes.csv`): every ocean and
+  — staged 2026-07-22p as `figB4a_landclass_qf1` / `figB4b_landclass_allqf`
+  (+ `_effect_sizes.csv` each; generator writes these names directly): every ocean and
   vegetated-class sign is stable across QF populations (savanna WCO2 Δ⟨l′⟩
   +0.48/+0.54/+0.56σ for QF0/QF1/all); only barren flips (−1.29σ → +0.47σ
   QF1 → −0.23σ pooled; 67 % of barren soundings are QF1), consistent with
@@ -1690,6 +1706,14 @@ number — everything quantitative the paper leans on stays in the main
 text or a lettered appendix. Reviewers see the Supplement during review;
 it is not copy-edited, so it must be self-contained and carry its own
 caption discipline (the §4 caption rule applies).
+
+STAGING (2026-07-22p): `manuscript/scripts/stage_supplement_figures.py`
+copies the S1/S2/S4 assets (91 files, ~295 MB) into
+`manuscript/supplement/S*_*/` — git-ignored except the tracked
+`supplement_manifest.txt`; `manuscript/tex/supplement.tex` assembles the
+final PDF from these directories. S3 (atlas pages) and S5 (SG sweep +
+fit-example gallery) have no local sources — pull/regenerate on CURC,
+then rerun the staging script.
 
 - **S1 — TCCON station-day gallery:** all 75 individual station-day
   before/after panels (working label E4; the typeset remnant is the

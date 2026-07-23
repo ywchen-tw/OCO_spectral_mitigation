@@ -18,6 +18,10 @@ Data:  results/csv_collection/combined_2016_2020_dates.parquet
 Output (two candidate renderings, choice pending 2026-07-21h):
   manuscript/figures/fig03_anomaly_decay.{png,pdf}          IQR band + median (dashed) + mean (solid)
   manuscript/figures/fig03alt_anomaly_decay_boxplot.{png,pdf}  per-bin boxes
+  manuscript/figures/figB2_target_sensitivity.{png,pdf}     Appendix B2: each
+      surface under all three reference radii (r05/r10/r15 bin means) —
+      label robustness to the target choice, complementary to Fig. 3's
+      arrangement (which compares surfaces under a fixed target).
 """
 from __future__ import annotations
 
@@ -152,6 +156,36 @@ def make_boxplot_version(t, d, ocean, land) -> None:
         print(f"wrote {out}")
 
 
+def make_target_sensitivity(t, d, ocean, land) -> None:
+    """Appendix B2: per-surface anomaly under all three reference radii."""
+    fig, axes = plt.subplots(1, 2, figsize=(8.0, 3.1), sharey=True)
+    targets = [("xco2_bc_anomaly_r05", 5.0, "-"),
+               ("xco2_bc_anomaly", 10.0, "--"),
+               ("xco2_bc_anomaly_r15", 15.0, ":")]
+    for ax, mask, color, name in [(axes[0], ocean, C_OCEAN, "(a) Ocean"),
+                                  (axes[1], land, C_LAND, "(b) Land")]:
+        dm = d[mask]
+        for col, thr, ls in targets:
+            y = t[col].to_numpy()[mask]
+            m = np.isfinite(dm) & (dm >= 0) & np.isfinite(y)
+            st = binned_stats(dm[m], y[m])
+            ax.plot(CENTERS, st["mean"], color=color, ls=ls, lw=1.5,
+                    label=f"reference $>$ {thr:.0f} km")
+        ax.axhline(0.0, color="0.35", lw=0.8)
+        ax.set_xlim(0, 30)
+        ax.set_xlabel("Nearest-cloud distance (km)")
+        ax.set_title(name, fontsize=9, loc="left")
+        ax.legend(frameon=False, fontsize=8,
+                  title="clear-sky reference", title_fontsize=8)
+    axes[0].set_ylabel(f"{XCO2_LABEL} anomaly (ppm)")
+    fig.tight_layout()
+    for ext in ("png", "pdf"):
+        out = OUT_DIR / f"figB2_target_sensitivity.{ext}"
+        fig.savefig(out)
+        print(f"wrote {out}")
+    plt.close(fig)
+
+
 def main() -> None:
     import pyarrow.parquet as pq
     cols = ["cld_dist_km", "sfc_type", "xco2_bc_anomaly",
@@ -206,6 +240,7 @@ def main() -> None:
     plt.close(fig)
 
     make_boxplot_version(t, d, ocean, land)
+    make_target_sensitivity(t, d, ocean, land)
 
 
 if __name__ == "__main__":
