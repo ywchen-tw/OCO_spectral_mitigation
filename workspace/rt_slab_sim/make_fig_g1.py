@@ -1,5 +1,5 @@
 """
-Fig. G1 (manuscript, AMT style): controlled 3-D-vs-ICA slab demonstration.
+Fig. G1 (manuscript, AMT style): controlled 3-D-vs-IPA slab demonstration.
 
 Layout: 2 columns (dark / bright surface) x 4 rows --
   (a,b) fitted <l'> (production estimator, order 7, no-SG)
@@ -10,7 +10,7 @@ Layout: 2 columns (dark / bright surface) x 4 rows --
         the fitted cumulants are supposed to encode.
 
 Also computes closure statistics (Pearson r between fitted k1/k2 and the
-tallied geometric moments across 3-D columns; ICA-null residuals) ->
+tallied geometric moments across 3-D columns; IPA-null residuals) ->
 results/rt_slab_sim/closure_stats.json, printed for the appendix text.
 NOTE the closure is a SHAPE comparison: fitted cumulants are
 absorption-weighted (pressure-weighted altitude sampling) while the mode-3
@@ -41,7 +41,7 @@ FIG_DIR = os.path.join(cfg.REPO_ROOT, "manuscript", "figures")
 OUT_BASE = "figG1_mc_3d_vs_ica"
 
 COL_3D = "#c1272d"     # 3-D
-COL_ICA = "#0000a7"    # ICA
+COL_ICA = "#0000a7"    # IPA
 
 
 def continuum_moments(f, surface, solver, mid):
@@ -124,7 +124,7 @@ def main():
     tags = "abcdefgh"
 
     for jc, s in enumerate(cfg.SURFACE_ALBEDOS):
-        for v, col, lbl in (("3d", COL_3D, "3-D"), ("ipa", COL_ICA, "ICA")):
+        for v, col, lbl in (("3d", COL_3D, "3-D"), ("ipa", COL_ICA, "IPA")):
             res = fit[f"{s}/{v}"]
             for jr, name in enumerate(("k1", "k2")):
                 ax = axes[jr, jc]
@@ -174,8 +174,8 @@ def main():
     ax.annotate("", xy=(0.05 + dx, 0.97 - dy), xytext=(0.05, 0.97),
                 xycoords="axes fraction", textcoords="axes fraction",
                 arrowprops=dict(arrowstyle="->", lw=1.0))
-    ax.text(0.05 + dx + 0.02, 0.955, f"sun, SZA {sza:.0f}$^\\circ$",
-            transform=ax.transAxes, fontsize=8, va="center")
+    ax.text(0.05 + dx + 0.02, 0.99, f"sun\nSZA {sza:.0f}$^\\circ$",
+            transform=ax.transAxes, fontsize=8, va="top")
     ax.text(18.5, 0.55, "shadow", fontsize=8, ha="center", color="0.3")
     ax.text(12.0, 0.88, "cloud", fontsize=8, ha="center", color="0.3")
 
