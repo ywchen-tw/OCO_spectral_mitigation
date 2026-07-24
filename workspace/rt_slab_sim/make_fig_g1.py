@@ -45,7 +45,14 @@ COL_ICA = "#0000a7"    # IPA
 
 
 def continuum_moments(f, surface, solver, mid):
-    """Relative-path mean/std per column from the continuum plen histogram."""
+    """Relative-path mean/std per column from the continuum plen histogram.
+
+    Uses the wavelength with the smallest slant tau (~1e-4): with no
+    absorption weighting the Rad_mplen=3 histogram is the PURE geometric
+    photon path-length distribution, i.e. the PPDF whose cumulants the
+    spectral fit is supposed to encode (tally mechanics documented in
+    run_slab.SlabMcarats; geometric-vs-absorption-weighted caveat in
+    fit_and_plot.plen_moments)."""
     g = f[f"{surface}/{solver}"]
     slant = f["slant_tau"][...][g["iw"][...]]
     iw = int(np.argmin(slant))

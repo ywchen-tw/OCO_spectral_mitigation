@@ -99,10 +99,16 @@ NRUN = 3
 SOLVERS = ("3d", "ipa")                # identical scene; single-kwarg switch
 
 # --------------------------------------------------------------------------
-# Photon path-length statistics (MCARaTS Rad_mplen=3: per-pixel histogram of
-# total geometric path, contribution-weighted, normalized by pixel radiance).
-# Total path includes the constant vacuum leg TOA(60 km) -> sensor(705 km)
-# = 645 km for the nadir view; bins must bracket it.
+# Photon path-length statistics -- MCARaTS' built-in tally, enabled purely
+# by namelist (injected via run_slab.SlabMcarats.extra_nml, where the
+# mechanics are documented).  Rad_mplen=3 bins every radiance contribution's
+# TOTAL geometric path (TOA -> scattering events -> sensor, summed from the
+# per-layer Pho_plen/PhoV_plen arrays of the local-estimation trace) into
+# PLEN_NBIN bins over [PLEN_MIN_M, PLEN_MAX_M], radiance-weighted and
+# normalized per pixel -> the per-column PPDF.  Totals include the constant
+# vacuum leg TOA(60 km) -> sensor(705 km) = 645 km for the nadir view, plus
+# the injection-plane accounting; bins must bracket that offset (it cancels
+# in all anomalies/variances).
 # --------------------------------------------------------------------------
 PLEN_MODE = 3
 PLEN_NBIN = 2500

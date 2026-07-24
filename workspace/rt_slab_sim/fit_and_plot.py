@@ -54,7 +54,21 @@ def fit_columns(rad, toa, slant_tau, mu0):
 
 def plen_moments(plen_hist, edges_mid):
     """(nw, nrun, Nx, Ntp) radiance-fraction histograms -> per-column mean and
-    std of total geometric path, per wavelength (runs pooled)."""
+    std of total geometric path, per wavelength (runs pooled).
+
+    The histograms are MCARaTS Rad_mplen=3 tallies: fraction of each pixel's
+    radiance per total-geometric-path bin (see run_slab.SlabMcarats).  The
+    totals include the constant vacuum leg TOA -> 705-km sensor, which is
+    identical for all columns/solvers and therefore cancels when moments are
+    plotted as anomalies against the clear-sky far field.
+
+    Caveat for closure against the fitted cumulants: these are GEOMETRIC
+    path moments, while the spectral fit senses ABSORPTION-WEIGHTED paths
+    (layers contribute in proportion to absorber density).  The two agree
+    where surface-reflected photons dominate the radiance (clear columns,
+    bright surfaces) and diverge where high-altitude scattering carries the
+    radiance (dark-surface shadow band, in-cloud) -- an exact second-moment
+    closure would need an absorption-weighted accumulator in mcarRad.F90."""
     h = plen_hist.mean(axis=1)                     # pool runs: (nw, Nx, Ntp)
     wsum = h.sum(axis=-1)
     wsum = np.where(wsum > 0, wsum, np.nan)

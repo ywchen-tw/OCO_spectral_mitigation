@@ -50,7 +50,31 @@ DATE = datetime.datetime(2020, 1, 1)
 
 class SlabMcarats(mcarats_ng):
     """mcarats_ng with extra namelist entries injected before input-file
-    generation (e.g. Rad_mplen path-length statistics, Rad_difr* overrides)."""
+    generation (e.g. Rad_mplen path-length statistics, Rad_difr* overrides).
+
+    How the photon path-length tally works inside MCARaTS
+    -----------------------------------------------------
+    MCARaTS carries a per-photon array ``Pho_plen(0:nz+1)`` -- the geometric
+    distance travelled in each model layer, accumulated by the ray tracer
+    (mcarAtm.F90).  Radiance is computed by local estimation: at every
+    scattering event a virtual copy of the photon is traced toward the
+    sensor (mcarRad__samp1) and keeps extending its own copy ``PhoV_plen``,
+    so when a contribution reaches a radiance pixel, sum(PhoV_plen) is the
+    TOTAL geometric path of that contribution: TOA entry -> all scattering
+    events -> sensor (including the constant vacuum leg above the
+    atmosphere to the 705-km sensor).
+
+    Setting ``Rad_mplen = 3`` (a built-in feature -- no source edit) makes
+    the sampler bin every contribution's total path into ``Rad_ntp`` bins
+    spanning [Rad_tpmin, Rad_tpmax] meters, weighted by the contribution's
+    radiance weight (mcarRad.F90:803).  On output the histogram is
+    normalized by the pixel radiance (mcarRad__normal), so the written
+    field is the FRACTION of each pixel's radiance contributed by each
+    total-path bin -- a per-column, radiance-weighted photon path-length
+    distribution (PPDF) that sums to ~1 over bins.  NOTE this is the
+    GEOMETRIC path; the spectral fit senses the absorption-weighted path
+    (layers weighted by absorber density) -- see fit_and_plot.plen_moments.
+    """
 
     extra_nml = {}
 
@@ -267,9 +291,16 @@ def main():
 
 def read_plen(fdir):
     """Per-run path-length histograms (Nrun, Nx, Ntp) from the raw GrADS
-    output, or None if the pln variable is absent.  MCARaTS mode-3 output is
-    the fraction of each pixel's radiance contributed by each total-path bin
-    (already radiance-normalized per pixel)."""
+    output, or None if the pln variable is absent.
+
+    MCARaTS writes the Rad_mplen=3 histogram next to the radiance in its
+    GrADS-style output (.bin + .ctl): v0.10.4 declares it in the ctl as
+    variable 'b1 ... Pathlength Statistics' with Rad_ntp Z-levels (v0.11
+    names it 'pln_0001').  er3t's mca_out_raw parses whatever variables the
+    ctl lists, so we just select the pathlength one by name.  Values are
+    already radiance-normalized per pixel (fraction of the pixel's radiance
+    per total-path bin, ~sums to 1 over bins); the constant vacuum leg to
+    the sensor is included in the path totals and cancels in anomalies."""
     import glob
     hists = []
     for path in sorted(glob.glob(os.path.join(fdir, "r*.out.bin"))):
