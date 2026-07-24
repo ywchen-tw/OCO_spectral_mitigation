@@ -20,9 +20,10 @@
 # scene: SZA-55 footprint 2020010100281632, cloud 3-4 km / COD 10 at
 # x = 9.5-14.5 km in a 32 km Ny=1 slab, solvers 3d vs ipa, dark+bright).
 #
-# PREREQUISITES (run locally, then rsync to the repo clone on CURC):
-#   results/rt_slab_sim/slab_atm.h5   (stage 1: build_atmosphere.py)
-#   results/rt_slab_sim/slab_od.h5    (stage 2: gas_od.py; needs local ABSCO)
+# PREREQUISITES (run locally, then rsync to CURC SCRATCH --
+# /scratch/alpine/$USER/oco2_data/rt_slab_sim/ per workspace/curc_setup.sh):
+#   slab_atm.h5   (stage 1: build_atmosphere.py)
+#   slab_od.h5    (stage 2: gas_od.py; needs local ABSCO)
 # and on CURC:
 #   - er3t v0.10-era snapshot        -> export ER3T_DIR=<er3t repo root>
 #   - MCARaTS v0.10.4 binary (Linux) -> export MCARATS_V010_EXE=<path>
@@ -35,10 +36,11 @@
 # (NWVL is read from slab_od.h5 -- do not hardcode; the wavelength selection
 #  is data-derived and the array range above assumes 33.)
 #
-# AFTER the array completes, collect on a login/compile node (cheap):
+# AFTER the array completes, collect on a login/compile node (cheap; with
+# SCRATCH_DIR exported so it finds the runs):
 #   python workspace/rt_slab_sim/run_slab.py --collect
-# then rsync results/rt_slab_sim/slab_rad.h5 back and rerun
-# fit_and_plot.py / plot_ppdf.py locally.
+# then rsync ${SCRATCH_DIR}/rt_slab_sim/slab_rad.h5 back into local
+# results/rt_slab_sim/ and rerun fit_and_plot.py / plot_ppdf.py locally.
 
 module purge
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
@@ -53,7 +55,13 @@ fi
 export ER3T_DIR=${ER3T_DIR:-/projects/yuch8913/er3t}
 export MCARATS_V010_EXE=${MCARATS_V010_EXE:-/projects/yuch8913/mcarats/v0.10.4/src/mcarats}
 
-NWVL=$(python -c "import h5py; f=h5py.File('results/rt_slab_sim/slab_od.h5','r'); print(f['wvl_nm'].shape[0])")
+# results live on scratch (same convention as workspace/curc_setup.sh);
+# slab_config.py picks this up and puts everything under
+# ${SCRATCH_DIR}/rt_slab_sim -- rsync slab_atm.h5 + slab_od.h5 THERE
+export SCRATCH_DIR=${SCRATCH_DIR:-/scratch/alpine/${USER}/oco2_data}
+mkdir -p "${SCRATCH_DIR}/rt_slab_sim"
+
+NWVL=$(python -c "import sys; sys.path.insert(0,'workspace/rt_slab_sim'); import slab_config as c; import h5py; print(h5py.File(c.OD_FILE,'r')['wvl_nm'].shape[0])")
 
 IDX=${SLURM_ARRAY_TASK_ID}
 IWVL=$(( IDX % NWVL ))

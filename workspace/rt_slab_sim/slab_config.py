@@ -116,9 +116,14 @@ FIT_ORDER = 7                          # constants.FIT_ORDER[0] (O2A)
 FIT_SMOOTH = False                     # no-SG production path
 
 # --------------------------------------------------------------------------
-# Outputs
+# Outputs.  On CURC, source workspace/curc_setup.sh (or export SCRATCH_DIR)
+# and everything lives under /scratch/alpine/$USER/oco2_data/rt_slab_sim,
+# matching the other CURC scripts; locally it stays repo-relative.
 # --------------------------------------------------------------------------
-OUT_DIR = os.path.join(REPO_ROOT, "results", "rt_slab_sim")
+if "SCRATCH_DIR" in os.environ:
+    OUT_DIR = os.path.join(os.environ["SCRATCH_DIR"], "rt_slab_sim")
+else:
+    OUT_DIR = os.path.join(REPO_ROOT, "results", "rt_slab_sim")
 ATM_FILE = os.path.join(OUT_DIR, "slab_atm.h5")
 OD_FILE = os.path.join(OUT_DIR, "slab_od.h5")
 RAD_FILE = os.path.join(OUT_DIR, "slab_rad.h5")
