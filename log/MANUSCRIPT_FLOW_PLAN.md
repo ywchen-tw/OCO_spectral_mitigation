@@ -497,6 +497,28 @@ real accounting needs a CURC sweep over per-date fitting_details.h5.
 G1/H1 remain artifact-pending with their conditional appendices.
 \input wiring into appendix_*.tex left to the author (no-unasked-tex-edit
 rule).  
+**Updated:** 2026-07-24b — **Appendix G COMPLETED and SELF-RUN; the
+conditional placement is RESOLVED → typeset appendix.** The cohort
+backward-MC figure (former A13) is replaced by our own er3t/MCARaTS
+v0.10.4 x–z slab simulation (`workspace/rt_slab_sim/`; production data =
+Blanca 1e9-photon sweep, 33 O2A wavelengths × {3-D, IPA} × {dark 0.03,
+bright 0.30}, Nrun 3). Scene: real OCO-2 sounding 2020010100281632
+(29252a, SZA 55°), column-conserving 21-layer grid, water cloud COD 10 at
+3–4 km in a 32-km Ny=1 periodic slab, sun along +x. The runs are refit
+with the PRODUCTION estimator (order 7, no-SG, exact lstsq/BVLS) and —
+beyond the original scope — MCARaTS' native path-length tally
+(Rad_mplen=3) records the per-column PPDF, giving a quantitative
+first-moment closure: r(fitted ⟨l′⟩, tallied mean path) = 0.999 (dark) /
+0.987 (bright) over clear columns; r(var(l′), tallied path variance) =
+0.989 on the bright surface; IPA-null residual ≤ 0.9 % of the 3-D range.
+Display items EXIST: `manuscript/figures/figG1_mc_3d_vs_ica.{png,pdf}`
+(AMT style, 4 rows × dark/bright: ⟨l′⟩, var(l′), effective reflectance,
+MC path-moment closure row) and `manuscript/tables/tabG1_slab_config.tex`
+(auto-generated from the simulation config — cannot drift). Generators:
+`workspace/rt_slab_sim/make_fig_g1.py` / `make_table_g1.py`; closure
+numbers in `results/rt_slab_sim/closure_stats.json`; supporting PPDF
+heat-map/cut figures (`slab_ppdf_{dark,bright}.png`) are S6 candidates.
+Appendix G section text + captions updated below (§5).  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -1803,8 +1825,8 @@ captions use the lowercase italic l′ notation (2026-07-22 final) and the AK-on
 Supplement contents are governed by the **Supplement plan (S1–S6)** at the
 end of §5 (2026-07-22m; this list previously conflicted with the appendix
 sections — resolved there: feature lists/hyperparameters STAY in
-Appendix C, the Monte Carlo demonstration follows the Appendix G
-conditional, cross-sensor feasibility STAYS in Appendix H, the compact 3×3
+Appendix C, the Monte Carlo demonstration is a TYPESET appendix
+(G — conditional resolved 2026-07-24b), cross-sensor feasibility STAYS in Appendix H, the compact 3×3
 coincidence matrix stays in Appendix D with only extended variants in the
 Supplement).
 
@@ -2527,45 +2549,93 @@ case-selection concerns.
 **Purpose:** provide a causal mechanism test while keeping its limited scope
 explicit.
 
-**CONDITIONAL PLACEMENT (2026-07-22m):** keep as a typeset appendix ONLY if
-finished to manuscript standard (it is the paper's only causal — not
-correlational — mechanism evidence, and §3.2's causal-sensitivity sentence
-leans on it, so typeset is preferred). If it stays single-geometry-only or
-is not polished in time, move the material to Supplement S6 and soften the
-§3.2 sentence to cite the Supplement — that landing spot replaces the old
-delete-or-delay choice.
+**PLACEMENT RESOLVED (2026-07-24b): typeset appendix.** The former
+conditional (2026-07-22m) is met and exceeded — the simulation is now
+SELF-RUN (er3t/MCARaTS v0.10.4 forward MC, `workspace/rt_slab_sim/`,
+replacing the cohort backward-MC figure and its provenance/co-authorship
+open items), finished to manuscript standard, and includes a quantitative
+first-moment closure between the fitted cumulants and directly tallied
+photon-path moments — upgrading the appendix from qualitative sensitivity
+demonstration to partial PPDF closure (§8d language updated accordingly).
 
-Include the backward-Monte-Carlo 3-D-versus-ICA experiment now tracked as
-working figure A13:
+Contents (all implemented; Table G1 auto-generated from the simulation
+config so it cannot drift from the code):
 
-- model, band, geometry, cloud optical properties, surface albedo, grid, and
-  photon-sampling configuration;
-- identical cloud scene under full 3-D transport and ICA;
-- refitting with the production spectral estimator;
-- \(l'\), variance, and intercept response across the cloud boundary;
-- the one-sided shadow-edge decay;
-- limitations of a single representative geometry.
+- scene: one real OCO-2 sounding (2020010100281632, orbit 29252a,
+  1 Jan 2020, 29.9° N ocean glint, SZA 55°) supplies the Met/CO2-prior
+  profiles, regridded to 21 layers conserving every gas column exactly
+  (above-top O2 residual 0.015 %);
+- x–z slab: 32-km periodic domain (Nx 64 × 0.5 km, Ny = 1, medium
+  invariant along y — photons keep full 3-D angular freedom), water cloud
+  COD 10 / r_eff 10 µm at 3–4 km, x = 9.5–14.5 km; sun along +x; nadir
+  sensor; dark (0.03) and bright (0.30) Lambertian surfaces;
+- gas optics: ABSCO v5.2 per-layer OD at 33 monochromatic O2A wavelengths
+  log-spanning slant τ ≈ 0.03–8 (+3 continuum anchors);
+- identical scene under full 3-D transport and the independent-pixel
+  approximation (IPA) — a single solver switch, 1e9 photons × 3 runs each;
+- refit of every column with the PRODUCTION estimator (order 7, no-SG,
+  exact lstsq/BVLS — the same code path as the observations);
+- native MCARaTS path-length tally (Rad_mplen=3): per-column,
+  radiance-weighted histograms of total geometric photon path = the PPDF,
+  reduced to mean/s.d. per column (closure row of Fig. G1);
+- results: one-sided shadow-band response (x ≈ 15–22 km) + illuminated-edge
+  brightening under 3-D only; IPA exactly flat outside the cloud
+  (residual ≤ 0.9 % of the 3-D dynamic range); the shadow-band ⟨l′⟩
+  response REVERSES SIGN between the dark (0.78 → 0.41) and bright
+  (0.99 → 1.17) surface — the albedo-contrast mechanism (EMPHASIS 1)
+  reproduced causally; 3-D-only var(l′) plateau (~0.45) across the bright
+  shadow band;
+- closure: r(fitted ⟨l′⟩, tallied mean path) = 0.999 dark / 0.987 bright
+  (clear columns); r(var(l′), tallied path variance) = 0.989 bright.
+  The dark-surface second moment does NOT close against the geometric
+  tally (short-Rayleigh-path dominance; the fit senses absorption-weighted
+  moments) — state as the expected limit of a geometric tally;
+- limitations: single representative geometry; geometric-vs-
+  absorption-weighted path distinction; monochromatic sampling (no ILS).
 
-Planned items:
+Display items (EXIST, generators in `workspace/rt_slab_sim/`):
 
-- **Fig. G1:** controlled 3-D-versus-ICA comparison;
-- **Table G1:** simulation configuration and estimator settings.
+- **Fig. G1:** `manuscript/figures/figG1_mc_3d_vs_ica.{png,pdf}`
+  (`make_fig_g1.py`; closure numbers in
+  `results/rt_slab_sim/closure_stats.json`);
+- **Table G1:** `manuscript/tables/tabG1_slab_config.tex`
+  (`make_table_g1.py`);
+- optional S6 companions: PPDF heat-map/cut figures
+  (`results/rt_slab_sim/figs/slab_ppdf_{dark,bright}.png`,
+  `plot_ppdf.py`) and the slab atmosphere profile figure
+  (`slab_atm_profiles.png`, `plot_atm_profiles.py`).
 
-**Draft caption (2026-07-23g; PROVISIONAL — artifact pending, appendix
-itself conditional):**
+**Final draft caption (2026-07-24b; artifact exists):**
 
-> **Figure G1.** Controlled 3-D radiative-transfer demonstration: an
-> identical cloud scene computed with full 3-D photon transport and
-> with the independent-column approximation (backward Monte Carlo;
-> configuration in Table G1), refitted with the production spectral
-> estimator. Shown are ⟨l′⟩, var(l′), and the continuum intercept
-> across the cloud boundary, including the illuminated and shadowed
-> sides.
+> **Figure G1.** Controlled three-dimensional radiative-transfer
+> demonstration on an x–z slab scene (configuration in Table G1): a
+> single water cloud (optical depth 10, 3–4 km altitude; grey band) in
+> an otherwise clear, periodic 32-km domain, computed with full 3-D
+> photon transport (red) and with the independent-pixel approximation
+> (IPA, blue) on the identical scene, over a dark (a, c, e, g; albedo
+> 0.03) and a bright (b, d, f, h; albedo 0.30) Lambertian surface.
+> (a, b) ⟨l′⟩ and (c, d) var(l′), fitted per column with the production
+> spectral estimator (order 7, no presmoothing; shading: spread of
+> three independent Monte Carlo runs); (e, f) effective scene
+> reflectance (exponential of the fitted intercept); (g, h) mean and
+> standard deviation of the directly tallied photon path-length
+> distribution at the continuum wavelength, shown as anomalies from the
+> clear-sky far field in relative-path units. Under IPA every quantity
+> is flat outside the cloud, whereas 3-D transport produces the
+> illuminated-edge brightening and the one-sided shadow-band response
+> (x ≈ 15–22 km), whose ⟨l′⟩ signature reverses sign between the dark
+> and the bright surface. The fitted ⟨l′⟩ tracks the tallied mean path
+> with r ≥ 0.99 over clear columns, and var(l′) tracks the tallied
+> path variance with r = 0.99 over the bright surface; the fitted
+> cumulants respond to cloud adjacency only when horizontal photon
+> transport is enabled.
 
-State explicitly that this validates qualitative sensitivity of the fitted
-features to horizontal photon transport. Direct comparison between fitted
-cumulants and tallied photon-path moments, a geometry sweep, and plume
-injection remain future work.
+State explicitly that the first moment closes quantitatively in shape and
+the second moment closes where the cloud-detour population dominates
+(bright surface); exact second-moment closure requires absorption-weighted
+path tallies. STILL FUTURE WORK (follow-up per §4 of TODO_ACCOMPLISH):
+absorption-weighted tallies, the geometry sweep (SZA/COD/albedo), synthetic
+full-spectrum generation, and plume injection.
 
 ### Appendix H: Cross-sensor feasibility (TEMPO; formerly Appendix K)
 
@@ -2628,8 +2698,9 @@ Resolved 2026-07-22m/n into the appendix/Supplement split above
 1. **Required (typeset):** A–F — method, model+CV, validation (TCCON +
    ocean), nulls/failures, and case/plume audit — plus H (user decision
    2026-07-22: the cross-mission bridge, existence-proof scope).
-2. **Conditional:** G (3-D RT) — typeset appendix if finished to
-   manuscript standard, else its material goes to Supplement S6.
+2. ~~**Conditional:** G (3-D RT)~~ **RESOLVED 2026-07-24b: typeset**
+   (self-run simulation finished to manuscript standard; Fig. G1 +
+   Table G1 exist; S6 keeps only the optional PPDF companions).
 3. **Moved to Supplement:** the former Appendix I (whole section → S4)
    and every per-case gallery (S1–S3).
 
@@ -2672,8 +2743,9 @@ then rerun the staging script.
   accepted/rejected fit-example gallery (Appendix A keeps one summary
   panel).
 - **S6 — Reserve:** secondary uncertainty/failure-mode tables that
-  outgrow Appendix D/E, and the Appendix G (3-D RT) material if it does
-  not reach typeset standard.
+  outgrow Appendix D/E, and the OPTIONAL Appendix G companions (the
+  PPDF heat-map/cut figures and slab atmosphere profiles; the appendix
+  itself is typeset — resolved 2026-07-24b).
 
 **Draft gallery captions (2026-07-23g; page-template style — one caption
 per section, repeated per page with the page's case identifier filled
