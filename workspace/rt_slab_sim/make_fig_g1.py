@@ -160,7 +160,7 @@ def main():
             if jc == 0:
                 ax.set_ylabel(row_labels[jr])
     axes[0, 0].legend(fontsize=8, loc="lower right", frameon=False)
-    axes[3, 0].legend(fontsize=7, loc="upper left", frameon=False, ncol=2)
+    axes[3, 0].legend(fontsize=7, loc="upper left", frameon=False, ncol=1)
 
     # top headroom on the first row so the sun annotation sits above the data
     for jc in range(2):
