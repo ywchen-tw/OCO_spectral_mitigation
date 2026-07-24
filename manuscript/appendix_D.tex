@@ -128,6 +128,7 @@ The code reports the population standard deviation:
 
 
 \subsection{DE model evaluation}
+\label{app:DE_eval}
 
 \begin{figure}[t]
 \centering
@@ -138,6 +139,32 @@ The code reports the population standard deviation:
 \end{figure}
 
 
+\subsection{DerSimonian--Laird estimator}
+\label{app:DL_estimator}
+
+For the uncertainty-aware comparison of Sect.~\ref{sec:result-unc}, each corrected station-day mean bias $b_s$ (Sect.~\ref{sec:method-eval-obs-xco2}) carries a combined uncertainty $u_s^2 = u_{\mathrm{OCO},s}^2 + u_{\mathrm{TCCON},s}^2$. On the OCO-2 side, $u_{\mathrm{OCO},s}$ is the predictive $\sigma$ of the deep ensemble averaged over the collocated footprints, with an effective sample size that accounts for along-track error correlation (15~km decorrelation length) and an inflation factor calibrated on held-out data as a function of nearest-cloud distance (up to 1.27 near cloud, approaching unity beyond about 15~km). On the TCCON side, $u_{\mathrm{TCCON},s}$ combines, in quadrature, the reported measurement uncertainty, the temporal variability of the TCCON record within the coincidence window, the residual prior and averaging-kernel harmonization term, and a collocation (spatial representation) term. The individual components for every station-day are listed in Table~\ref{tab:unc_components}.
+
+The station-days are pooled with the random-effects estimator of \citet{dersimonian1986meta}, which allows every station-day to carry its own true offset around a common mean. With fixed-effect weights
+$w_s = 1/u_s^2$, the fixed-effect mean $\mu_{\mathrm{FE}} = \sum_s w_s b_s / \sum_s w_s$, and the
+heterogeneity statistic $Q = \sum_s w_s\,(b_s - \mu_{\mathrm{FE}})^2$, the between-case
+variance is estimated as
+%
+\begin{equation}
+  \tau^2 = \max\!\left(0,\
+  \frac{Q - (S-1)}{\sum_s w_s - \sum_s w_s^2 / \sum_s w_s}\right),
+  \label{eq:dl_tau}
+\end{equation}
+%
+and the pooled mean and its standard error use the enlarged weights
+%
+$w_s^* = 1/(u_s^2 + \tau^2)$:
+\begin{equation}
+  \mu = \frac{\sum_s w_s^* b_s}{\sum_s w_s^*}, \qquad
+  \mathrm{se}(\mu) = \Bigl(\sum_s w_s^*\Bigr)^{-1/2}.
+  \label{eq:dl_mu}
+\end{equation}
+%
+If the stated uncertainties $u_s$ explained all of the case-to-case scatter, $Q$ would be close to $S-1$ and $\tau$ would vanish (the estimator clips $\tau^2$ at zero); a nonzero $\tau$ therefore quantifies the genuine spread of station-day offsets beyond the stated budget. The estimator is non-iterative and standard in meta-analysis. The resulting $\mu$, $\tau$, and the per-station-day forest view are given in Sect.~\ref{sec:result-unc} and Fig.~\ref{fig:unc_forest}, at both the primary 100~km and the tighter 50~km coincidence radius.
 
 
 % ---------------------------------------------------------------------------

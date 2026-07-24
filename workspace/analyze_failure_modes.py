@@ -344,6 +344,75 @@ def stage3_figure(bins: pd.DataFrame, out: Path):
 
 # ── stage 4 ──────────────────────────────────────────────────────────────────
 
+CV_FOLD_TMPL = ("results/model_deep_ensemble/"
+                "de_land_beta_nll_prof_reg_foldpca_r15_f{f}/"
+                "held_out_predictions.parquet")
+COMBINED_PARQUET = Path("results/csv_collection/combined_2016_2020_dates.parquet")
+
+
+def stage6_cv_albedo(d: pd.DataFrame, out_dir: Path, rtag: str) -> list[str]:
+    """Held-out CV cross-check of the bright-surface stratum (2026-07-23):
+    is the top-alb_o2a TCCON failure stratum also where the model fails on
+    genuinely held-out ANOMALY labels?  Joins alb_o2a from the training
+    parquet onto the five land folds' held_out_predictions (exact match on
+    lat/aod_total/fp — all read from the same parquet, so floats are
+    bit-identical), bins by the SAME alb_o2a decile edges as the TCCON
+    stage-3 table, and reports the CV analog of frac_worse:
+    |y - mu| > |y|, i.e. applying the correction was worse than doing
+    nothing against the held-out label."""
+    tccon_alb = d.loc[(d.sfc_type == 1) & np.isfinite(d.alb_o2a), "alb_o2a"]
+    edges = np.unique(np.quantile(tccon_alb, np.linspace(0, 1, 11)))
+    edges[0], edges[-1] = -np.inf, np.inf
+
+    comb = apq.read_table(COMBINED_PARQUET,
+                          columns=["lat", "aod_total", "fp", "alb_o2a"]
+                          ).to_pandas()
+    comb = comb.drop_duplicates(subset=["lat", "aod_total", "fp"], keep=False)
+    frames = []
+    for f in range(5):
+        p = Path(CV_FOLD_TMPL.format(f=f))
+        if not p.exists():
+            print(f"stage 6: SKIP — missing {p}")
+            return ["_(skipped: held-out fold predictions not available)_"]
+        cv = pd.read_parquet(p, columns=["y_true", "mu", "sigma", "lat",
+                                         "aod_total", "fp"])
+        frames.append(cv.merge(comb, on=["lat", "aod_total", "fp"],
+                               how="left", validate="m:1"))
+    cv = pd.concat(frames, ignore_index=True)
+    matched = float(cv.alb_o2a.notna().mean())
+    cv = cv[cv.alb_o2a.notna()].copy()
+    cv["res"] = cv.y_true - cv.mu
+    cv["worse"] = cv.res.abs() > cv.y_true.abs()
+
+    rows = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        g = cv[(cv.alb_o2a > lo) & (cv.alb_o2a <= hi)]
+        rows.append(dict(
+            lo=lo, hi=hi, n=len(g),
+            rmse_no_corr=_rmse(g.y_true), rmse_after=_rmse(g.res),
+            mean_resid=float(g.res.mean()),
+            frac_worse=float(g.worse.mean()),
+            z2=float(np.mean((g.res / g.sigma) ** 2))))
+    t = pd.DataFrame(rows)
+    t.to_csv(out_dir / f"strat_cv_land_alb_o2a_{rtag}.csv", index=False)
+
+    lines = [
+        f"Five land folds' `held_out_predictions.parquet` pooled "
+        f"({len(cv):,} held-out footprints; alb_o2a joined from the training "
+        f"parquet, {100 * matched:.1f}% matched), binned by the SAME alb_o2a "
+        "decile edges as the TCCON table of section 2. `frac worse` here is "
+        "the CV analog: |y − μ| > |y| against the held-out anomaly label. "
+        f"Full table `strat_cv_land_alb_o2a_{rtag}.csv`.", "",
+        "| alb_o2a bin | n | RMSE no-corr | RMSE after | mean resid | "
+        "frac worse | ⟨z²⟩ |", "|---|---|---|---|---|---|---|"]
+    for r in t.itertuples():
+        lines.append(f"| {max(r.lo, -0.012):.3g}–{min(r.hi, 0.93):.3g} | "
+                     f"{r.n:,} | {r.rmse_no_corr:.2f} | {r.rmse_after:.2f} | "
+                     f"{r.mean_resid:+.3f} | {r.frac_worse:.2f} | "
+                     f"{r.z2:.2f} |")
+    return lines
+
+
 def stage4_dossiers(d: pd.DataFrame, worse: pd.DataFrame) -> list[str]:
     drivers = [c for c in ["aod_total", "aod_dust", "sza", "abs_lat", "airmass",
                            "alb_o2a", "alb_sco2", "snow_flag", "tcwv", "dpfrac",
@@ -506,7 +575,10 @@ def main():
         *sigma_awareness(d), "",
         "## 5. Worsener dossiers (driver z-scores vs full cohort)", "",
         *stage4_dossiers(d, worse), "",
-        "## Conclusions (2026-07-16 edition)", "",
+        "## 6. Held-out CV cross-check: is the bright stratum a MODEL "
+        "failure?", "",
+        *stage6_cv_albedo(d, out_dir, rtag), "",
+        f"## Conclusions ({today} edition)", "",
         "1. **Failure is rare and small-amplitude.** 5/96 station-days worsen "
         "in fp-RMSE (max +0.44 ppm, vs improvements up to −2.9); material "
         "|bias| worseners are a minority and the pooled mean |bias| still "
@@ -542,6 +614,19 @@ def main():
         "footprints almost never get worse. On ocean σ is uninformative for "
         "worsening (frac-worse flat 0.22 → 0.24), but amplitudes there are "
         "small.",
+        "7. **The bright-surface stratum is UNDER-corrected, not "
+        "mis-corrected (2026-07-23, section 6).** On genuinely held-out "
+        "dates the model's anomaly skill is flat in albedo (after-RMSE "
+        "0.53–0.60 ppm, ⟨z²⟩ ≈ 1.0–1.2, frac-worse 0.39–0.41 in every "
+        "decile) — the top-albedo TCCON failure signature (after-RMSE 1.55, "
+        "frac-worse 0.50 = coin flip) does NOT reproduce against the anomaly "
+        "label. The residual over bright scenes is therefore a common-mode "
+        "(within-overpass constant) bias component that the within-orbit "
+        "anomaly target cancels by construction: the correction removes the "
+        "anomaly part (TCCON bright-bin RMSE still improves 4.58 → 1.55) and "
+        "leaves the common-mode part, so per-footprint worse/better counting "
+        "degenerates to ~50/50. Same verdict as high AOD: under-correction, "
+        "not mis-correction.",
         "",
     ]
     out_md = BASE / f"FAILURE_MODES_{today}.md"

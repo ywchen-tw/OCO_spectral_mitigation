@@ -98,10 +98,17 @@ def make_map(date, radius_km, twin_s, pad, do_modis):
         try:
             # reuse a cached tile if the exact date+extent PNG already exists
             os.makedirs(TILES_DIR, exist_ok=True)
-            cached = download_modis_rgb(pd.Timestamp(date), extent, which="aqua",
+            # GIBS daily mosaics are keyed by the LOCAL day of the overpass —
+            # near the antimeridian this differs from the OCO case (UTC) date
+            # (see plot_atom_comparison.make_fig); use the footprints'
+            # local-solar date.
+            gibs_date = (pd.Timestamp(float(sel.time.median()), unit="s")
+                         + pd.Timedelta(hours=float(sel.lon.median()) / 15.0)
+                         ).normalize()
+            cached = download_modis_rgb(gibs_date, extent, which="aqua",
                                         fdir=TILES_DIR, run=False)
             png = cached if os.path.exists(cached) else \
-                download_modis_rgb(pd.Timestamp(date), extent, which="aqua", fdir=TILES_DIR)
+                download_modis_rgb(gibs_date, extent, which="aqua", fdir=TILES_DIR)
             bg = plt.imread(png)
         except Exception as e:
             print(f"{date}: MODIS download failed ({e}); plotting without background")

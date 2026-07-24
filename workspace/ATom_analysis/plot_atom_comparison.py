@@ -111,10 +111,22 @@ def make_fig(date, radius_km, twin_s, do_modis):
         try:
             os.makedirs(TILES_DIR, exist_ok=True)
             ext = [lon0, lon1, lat0, lat1]
-            cached = download_modis_rgb(pd.Timestamp(date), ext, which="aqua",
+            # GIBS daily true-colour mosaics are keyed by the LOCAL day of the
+            # overpass, which near the antimeridian differs from the OCO case
+            # (UTC) date: the 2017-10-09 case overpasses lon −175° at
+            # 01:32 UTC = local day 2017-10-08, and the "2017-10-09" tile
+            # there shows the scene 24 h later (fully overcast, wrong).
+            # Use the local-solar date of the collocated footprints.
+            gibs_dt = (pd.Timestamp(float(pooled.time.median()), unit="s")
+                       + pd.Timedelta(hours=float(pooled.lon.median()) / 15.0))
+            gibs_date = gibs_dt.normalize()
+            if gibs_date != pd.Timestamp(date):
+                print(f"{date}: GIBS tile date -> {gibs_date.date()} "
+                      "(local-solar day of the overpass)")
+            cached = download_modis_rgb(gibs_date, ext, which="aqua",
                                         fdir=TILES_DIR, run=False)
             png = cached if os.path.exists(cached) else \
-                download_modis_rgb(pd.Timestamp(date), ext, which="aqua", fdir=TILES_DIR)
+                download_modis_rgb(gibs_date, ext, which="aqua", fdir=TILES_DIR)
             bg = plt.imread(png)
         except Exception as e:
             print(f"{date}: MODIS unavailable ({e})")

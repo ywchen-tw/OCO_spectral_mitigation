@@ -417,6 +417,86 @@ fold-PCA sweep ≤0.024 ppm — the fold-PCA no-op bound). NOT produced
 (no local data / not yet run): figA1 + figA2 (need fitting_details h5
 — CURC), figG1 (3-D RT experiment not run), figH1 (TEMPO not run);
 figD6 SKIPPED per plan condition (would duplicate main-text Fig. 11a).  
+**Updated:** 2026-07-23q — Fig. 10 panel-a legend overlapped the scatter
+(user feedback): moved to the empty upper-left triangle above the 1:1
+line, below the mean annotation (`smoother_null_figure.py`; regenerated
+from the fold-PCA smoother_null CSVs, figure-only script). figE1
+panels a/c share the layout and got the same placement
+(`make_appendix_def_figures.py`); both restaged.  
+**Updated:** 2026-07-23r — Worsening-case investigation (§4.4/§Appendix
+E): (1) §4.4 headline sentence disambiguated — 71/75 is the fp-RMSE
+improvement count, station-day |bias| improves 46/75 (29 worsen, median
++0.28 ppm, mostly near-zero starting biases); stale 0.81 → 0.82 and
+Wilcoxon p 0.0064 → 0.0063 fixed in the same sentence (sentence now
+refs `sec:result-worsening` — label must be added when the worsening
+subsection is pasted). (2) NEW stage 6 in `analyze_failure_modes.py`:
+held-out CV × albedo cross-check (5 land folds' held_out_predictions
+joined to the training parquet on exact lat/aod_total/fp, 100% match,
+3.84M footprints, TCCON-matched decile edges) — bright-surface TCCON
+failure signature does NOT reproduce against the anomaly label →
+verdict revised to UNDER-correction of a within-overpass common-mode
+bias (conclusions bullet 7); report regenerated as
+FAILURE_MODES_2026-07-23.md (supersedes 2026-07-16 edition), new CSV
+strat_cv_land_alb_o2a_r100km.csv; Appendix E gains Table E3 + caption.
+Supporting counts for the §4.4 discussion: 12,037 TCCON footprints
+(11.4%) have alb_o2a > 0.4, dominated by three Darwin station-days.  
+**Updated:** 2026-07-23s — Fig. E2 split + antimeridian RGB bug (user
+feedback): the old two-case E2 becomes Fig. E2 (ATom) + Fig. E3
+(ship); old E3/E4 renumbered E4 (failure modes) / E5 (drift), files
+renamed accordingly (figE2a deleted, figE2b→figE3, figE3→figE4,
+figE4→figE5). ROOT CAUSE of the "fully cloud-covered" E2a background:
+GIBS daily mosaics are keyed by the LOCAL day near the antimeridian —
+the 2017-10-09 case overpasses lon −175° at 01:32 UTC = local day
+2017-10-08 (the ATom flight date, as OCO_TO_FLIGHT already encodes),
+so the case-date tile showed the overcast scene 24 h later.
+`plot_atom_comparison.py` + `atom_modis_overlay.py` now fetch the
+local-solar date of the collocated footprints; the 2017-10-08 tile
+matches the cloud-distance field (clear band, broken cloud N+S,
+median 18 km). figE2 regenerated (numbers unchanged: n=313,
++0.29→+0.28 ppm; also picks up product-label styling); any future
+regeneration of the other ATom case figures (Supplement S2) inherits
+the fix. E-caption block split/renumbered to match.  
+**Updated:** 2026-07-23t — Fig. E5 legend + stat box moved OUTSIDE the
+frame (user feedback; the drift dumbbell holds data in both inside
+corners, unlike Fig. 8): `tccon_comparison_report.py` gains
+`--dumbbell-annotations {inside,outside}` (default inside — Fig. 8's
+production layout unchanged, its tree not rerun); `_bias_stat_box`
+placement generalized to inside / above-left / above-center. Drift
+report rerun with `outside`, drift CSVs byte-equal, figE5 restaged —
+all 21 rows now unobstructed.  
+**Updated:** 2026-07-24a — ALL missing appendix tables GENERATED (user
+request) by the new `manuscript/scripts/make_appendix_tables.py`
+(`--only` per table; C-series \tophline style; longtable for the 75-row
+listings), 15 files into `manuscript/tables/`: A1 fitting config (from
+`constants.FIT_ORDER` + cumulant_fit source), B1 cohort attrition
+(116-date parquet counts: 17,769,270 rows, 17,745,005 valid cld-dist,
+ocean 10,546,333 / land 7,222,937; ocean r05 labeled 7,848,762 =
+fold-held-out sum EXACTLY, land r15 labeled 3,844,864; eval populations
+75/21 TCCON, 17 ATom legs, 4 ship), B2 target params + guards, B3
+label-noise ceilings (production r05/r15 rows of the 140-date CSV),
+D2 complete station-day metrics (75 r100 + 69 r50, longtable), D3
+Wilcoxon + bootstrap (r100+r50 × QF × excl-ny; plain 10^{-x} math, no
+siunitx), D4 per-case uncertainty budget (label `tab:unc_components`
+matching the Appendix D text; DL pool recomputed in-script: r100
+μ=−0.32±0.09 / τ=0.52 / I²=51%, r50 μ=−0.45±0.07 / τ=0.22 / I²=14% on
+68 of 69 evaluable cases — NaN-budget case dropped, matching the md),
+D5 ATom legs, D6 ship cases, E1 all 29 worsening cases with arithmetic
+categories (near-zero start / overshoot / amplified; fp-RMSE still
+improves in most), E2 driver-strata extremes (alb/snow/AOD/|lat|/σ ×
+low/high decile), E3 CV-albedo cross-check (Table E3 of 2026-07-23r),
+E4 smoother-null numerical table (|bias| 1.26→0.82 DE vs
+1.24/1.20/1.20; scatter 2.23→0.78 vs 0.66/0.51/0.35 — matches §4.5),
+F1 case inventory (19 screened cases, 3 RGB-vetted flagged), F2 plume
+bounds + control nulls (7 windows, 5 pass / 2 flagged-as-cloud).
+All 15 compile clean (scratch pdflatex: 0 errors, 0 overfull).
+Table D1 NOT generated — already covered by the hand-written
+`tab:tccon-stations-used` + dates tables in appendix_D.tex. Table A2
+(fit availability/failure accounting) BLOCKED locally: the combined
+parquet holds only successfully fitted soundings (trivially 100%), the
+real accounting needs a CURC sweep over per-date fitting_details.h5.
+G1/H1 remain artifact-pending with their conditional appendices.
+\input wiring into appendix_*.tex left to the author (no-unasked-tex-edit
+rule).  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -2277,27 +2357,63 @@ Planned items:
   ±100 s bottom rows, same scatter-collapse + |case bias| construction
   as Fig. 10 which shows the ±30 s arm; |bias| 1.26→1.24 / 1.20 vs DE
   0.82 — brackets the main-text numbers);
-- **Fig. E2:** far-cloud and clear-day control cases — staged
-  2026-07-22o: `figE2a_atom_farcloud_control` (ATom 2017-10-09) +
-  `figE2b_ship_clearday_control` (ship 2019-06-22);
-- **Fig. E3:** failure rates and residuals by environmental driver —
-  staged 2026-07-22o: `figE3_failure_modes` (copy of
+- **Fig. E2:** ATom far-cloud control (2017-10-09) — SPLIT from the old
+  two-case E2 (user decision 2026-07-23s) and REGENERATED with the
+  correct MODIS background: the case overpasses lon −175° at 01:32 UTC =
+  LOCAL day 2017-10-08, and GIBS daily mosaics are keyed by local day
+  near the antimeridian, so the old figure showed the fully-overcast
+  scene 24 h later; `plot_atom_comparison.py` (and
+  `atom_modis_overlay.py`) now fetch the local-solar date of the
+  collocated footprints. New tile (2017-10-08) matches the
+  cloud-distance field (clear band, broken cloud N+S, median 18 km);
+  comparison numbers unchanged (n=313, +0.29→+0.28 ppm). Staged
+  `figE2_atom_farcloud_control` (old figE2a deleted);
+- **Fig. E3:** shipborne clear-day control (2019-06-22) — the other
+  half of the old E2; file renamed `figE3_ship_clearday_control`
+  (content unchanged; lon 152° E, no dateline issue);
+- **Fig. E4:** failure rates and residuals by environmental driver —
+  staged 2026-07-22o (renamed figE3→figE4 2026-07-23s):
+  `figE4_failure_modes` (copy of
   `<TAG>/failure_modes/fig_failure_modes_r100km.png`);
-- **Fig. E4:** high-latitude and post-2022 cases — STAGED 2026-07-23p:
-  `figE4_drift_tccon` (copy of the drift-tree
+- **Fig. E5:** high-latitude and post-2022 cases — STAGED 2026-07-23p
+  (renamed figE4→figE5 2026-07-23s):
+  `figE5_drift_tccon` (copy of the drift-tree
   `tccon_ak_bias_dumbbell_label_r100km.png`, RERUN with the current
   report styling — product-label stat box + inside legend; 21 drift-era
   station-days, |bias| 1.24→0.67 ppm, fp-RMSE 2.41→1.01; per-case drift
   comparison CSV verified byte-equal, the significance CSV is the
   current-code deterministic regeneration — no manuscript numbers quote
-  it. KNOWN NIT: top-row error-bar tails pass behind the
-  semi-transparent stat box; markers clear);
+  it. Annotations moved OUTSIDE the frame 2026-07-23t (new report flag
+  `--dumbbell-annotations outside`: stat box above-left, one-row legend
+  above-right — the drift dumbbell has data in both inside corners;
+  fig08's atrain tree keeps the default inside placement, untouched);
 - **Table E1:** all worsening cases and diagnosed cause;
 - **Table E2:** performance by bright surface, snow, AOD, latitude, and
-  predictive-uncertainty strata.
+  predictive-uncertainty strata;
+- **Table E3 (added 2026-07-23r):** held-out CV albedo cross-check — the
+  bright-surface TCCON failure signature does NOT reproduce against the
+  held-out anomaly label (after-RMSE flat 0.52–0.60 ppm, frac-worse
+  0.39–0.41 across all alb_o2a deciles, ⟨z²⟩ ≈ 1.0–1.2, vs TCCON
+  bright-bin after-RMSE 1.55 / frac-worse 0.50), establishing the
+  bright stratum as UNDER-corrected common-mode bias, not
+  mis-correction; source
+  `failure_modes/strat_cv_land_alb_o2a_r100km.csv` (stage 6 of
+  `analyze_failure_modes.py`, report `FAILURE_MODES_2026-07-23.md`).
 
-**Draft captions (2026-07-23g; E1/E4 PROVISIONAL — artifacts pending;
-E1 must not duplicate main-text Fig. 9):**
+**Draft caption (2026-07-23r):**
+
+> **Table E3.** Held-out cross-validation residuals of the land ensemble
+> stratified by O2A-band albedo (same decile edges as the TCCON
+> stratification): residual RMSE, the fraction of footprints where
+> applying the correction increases the error against the held-out
+> anomaly label, and the calibration ratio ⟨z²⟩. The bright-surface
+> failure signature seen against TCCON is absent against the anomaly
+> label, identifying the remaining bright-surface TCCON residual as a
+> within-overpass common-mode component outside the anomaly target.
+
+**Draft captions (2026-07-23g; renumbered E2→E2/E3 split, old E3/E4 →
+E4/E5, 2026-07-23s; all five figures now staged — E1 shows the windows
+not in main-text Fig. 10):**
 
 > **Figure E1.** Feature-free smoother null: footprint-scatter collapse
 > and TCCON station-day bias for orbit-local running-mean smoothers of
@@ -2305,16 +2421,21 @@ E1 must not duplicate main-text Fig. 9):**
 > identical footprints, guards, and TCCON chain (windows not shown in
 > main-text Fig. 9).
 
-> **Figure E2.** Negative-control cases. (a) ATom far-cloud control,
-> 9 October 2017 (313 ocean-glint footprints within 100 km / ±120 min
-> of two profile legs; median nearest-cloud distance ~20 km): corrected
-> and original $X_{\mathrm{CO2}}$ maps with the flight track, footprint
-> distributions against the ATom pseudo-column, and the aircraft
-> profiles with the OCO-2 prior. (b) Shipborne clear-day control,
-> 22 June 2019 (R/V Sonne EM27/SUN; 1 of 460 footprints within 10 km of
-> cloud): same construction against the shipborne column.
+> **Figure E2.** ATom far-cloud negative control, 9 October 2017
+> (313 ocean-glint footprints within 100 km / ±120 min of two profile
+> legs; median nearest-cloud distance 18 km): corrected and original
+> $X_{\mathrm{CO2}}$ maps over the coincident MODIS Aqua true-colour
+> scene (local day 8 October 2017 — the overpass crosses the
+> antimeridian, where the imagery date is the local day) with the
+> flight track, footprint distributions against the ATom
+> pseudo-column, and the aircraft profiles with the OCO-2 prior.
 
-> **Figure E3.** Per-footprint RMSE against AK-harmonized TCCON in
+> **Figure E3.** Shipborne clear-day negative control, 22 June 2019
+> (R/V Sonne EM27/SUN; 1 of 460 footprints within 10 km of cloud):
+> same construction as Fig. E2 against the shipborne column, with the
+> ship $X_{\mathrm{CO2}}$ time series around the overpass.
+
+> **Figure E4.** Per-footprint RMSE against AK-harmonized TCCON in
 > environmental-driver bins, before (dashed) and after (solid)
 > correction, per surface: aerosol load (total and dust AOD), geometry
 > (solar zenith angle, air mass, |latitude|), surface state (O2A and
@@ -2322,7 +2443,7 @@ E1 must not duplicate main-text Fig. 9):**
 > retrieval diagnostics (dpfrac, O2A continuum SNR), nearest-cloud
 > distance, and the ensemble's own predictive σ.
 
-> **Figure E4.** High-latitude and post-2022 free-drift cases:
+> **Figure E5.** High-latitude and post-2022 free-drift cases:
 > station-day comparisons for the high-latitude sites and for
 > drift-era overpasses where no MODIS collocation exists (correction
 > applied imager-free; drift-era case list in Table D1).

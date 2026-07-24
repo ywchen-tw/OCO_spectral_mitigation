@@ -200,7 +200,10 @@ def make_e1() -> None:
                 f"mean {ss.orig_sd.mean():.2f} → {ss.corr_sd.mean():.2f}"
                 " (smoother)",
                 transform=ax.transAxes, fontsize=7, va="top")
-        ax.legend(loc="lower right", fontsize=7, frameon=False)
+        # upper-left triangle is empty (both arms only reduce scatter) —
+        # same placement as the main-text Fig. 10 edition
+        ax.legend(loc="upper left", bbox_to_anchor=(0.02, 0.80), fontsize=7,
+                  frameon=False)
         panel_label(ax, f"({next(letters)})")
 
         ax = row[1]   # |case bias to TCCON|

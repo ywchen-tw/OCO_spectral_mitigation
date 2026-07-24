@@ -1,4 +1,4 @@
-\begin{thebibliography}{48}
+\begin{thebibliography}{50}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \providecommand{\urlprefix}{}
@@ -23,6 +23,10 @@ De~Mazière, M., Sha, M.~K., Desmet, F., Hermans, C., Scolas, F., Kumps, N.,
   Zhou, M., Metzger, J.-M., Duflot, V., and Cammas, J.-P.: TCCON data from
   Réunion Island (RE), Release GGG2020.R0,
   \doi{10.14291/TCCON.GGG2020.REUNION01.R0}, 2022.
+
+\bibitem[{DerSimonian and Laird(1986)}]{dersimonian1986meta}
+DerSimonian, R. and Laird, N.: Meta-analysis in clinical trials, Controlled
+  clinical trials, 7, 177--188, 1986.
 
 \bibitem[{Deutscher et~al.(2023{\natexlab{a}})Deutscher, Griffith, Paton-Walsh,
   Jones, Velazco, Wilson, Macatangay, Kettlewell, Buchholz, Riggenbach, Bukosa,
@@ -223,6 +227,11 @@ Morino, I., Velazco, V.~A., Hori, A., Uchino, O., and Griffith, D.~W.: TCCON
   Archive Center}: MODIS/Aqua Cloud Mask and Spectral Test Results 5-Min L2
   Swath 250m and 1km, Collection 6.1 (MYD35\_L2),
   \doi{10.5067/MODIS/MYD35_L2.061}, 2021{\natexlab{b}}.
+
+\bibitem[{Nassar et~al.(2017)}]{nassar2017power_plants_oco2}
+Nassar, R. et~al.: Quantifying CO2 emissions from individual power plants from
+  space, Geophysical Research Letters, 44, 10\,045--10\,053,
+  \doi{10.1002/2017GL074702}, 2017.
 
 \bibitem[{{OCO-2/OCO-3 Science Team} and Payne(2026)}]{oco2_absco_tables_v52}
 {OCO-2/OCO-3 Science Team} and Payne, V.: OCO-2 Ancillary Absorption

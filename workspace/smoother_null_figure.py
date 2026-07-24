@@ -115,7 +115,10 @@ def main():
             f"mean {A_de['sd_b']:.2f} → {A_de['sd_a']:.2f} (DE)\n"
             f"mean {A_sm['sd_b']:.2f} → {A_sm['sd_a']:.2f} (smoother)",
             transform=ax.transAxes, fontsize=7, va="top")
-    ax.legend(loc="lower right", fontsize=7, frameon=False)
+    # upper-left triangle (above the 1:1 line, below the mean annotation)
+    # is empty by construction — both arms only reduce scatter
+    ax.legend(loc="upper left", bbox_to_anchor=(0.02, 0.80), fontsize=7,
+              frameon=False)
     panel_label(ax, "(a)")
 
     # (b) |case bias to TCCON|, after vs before

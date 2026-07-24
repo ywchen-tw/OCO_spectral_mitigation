@@ -15,19 +15,14 @@ established with paired Wilcoxon signed-rank tests and a site-clustered bootstra
 and we additionally report a random-effects residual comparison and the
 associated representation error.
 
-We evaluate all models under a common protocol: the Ridge and XGBoost baselines,
-the TabM and deep-ensemble models, the feature-free within-orbit smoother (a
-predictor-free null model), and the feature-set ablations
-(Sect.~\ref{sec:...}).
 
-
-\subsubsection{$\mathrm{X_{CO2}}$ comparison across different products}
+\subsubsection{\xco comparison across different products}
 \label{sec:method-eval-obs-xco2}
 
-To compare OCO-2 $\mathrm{X_{CO2}}$ ($\mathrm{X_{CO2}^{OCO}}$) with $\mathrm{X_{CO2}}$
-from TCCON stations ($\mathrm{X_{CO2}^{TCCON}}$), the ATom airborne campaign
-($\mathrm{X_{CO2}^{ATom}}$), and two shipborne campaigns
-($\mathrm{X_{CO2}^{ship}}$), we apply product-specific harmonization to reduce the
+To compare OCO-2 \xco (\xcooco) with \xco
+from TCCON stations (\xcotccon), the ATom airborne campaign
+(\xcoatom), and two shipborne campaigns
+(\xcoship), we apply product-specific harmonization to reduce the
 differences that arise from the different retrieval methods. For the TCCON
 comparison, we apply the averaging-kernel (AK) and prior harmonization together
 with a wet-to-dry prior conversion, following
@@ -35,11 +30,11 @@ with a wet-to-dry prior conversion, following
 The details of the AK and prior harmonization and of the wet-to-dry conversion are
 given in Appendix~\ref{app:ak_operation}.
 
-For the ATom comparison, we build a pseudo-column dry-air $\mathrm{X_{CO2}^{ATom}}$
+For the ATom comparison, we build a pseudo-column dry-air \xcoatom
 from the in-situ \ce{CO2} profiles measured by the aircraft.
 
 For the shipborne measurements, the averaging kernel and prior they used are not
-available, so we compare $\mathrm{X_{CO2}^{OCO}}$ with $\mathrm{X_{CO2}^{ship}}$
+available, so we compare \xcooco with \xcoship
 directly. The residual product-level difference may therefore be larger for the
 shipborne comparison.
 
@@ -57,37 +52,21 @@ include both quality flags (0 and 1) and evaluate the comparison at the
 individual footprint level, which is necessary to resolve the near-cloud
 behavior that is the subject of this study.
 
-For each station-day $s$ (one TCCON site on one overpass date) with $n_s$
-collocated soundings, let
-$e_{s,i} = X_{\mathrm{CO2},i} - X^{\mathrm{TCCON}}_{\mathrm{CO2},i}$
-denote the footprint residual against the AK-harmonised TCCON reference,
-evaluated once for the uncorrected product and once after correction. The
-station-day mean bias and per-footprint root-mean-square error are
+For each station-day $s$ (one TCCON site on one overpass date) with $n_s$ collocated soundings, let
+$e_{s,i} = X_{\mathrm{CO2},i} - X^{\mathrm{TCCON}}_{\mathrm{CO2},i}$ denote the footprint residual against the AK-harmonised TCCON reference, evaluated once for the uncorrected product and once after correction. The station-day mean bias and per-footprint root-mean-square error are
+%
 \begin{equation}
   b_s \;=\; \frac{1}{n_s}\sum_{i=1}^{n_s} e_{s,i},
   \qquad
   R_s \;=\; \Bigl(\frac{1}{n_s}\sum_{i=1}^{n_s} e_{s,i}^{2}\Bigr)^{1/2}.
 \end{equation}
-Figure~8a (Results 4.4) summarises the $S = 75$ station-days by three aggregates:
-the station-day-equal mean absolute bias
-$\overline{|b|} = S^{-1}\sum_s |b_s|$, which weights every station-day
-equally regardless of its footprint count; the root-mean-square bias
-$\mathrm{RMS}_b = (S^{-1}\sum_s b_s^{2})^{1/2}$, a quadratic aggregate of
-the same station-day mean biases that emphasizes the largest-bias
-station-days (it is not a footprint-level error metric); and the mean
-per-footprint RMSE $\overline{R} = S^{-1}\sum_s R_s$, which measures
-footprint-level scatter about the reference. Each row of Fig.~8a shows
-the change $\Delta$ (corrected $-$ uncorrected) of one aggregate, so
-negative values are improvements: $\overline{|b|}$ and $\mathrm{RMS}_b$
-respond only to systematic station-day offsets, whereas $\overline{R}$
-also responds to within-overpass scatter. Confidence intervals and
-$p$-values come from a site-clustered bootstrap: the 18 sites are
-resampled with replacement, each drawn site contributing all of its
-station-days ($B = 10\,000$ resamples), which respects the strong
-within-site clustering of the sample (e.g.\ R\'eunion contributes 14
-station-days); the interval is the 2.5--97.5 percentile range of the
-resampled $\Delta$, and the two-sided
-$p = 2\min[P(\Delta \ge 0),\, P(\Delta \le 0)]$, floored at
-$2/(B+1)$. The paired Wilcoxon test quoted beneath the panel treats
-station-days as exchangeable pairs and is reported as a
-clustering-agnostic cross-check.
+%
+Figure~8a (Results 4.4) summarises the $S = 75$ station-days by three aggregates: the station-day-equal mean absolute bias $\overline{|b|} = S^{-1}\sum_s |b_s|$, which weights every station-day equally regardless of its footprint count; the root-mean-square bias $\mathrm{RMS}_b = (S^{-1}\sum_s b_s^{2})^{1/2}$, a quadratic aggregate of the same station-day mean biases that emphasizes the largest-bias station-days (it is not a footprint-level error metric); and the mean per-footprint RMSE $\overline{R} = S^{-1}\sum_s R_s$, which measures footprint-level scatter about the reference. Each row of Fig.~8a shows the change $\Delta$ (corrected $-$ uncorrected) of one aggregate, so negative values are improvements: $\overline{|b|}$ and $\mathrm{RMS}_b$ respond only to systematic station-day offsets, whereas $\overline{R}$ also responds to within-overpass scatter. Confidence intervals and
+$p$-values come from a site-clustered bootstrap: the 18 sites are resampled with replacement, each drawn site contributing all of its station-days ($B = 10\,000$ resamples), which respects the strong
+within-site clustering of the sample (e.g.\ R\'eunion contributes 14 station-days); the interval is the 2.5--97.5 percentile range of the resampled $\Delta$, and the two-sided $p = 2\min[P(\Delta \ge 0),\, P(\Delta \le 0)]$, floored at $2/(B+1)$. The paired Wilcoxon test quoted beneath the panel treats
+station-days as exchangeable pairs and is reported as a clustering-agnostic cross-check.
+
+
+
+Finally, for the uncertainty-aware comparison (Results Sect.~\ref{sec:result-unc}) we attach to each corrected station-day mean bias $b_s$ a two-sided uncertainty $u_s$: the predictive $\sigma$ of the ensemble, averaged over the overpass, on the OCO-2 side, combined in quadrature with the TCCON measurement, temporal variability, harmonization, and collocation terms (component definitions in Appendix~D). Because each station-day may carry its own small true offset — different seasons, air masses, and site conditions — we summarize the $S$ station-days with a random-effects weighted average (DerSimonian--Laird estimator; \citealp{dersimonian1986meta}). The method returns two numbers. The pooled mean $\mu$ is the offset common to all station-days, estimated with weights $1/(u_s^2 + \tau^2)$. The between-case spread $\tau$ is the standard deviation of the true station-day offsets around $\mu$ that remains after the stated uncertainties $u_s$ are accounted for: if the $u_s$ explained all of the case-to-case scatter, $\tau$ would be zero, so a nonzero $\tau$ measures the real spread that a downstream user of the corrected product should carry as an additional error term beside the per-case uncertainty.
+

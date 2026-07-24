@@ -50,6 +50,12 @@ import matplotlib.pyplot as plt
 # 4-file low-dpi test set is always emitted for the headline all-cases view.
 BIAS_STYLES = ('scatter_clddist', 'dumbbell_clddist', 'dumbbell_nolabel', 'dumbbell_label')
 
+# Dumbbell legend/stat-box placement, set from --dumbbell-annotations in main().
+# 'inside' (production atrain default: bottom-right legend + top-left box —
+# clear corners there, Fig. 8) or 'outside' (above the axes; the drift tree's
+# 21-row dumbbell has data in BOTH corners, manuscript Fig. E5).
+DUMBBELL_ANNOT = 'inside'
+
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_style import (XCO2_BC_LABEL, XCO2_DE_LABEL, XCO2_LABEL,
                         XCO2_RAW_LABEL, apply_manuscript_style, panel_label)
@@ -488,13 +494,15 @@ def _draw_scatter(ax, cmp, panel=None):
     _panel_label(ax, panel)
 
 
-def _bias_stat_box(ax, cmp, has_raw, inside=False):
+def _bias_stat_box(ax, cmp, has_raw, placement='above-center'):
     """Shared before/after (and raw) station-bias ± σ + footprint-RMSE annotation box.
 
-    ``inside=True`` places the box in the top-left corner INSIDE the axes
-    (dumbbell styles: top rows are the most-positive biases, whose markers sit
-    on the right, so the corner is clear); default keeps it above the frame
-    (scatter_clddist, where near-cloud points can occupy the top-left)."""
+    ``placement``: 'inside' = top-left corner inside the axes (atrain
+    dumbbell: top rows are the most-positive biases, markers on the right,
+    corner clear); 'above-left' = outside above the frame, left-aligned
+    (dumbbell with data in the corners — pairs with the outside legend
+    above-right); 'above-center' = outside, centered (scatter_clddist,
+    leaves the top-left free for the panel label)."""
     _btxt = []
     for _lbl, _col, _rcol in ((XCO2_RAW_LABEL, 'bias_raw', 'rmse_raw'),
                               (XCO2_BC_LABEL, 'bias_before', 'rmse_before'),
@@ -509,13 +517,15 @@ def _bias_stat_box(ax, cmp, has_raw, inside=False):
                          f"   |bias| {np.mean(np.abs(_b)):.2f} ± "
                          f"{np.std(np.abs(_b)):.2f}{_rtxt}")
     if _btxt:
-        if inside:
+        if placement == 'inside':
             ax.text(0.015, 0.99, '\n'.join(_btxt), transform=ax.transAxes,
                     va='top', ha='left', fontsize=7, zorder=6,
                     bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
-        else:
-            # OUTSIDE the axes (above, centered) so the box never covers data
-            # and leaves the top-left corner free for the panel label.
+        elif placement == 'above-left':
+            ax.text(0.0, 1.01, '\n'.join(_btxt), transform=ax.transAxes,
+                    va='bottom', ha='left', fontsize=7,
+                    bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
+        else:   # 'above-center'
             ax.text(0.5, 1.01, '\n'.join(_btxt), transform=ax.transAxes,
                     va='bottom', ha='center', fontsize=7,
                     bbox=dict(boxstyle='round', fc='white', ec='gray', alpha=0.85))
@@ -557,9 +567,16 @@ def _bias_dumbbell(ax, cmp, sort_col, show_labels, has_raw):
                   else 'pre-correction bias')
         ax.set_ylabel(f'station-day (sorted by {_order}; IDs in CSV)')
     ax.set_xlabel(f'{XCO2} bias to TCCON (ppm)')
-    # bottom-right corner is clear (bottom rows = most-negative biases, whose
-    # markers sit left), so the legend lives inside the frame there
-    ax.legend(loc='lower right', fontsize=7, framealpha=0.85)
+    if DUMBBELL_ANNOT == 'inside':
+        # bottom-right corner is clear (bottom rows = most-negative biases,
+        # whose markers sit left), so the legend lives inside the frame there
+        ax.legend(loc='lower right', fontsize=7, framealpha=0.85)
+    else:
+        # one-row legend ABOVE the axes, right-aligned (pairs with the
+        # above-left stat box) — for trees whose corners hold data
+        ax.legend(loc='lower right', bbox_to_anchor=(1.0, 1.005), ncol=4,
+                  fontsize=7, frameon=False, columnspacing=1.2,
+                  handletextpad=0.5)
     ax.grid(alpha=0.3, axis='x')
 
 
@@ -605,7 +622,11 @@ def _draw_bias(ax, cmp, style='scatter_clddist', panel=None):
         sort_col = 'cld_dist_mu' if style == 'dumbbell_clddist' else 'bias_before'
         _bias_dumbbell(ax, cmp, sort_col, show_labels=(style == 'dumbbell_label'),
                        has_raw=has_raw)
-    _bias_stat_box(ax, cmp, has_raw, inside=style.startswith('dumbbell'))
+    if style.startswith('dumbbell'):
+        _placement = 'inside' if DUMBBELL_ANNOT == 'inside' else 'above-left'
+    else:
+        _placement = 'above-center'
+    _bias_stat_box(ax, cmp, has_raw, placement=_placement)
     _panel_label(ax, panel)
 
 
@@ -643,6 +664,13 @@ def main():
                          "(default 'scatter_clddist' = bias vs nearest-cloud distance). "
                          "All four styles are always emitted as a low-DPI test set for "
                          "the headline all-cases view so the paper style can be chosen.")
+    ap.add_argument('--dumbbell-annotations', default='inside',
+                    choices=('inside', 'outside'),
+                    help="Dumbbell legend/stat-box placement: 'inside' (default; "
+                         "bottom-right legend + top-left box — the atrain tree's "
+                         "corners are clear, manuscript Fig. 8) or 'outside' "
+                         "(above the axes — for trees whose corners hold data, "
+                         "e.g. the drift tree, manuscript Fig. E5).")
     ap.add_argument('--cld-all-years', action='store_true',
                     help=f"Include free-drift-era cases (year ≥ {AQUA_FREE_DRIFT_YEAR}) in "
                          "the cloud-distance-grouped comparison. By default only pre-drift "
@@ -673,8 +701,9 @@ def main():
     args = ap.parse_args()
     if args.uncertainty:
         args.ak_harmonize = True   # the uncertainty comparison is on the AK reference (§6)
-    global CORR
+    global CORR, DUMBBELL_ANNOT
     CORR = args.corr_col
+    DUMBBELL_ANNOT = args.dumbbell_annotations
 
     out_base = Path(args.out_base)
     out_dir = Path(args.output_dir); out_dir.mkdir(parents=True, exist_ok=True)
