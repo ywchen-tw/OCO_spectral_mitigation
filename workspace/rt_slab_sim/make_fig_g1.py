@@ -160,15 +160,24 @@ def main():
             if jc == 0:
                 ax.set_ylabel(row_labels[jr])
     axes[0, 0].legend(fontsize=8, loc="lower right", frameon=False)
-    axes[3, 0].legend(fontsize=7, loc="lower right", frameon=False, ncol=2)
+    axes[3, 0].legend(fontsize=7, loc="upper left", frameon=False, ncol=2)
 
-    # sun direction + shadow annotation on the top-left panel
+    # top headroom on the first row so the sun annotation sits above the data
+    for jc in range(2):
+        lo, hi = axes[0, jc].get_ylim()
+        axes[0, jc].set_ylim(lo, hi + 0.12 * (hi - lo))
+
+    # sun direction (tilted by the SZA, pointing down-sun toward +x) +
+    # shadow annotation on the top-left panel
     ax = axes[0, 0]
-    ax.annotate("sun", xy=(6.0, 0.86), xytext=(1.0, 0.86),
-                arrowprops=dict(arrowstyle="->", lw=1.0), fontsize=8,
-                va="center")
-    ax.text(18.5, 0.44, "shadow", fontsize=8, ha="center", color="0.3")
-    ax.text(12.0, 0.86, "cloud", fontsize=8, ha="center", color="0.3")
+    dx, dy = 0.10 * np.sin(np.deg2rad(sza)), 0.10 * np.cos(np.deg2rad(sza))
+    ax.annotate("", xy=(0.05 + dx, 0.97 - dy), xytext=(0.05, 0.97),
+                xycoords="axes fraction", textcoords="axes fraction",
+                arrowprops=dict(arrowstyle="->", lw=1.0))
+    ax.text(0.05 + dx + 0.02, 0.955, f"sun, SZA {sza:.0f}$^\\circ$",
+            transform=ax.transAxes, fontsize=8, va="center")
+    ax.text(18.5, 0.55, "shadow", fontsize=8, ha="center", color="0.3")
+    ax.text(12.0, 0.88, "cloud", fontsize=8, ha="center", color="0.3")
 
     fig.tight_layout()
     fig.subplots_adjust(hspace=0.14, wspace=0.22)
