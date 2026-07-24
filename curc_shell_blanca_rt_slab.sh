@@ -42,7 +42,8 @@
 
 module purge
 module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
-conda activate data
+#conda activate data
+conda activate er3t
 
 if [[ "$(uname -s)" == "Linux" ]]; then
     export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
