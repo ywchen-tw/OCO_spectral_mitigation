@@ -116,12 +116,14 @@ FIT_ORDER = 7                          # constants.FIT_ORDER[0] (O2A)
 FIT_SMOOTH = False                     # no-SG production path
 
 # --------------------------------------------------------------------------
-# Outputs.  On CURC, source workspace/curc_setup.sh (or export SCRATCH_DIR)
-# and everything lives under $SCRATCH_DIR/results/rt_slab_sim
-# (/scratch/alpine/$USER/oco2_data/results/rt_slab_sim), i.e. SCRATCH_DIR
-# replaces the repo root as the parent of results/; locally repo-relative.
+# Outputs.  Same data-root convention as the rest of the repo
+# (src/config.py, workspace/tccon_* scripts): CURC_DATA_ROOT, then
+# OCO2_DATAROOT, else the repo root, as the parent of results/.  On CURC the
+# launcher exports OCO2_DATAROOT=/scratch/alpine/$USER/oco2_data, so
+# everything lives under .../oco2_data/results/rt_slab_sim.
 # --------------------------------------------------------------------------
-_out_root = os.environ.get("SCRATCH_DIR", REPO_ROOT)
+_out_root = (os.environ.get("CURC_DATA_ROOT")
+             or os.environ.get("OCO2_DATAROOT") or REPO_ROOT)
 OUT_DIR = os.path.join(_out_root, "results", "rt_slab_sim")
 ATM_FILE = os.path.join(OUT_DIR, "slab_atm.h5")
 OD_FILE = os.path.join(OUT_DIR, "slab_od.h5")

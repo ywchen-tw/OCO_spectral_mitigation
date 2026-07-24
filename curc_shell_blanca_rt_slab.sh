@@ -37,9 +37,9 @@
 #  is data-derived and the array range above assumes 33.)
 #
 # AFTER the array completes, collect on a login/compile node (cheap; with
-# SCRATCH_DIR exported so it finds the runs):
+# OCO2_DATAROOT exported so it finds the runs):
 #   python workspace/rt_slab_sim/run_slab.py --collect
-# then rsync ${SCRATCH_DIR}/results/rt_slab_sim/slab_rad.h5 back into local
+# then rsync ${OCO2_DATAROOT}/results/rt_slab_sim/slab_rad.h5 back into local
 # results/rt_slab_sim/ and rerun fit_and_plot.py / plot_ppdf.py locally.
 
 module purge
@@ -55,12 +55,14 @@ fi
 export ER3T_DIR=${ER3T_DIR:-/projects/yuch8913/er3t}
 export MCARATS_V010_EXE=${MCARATS_V010_EXE:-/projects/yuch8913/mcarats/v0.10.4/src/mcarats}
 
-# results live on scratch (same convention as workspace/curc_setup.sh);
-# slab_config.py uses SCRATCH_DIR as the parent of results/, so everything
-# is under ${SCRATCH_DIR}/results/rt_slab_sim -- rsync slab_atm.h5 +
-# slab_od.h5 THERE
-export SCRATCH_DIR=${SCRATCH_DIR:-/scratch/alpine/${USER}/oco2_data}
-mkdir -p "${SCRATCH_DIR}/results/rt_slab_sim"
+# data root, same convention as the other launchers (CURC_DATA_ROOT, then
+# OCO2_DATAROOT, else scratch default); slab_config.py uses it as the
+# parent of results/, so everything is under
+# ${OCO2_DATAROOT}/results/rt_slab_sim -- rsync slab_atm.h5 + slab_od.h5 THERE
+DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-/scratch/alpine/${USER}/oco2_data}}"
+DATA_ROOT="${DATA_ROOT%/}"
+export OCO2_DATAROOT="$DATA_ROOT"
+mkdir -p "${OCO2_DATAROOT}/results/rt_slab_sim"
 
 NWVL=$(python -c "import sys; sys.path.insert(0,'workspace/rt_slab_sim'); import slab_config as c; import h5py; print(h5py.File(c.OD_FILE,'r')['wvl_nm'].shape[0])")
 
