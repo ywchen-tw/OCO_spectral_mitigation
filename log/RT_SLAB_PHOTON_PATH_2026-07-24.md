@@ -47,6 +47,97 @@ whether the histogram truncation affects the Appendix G conclusions.
    peak at relative path l = 1 and scales by
    L_direct = 60 km/cos 55° + 60 km ≈ 165 km.
 
+## 1.5 Formal definitions (equations + scheme)
+
+**Trajectory and per-layer accumulation.** A simulated photon enters at
+the TOA and undergoes scattering events at positions x₀ (entry), x₁, …
+Its trajectory up to event k is the polyline with segment lengths
+|xⱼ − xⱼ₋₁|. MCARaTS accumulates these segments per model layer:
+
+    plen(iz) = Σ_j (length of trajectory segment j lying inside layer iz)
+
+(`Pho_plen(0:nz+1)`; iz = 0 below the surface, nz+1 above the TOA).
+
+**Local-estimation contribution.** At every event k, a virtual copy is
+traced along the straight line from x_k to the sensor at x_s. Its weight
+is the probability density of exactly that completion,
+
+    w_k = w_k^phot · P(Ω_k → Ω_s)/(4π) · exp(−τ_ext(x_k → x_s)) ,
+
+where w_k^phot is the photon's surviving weight at event k, P the phase
+function toward the sensor direction Ω_s, and τ_ext the extinction
+optical depth along the escape line (`trns` in `mcarRad__samp1`). The
+pixel radiance is I = C_norm · Σ_k w_k. The TOTAL geometric path of the
+contribution is the trajectory plus the escape leg, evaluated by summing
+the virtual copy's per-layer array:
+
+    L_k = Σ_iz PhoV_plen(iz)
+        = Σ_{j≤k} |x_j − x_{j−1}|  +  |x_s − x_k| .
+
+**Histogram (Rad_mplen = 3).** For pixel (i) and path bin b of width ΔL
+on [L_min, L_max]:
+
+    H_i(b) = Σ_k w_k · 1[ L_k ∈ bin b ] ,      ĥ_i(b) = H_i(b) / Σ_b H_i(b) ,
+
+so ĥ_i(b) is the fraction of the pixel's radiance contributed by paths in
+bin b — the (radiance-weighted) photon path-length distribution p(L).
+Contributions with L_k > L_max are dropped (→ §3 truncation).
+
+**Moments and relative path.** With bin centers L_b:
+
+    ⟨L⟩_i = Σ_b ĥ_i(b) L_b ,     var_i(L) = Σ_b ĥ_i(b) L_b² − ⟨L⟩_i² ,
+
+    l = (L − C) / L_direct ,   L_direct = z_TOA (1/μ₀ + 1/μ_v) ≈ 165 km ,
+
+where C is the constant instrumental offset (vacuum leg + injection
+plane), removed either by differencing against the clear-sky far field
+(Fig. G1g/h) or by anchoring the clear-sky direct-bounce peak at l = 1
+(PPDF figure panel d). For the direct bounce, L − C = L_direct exactly,
+i.e. l = 1.
+
+**Link to the fitted cumulants (Laplace-transform view).** For gas
+absorption optical depth τ (slant column) the transmittance samples the
+absorption-weighted path distribution p_abs(l):
+
+    T(τ) = R · ∫ p_abs(l) e^(−τ l) dl
+    ⇒  ln T(τ) = ln R − ⟨l⟩_abs τ + ½ var_abs(l) τ² − … ,
+
+so k₁ = ⟨l′⟩ and k₂ = var(l′) estimate the cumulants of p_abs. The tally
+instead measures the GEOMETRIC distribution, i.e. per contribution
+
+    l_geo = (1/L_direct) ∫_path ds        (what Rad_mplen=3 bins),
+    l_abs = (1/τ_column^slant) ∫_path β_abs(z(s)) ds   (what the fit senses),
+
+with β_abs the absorption coefficient profile. l_geo = l_abs when the
+path samples altitude the way the direct slant path does (surface-bounce
+dominated radiance); they diverge when the radiance is carried by photons
+turning around aloft (β_abs is pressure-weighted toward low altitude).
+This is the formal statement of the §2/§G3 closure caveat.
+
+**Scheme (x–z slab, sun at SZA θ₀ from the west, nadir sensor):**
+
+    sensor (705 km)
+       ▲                          · · · vacuum leg |x_s − x_k| (constant C part)
+       │ escape leg (virtual copy, weight ∝ P·e^(−τ_ext))
+     ──┼────────────────────────────────────────── TOA (60 km)
+       │        sun ↘ θ₀
+       │           ↘  entry x₀, first in-atmosphere leg
+       │            ↘
+       │             x₁  (Rayleigh scatter aloft: short l_geo, tiny l_abs)
+       │            /
+       │      ┌────/────┐
+       │      │ cloud   │  x₂, x₃ … multiple scattering (long tail of p(L))
+       │      │ 3–4 km  │
+       │      └─────────┘
+       │        ↙ x₄
+    ───┴───────▼────────────────────────────────── surface
+             surface bounce: l_geo = l_abs = 1 for the direct path
+             (down at 1/μ₀ + up at 1/μ_v ⇒ L − C = L_direct)
+
+    every event x_k emits one weighted virtual completion → one entry
+    (w_k, L_k) in the pixel's histogram; the ensemble over all events and
+    photons is the PPDF.
+
 ## 2. Is this the path of "real" photons?
 
 **Yes, in expectation — with precise qualifiers.** An analog estimator
