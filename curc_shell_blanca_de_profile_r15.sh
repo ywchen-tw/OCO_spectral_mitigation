@@ -124,14 +124,19 @@ NFOLDS=5
 # ── Feature-set ablations (+profile, 15 km reference) ─────────────────────────
 # Same config, each with one feature block dropped, land only.  The profile
 # block is ORTHOGONAL to --feature_set.  Suffix: de_land_{FS}_prof_r15_f${F}.
-for FS in no_xco2 no_spec no_xco2_and_spec; do
-  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_r15_f${F} \
-      --profile-pca --feature_set ${FS} --target 15km \
-      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
+# COMMENTED OUT 2026-07-25 — the CONTAM_FEATURES regrouping (see
+# log/CONTAM_REGROUPING_2026-07-25.md) changed only no_contam / no_contam_and_xco2;
+# XCO2_FEATURES and SPEC_FEATURES are untouched, so these three arms do NOT need
+# retraining.  Re-enable only if the whole ablation is rebuilt from scratch.
+# for FS in no_xco2 no_spec no_xco2_and_spec; do
+#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_r15_f${F} \
+#       --profile-pca --feature_set ${FS} --target 15km \
+#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# done
 
+# ── ACTIVE: contamination arms only (regrouped CONTAM_FEATURES, 2026-07-25) ────
 for FS in no_contam no_contam_and_xco2; do
   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_r15_f${F} \
       --profile-pca --feature_set ${FS} --target 15km \
