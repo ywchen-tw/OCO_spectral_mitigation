@@ -35,7 +35,8 @@ carry it — remaining l′ figures listed in the rerun doc). **RESOLVED
 the full downstream stack rerun (see §2-7) — the preliminary 2026-07-15
 ablation/attribution numbers are superseded; verdicts revert to the
 2026-07-08 story (no_spec TCCON-neutral; attribution 55/54/29 %).**
-**Update (2026-07-17 — variant retrain landed; §2 MUST-DO fully closed):**
+**Update (2026-07-17 — variant retrain landed; §2 MUST-DO fully closed —
+*reopened 2026-07-25 by §2-8, the contamination-group rerun*):**
 the lndo01 feature-set-variant retrain (r15+r05) downloaded, all folds
 healthy, full downstream stack rerun (§2-7 DONE) — quotable editions are now
 `FEATURESET_ABLATION_QF_2026-07-17.md` (no_spec +0.021 / no_contam +0.028
@@ -63,6 +64,26 @@ cross-sensor transfer) with the honest training-vs-inference caveat; (4)
 skill-vs-trust line resolves the ablation tension in abstract + conclusions;
 (5) both emphasis points go into title/abstract keywords (differentiation vs
 Mauceri/Keely 2025 under scoop risk).
+**Update (2026-07-25 — `CONTAM_FEATURES` regrouped by physics; the `no_contam`
+verdict is WITHDRAWN pending a rerun; full evidence in
+`log/CONTAM_REGROUPING_2026-07-25.md`):** re-reading Mauceri et al. (2023)
+against `src/models/pipeline.py` showed the contamination ablation group was
+defined by provenance (whatever the forward-selection round added), not physics,
+and was wrong in both directions. It CONTAINED three non-contamination variables
+(`t700` = met-prior 700 hPa temperature, ρ with |lat| −0.85; `alt_std` = static
+DEM terrain roughness; `fs_rel_0` = SIF, ρ 0.08 with cloud distance) plus a
+duplicate of a retrieval-state feature (`dpfrac` ≈ `dp_psfc_prior_ratio`,
+ρ 0.965/0.978) and a surface-brightness ratio (`alb_sco2_over_wco2`); and it
+EXCLUDED the strongest contamination diagnostics in the table — `h_cont_o2a`
+and `h_cont_sco2` (same Massie HC metric as the included `h_cont_wco2`,
+ρ 0.79/0.93; |ρ| with cloud distance 0.52/0.50), `csnr_o2a`/`csnr_sco2`
+(Mauceri's CSNoiseRatio), and the five aerosol AODs. So on LAND the old
+`no_contam` never removed the contamination channel and a null result was close
+to guaranteed. Group redefined by a stated physics rule (scattering content /
+spatial inhomogeneity / the operational ABP+IMAP-DOAS cloud screens); base feature
+lists and `full` are byte-identical, so **production models are unaffected** — only
+the ablation changes (drop 7→12 ocean, 12→17 land). §2-8 is the rerun; the
+"contamination features are free to drop" line must not be quoted until it lands.
 
 ---
 
@@ -98,6 +119,10 @@ Mauceri/Keely 2025 under scoop risk).
 - [x] Feature-set ablation incl. QF-grouped: `no_spec` TCCON-neutral; xco2
       block the only one whose importance survives on TCCON → division-of-labor
       framing adopted (spec = mechanism / safety / MODIS-free sensitivity).
+      **`no_contam` column WITHDRAWN 2026-07-25** — measured with a group that
+      left `h_cont_o2a/sco2`, `csnr_*` and the aerosol AODs in the base set
+      (`log/CONTAM_REGROUPING_2026-07-25.md`); rerun tracked as §2-8. The
+      `no_spec` / `no_xco2` verdicts are unaffected (those groups did not change).
 
 ### Mechanism / phenomenology tools (numbers still subset-scale — see §2-2)
 - [x] MCD12C1 v061 land-cover stratification (`land_cover.py`/`land_class.py`);
@@ -223,7 +248,50 @@ Mauceri/Keely 2025 under scoop risk).
    combos on both surfaces. Known leftover (minor, documented in the doc):
    land f4 of no_contam and no_contam_and_xco2 kept the old unreg checkpoint
    (healthy fold; preempted array tail) — optional `sbatch --array=4` top-up
-   for config purity.
+   for config purity. **SUPERSEDED IN PART 2026-07-25:** the `no_contam` and
+   `no_contam_and_xco2` columns of this edition were measured with the OLD
+   provenance-based contamination group and are withdrawn (see §2-8); the
+   `no_spec` / `no_xco2` / `no_xco2_and_spec` columns and the whole Nassar
+   channel attribution stand unchanged (those groups were not touched).
+
+8. [ ] **Rerun the contamination ablation under the physics-based group
+   (2026-07-25). OPEN — one CURC cycle, the last blocking ablation item.**
+   `CONTAM_FEATURES` was regrouped in `src/models/pipeline.py` (rule + evidence:
+   `log/CONTAM_REGROUPING_2026-07-25.md`): OUT `t700`, `alt_std`, `fs_rel_0`,
+   `dpfrac`, `alb_sco2_over_wco2`; IN `h_cont_o2a`, `h_cont_sco2`, `csnr_o2a`,
+   `csnr_sco2`, `aod_dust/oc/seasalt/sulfate/strataer`, and — §1b addendum —
+   `co2_ratio_bc` + `h2o_ratio_bc`, because OCO-2's operational cloud screen is the
+   ABP/IMAP-DOAS **pair** (Taylor et al., 2016) and `dp_abp` was already in the group;
+   measured backing: ocean `h2o_ratio_bc` partial |ρ| with cloud distance **0.26**
+   after controlling `tcwv`, |lat|, `aod_water`, `dp_abp` — as strong as `aod_water`
+   (0.25) in the surface where the group is thinnest. Base lists and `full`
+   are byte-identical (34 ocean / 45 land, same order) — production checkpoints
+   and every other feature set are untouched; smoke-tested end-to-end
+   (`FeaturePipeline.fit` + `transform`, both surfaces, all sets).
+   Steps:
+   1. Archive the old arms so the 07-17 numbers stay reproducible:
+      `for d in results/model_deep_ensemble/de_*_no_contam*_prof_foldpca_r*_f*; do mv "$d" "${d}_oldcontam"; done`
+   2. Retrain both surfaces × 5 folds — the `no_contam`/`no_contam_and_xco2`
+      loops of `curc_shell_blanca_de_profile_foldpca_r05.sh` (ocean, :125) and
+      `curc_shell_blanca_de_profile_foldpca_r15.sh` (land, :125). Suffixes
+      unchanged. Land f4 top-up from §2-7 becomes moot (full retrain).
+   3. `workspace/build_ablation_variant_trees.sh no_contam` +
+      `no_contam_and_xco2`, then `workspace/make_featureset_ablation_doc.py`
+      → `FEATURESET_ABLATION_QF_2026-XX-XX.md`; archive the 07-17 edition.
+   4. Rewrite the §4.3 sentence ("dropping the spectral or contamination groups
+      is TCCON-neutral") and re-section Table C1
+      (`manuscript/tex/MANUSCRIPT_APPENDIX_PREDICTOR_TABLE.tex`) to the new
+      grouping — draft prepared, awaiting approval per the no-unasked-tex rule.
+   **Expectation:** the contamination ablation likely stops being neutral, since
+   the land model can no longer fall back on `h_cont_o2a/sco2`. Either outcome is
+   quotable — a defensible group is the point. **Attribution tie-break:** the IDP
+   ratios are also operational bias-correction predictors, so a DEGRADED result is
+   ambiguous ("contamination matters" vs "we removed a bias-correction predictor");
+   if that happens, add one arm = the group minus `co2_ratio_bc`/`h2o_ratio_bc`.
+   A NEUTRAL result needs no caveat and is stronger for having removed both
+   operational screens. If it does stop being neutral,
+   §5's "skill-vs-trust" line and the parsimony row need one sentence each; the
+   spec-feature story is unaffected either way.
 
 ## 3. SHOULD-DO (strengthens, not blocking)
 
@@ -375,12 +443,18 @@ Mauceri/Keely 2025 under scoop risk).
   it collapses the channel-to-channel τ dynamic range the cumulant fit
   feeds on). Add the CH4 hook sentence (plume quantification near broken
   cloud fields is where emission estimates get made or discarded).
-  (b) NEW appendix figure A12 (see §5 appendix list): one TEMPO O2-B granule
-  demo from `~/programming/tempo` (WP1–WP8 pipeline complete; 4-panel figs
-  exist for 3 vetted scenes) with an existence-proof caption ONLY — no bias
-  or validation claim. Step-by-step task list lives in the tempo repo:
-  `~/programming/tempo/TODO_OCO_APPENDIX_A12.md` (scene selection → in-scene
-  cloud distance → decay panel → style → caption handshake). Add the in-scene ⟨l′⟩-vs-cloud-distance decay panel
+  (b) NEW appendix figure — **now Fig. H1, Appendix H** (renamed from A12
+  in the flow plan's 2026-07-22n consolidation; the flow plan carries the
+  authoritative Appendix H scope and caption; the Table H1 companion was
+  DROPPED 2026-07-24c — user decision, paper length — and survives
+  author-side only as `internal_tempo_fit_inputs.tex`): one TEMPO O2-B
+  granule demo from `~/programming/tempo` (WP1–WP8 pipeline complete;
+  4-panel figs exist for 3 vetted scenes) with an existence-proof caption
+  ONLY — no bias or validation claim. Step-by-step task list lives in the
+  tempo repo: `~/programming/tempo/TODO_OCO_APPENDIX_A12.md` (scene
+  selection → in-scene cloud distance → decay panel → style → caption
+  handshake; updated 2026-07-24 to the H1 naming/paths). Add the in-scene
+  ⟨l′⟩-vs-cloud-distance decay panel
   (threshold CLDO4 cloud fraction + KD-tree distance, reuse step_04 geometry
   logic; ~1 day) so the panel echoes Fig 1b,c; restyle to `plot_style.py`.
   Caveat to state: tempo still runs the pre-§7.2 fit engine (curve_fit + SG)
@@ -389,35 +463,41 @@ Mauceri/Keely 2025 under scoop risk).
   (weeks of new work), the resolution physics is likely fatal, and a weak
   panel next to a clean TEMPO panel would undermine the transferability
   claim it is meant to support.
-- [ ] **Backward-MC 3D-vs-ICA mechanism demo → appendix A13 (decided
-  2026-07-13; cohort's model).** Source figure:
-  `~/Downloads/01_radtoa_fitting_coefficients.png` (X–Z scene, cloud at
-  x = 10–15 km; fitted ln-reflectance-vs-τ coefficients C2/C1/C0 along track,
-  3D vs ICA). Why included: the ICA curve is a perfect null (same cloud, no
-  horizontal transport) — the 3D-only adjacency response in clear columns
-  (x ≈ 15–18 km: C2 ×~5, C1 −0.45 excursion, C0 −2.3) is a CAUSAL
-  demonstration that the cumulants respond to 3D transport; one-sided
-  (shadow-side) response corroborates the Fig 3 shadow/brightening split;
-  ~3 km enhancement scale echoes the observed ocean decay. Conditions before
-  it ships:
-  - [ ] Refit the synthetic spectra with the PRODUCTION estimator (order 7,
-        exact lstsq, no-SG) — removes the order-2-vs-order-7 reviewer
-        question entirely (fallback: one sentence on why order 2 suffices
-        at the simulated τ range).
-  - [ ] Relabel to paper notation (C1 → −⟨l′⟩, C2 → ½·var(l′)) + restyle to
-        `plot_style.py`; caption in locked conventions.
-  - [ ] Methods paragraph (cohort sign-off): model name + citation (EaR3T /
-        Chen et al. 2025 lineage?), backward MC, X–Z (2D) domain, cloud
-        COD/height/placement, SZA + viewing geometry, band, surface albedo,
-        photon-noise level.
-  - [ ] Understand + dismiss the far-field 3D-vs-ICA offset (C1 −1.07 vs
-        −1.05) in half a caption sentence (ask cohort: domain-average side
-        illumination? boundary conditions?).
-  - [ ] Scope sentence pre-empting the parameter-sweep request: single
-        representative geometry, mechanism demonstration only — validates
-        the FEATURE physics, not the correction μ; sensitivity across
-        SZA/COD/albedo belongs to the OSSE follow-up.
-  - [ ] Co-authorship / provenance settled with the cohort member.
+- [x] **Backward-MC 3D-vs-ICA mechanism demo → appendix — DONE 2026-07-24
+  as Appendix G / Fig. G1, SELF-RUN (renamed A13 → G1 in the flow plan's
+  2026-07-22n consolidation; full record in `MANUSCRIPT_FLOW_PLAN.md`
+  Appendix G + changelog 2026-07-24b).** The cohort figure
+  (`~/Downloads/01_radtoa_fitting_coefficients.png`) is REPLACED by our own
+  er3t/MCARaTS v0.10.4 x–z slab simulation (`workspace/rt_slab_sim/`):
+  scene from real sounding 2020010100281632 (orbit 29252a, SZA 55°),
+  column-conserving 21-layer grid, water cloud COD 10 at 3–4 km in a 32-km
+  periodic slab, 1e9 photons × 3 runs × {3-D, IPA} × {dark 0.03, bright
+  0.30}. Results keep and strengthen the original rationale: one-sided
+  shadow-band response under 3-D only, IPA null ≤ 0.9 % of the 3-D range,
+  and the ⟨l′⟩ sign REVERSAL dark-vs-bright surface = the albedo-contrast
+  mechanism reproduced causally. Artifacts:
+  `manuscript/figures/figG1_mc_3d_vs_ica.{png,pdf}` +
+  `manuscript/tables/tabG1_slab_config.tex` (auto-generated from config).
+  The original ship-conditions, item by item:
+  - [x] Production-estimator refit — slab columns fit with the exact
+        lstsq/BVLS, order-7, no-SG production code path.
+  - [x] Paper notation + style — figG1 in the locked AMT style
+        (⟨l′⟩/var(l′) via plot_style labels).
+  - [x] Methods paragraph — moot as a sign-off item: self-run, config
+        auto-tabled in Table G1 (cannot drift); appendix text drafted in
+        the flow plan.
+  - [x] Far-field 3D-vs-ICA offset — superseded by the quantitative IPA
+        null on our own runs (residual ≤ 0.9 %).
+  - [x] Scope sentence — in the flow-plan Appendix G text (single
+        geometry; validates feature physics, not μ; sweep/plume OSSE
+        deferred per §4).
+  - [x] Co-authorship / provenance — moot (self-run).
+  BONUS beyond the A13 scope: MCARaTS' native path-length tally
+  (Rad_mplen=3) gives a quantitative first-moment PPDF closure —
+  r(fitted ⟨l′⟩, tallied mean path) = 0.999 dark / 0.987 bright;
+  r(var(l′), tallied variance) = 0.989 bright (dark-surface second moment
+  does not close against a geometric tally — expected, stated as a limit).
+  §8d upgraded from "sensitivity demo" to "partial PPDF closure".
 - [ ] Writing-time subsections: Ny-Ålesund/high-latitude; five worsening sites;
   M5 parallax/advection bound sentences; M9(f) convergence-radius caveat.
 - [ ] **Framing-spine writing tasks (advisor discussion 2026-07-16, see §5
@@ -430,13 +510,15 @@ Mauceri/Keely 2025 under scoop risk).
 ## 4. EXPLICITLY DEFERRED (state in reply-to-reviewers if asked)
 
 - Transport-model (CAMS/CT) regression of the label (ceiling + r05/r15
-  sensitivity covers most of it) · EaR3T OSSE (follow-up paper; the A13
-  single-scene 3D-vs-ICA demo is now IN the appendix — what stays deferred
-  is the PPDF tally closure, plume injection, and the geometry sweep) ·
+  sensitivity covers most of it) · EaR3T OSSE (follow-up paper; the
+  single-scene 3D-vs-IPA slab demo is now IN as Appendix G / Fig. G1
+  (self-run 2026-07-24) INCLUDING the first-moment PPDF tally closure —
+  what stays deferred is absorption-weighted path tallies, synthetic
+  full-spectrum generation, plume injection, and the geometry sweep) ·
   wind-resolved plume enhancement · σ(k1)/σ(k2) export (appendix QC) ·
   MCD12C1 purity-filter robustness row · FT-Transformer/TabPFN baselines ·
   **cross-sensor demonstration letter** (2026-07-13: multi-scene TEMPO O2-B
-  statistics + TROPOMI CH4 feasibility; the A12 appendix demo is the teaser;
+  statistics + TROPOMI CH4 feasibility; the Fig. H1 (ex-A12) appendix demo is the teaser;
   natural GRL/AMT-letter shape; port the exact-lstsq fitter to tempo first) ·
   EMIT CH4 fitting (~7.4 nm sampling likely collapses the τ dynamic range;
   revisit only if the band-integrated open question gets answered).
@@ -479,7 +561,8 @@ read as one claim with four faces, not a pipeline + validations:**
   sub-pixel monotonicity below the 1-km MODIS floor — A11); the claim no
   imager-dependent method (Massie/Mauceri line) can make. Tier 3
   *transfer* — requirements are only a resolved band + per-channel prior τ
-  + a single-footprint spectrum → OCO-3/CO2M/GOSAT-GW/TEMPO (A12). Honest
+  + a single-footprint spectrum → OCO-3/CO2M/GOSAT-GW/TEMPO (Fig. H1,
+  ex-A12). Honest
   caveat that makes it bulletproof: TRAINING used MODIS once (labels +
   validation stratification), INFERENCE never does — "the imager is
   scaffolding: used to build and verify the correction, then removed."
@@ -493,6 +576,27 @@ read as one claim with four faces, not a pipeline + validations:**
   without trust is a black box nobody deploys on a climate record. One
   line in abstract + conclusions.
 - Both emphasis points → title/abstract keywords.
+
+**Update (2026-07-24 — appendix letters + Appendix G complete; the
+authoritative appendix plan now lives in `log/MANUSCRIPT_FLOW_PLAN.md` §5):**
+the flow plan's 2026-07-22n appendix consolidation renamed the working
+figures tracked here: **A12 (TEMPO) → Appendix H / Fig. H1** and **A13
+(backward-MC) → Appendix G / Fig. G1**. **Appendix G is COMPLETED and
+SELF-RUN (flow plan 2026-07-24b):** the cohort backward-MC figure is
+replaced by our own er3t/MCARaTS v0.10.4 x–z slab simulation
+(`workspace/rt_slab_sim/`; Blanca 1e9-photon sweep, 33 O2A wavelengths ×
+{3-D, IPA} × {dark 0.03, bright 0.30}), refit with the PRODUCTION estimator
+and — beyond the original A13 scope — closed against MCARaTS' native
+path-length tally (Rad_mplen=3): r(fitted ⟨l′⟩, tallied mean path) = 0.999
+dark / 0.987 bright, r(var(l′), tallied variance) = 0.989 bright, IPA null
+≤ 0.9 % of the 3-D range. `manuscript/figures/figG1_mc_3d_vs_ica.{png,pdf}`
++ `manuscript/tables/tabG1_slab_config.tex` EXIST; conditional placement
+RESOLVED → typeset; every §3 A13 condition is closed or moot (self-run ⇒ no
+cohort sign-off / co-authorship). Also 2026-07-24a: ALL missing appendix
+tables generated (`manuscript/scripts/make_appendix_tables.py`, 15 files;
+only A2 fit-failure accounting stays blocked on a CURC sweep). **Fig. H1
+(TEMPO) is now the last artifact-pending appendix display item** — its task
+list `~/programming/tempo/TODO_OCO_APPENDIX_A12.md` updated same day.
 
 1. **Introduction.** OCO-2 XCO2 widely used (flux inversion, plume/emission
    quantification, trend monitoring) at sub-ppm accuracy requirements → but
@@ -564,27 +668,27 @@ read as one claim with four faces, not a pipeline + validations:**
    sensitivity, parallax/advection bounds (M5 sentences); Cloudy-only rerun
    only if time permits (§3).
    (c) Label circularity/selection (M1 residuals), land-driven TCCON weighting.
-   (d) **PPDF validation with a Monte Carlo model — REFRAMED 2026-07-13
-   (first demonstration now included as appendix A13):** the cumulant fit
-   *interprets* k1/k2 as mean and variance of the photon path-length
-   distribution function. A cohort backward-MC X–Z simulation (cloud at
-   x = 10–15 km) now demonstrates causally that the fitted coefficients
-   respond to cloud adjacency ONLY under 3D transport — the ICA null (same
-   cloud, no horizontal transport) shows zero adjacency response while the
-   3D run shows the k1/k2 enhancement in clear columns, one-sided on the
-   shadow side, decaying within ~3 km (appendix Fig A13; conditions
-   checklist in §3). Cite it here as the first step. STILL FUTURE WORK
-   (follow-up paper per §4): the full PPDF closure — tally the per-photon
-   path-length histogram, generate synthetic OCO-2 spectra from the same
-   ensemble, compare spectrum-fitted k1/k2 against the directly tallied MC
-   moments (closing the Laplace-transform loop) — and the plume OSSE
-   (inject ΔCO2, verify k1/k2 invariance rigorously) across
-   SZA/COD/albedo geometries.
+   (d) **PPDF validation with a Monte Carlo model — RE-REFRAMED 2026-07-24
+   (Appendix G / Fig. G1, self-run, partial PPDF closure achieved;
+   supersedes the 2026-07-13 A13 framing):** the cumulant fit *interprets*
+   k1/k2 as mean and variance of the photon path-length distribution
+   function. Our er3t/MCARaTS x–z slab simulation (3-D vs IPA on the
+   identical scene) demonstrates causally that the fitted coefficients
+   respond to cloud adjacency ONLY under 3-D transport (IPA null ≤ 0.9 %;
+   one-sided shadow-band response; ⟨l′⟩ sign reversal dark-vs-bright =
+   the albedo-contrast mechanism), AND closes the first moment against
+   the directly tallied PPDF (Rad_mplen=3: r ≥ 0.987 for ⟨l′⟩; var(l′)
+   r = 0.989 on the bright surface — the Laplace-transform loop closed in
+   its first moment). STILL FUTURE WORK (follow-up paper per §4):
+   absorption-weighted path tallies (exact second-moment closure),
+   synthetic full-spectrum generation, the plume OSSE (inject ΔCO2,
+   verify k1/k2 invariance rigorously), and the SZA/COD/albedo geometry
+   sweep.
 9. **Data recovery and applications.** QF1 near-cloud recovery numbers;
    throughput in the cloudy tropics → flux-inversion relevance; **cross-sensor
    transferability paragraph (user decision 2026-07-13, see §3):** abstract
    method requirements → OCO-3/CO2M → TEMPO O2-B (geostationary imager,
-   in-scene cloud proximity; points to appendix Fig A12) → CH4 in text only
+   in-scene cloud proximity; points to appendix Fig. H1, ex-A12) → CH4 in text only
    (TROPOMI/GOSAT-GW viable; EMIT-class band-integrated sampling an open
    question) + the CH4 plume-community hook sentence; post-2022 NoMODIS-era
    deployability. **Present the whole section as Tier 3 of the
@@ -824,38 +928,45 @@ abbreviated `<TAG>`**):**
   far-cloud soundings (AUC 0.72 land / 0.66 ocean), and the anomaly rises
   monotonically with the spectral index below the 1-km MODIS pixel floor —
   the only proximity signal available in the post-2022 NoMODIS era."
-- **A12 cross-sensor demo — TEMPO O2-B (decided 2026-07-13; TO CREATE):**
+- **A12 → Fig. H1 (Appendix H) cross-sensor demo — TEMPO O2-B (renamed
+  2026-07-22n; **artifact DONE 2026-07-24** — FINAL scene
+  **S007G09_160926_o2b_3 (Mexico Pacific east, ocean, GOES-West)**, author
+  decision after a three-scene comparison; cleanest decay (⟨l′⟩ 0.91→0.76
+  over 0–25 km, plateau to 50 km, N=5005, 100% fit success, 0 px on the
+  ocean poly_order branch). Kansas S010G06_160926_o2b_1 kept as all-land
+  alternate. `src/cloud_distance.py` + `scripts/make_h1_figure.py` in the
+  tempo repo; figure landed as figH1_tempo_o2b_demo.{png,pdf}; the
+  flow-plan caption was corrected same day to the reference-implementation
+  wording and to ⟨l′⟩-only (var(l′) map dropped);
+  Table H1 DROPPED per user decision 2026-07-24c — paper length; the
+  side-by-side is generated author-side only as
+  `manuscript/tables/internal_tempo_fit_inputs.tex` from the tempo TODO
+  §5b numbers, and the caption's Table-H1 sentence was deleted. Remaining
+  open on this appendix: the Appendix H prose only):**
   one granule from `~/programming/tempo` (existing 4-panel: GOES ABI RGB +
   CLDO4 cloud fraction + ⟨l′⟩ + var(l′) maps; 3 vetted scenes to pick from)
   + NEW in-scene ⟨l′⟩-vs-cloud-distance decay panel (CLDO4 cloud-fraction
   threshold + KD-tree, reuse step_04 geometry; ~1 day); restyle to
-  `plot_style.py`. Existence-proof caption ONLY; EMIT explicitly excluded
-  (no pipeline; ~7.4 nm sampling collapses the τ dynamic range; a weak
-  panel would undermine the claim). Pairs with the §9 transferability
-  paragraph and the A10 deployment-story figure.
-  *Caption stub:* "Instrument transfer existence proof: the cumulant fit of
-  Sect. X applied to one TEMPO O2-B granule (683–697 nm; same model,
-  reference implementation): ⟨l′⟩ and var(l′) are retrievable from a
-  geostationary UV-Vis imager whose own cloud product provides in-scene
-  proximity — no cross-platform collocation — and rise toward the imaged
-  cloud field; shown as feasibility, not a validated correction."
-- **A13 backward-MC 3D-vs-ICA mechanism demo (decided 2026-07-13; TO
-  PREPARE — cohort figure, conditions checklist in §3):** source
-  `~/Downloads/01_radtoa_fitting_coefficients.png`, to be refit with the
-  production estimator, relabeled (C1 → −⟨l′⟩, C2 → ½·var(l′)), and
-  restyled; final path
-  `results/figures/manuscript/fig_a13_mc_3d_vs_ica.png`. Pairs with §4
-  (mechanism) and the §8d paragraph; together with A12 it makes the
-  "features are physics, and the physics transfers" bookend.
-  *Caption stub:* "Controlled 3-D radiative-transfer demonstration of the
-  path-length mechanism. Fitted ⟨l′⟩, var(l′), and intercept along an X–Z
-  backward Monte Carlo scene (cloud at x = 10–15 km; [model, geometry,
-  COD, band]) for full 3-D transport and the independent-column
-  approximation (ICA). The ICA run — same cloud, no horizontal photon
-  transport — shows no response outside the cloud, whereas the 3-D run
-  shows enhanced ⟨l′⟩ and var(l′) in clear columns within ~3 km of the
-  shadow-side cloud edge: the fitted cumulants respond to cloud adjacency
-  only under 3-D transport, corroborating the shadow/brightening asymmetry
-  of Fig. 3. Single representative geometry, validating the feature
-  physics, not the correction; the full path-length-histogram closure and
-  plume OSSE are future work (Sect. 8d)."
+  `plot_style.py`. Target `manuscript/figures/figH1_tempo_o2b_demo.{png,pdf}`.
+  Existence-proof caption ONLY; EMIT explicitly excluded (no pipeline;
+  ~7.4 nm sampling collapses the τ dynamic range; a weak panel would
+  undermine the claim). Pairs with the Discussion 5.3 transferability
+  paragraph. The authoritative scope + PROVISIONAL caption now live in
+  `MANUSCRIPT_FLOW_PLAN.md` Appendix H (2026-07-23g) — NOTE the flow-plan
+  caption currently says "production estimator" but the tempo repo runs the
+  pre-rewrite curve_fit+SG engine; keep the "reference implementation"
+  wording (flagged in the tempo TODO §5). Task list:
+  `~/programming/tempo/TODO_OCO_APPENDIX_A12.md`.
+- **A13 → Fig. G1 (Appendix G) 3-D-vs-IPA mechanism demo — DONE
+  2026-07-24, SELF-RUN (renamed 2026-07-22n; supersedes the cohort-figure
+  plan — full closure record in §3 above and `MANUSCRIPT_FLOW_PLAN.md`
+  Appendix G):** er3t/MCARaTS v0.10.4 x–z slab simulation
+  (`workspace/rt_slab_sim/`), production-estimator refit, first-moment
+  PPDF closure via the native path-length tally. Artifacts EXIST:
+  `manuscript/figures/figG1_mc_3d_vs_ica.{png,pdf}` +
+  `manuscript/tables/tabG1_slab_config.tex` (generators
+  `make_fig_g1.py`/`make_table_g1.py`; closure numbers in
+  `results/rt_slab_sim/closure_stats.json`; PPDF heat-map/cut figures are
+  S6 candidates). Final caption lives in the flow plan (2026-07-24b).
+  Together with Fig. H1 it makes the "features are physics, and the
+  physics transfers" bookend.

@@ -516,10 +516,13 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     # Clamp on an explicit copy — the old in-place version silently mutated
     # combined['fs_rel'] (and thus the 'fs_rel' column, which has always been
     # stored clamped).  Keep both columns identical to the historical output.
+    # NB: fs_rel is L2 Lite Retrieval/fs_rel — solar-induced chlorophyll fluorescence
+    # at 757 nm relative to the Band-1 continuum signal.  NOT relative humidity
+    # (the pre-2026-07-25 comments here said so and were wrong).
     fs_rel_0 = np.array(combined.get('fs_rel'), copy=True)
-    fs_rel_0[fs_rel_0 < 0] = 0  # Set any negative relative humidity values to 0
-    fs_rel_0[np.isnan(fs_rel_0)] = 0  # Set any NaN relative humidity values to 0
-    final_dict['fs_rel_0'] = fs_rel_0  # Relative humidity at surface (assuming fs_rel is at surface)
+    fs_rel_0[fs_rel_0 < 0] = 0   # negative (unphysical) fluorescence → 0
+    fs_rel_0[np.isnan(fs_rel_0)] = 0
+    final_dict['fs_rel_0'] = fs_rel_0  # clamped relative SIF
     final_dict['fs_rel'] = fs_rel_0
     final_dict['pol_ang_rad'] = np.radians(combined.get('pol_angle'))  # Convert polarization angle to radians
     

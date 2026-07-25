@@ -319,7 +319,8 @@ _FEATURES_SFC0 = [
     'pol_ang_rad',
     's31',
     'tcwv',
-    # ── cloud/aerosol contamination (merged from CONTAM_FEATURES; ocean) ──
+    # ── forward-selected additions (ocean) — position in this list is history, NOT
+    #    group membership: the ablation groups are defined by XCO2_/SPEC_/CONTAM_FEATURES ──
     'max_declock_wco2', 'aod_water', 'dp_abp', 'h_cont_wco2', 't700',
     'water_height', 'alb_sco2_over_wco2',
 ]
@@ -349,7 +350,8 @@ _FEATURES_SFC1 = [
     'pol_ang_rad',
     's31',
     'tcwv',
-    # ── cloud/aerosol contamination (merged from CONTAM_FEATURES; land) ──
+    # ── forward-selected additions (land) — position in this list is history, NOT
+    #    group membership: the ablation groups are defined by XCO2_/SPEC_/CONTAM_FEATURES ──
     'dpfrac', 'fs_rel_0', 'dust_height', 'aod_ice', 'ice_height', 'dp_abp',
     'water_height', 'aod_water', 't700', 'h_cont_wco2', 'alt_std',
     'alb_sco2_over_wco2',
@@ -380,19 +382,74 @@ SPEC_FEATURES = frozenset([
     f'sco2_k1{_S}', f'sco2_k2{_S}',
 ])
 
-# Set 4 — drop cloud/aerosol contamination features.
-# These are part of the base _FEATURES_SFC0/1 above (always active) — forward-selected
-# from the disabled-feature pool and validated with date-blocked (date_kfold) CV:
-# ~+0.06 (ocean) / +0.07 (land) held-out R² over the pre-contam base (declocking/water
-# aerosol on ocean; dpfrac/humidity/dust+ice on land).  The set below is the UNION of the
-# ocean and land contamination groups; _resolve_feature_set silently ignores names not in
-# the active sfc_type's list, so one set drops the right features for either surface.
+# Set 4 — drop the cloud/aerosol contamination channel.
+# Membership rule (physics, not provenance): a feature belongs here iff it diagnoses
+# the SCENE's scattering content or its spatial inhomogeneity —
+#   (a) retrieved cloud/aerosol load        aod_water/ice + the five aerosol AODs
+#   (b) the layer height retrieved with it  water_/ice_/dust_height
+#   (c) inter-sounding radiance variability h_continuum_* (Massie HC),
+#                                           color_slice_noise_ratio_* (CSNoiseRatio),
+#                                           max_declocking (co-registration/inhomogeneity)
+#   (d) the operational cloud screens        dp_abp (A-band preprocessor) and the
+#                                           IMAP-DOAS band ratios co2_ratio_bc /
+#                                           h2o_ratio_bc — OCO-2 screens clouds with
+#                                           BOTH preprocessors (Taylor et al., 2016),
+#                                           so the pair cannot be split across groups
+# The set is the UNION over both surfaces; _resolve_feature_set silently ignores names
+# absent from the active sfc_type's list, so one set drops the right features either way.
+#
+# REGROUPED 2026-07-25 (evidence: log/CONTAM_REGROUPING_2026-07-25.md).  The previous
+# membership was provenance-based — whatever the forward-selection round happened to add —
+# which broke the ablation in both directions on 3×2018 dates (465k soundings):
+#   * MOVED OUT (not contamination diagnostics; still active base features, just
+#     attributed to the retrieval-state/surface group):
+#       t700    — GEOS met prior 700 hPa temperature; rho(t700,|lat|) = -0.85 (land)
+#       alt_std — DEM sub-footprint roughness; static per location, clear or cloudy
+#       fs_rel_0— SIF relative to Band-1 continuum; rho with cloud distance = 0.08
+#       dpfrac  — duplicate of dp_psfc_prior_ratio (rho = 0.965 land / 0.978 ocean),
+#                 which lives in the retrieval-state group: one variable, two groups
+#       alb_sco2_over_wco2 — band-albedo ratio; surface brightness, per Mauceri et al.
+#                 (2023) a bias-correction feature, not a contamination indicator
+#   * PULLED IN (contamination diagnostics that the old set left in the base, so
+#     no_contam did not actually remove the channel):
+#       h_cont_o2a, h_cont_sco2 — same Massie HC metric as h_cont_wco2 (rho 0.79 / 0.93
+#                 on land) AND the two strongest cloud-proximity features in the whole
+#                 table (|rho| with cloud distance 0.52 / 0.50, vs 0.08 for aod_water)
+#       csnr_o2a, csnr_sco2     — Mauceri's CSNoiseRatio, a named 3D-cloud-effect variable
+#       aod_dust/oc/seasalt/sulfate/strataer — the aerosol half of "cloud/aerosol",
+#                 previously split from dust_height, which was inside the group
+#       co2_ratio_bc, h2o_ratio_bc (added 2026-07-25b) — the IMAP-DOAS preprocessor
+#                 ratios.  Two reasons: (i) they are the OTHER half of the operational
+#                 cloud screen whose ABP half (dp_abp) was already in the group —
+#                 splitting the pair is indefensible; (ii) measured: on OCEAN
+#                 h2o_ratio_bc has |rho| 0.29 with cloud distance, 0.33 controlling
+#                 tcwv+|lat| and 0.26 also controlling aod_water+dp_abp — an
+#                 INDEPENDENT proximity channel as strong as aod_water (0.25) and
+#                 dp_abp (0.23), in the surface where this group is thinnest.  On land
+#                 they are second order (partial 0.18/0.14 vs h_cont_o2a 0.49) and
+#                 |ratio-1| tracks scatterer load (rho 0.36 with aod_water).
+#                 Mechanism note: the ocean signal is in the SIGNED ratio (0.29) not
+#                 |ratio-1| (0.035) — a directional wavelength-dependent path shift over
+#                 a dark surface — whereas on land the unsigned deviation carries it.
+#                 Cost accepted: these are also operational bias-correction predictors,
+#                 so a DEGRADED no_contam would need one extra arm (group minus the two
+#                 ratios) to attribute.  A NEUTRAL result needs no such caveat and is
+#                 strictly stronger for having removed both screens.
+# BOUNDARY CASES, still deliberately NOT included (brightness/consistency terms that are
+# surface-driven as much as scattering-driven): s31, alb_sco2_over_wco2.
 CONTAM_FEATURES = frozenset([
-    # ocean (from _FEATURES_SFC0)
-    'max_declock_wco2', 'aod_water', 'dp_abp', 'h_cont_wco2', 't700',
-    'water_height', 'alb_sco2_over_wco2',
-    # land (from _FEATURES_SFC1)
-    'dpfrac', 'fs_rel_0', 'dust_height', 'aod_ice', 'ice_height', 'alt_std',
+    # (a) retrieved cloud/aerosol optical depth
+    'aod_water', 'aod_ice',
+    'aod_dust', 'aod_oc', 'aod_seasalt', 'aod_sulfate', 'aod_strataer',
+    # (b) retrieved layer heights
+    'water_height', 'ice_height', 'dust_height',
+    # (c) scene inhomogeneity / inter-sounding radiance variability
+    'h_cont_o2a', 'h_cont_wco2', 'h_cont_sco2',
+    'csnr_o2a', 'csnr_sco2',
+    'max_declock_wco2',
+    # (d) operational cloud screens: A-band preprocessor + IMAP-DOAS band ratios
+    'dp_abp',
+    'co2_ratio_bc', 'h2o_ratio_bc',
 ])
 
 # snow_flag is NOT a model feature.  The land A/B (test_snow_features.py) showed it is
