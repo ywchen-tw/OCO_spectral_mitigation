@@ -113,15 +113,26 @@ echo "fold=${F}/${NFOLDS}  profile_pca=${PROFILE_PKL}"
 # reuses the same fold-specific ProfilePCA pkl.  Mirrors the ablation loops in
 # curc_shell_blanca_de_profile_r05.sh, adapted to foldpca (fold PCA + _foldpca
 # suffix).  Suffix: de_ocean_{FS}_prof_foldpca_r05_f${F}.
-for FS in no_xco2 no_spec no_xco2_and_spec; do
-  python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_foldpca_r05_f${F} \
-      --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 5km \
-      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-      --norm layer --dropout 0.1 \
-      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
+# COMMENTED OUT 2026-07-25 for the CONTAM_FEATURES regrouping rerun
+# (log/CONTAM_REGROUPING_2026-07-25.md): the regrouping changed ONLY
+# CONTAM_FEATURES — XCO2_FEATURES and SPEC_FEATURES are untouched — so these
+# three arms keep the FEATURESET_ABLATION_QF_2026-07-17 checkpoints and must NOT
+# be retrained (retraining would reshuffle member seeds for no scientific gain).
+# Re-enable only if the whole ablation is rebuilt from scratch.
+# for FS in no_xco2 no_spec no_xco2_and_spec; do
+#   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_foldpca_r05_f${F} \
+#       --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 5km \
+#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#       --norm layer --dropout 0.1 \
+#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# done
 
+# ── ACTIVE: contamination arms only (regrouped CONTAM_FEATURES, 2026-07-25) ────
+# Suffixes are UNCHANGED, so these overwrite the 07-17 no_contam checkpoints.
+# Archive them first (once, from the repo root, NOT per array task):
+#   for d in results/model_deep_ensemble/de_*_no_contam*_prof_foldpca_r*_f*; do
+#       mv "$d" "${d}_oldcontam"; done
 for FS in no_contam no_contam_and_xco2; do
   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_foldpca_r05_f${F} \
       --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 5km \

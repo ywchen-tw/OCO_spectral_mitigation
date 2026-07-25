@@ -135,10 +135,6 @@ NFOLDS=5
 #       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 # done
 
-# ── ACTIVE: contamination arms only (regrouped CONTAM_FEATURES, 2026-07-25) ────
-# The no_xco2 / no_spec / no_xco2_and_spec loop above stays commented out: the
-# 2026-07-25 regrouping (log/CONTAM_REGROUPING_2026-07-25.md) touched ONLY
-# CONTAM_FEATURES, so those arms do not need retraining.
 for FS in no_contam no_contam_and_xco2; do
   python -m models.deep_ensemble --sfc_type 0 --suffix de_ocean_${FS}_prof_r05_f${F} \
       --profile-pca --feature_set ${FS} --target 5km \

@@ -271,10 +271,15 @@ the ablation changes (drop 7→12 ocean, 12→17 land). §2-8 is the rerun; the
    Steps:
    1. Archive the old arms so the 07-17 numbers stay reproducible:
       `for d in results/model_deep_ensemble/de_*_no_contam*_prof_foldpca_r*_f*; do mv "$d" "${d}_oldcontam"; done`
-   2. Retrain both surfaces × 5 folds — the `no_contam`/`no_contam_and_xco2`
-      loops of `curc_shell_blanca_de_profile_foldpca_r05.sh` (ocean, :125) and
-      `curc_shell_blanca_de_profile_foldpca_r15.sh` (land, :125). Suffixes
-      unchanged. Land f4 top-up from §2-7 becomes moot (full retrain).
+   2. Retrain both surfaces × 5 folds: `sbatch curc_shell_blanca_de_profile_foldpca_r05.sh`
+      (ocean) and `..._foldpca_r15.sh` (land) — both PREPARED 2026-07-25, the
+      `no_contam`/`no_contam_and_xco2` loop is now the only active block in each
+      (`no_xco2`/`no_spec`/`no_xco2_and_spec` commented out with the rationale:
+      those groups did not change, so their 07-17 checkpoints stand). Use the
+      FOLDPCA pair, NOT `curc_shell_blanca_de_profile_r{05,15}.sh` — the
+      non-foldpca launchers use the global ProfilePCA and no lndo01, so their
+      numbers would not be comparable with the 07-17 columns. Suffixes unchanged.
+      Land f4 top-up from §2-7 becomes moot (full retrain with lndo01).
    3. `workspace/build_ablation_variant_trees.sh no_contam` +
       `no_contam_and_xco2`, then `workspace/make_featureset_ablation_doc.py`
       → `FEATURESET_ABLATION_QF_2026-XX-XX.md`; archive the 07-17 edition.
