@@ -519,6 +519,16 @@ MC path-moment closure row) and `manuscript/tables/tabG1_slab_config.tex`
 numbers in `results/rt_slab_sim/closure_stats.json`; supporting PPDF
 heat-map/cut figures (`slab_ppdf_{dark,bright}.png`) are S6 candidates.
 Appendix G section text + captions updated below (§5).  
+**Updated:** 2026-07-24c — **Table H1 DROPPED (user decision; paper
+length).** The instrument/geometry/sampling differences from OCO-2 fold
+into the Appendix H prose (they were already on its content list), and
+the Fig. H1 caption's closing Table-H1 sentence is deleted. The
+side-by-side comparison is retained AUTHOR-SIDE ONLY as
+`manuscript/tables/internal_tempo_fit_inputs.tex`
+(`make_appendix_tables.py --only internal_tempo_inputs`; TEMPO column
+from the verified numbers in the tempo TODO §5b, OCO-2 instrument-spec
+rows flagged for ATBD verification) — not \input anywhere, kept in case
+it proves useful later. Appendix H is now one granule + ONE figure.  
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -2662,17 +2672,40 @@ A12:
 
 Planned items:
 
-- **Fig. H1:** TEMPO RGB/cloud field, fitted cumulants, and distance response;
-- **Table H1:** OCO-2 and TEMPO inputs required by the spectral fit.
+- **Fig. H1:** TEMPO RGB/cloud field, fitted cumulants, and distance response
+  (LANDED 2026-07-24 — caption block below);
+- ~~**Table H1:** OCO-2 and TEMPO inputs required by the spectral fit~~
+  **DROPPED (user decision 2026-07-24c — paper length):** the differences
+  fold into the Appendix H prose; the side-by-side survives author-side
+  only as `manuscript/tables/internal_tempo_fit_inputs.tex`
+  (`make_appendix_tables.py --only internal_tempo_inputs`).
 
-**Draft caption (2026-07-23g; PROVISIONAL — artifact pending):**
+**Caption (updated 2026-07-24 — artifact LANDED as
+`manuscript/figures/figH1_tempo_o2b_demo.{png,pdf}`, produced by
+`~/programming/tempo/scripts/make_h1_figure.py`. FINAL scene (author
+decision 2026-07-24, after a three-scene comparison):
+**S007G09_160926_o2b_3, Mexico Pacific east, ocean, GOES-West,
+2024-07-08 ≈16:09 UTC** — cleanest distance decay (median ⟨l′⟩
+0.91→0.76 over 0–25 km then plateau, N=5005, all 2.5-km bins populated
+to 50 km, 100% fit success; 0 pixels used the ocean poly_order branch,
+so no branch caveat needed). Kansas S010G06_160926_o2b_1 kept as
+rendered all-land alternate in the tempo repo. Corrections vs the
+2026-07-23g draft, per the tempo TODO §5 flag: (1) "production
+estimator" → reference-implementation wording — the tempo repo runs the
+pre-rewrite curve_fit+SG engine; (2) the var(l′) map was briefly dropped
+(drop-if-it-crowds rule) then REINSTATED same day by author request in a
+2×3 layout, labels column-major — (a) GOES RGB / (b) CLDO4 cloud
+fraction; (c) ⟨l′⟩ map / (d) var(l′) map; (e) ⟨l′⟩ vs distance /
+(f) var(l′) vs distance with per-bin sample sizes; rows pair each
+cumulant's map with its distance curve):**
 
 > **Figure H1.** Cross-sensor feasibility demonstration on one
-> pre-specified TEMPO granule: scene imagery with the in-scene cloud
-> product; maps of ⟨l′⟩ and var(l′) fitted from the TEMPO O2-B window
-> with the production estimator; and their response versus in-scene
-> cloud distance. Instrument, geometry, and sampling differences from
-> OCO-2 are summarized in Table H1.
+> pre-specified TEMPO granule: GOES ABI true-colour imagery; the
+> in-scene CLDO4 effective cloud fraction; maps of ⟨l′⟩ and var(l′)
+> fitted from the TEMPO O2-B window (683–697 nm) with the same cumulant
+> model in a reference implementation; and binned medians of ⟨l′⟩ and
+> var(l′) (IQR shaded) versus nearest-cloud distance derived from the
+> same granule's cloud product.
 
 Label this appendix **feasibility demonstration**. Do not include EMIT merely
 to broaden the sensor list; its sampling may not provide adequate optical-depth
