@@ -207,6 +207,44 @@ lesson survives intact and is sharpened: **held-out anomaly R² over-credits the
 contamination block relative to TCCON truth** — it is the single largest
 validation-vs-TCCON discrepancy in the whole ablation.
 
+## 5c. Downstream manuscript artifacts regenerated (2026-07-25)
+
+All under `manuscript/`, which is gitignored — this log entry is the only tracked
+record.
+
+- **§4.3** rewritten around the new numbers. The old sentence "dropping
+  *\xcoraw − \xcoprior* with spectral-fitting features shows the largest ΔRMSE
+  increase" was **inverted by the rerun** and is corrected: the contamination
+  combination is now the largest in every slice (+1.23 pooled / +1.43 land ≤15 km /
+  +0.26 ocean ≤5 km, against +0.93 / +1.08 / +0.20 for the spectral combination).
+- **Table C1** (`tex/MANUSCRIPT_APPENDIX_PREDICTOR_TABLE.tex`) re-sectioned to the
+  new groups; verified row-by-row against `pipeline.py`.
+- **Fig. 6** (`make_baseline_ablation_figure.py`) and the generated tables
+  (`make_manuscript_tables.py`) rebuilt — they read the variant trees directly, so
+  they picked up the new numbers automatically. The Table 2 caption now states the
+  group's contents and the interaction result.
+- **Fig. 7** (`make_feature_importance_figure.py`) needed a code fix: its bar
+  colours came from a `group` column frozen into `importance_de_*_agg.csv` at
+  permutation time, and the regrouping invalidated it for **15 of the plotted
+  features** (`alt_std`, `fs_rel_0`, `dpfrac`, `alb_sco2_over_wco2`, `t700` out;
+  the five aerosol AODs, `h_cont_o2a/sco2`, `csnr_o2a`, `co2_ratio_bc`,
+  `h2o_ratio_bc` in). The figure now resolves the group from
+  `src/models/pipeline.py` at plot time, so it cannot drift from the code again.
+  The permutation **values** are untouched and remain valid — they are per-feature
+  permutations of the unchanged production model.
+
+**Known stale, deliberately not fixed:** the `scope=='group'` rows in
+`results/model_comparison/feature_importance/*/importance_de_*_agg.csv` were
+produced by permuting the OLD groups *jointly*, so they cannot be relabelled —
+only recomputed. No manuscript figure or table reads them (checked); they would
+need a CURC re-run of `models.feature_importance` before anyone quotes them.
+
+**Caption mismatch spotted, NOT edited** (predates this work, needs an author
+decision): the Fig. 6 caption in `4.3_model_comparison.tex` still says the dark
+bars are "near-cloud land subset (≤ 10 km, n = 75,157)", but the figure has shown
+three series at the production radii since 2026-07-23 — pooled (n = 105,683),
+near-cloud ocean ≤5 km (n = 2,645) and near-cloud land ≤15 km (n = 81,347).
+
 ## 6. Reference
 
 Taylor, T. E., et al.: Orbiting Carbon Observatory-2 (OCO-2) cloud screening
