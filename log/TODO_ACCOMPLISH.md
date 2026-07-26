@@ -287,16 +287,37 @@ the ablation changes (drop 7→12 ocean, 12→17 land). §2-8 is the rerun; the
       is TCCON-neutral") and re-section Table C1
       (`manuscript/tex/MANUSCRIPT_APPENDIX_PREDICTOR_TABLE.tex`) to the new
       grouping — draft prepared, awaiting approval per the no-unasked-tex rule.
-   **Expectation:** the contamination ablation likely stops being neutral, since
-   the land model can no longer fall back on `h_cont_o2a/sco2`. Either outcome is
-   quotable — a defensible group is the point. **Attribution tie-break:** the IDP
-   ratios are also operational bias-correction predictors, so a DEGRADED result is
-   ambiguous ("contamination matters" vs "we removed a bias-correction predictor");
-   if that happens, add one arm = the group minus `co2_ratio_bc`/`h2o_ratio_bc`.
-   A NEUTRAL result needs no caveat and is stronger for having removed both
-   operational screens. If it does stop being neutral,
-   §5's "skill-vs-trust" line and the parsimony row need one sentence each; the
-   spec-feature story is unaffected either way.
+   **DONE 2026-07-25 — steps 1–3 executed the same day; the expectation was WRONG
+   in the best way.** Retrain (all 5+5 folds, lndo01+foldpca, every fold verified
+   against the new grouping), both variant trees rebuilt 75/75 with the leakage
+   guard clean, all three report editions regenerated → **quotable edition
+   `FEATURESET_ABLATION_QF_2026-07-25.md`** (supersedes ONLY the two contamination
+   columns of the 07-17 edition; `no_spec`/`no_xco2`/`no_xco2_and_spec` are the
+   same checkpoints and identical numbers). Old trees kept as
+   `de_prof_mix_no_contam{,_and_xco2}_oldgroup`. Full numbers +
+   case-level significance: `log/CONTAM_REGROUPING_2026-07-25.md` §5b.
+   - **`no_contam` is STILL TCCON-neutral, and now the claim is real.** ΔRMSE vs
+     full: pooled −0.025, near-cloud land QF1 −0.083, ocean +0.036; case-weighted
+     (station-day, site-clustered) +0.043 [−0.036, +0.125]. The SIGN FLIPS with
+     weighting and every estimate is ≤0.05 ppm against a 3.29→1.22 correction —
+     neutral. But it now survives dropping BOTH operational cloud screens (ABP +
+     IMAP-DOAS), all seven AODs, all three layer heights and every inter-sounding
+     variability metric, where the old group had left `h_cont_o2a/sco2` in place.
+     No tie-break arm needed (that was only required for a degraded result).
+   - **NEW, quotable: the contamination and xco2 blocks are mutually redundant but
+     jointly essential.** `no_xco2` +0.793, `no_contam` ~0, but
+     `no_contam_and_xco2` **+1.226** — contamination adds +0.43 ppm of damage on
+     top of the xco2 removal after adding nothing alone. Invisible under the old
+     grouping (+0.896 ≈ no_xco2). Held-out agrees more starkly (land R² 0.232 vs
+     no_xco2 0.420). This is a §4.3/§5 sentence: the two blocks encode overlapping
+     information about the same physical scene.
+   - Held-out ordering unchanged and consistent on both surfaces: full > no_spec >
+     no_contam > no_xco2 > combos. The 07-08 lesson is sharpened — held-out anomaly
+     R² over-credits the contamination block relative to TCCON truth, the largest
+     validation-vs-TCCON discrepancy in the ablation.
+   - REMAINING (step 4, writing time): §4.3's sentence can now say something
+     stronger than "neutral" — draft prepared, awaiting approval per the
+     no-unasked-tex rule. Table C1 re-sectioning is DONE.
 
 ## 3. SHOULD-DO (strengthens, not blocking)
 

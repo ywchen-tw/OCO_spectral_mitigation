@@ -210,11 +210,23 @@ def main():
         "edition (land-f2 divergence, unreg variants) and "
         "`FEATURESET_ABLATION_QF_2026-07-08.md` (global PCA).",
         "",
-        "> **Known leftover (minor):** land f4 of `no_contam` and "
-        "`no_contam_and_xco2` still carries the OLD un-regularized checkpoint "
-        "(the retrain array's tail was preempted) — a HEALTHY fold in both "
-        "trainings (held-out R² 0.43 / 0.24), so it is pooled; config purity "
-        "for those two arms would need a `sbatch --array=4` top-up on CURC.",
+        "> **`no_contam` REGROUPED 2026-07-25** "
+        "(`log/CONTAM_REGROUPING_2026-07-25.md`): the contamination group is now "
+        "defined by what a feature physically measures — retrieved cloud/aerosol "
+        "optical depth, the layer height retrieved with it, inter-sounding "
+        "radiance variability (`h_cont_*`, `csnr_*`, de-clocking), and the "
+        "operational ABP + IMAP-DOAS cloud screens. `t700`, `alt_std`, "
+        "`fs_rel_0`, `dpfrac` and `alb_sco2_over_wco2` moved OUT (met/terrain/SIF/"
+        "duplicate/surface-brightness); `h_cont_o2a`, `h_cont_sco2`, `csnr_o2a`, "
+        "`csnr_sco2`, the five aerosol AODs and `co2_ratio_bc`/`h2o_ratio_bc` "
+        "moved IN. Under the OLD group the land model kept `h_cont_o2a/sco2` "
+        "(ρ 0.79/0.93 with the dropped `h_cont_wco2`), so `no_contam` never "
+        "removed the contamination channel. The `no_contam` and "
+        "`no_contam_and_xco2` arms were RETRAINED on this grouping 2026-07-25 "
+        "(all 5+5 folds, lndo01, fold-PCA — the 07-17 land-f4 leftover is gone); "
+        "`no_spec` / `no_xco2` / `no_xco2_and_spec` are unchanged 07-17 "
+        "checkpoints, since those groups did not move. The superseded "
+        "old-group trees are kept as `de_prof_mix_no_contam{,_and_xco2}_oldgroup`.",
         "",
         "## Pooled and surface splits (AK reference)", "",
         *pooled, "",

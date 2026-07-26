@@ -142,6 +142,71 @@ land-only feature):
    are free to drop" is **withdrawn pending the rerun** — it was measured with a group
    that left the strongest contamination diagnostics in place.
 
+## 5b. RESULT OF THE RERUN (2026-07-25, same day)
+
+Retrained on CURC: `no_contam` + `no_contam_and_xco2`, both surfaces, all 5 folds,
+lndo01 + fold-PCA (the 07-17 land-f4 config leftover is gone). Every fold verified
+against the new grouping before use (`n_qt` 22/21 ocean, 28/27 land; no
+contamination feature survives as an input anywhere). Both variant trees rebuilt
+(75/75 cases, zero failures, leakage guard clean) and all three report editions
+regenerated → `FEATURESET_ABLATION_QF_2026-07-25.md` (QUOTABLE; supersedes the
+07-17 edition's two contamination columns only). Old trees kept as
+`de_prof_mix_no_contam{,_and_xco2}_oldgroup`.
+
+**Verdict: `no_contam` is still TCCON-neutral — and now the claim means something.**
+
+ΔRMSE vs full (ppm, AK reference, footprint-weighted; + = worse):
+
+| slice | no_spec | **no_contam (new)** | *no_contam (old group)* | no_xco2 | no_contam_and_xco2 |
+|---|---|---|---|---|---|
+| pooled, QF 0+1 | +0.021 | **−0.025** | *+0.028* | +0.793 | +1.226 |
+| pooled, QF=1 | +0.036 | **−0.057** | *+0.033* | +1.180 | +1.779 |
+| land ≤10 km, QF 0+1 | +0.029 | **−0.052** | *+0.030* | +0.973 | +1.494 |
+| land ≤10 km, QF=1 | +0.041 | **−0.083** | *+0.034* | +1.282 | +1.926 |
+| land ≥10 km, QF 0+1 | −0.013 | **+0.079** | — | +0.067 | +0.112 |
+| ocean, QF 0+1 | +0.015 | **+0.036** | *+0.009* | +0.152 | +0.188 |
+
+Station-equal mean |bias| (AK): full 0.731 → `no_contam` **0.687**; QF1 0.819 →
+**0.771**. On the *direct* reference it goes the other way (0.502 → 0.546).
+
+Case-level check (station-day rows, site-clustered bootstrap 10k, paired Wilcoxon;
+this weights every station-day equally, unlike the footprint-weighted table above):
+
+| variant vs full | per-case fp-RMSE Δ | 95 % CI | Wilcoxon p | \|bias\| Δ |
+|---|---|---|---|---|
+| `no_spec` | +0.001 | [−0.020, +0.023] | 0.76 | −0.002 |
+| `no_contam` | +0.043 | [−0.036, +0.125] | 0.002 | −0.040 |
+| `no_contam_and_xco2` | +0.876 | [+0.616, +1.131] | <1e-4 | +0.253 |
+
+So the sign of the `no_contam` effect **flips with the weighting** (footprint-weighted
+−0.025, case-weighted +0.043) and every estimate is ≤0.05 ppm against a correction
+that moves RMSE 3.29 → 1.22. That is the definition of neutral. The Wilcoxon p is
+significant only because the small per-case differences are consistent in sign within
+a few data-rich sites; the site-clustered CI straddles zero.
+
+**Two findings that are new, and quotable:**
+
+1. **The parsimony claim is now defensible.** Under the old group, "contamination is
+   droppable" was near-guaranteed by construction (land kept `h_cont_o2a/sco2`).
+   The regrouped `no_contam` removes **both operational cloud screens, all seven
+   AODs, all three layer heights, and every inter-sounding variability metric** — and
+   TCCON still does not move. That is a much stronger statement of the same claim.
+2. **Contamination and XCO₂-departure are mutually redundant but jointly essential.**
+   `no_xco2` costs +0.793 pooled; `no_contam` costs ~0; but `no_contam_and_xco2`
+   costs **+1.226** — i.e. the contamination block adds +0.43 ppm of damage *on top of*
+   removing xco2, having added nothing on its own. Under the old grouping this
+   interaction was invisible (`no_contam_and_xco2` +0.896 ≈ `no_xco2` +0.793). The
+   two blocks encode overlapping information about the same physical scene; either
+   one suffices, losing both does not. Held-out R² agrees and is starker: land
+   `no_contam_and_xco2` 0.232 vs `no_xco2` 0.420.
+
+Held-out date-kfold (median over 5 healthy folds, R²): ocean full 0.727 →
+`no_contam` 0.647 → `no_xco2` 0.607 → `no_contam_and_xco2` 0.506; land full 0.547 →
+`no_contam` 0.499 → `no_xco2` 0.420 → `no_contam_and_xco2` 0.232. The 2026-07-08
+lesson survives intact and is sharpened: **held-out anomaly R² over-credits the
+contamination block relative to TCCON truth** — it is the single largest
+validation-vs-TCCON discrepancy in the whole ablation.
+
 ## 6. Reference
 
 Taylor, T. E., et al.: Orbiting Carbon Observatory-2 (OCO-2) cloud screening
