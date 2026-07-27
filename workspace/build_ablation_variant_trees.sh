@@ -16,9 +16,15 @@
 # borrowed via DYLD_FALLBACK.
 #
 # Special arm 'raw_base' (2026-07-16, raw-vs-bc-vs-ML analysis): rebuilds the
-# ML-on-raw tree de_prof_reg_mix_raw with the healthy prof_reg_raw models
-# (target xco2_raw_anomaly, lndo01, global PCA — no foldpca retrain exists;
-# fold-PCA is a ≤0.01 ppm no-op on production) and --correction-base raw.
+# ML-on-raw tree de_prof_reg_mix_raw with the raw-anomaly DE models (target
+# xco2_raw_anomaly_r05 ocean / xco2_raw_anomaly_r15 land, lndo01) and
+# --correction-base raw.  2026-07-27: switched from the global-PCA checkpoints
+# (de_*_prof_reg_raw_r05/_r15, curc_shell_blanca_de_profile_r{05,15}.sh) to the
+# fold-PCA retrain (de_*_prof_reg_raw_foldpca_*, foldpca launchers) so ML(raw)
+# matches the production fold-safe PCA.  Before the first rebuild with the new
+# checkpoints, archive the old tree:
+#   mv results/model_comparison/deep_ensemble/de_prof_reg_mix_raw \
+#      results/model_comparison/deep_ensemble/de_prof_reg_mix_raw_globalpca
 #
 # Usage:  bash workspace/build_ablation_variant_trees.sh no_spec
 
@@ -42,8 +48,8 @@ export OCO2_DATAROOT="$DATA_ROOT"
 
 EXTRA_BUILD_ARGS=()
 if [[ "$VARIANT" == raw_base ]]; then
-    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_raw_r05_f*)
-    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_raw_r15_f*)
+    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_raw_foldpca_r05_f*)
+    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_raw_foldpca_r15_f*)
     EXTRA_BUILD_ARGS=(--correction-base raw)
     OUT_BASE_NAME=de_prof_reg_mix_raw
 else

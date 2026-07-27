@@ -361,6 +361,21 @@ the ablation changes (drop 7→12 ocean, 12→17 land). §2-8 is the rerun; the
   the increment there (r=−0.34) — the two layers are complementary, ML partly
   reverses the near-cloud over-application. Supersedes the four-series part
   of `reg_mix_bc_vs_raw/BC_VS_RAW_COMPARISON.md` (2026-07-04).
+  **REOPENED IN PART 2026-07-27 — ML(raw) fold-PCA retrain PREPARED (one CURC
+  cycle):** provenance check confirmed the ML(raw) checkpoints
+  (`de_*_prof_reg_raw_r05/_r15`) DO use the surface-specific raw targets
+  `xco2_raw_anomaly_r05`/`_r15` (commit 95ddd59; the "trained on
+  `xco2_raw_anomaly`" wording in the generator/tree-builder comments was
+  imprecise — fixed), but they were trained in the NON-foldpca launchers
+  (global ProfilePCA), unlike production. Retrain arms added to
+  `curc_shell_blanca_de_profile_foldpca_r{05,15}.sh` (contam arms commented
+  out as DONE; new suffixes `de_*_beta_nll_prof_reg_raw_foldpca_r{05,15}_f*`,
+  identical config to production except `--target xco2_raw_anomaly_r{05,15}`);
+  `build_ablation_variant_trees.sh raw_base` re-pointed at the new dirs.
+  After download: archive `de_prof_reg_mix_raw` → `_globalpca`, rebuild
+  raw_base, rerun its r100 + `_cldo5/_cldl15` report editions, regenerate
+  `make_raw_bc_ml_report.py` (header text pre-updated), figC7, and
+  `make_manuscript_tables.py` (tabC8).
 - [ ] **MODIS cloud-product dependence (2026-07-08 decision: literature-first).**
   The Discussion paragraph is carried by (a) the Cluster 9 citations
   (TCCON_PAPERS doc: Ackerman 1998/2008, Frey 2008, Holz 2008, Stubenrauch

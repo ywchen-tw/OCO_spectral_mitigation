@@ -232,12 +232,19 @@ def main():
     md = [
         f"# Raw vs BC vs ML-corrected against TCCON — {today}",
         "",
+        # NOTE (2026-07-27): text below assumes the fold-PCA raw retrain
+        # (de_*_prof_reg_raw_foldpca_*) — rebuild the de_prof_reg_mix_raw tree
+        # with `build_ablation_variant_trees.sh raw_base` before regenerating.
+        # (The 2026-07-16 edition on disk was the global-PCA checkpoints, which
+        # also used the r05/r15 raw targets despite its header saying
+        # `xco2_raw_anomaly`.)
         "Four series vs TCCON (100 km / ±60 min): **raw** = pre-bias-correction "
         "`xco2_raw`; **bc** = operational bias-corrected `xco2_bc`; **ML-on-bc** = "
         f"production fold-PCA DE (`{TAG}`, corrected = xco2_bc − μ); **ML-on-raw** = "
-        "`de_*_beta_nll_prof_reg_raw` DE trained on `xco2_raw_anomaly` (corrected = "
-        "xco2_raw − μ; lndo01 reg, global PCA — fold-PCA is a ≤0.01 ppm no-op on "
-        "production, so the arms are comparable). Both trees share the exact same "
+        "`de_*_beta_nll_prof_reg_raw_foldpca_*` DE trained on the surface-specific "
+        "raw targets `xco2_raw_anomaly_r05` (ocean) / `xco2_raw_anomaly_r15` (land) "
+        "(corrected = xco2_raw − μ; lndo01 reg, fold-PCA — identical config to "
+        "production except the regression target). Both trees share the exact same "
         "footprints and raw/bc columns (asserted). Supersedes the four-series part "
         "of `reg_mix_bc_vs_raw/BC_VS_RAW_COMPARISON.md` (2026-07-04, 70 cases, "
         "pre-fold-PCA production).",
@@ -285,7 +292,7 @@ def main():
         "End-to-end, correcting raw directly gets within ~0.1 ppm of the "
         "production chain pooled (AK 1.18 vs 1.22; direct 1.19 vs 1.09) — vs "
         "the 2026-07-04 edition the gap has effectively closed. Trained on "
-        "`xco2_raw_anomaly`, the DE rediscovers the operational increment with "
+        "the raw anomaly target, the DE rediscovers the operational increment with "
         "r(Δmu, inc) = +0.79 pooled / +0.86 on near-cloud land, at ~53–66 % of "
         "its amplitude (slope), explaining 60 % / 73 % of var(inc). The answer "
         "to \"can the ML correction explain part of the operational bias "

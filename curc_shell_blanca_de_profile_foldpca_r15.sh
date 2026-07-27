@@ -128,20 +128,39 @@ echo "fold=${F}/${NFOLDS}  profile_pca=${PROFILE_PKL}"
 #       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 # done
 
-# ── ACTIVE: contamination arms only (regrouped CONTAM_FEATURES, 2026-07-25) ────
-# Suffixes are UNCHANGED, so these overwrite the 07-17 no_contam checkpoints.
-# Archive them first (once, from the repo root, NOT per array task):
-#   for d in results/model_deep_ensemble/de_*_no_contam*_prof_foldpca_r*_f*; do
-#       mv "$d" "${d}_oldcontam"; done
-# NOTE: this also supersedes the §2-7 "land f4 kept the old unreg checkpoint"
-# leftover — f4 is retrained here with lndo01 like every other fold.
-for FS in no_contam no_contam_and_xco2; do
-  python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_foldpca_r15_f${F} \
-      --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 15km \
-      --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-      --norm layer --dropout 0.1 \
-      --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-      --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-done
+# ── Contamination arms (regrouped CONTAM_FEATURES) — DONE 2026-07-25 ───────────
+# Ran to completion (all folds healthy; quotable edition
+# FEATURESET_ABLATION_QF_2026-07-25.md; also superseded the §2-7 "land f4 kept
+# the old unreg checkpoint" leftover — f4 was retrained with lndo01).  Do NOT
+# resubmit: suffixes are unchanged, so a re-run would overwrite the 07-25
+# checkpoints with reshuffled seeds.  Old-group checkpoints archived as
+# *_oldcontam.
+# for FS in no_contam no_contam_and_xco2; do
+#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_foldpca_r15_f${F} \
+#       --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 15km \
+#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+#       --norm layer --dropout 0.1 \
+#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# done
+
+# ── ACTIVE: ML-on-raw arm under fold-PCA (prepared 2026-07-27) ─────────────────
+# The tabC8 / RAW_BC_ML ML(raw) models (de_land_beta_nll_prof_reg_raw_r15_f*)
+# were trained in curc_shell_blanca_de_profile_r15.sh with the GLOBAL ProfilePCA.
+# This retrains the raw-anomaly arm under the production fold-safe PCA so that
+# ML(raw) differs from production ML(bc) ONLY in the regression target
+# (xco2_raw_anomaly_r15 instead of xco2_bc_anomaly_r15).  New _raw_foldpca_
+# suffix — nothing overwrites the old global-PCA raw checkpoints.
+# After download: archive the old tree
+#   mv results/model_comparison/deep_ensemble/de_prof_reg_mix_raw \
+#      results/model_comparison/deep_ensemble/de_prof_reg_mix_raw_globalpca
+# then rebuild with  bash workspace/build_ablation_variant_trees.sh raw_base
+# (raw_base now points at these _raw_foldpca_ dirs).
+python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_foldpca_r15_f${F} \
+    --profile-pca "${PROFILE_PKL}" --feature_set full --target xco2_raw_anomaly_r15 \
+    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+    --norm layer --dropout 0.1 \
+    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 
 kill $GPU_MONITOR_PID 2>/dev/null || true
