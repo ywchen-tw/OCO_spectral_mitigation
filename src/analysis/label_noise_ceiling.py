@@ -20,8 +20,8 @@ posterior σ misses → R²_max,emp = 1 − Var(y|far)/Var(y).  The three bracke
 the ceiling; quote the headline with the empirical one as robustness.
 
 Population matches training: per surface, filter_target_outliers (|y| ≤ 100),
-NaN targets dropped; near-cloud (< near_km) subset also reported since the
-correction is decided there.
+NaN targets dropped; the near-cloud subset uses the production target radius
+for each surface (ocean <= 5 km; land <= 15 km).
 
 Run (per-surface targets, as in production: ocean r05 / land r15):
   PYTHONPATH=src python -m analysis.label_noise_ceiling \
@@ -31,15 +31,12 @@ Run (per-surface targets, as in production: ocean r05 / land r15):
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from spectral.anomaly import compute_xco2_anomaly           # noqa: E402
-from constants import anomaly_args                          # noqa: E402
+from constants import anomaly_args
 
 # (target column, min_cld_dist km) — production per-surface targets + default.
 TARGETS = {
@@ -50,6 +47,59 @@ TARGETS = {
 LOAD_COLS = ['date', 'orbit_id', 'lat', 'cld_dist_km', 'sfc_type', 'snow_flag',
              'xco2_bc', 'xco2_uncertainty'] + [c for c, _ in TARGETS.values()]
 MAX_ABS_PPM = 100.0            # models.pipeline.MAX_ABS_ANOMALY_PPM
+
+
+def reference_stats_sorted(lat, cld, xco2, *, lat_thres, std_thres,
+                           min_cld_dist):
+    """Exact latitude-window reference statistics in O(N log N).
+
+    This is the diagnostic equivalent of ``compute_xco2_anomaly`` for the
+    XCO2-only case. Sorting the eligible reference soundings and using prefix
+    sums avoids materializing the production routine's chunk-by-N matrices.
+    """
+    lat = np.asarray(lat, dtype=float)
+    cld = np.asarray(cld, dtype=float)
+    xco2 = np.asarray(xco2, dtype=float)
+    valid_lat = np.isfinite(lat)
+    clear = valid_lat & (cld > min_cld_dist) & np.isfinite(xco2)
+
+    ref_lat = lat[clear]
+    ref_xco2 = xco2[clear]
+    order = np.argsort(ref_lat, kind='stable')
+    ref_lat = ref_lat[order]
+    ref_xco2 = ref_xco2[order]
+
+    # Center before squaring to retain precision for ~400 ppm values whose
+    # within-window standard deviation is O(1 ppm).
+    center = float(np.mean(ref_xco2)) if len(ref_xco2) else 0.0
+    z = ref_xco2 - center
+    sum_z = np.concatenate(([0.0], np.cumsum(z, dtype=float)))
+    sum_z2 = np.concatenate(([0.0], np.cumsum(z * z, dtype=float)))
+
+    lo = np.searchsorted(ref_lat, lat - lat_thres, side='left')
+    hi = np.searchsorted(ref_lat, lat + lat_thres, side='right')
+    nref = hi - lo
+    total_z = sum_z[hi] - sum_z[lo]
+    total_z2 = sum_z2[hi] - sum_z2[lo]
+
+    ref_mean = np.full(len(lat), np.nan)
+    ref_std = np.full(len(lat), np.nan)
+    enough = valid_lat & (nref >= 5)
+    mean_z = np.zeros(len(lat))
+    mean_z[enough] = total_z[enough] / nref[enough]
+    var = np.zeros(len(lat))
+    var[enough] = (total_z2[enough] / nref[enough]
+                   - mean_z[enough] ** 2)
+    ref_mean[enough] = center + mean_z[enough]
+    ref_std[enough] = np.sqrt(np.maximum(var[enough], 0.0))
+
+    stable = enough & (ref_std <= std_thres)
+    ref_mean[~stable] = np.nan
+    ref_std[~stable] = np.nan
+    nref = np.where(stable, nref, 0)
+    anomaly = np.full(len(lat), np.nan)
+    anomaly[stable] = xco2[stable] - ref_mean[stable]
+    return anomaly, ref_mean, ref_std, nref
 
 
 def per_file_rows(path: Path, targets) -> list[pd.DataFrame]:
@@ -63,9 +113,8 @@ def per_file_rows(path: Path, targets) -> list[pd.DataFrame]:
                  'xco2_uncertainty']].copy()
         for tkey in targets:
             tcol, min_cld = TARGETS[tkey]
-            anom, _rm, rstd, nref = compute_xco2_anomaly(
-                lat, cld, x, return_ref_stats=True,
-                **anomaly_args(min_cld_dist=min_cld))
+            anom, _rm, rstd, nref = reference_stats_sorted(
+                lat, cld, x, **anomaly_args(min_cld_dist=min_cld))
             out[f'y_{tkey}'] = g[tcol].to_numpy(float)
             out[f'yrc_{tkey}'] = anom              # recomputed (cross-check)
             with np.errstate(invalid='ignore', divide='ignore'):
@@ -102,7 +151,9 @@ def summarize(rows: pd.DataFrame, tkey: str, near_km: float, far_km: float):
             r2max_emp=(1 - var_far / var_y) if np.isfinite(var_far) else np.nan)
 
     out = []
-    for lab, m in (('all', np.ones(len(y), bool)), (f'near<{near_km:g}km', cld < near_km)):
+    for lab, m in (
+            ('all', np.ones(len(y), bool)),
+            (f'near<={near_km:g}km', cld <= near_km)):
         b = block(m, lab)
         if b:
             out.append(b)
@@ -119,7 +170,11 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--data', nargs='+', required=True)
     ap.add_argument('--targets', default='r10,r05,r15')
-    ap.add_argument('--near-km', type=float, default=10.0)
+    ap.add_argument(
+        '--near-km', type=float,
+        help='override both production surface thresholds (diagnostics only)')
+    ap.add_argument('--near-ocean-km', type=float, default=5.0)
+    ap.add_argument('--near-land-km', type=float, default=15.0)
     ap.add_argument('--far-km', type=float, default=20.0)
     ap.add_argument('--out', default='results/label_noise_ceiling.csv')
     args = ap.parse_args()
@@ -135,8 +190,13 @@ def main():
     recs = []
     for sfc, sname in ((0, 'ocean'), (1, 'land')):
         sub = rows[rows['sfc_type'] == sfc]
+        production_near_km = {
+            'ocean': args.near_ocean_km,
+            'land': args.near_land_km,
+        }[sname]
+        near_km = args.near_km if args.near_km is not None else production_near_km
         for tkey in targets:
-            blocks, dmax, frac = summarize(sub, tkey, args.near_km, args.far_km)
+            blocks, dmax, frac = summarize(sub, tkey, near_km, args.far_km)
             print(f"\n== {sname} × {tkey}  (recomputed-vs-stored max|Δ| "
                   f"{dmax:.2e} ppm on {frac:.1%} of rows)")
             for b in blocks:

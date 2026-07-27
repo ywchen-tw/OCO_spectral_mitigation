@@ -1,534 +1,42 @@
 # Manuscript Flow Plan — AMT
 
 **Created:** 2026-07-19  
-**Updated:** 2026-07-21 — cross-validated correction performance moved from the
-main Results (former §4.3) into Appendix D; Results renumbered 4.3–4.8. The
-main text now carries only a two-sentence date-blocked headline inside the
-model-comparison section, so the reader reaches the TCCON payoff without a
-detour through split-design diagnostics.  
-**Updated:** 2026-07-21b — AK-harmonized TCCON is the sole reported
-reference; all direct-comparison tables/columns dropped (generator
-`manuscript/scripts/make_manuscript_tables.py` regenerated AK-only). Direct
-survives only as a one-sentence anchoring-chain note (§4.4, Appendix E).
-Planned figures and tables now listed under each Results/Discussion section
-(**Display items** blocks) with their generator scripts where they exist.  
-**Updated:** 2026-07-21c — former composite Fig. 1 split: collocation
-schematic → Methods 3.1 (Fig. 1), anomaly–distance decay curves → Results
-4.2 (Fig. 2); all main figures renumbered (budget now nine + optional
-tenth). Results 4.1 becomes prose-led and carries the near-cloud coverage
-statistics as a single sentence (computed 2026-07-21, §7 item 8).  
-**Updated:** 2026-07-21d — deep-ensemble architecture schematic (no-cloud
-variant) promoted from Appendix B (former Fig. B1) to Methods 3.3 as
-main-text Fig. 2 (`manuscript/figures/fig02_deep_ensemble_architecture`);
-downstream figures renumbered again (decay curves now Fig. 3; budget ten +
-optional eleventh).  
-**Updated:** 2026-07-21e — every planned main-text figure now has an
-artifact in `manuscript/figures/` (Figs. 4, 5a copied from pre-restyle
-sources and flagged for regeneration; the rest current); draft captions for
-Figs. 1–11 added to §4.  
-**Updated:** 2026-07-21f — draft captions moved from the central §4 list to
-sit under each section's Display items block; LaTeX panel-assembly drafts
-added for the multi-file figures (5, 7, 9, 10).  
-**Updated:** 2026-07-21g — Fig. 3 moved from Results 4.2 to Results 4.1 and
-rebuilt as a two-panel figure: (a) common r10 target at 1-km bins motivates
-the surface-specific radii; (b) adopted r05/r15 production targets.  
-**Updated:** 2026-07-21h — two candidate renderings of Fig. 3 generated for
-a pending choice: compact curves (`fig03_anomaly_decay`) and per-bin box
-plot (`fig03alt_anomaly_decay_boxplot`).  
-**Updated:** 2026-07-21i — curve rendering upgraded from mean ± 2 SE to IQR
-shading + dashed median + solid mean, so both renderings expose the
-tail-driven land bias (mean ≫ median) vs the coherent ocean shift; caption
-updated with the interpretation sentence.  
-**Updated:** 2026-07-22 — Fig. 4 regenerated in the locked style by a new
-local generator (`make_landclass_heatmap_figure.py`) with an ocean column
-added (dark endpoint of the contrast axis; WCO2 Δ⟨l′⟩ +0.20σ, sign-rule
-consistent); land columns reproduce the scored run exactly under the QF0 +
-snow-free filter (load-bearing). Pre-restyle-copy flag on Fig. 4 cleared.  
-**Updated:** 2026-07-22b — path-length symbol reverted L′ → l′, rendered as
-UPRIGHT serif (the $\mathrm{l}'$ look; plot_style cal slot → upright Times,
-labels unchanged in code). fig04 + fig10b regenerated; fig05a/fig05b already
-carried lowercase l′. Tex sources use \ell — unify at writing time.  
-**Updated:** 2026-07-22c — Tasman case study moved from main-text Fig. 5b to
-Appendix G (Fig. G1; atlas pages shift to G2–G8, Nassar items to G9–G10);
-Fig. 5 is single-panel (`fig05_shadow_brightening_land`). Effect-size
-equation for Fig. 4 drafted in LaTeX under the Fig. 4 caption.  
-**Updated:** 2026-07-22d — r05/r15 spectral reference sets found in the
-parquet (r05_*/r15_* columns); per-surface Fig. 4 variant computed
-(`--reference per-surface`). Sign rule strengthens (barren −1.29σ), urban
-cell dissolves; reference-variant choice recorded as an OPEN DECISION under
-the Fig. 4 display item.  
-**Updated:** 2026-07-22e — per-surface reference (ocean r05 / land r15)
-ADOPTED as the Fig. 4 primary; files swapped (`fig04_*` = per-surface,
-`fig04_*_r10` = robustness variant), generator default flipped, caption and
-evidence-chain numbers updated (savanna +0.48σ, barren −1.29σ, ocean
-+0.09σ; urban not interpreted).  
-**Updated:** 2026-07-22f — l′ rendering finalized as lowercase Times ITALIC
-(reversing the brief upright-\mathrm trial; plot_style cal slot → Times
-italic). fig04 (both variants) + fig10b regenerated; the 2026-07-11
-Times-italic figures (Tasman case, atlases) are consistent again. Paper
-LaTeX: plain math-italic $l'$.  
-**Updated:** 2026-07-22g — Fig. 4 QF-sensitivity variants generated
-(`--qf {0,1,all}` → `_qf1`/`_allqf` files): every land-class sign is stable
-across QF populations EXCEPT barren (−1.29σ QF0 / +0.47σ QF1 / −0.23σ
-all-QF; 67 % of barren soundings are QF1) — flagged desert scenes carry the
-cloud-signature-positive perturbation of in-FOV contamination/aerosol, which
-is exactly why the QF0 filter is load-bearing and the primary population.  
-**Updated:** 2026-07-22h — caption slim-down pass: interpretation/results
-sentences moved out of the Figs. 3, 4, 5, 6, 7, 8, 9, 10 captions into
-"Draft results text" blocks under each section's narrative (captions now
-describe only what is shown and how it was computed). The user-approved QF
-paragraph inserted as §4.2 draft prose ("consistent with" phrasing), the
-Fig. 4 caption carries only a one-line Appendix B pointer, and Appendix B
-item B4 extended to cover the QF-variant robustness alongside the
-reference variant.  
-**Updated:** 2026-07-22i — common-10-km-reference variant removed from ALL
-main-text discussion (user: distracting): the §4.2 sign-rule prose keeps
-only "urban is thin and not interpreted (Appendix B)", and the effect-size
-LaTeX block ends with a one-line Appendix B pointer instead of the r10
-attenuation explanation. The r10 material lives ONLY in Appendix B item B4
-(which retains the 10–15 km contamination explanation) and the one-line
-Fig. 4 caption pointer.  
-**Updated:** 2026-07-22j — common-r10 reference variant dropped from the
-APPENDIX as well (user: QF0/QF1 sensitivity is enough): B4 is now
-QF-robustness only, the Fig. 4 caption pointer reads "Quality-flag
-sensitivity: Appendix B", the effect-size LaTeX block attaches its
-Appendix B pointer to the QF filter sentence, and the urban prose drops
-its appendix pointer. The `_r10` files stay in the repo as an internal
-check; author-side caveats preserved in the 2026-07-22e decision block.  
-**Updated:** 2026-07-22k — standing CAPTION RULE added under §4 "Figure
-captions": all figure/table captions descriptive only, result numbers and
-interpretation live in main/appendix discussion prose.  
-**Updated:** 2026-07-22l — Appendix K (TEMPO) KEPT by user decision against
-the length-trim recommendation: it is the bridge to other
-high-spectral-resolution missions; scope stays existence-proof (one
-granule, one figure, one table) and Discussion 5.3 should cite it as the
-feasibility anchor. Other trim suggestions (drop Fig. 11; Tables 4–5 to
-appendices; galleries to Supplement; trim App. I; merge H into E) remain
-OPEN pending user decisions.  
-**Updated:** 2026-07-22m — appendix/Supplement restructure ADOPTED
-(user-approved): main text fixed at ten figures + THREE tables (Fig. 11
-dropped; Table 4 → Appendix G merging with G3; Table 5 → Appendix D as
-D4); typeset appendices = A–H + K with galleries removed (E4 station-day
-panels → S1, H per-date pages → S2, G2–G8 atlases → S3, A extended fit
-material → S5); former Appendix I moved WHOLLY to Supplement S4
-(Discussion 5.3 cites it in bulk); J conditional (typeset if finished,
-else S6); new "Supplement plan (S1–S6)" section added at the end of §5
-with the bulk-citation-only rule; §4 Supplement list replaced by a pointer
-resolving its four conflicts (C tables stay, J conditional, K stays,
-compact coincidence matrix stays in E). H stays a slim appendix (NOT
-merged into E): §4.6's quoted numbers lean on its protocol + inventory
-tables.  
-**Updated:** 2026-07-22n — appendices CONSOLIDATED to eight letters
-(user-approved merge): C = former C+D (model + CV evaluation), D =
-former E+H (TCCON + ocean validation), E←F, F←G, G←J (conditional),
-H←K (TEMPO). Former I is unlettered (Supplement S4). All §5 items
-renumbered to the new letters, all body cross-references updated, and a
-mapping table added at the top of §5; changelog entries BEFORE this one
-keep the former letters. This supersedes the 2026-07-22m statement that
-H would not merge into E — the merge keeps the ocean material as a
-separate closing subsection with the do-not-pool rule inside.  
-**Updated:** 2026-07-22o — figure files re-synced to final letters
-(figC3b_cv_design, figF1_case_tasman, internal_qf1_recovery_candidate;
-cv_design generator basename updated) and available appendix figures
-STAGED into manuscript/figures from the production tree: figD2a/b (QF0/
-QF1 TCCON), figD3 (r50), figD4 (station summary, optional), figE2a/b
-(far-cloud ATom + clear-day ship controls), figE3 (failure modes).
-Still to produce: C1/C2 (diagrams), C3a+C4–C7 (need frozen fold
-metrics), D1 (3×3 coincidence composite), D5 (forest plot), D6
-(only if beyond Fig. 9a), E4 (high-lat/post-2022 composite), F2
-(transect sheet), B2 (likely redundant with Fig. 3), G1 (MC sim), H1
-(TEMPO).  
-**Updated:** 2026-07-22p — Appendix B display items filled: figB2
-GENERATED (target-radius sensitivity, ocean invariant / land truncated
-at the reference radius) and the QF heatmaps renamed to their B4 slots
-(figB4a_landclass_qf1 / figB4b_landclass_allqf; r10 files →
-internal_landclass_r10*, duplicate r10 CSV deleted; generator writes
-the final names directly). Supplement staging added:
-stage_supplement_figures.py fills manuscript/supplement/ (S1 75
-station-day panels, S2 12 ocean case pages, S4 spectrum-internal set;
-git-ignored, manifest tracked); S3/S5 sources still on CURC.  
-**Updated:** 2026-07-22q — Appendix C figures: figC1_dataflow,
-figC2_fold_timeline (REAL fold manifests), figC3a_random_split_inflation,
-figC5_cv_model_comparison GENERATED (`make_appendix_c_figures.py`); C4
-PENDING on ceiling-column semantics (achieved ocean R² exceeds
-r2max_ref_ret — resolve with the original ceiling analysis before
-plotting), C6 covered by Fig. 6b + Table C7, C7 pending ML-on-raw
-artifacts.  
-**Updated:** 2026-07-22r — Fig. 5 regenerated in the locked style from
-`shadow_brightening_stats.csv` (new `make_shadow_brightening_figure.py`;
-legend moved below the panels — it covered the O2A curves — and the
-pre-restyle/full-parquet caveat is cleared); ocean companion written to
-`internal_shadow_brightening_ocean`. Panel (d) label uses
-$\Delta X_{\mathrm{CO2}}^{\mathrm{B11}}$ (user request — matches the
-supplement.tex \xcobc macro family).  
-**Updated:** 2026-07-22s — product-resolved XCO2 notation adopted
-paper-wide (B11/raw/ATom/ship superscripts + ΔX for the anomaly; §6
-table, plot_style constants XCO2_BC/RAW/ATOM/SHIP_LABEL +
-DXCO2_BC_LABEL); fig03, fig03alt, figB2, fig05(+ocean) regenerated with
-ΔX_CO2^B11 axes; copied report figures adopt it at their next
-re-render.  
-**Updated:** 2026-07-22t — TabM and Structured DCN removed from §4.3 /
-Fig. 6 (main-text baselines = DE/XGBoost/Ridge, matching Table 1; the
-5-model set stays in Appendix C); fig06 regenerated, uncorrected row
-relabeled X_CO2^B11.  
-**Updated:** 2026-07-22u — Figs. 7a/7b SPLIT into separate floats (user
-decision): Fig. 7 = TCCON dumbbell, Fig. 8 = significance/robustness;
-downstream renumber 8→9 (smoother), 9→10 (ATom+ship), 10→11 (plume);
-main text now ELEVEN figures. Files and generator stems renamed;
-captions split; Fig. 7 panel assembly removed. Changelog entries before
-this one use the OLD numbers.  
-**Updated:** 2026-07-22v — §4.3 gains the spec-emphasis synthesis
-draft paragraph (skill-versus-trust: xco2 channel operationally
-load-bearing, cumulants carry mechanism/safety/imager-independence;
-sourced from SPEC_EMPHASIS_STATUS_2026-07-08.md with the 2026-07-17
-fold-PCA numbers).  
-**Updated:** 2026-07-22w — Fig. 8a metric-definition LaTeX block added
-under the Fig. 8 caption (b_s / R_s, three aggregates, site-clustered
-bootstrap, Wilcoxon cross-check). Verified against
-tccon_comparison_report._significance: "RMS bias" is the quadratic
-aggregate of station-day mean biases — NOT a footprint RMSE — so the
-row label stays "Δ RMS bias".  
-**Updated:** 2026-07-22x — §4.3 headline extended to THREE sentences:
-withheld-fold model ordering (DE ≥ XGB ≫ ridge) agrees with the TCCON
-ordering, covering each view's weakness (target-construction vs
-validation-chain artifacts), with the tail-divergence clause (fold gap
-~0.02–0.04 ppm vs 0.30 ppm TCCON near-cloud land). Matching sentence in
-the §4.3 draft results text; Table C5 now GENERATED as
-`manuscript/tables/tabC5_cv_model_comparison.tex` by
-`make_appendix_c_figures.py` (same kfold_agg parse as Fig. C5).  
-**Updated:** 2026-07-22y — TCCON-protocol flow fix (user): the
-comparison protocol (sample/coincidence, AK-harmonised reference,
-station-day unit, metric + bootstrap definitions incl. the former
-Fig. 8a LaTeX block) consolidated into Methods §3.5; §4.3 opens its
-baseline table with a Sect. 3.5 pointer; §4.4 item 1 reduced to a
-one-sentence recap — no Results section now depends on a later one.  
-**Updated:** 2026-07-22z — Fig. 10 regenerated with continuous panel
-letters (ATom a/b, ship c/d; duplicate-letter clash resolved),
-suptitles removed (numbers moved to the §4.6 draft results text —
-including two honest wrinkles: ATom near-cloud signed mean bias
-unchanged +0.19→+0.20 ppm, the gain is scatter/|residual|; ship
-all-case mean offset +0.99→+1.18 ppm, reference-scale dominated), B11
-notation adopted. New `make_ocean_validation_figure.py` drives the
-patched producers (panel_offset/suptitle/out_pdf kwargs) on the
-production CSVs.  
-**Updated:** 2026-07-22aa — Fig. 10 polish: panel titles padded off the
-axes box (pad=10 in both producers); "corrected" replaced by the new
-X_CO2^DE product label (XCO2_DE_LABEL; chosen over the too-long
-DE-corrected superscript), added to the §6 notation table.  
-**Updated:** 2026-07-22ab — model name decision: "deep ensemble (DE)",
-NOT "DE-MLP" (§6 prefer/avoid row; tex sources to update). All
-ATom/ship producers now default their cosmetic label to XCO2_DE_LABEL
-(atom_pseudo_column, plot_ship_summary, plot_atom_comparison,
-atom_modis_overlay, plot_ship_comparison — suptitles, map titles,
-legends, colorbars), so the per-case figures adopt X_CO2^DE at their
-next batch re-render; fig10a/b already carry it.  
-**Updated:** 2026-07-22ac — Fig. 11 duplicate-letter fix (same problem
-as Fig. 10): fingerprint panel retagged (b)→(d) so the composite runs
-(a–c) transect + (d) fingerprint; k1 → ⟨l′⟩ in the fingerprint title
-and expected-signature legend (MEAN_L_LABEL); Westar transect
-regenerated with X_CO2^B11 / X_CO2^DE legend labels
-(nassar_plume_transects.py adopts the plot_style constants).  
-**Updated:** 2026-07-22ad — Fig. 11 caption: "±1 SE" spelled out
-(standard error of the window-mean difference; plume + background
-SEMs in quadrature — verified against nassar_k1_contrast.py).  
-**Updated:** 2026-07-23 — Appendix C display items COMPLETED
-(`make_appendix_c_figures.py`, one generator for all of them, `--only`
-selector added). NEW: figC4_skill_vs_ceiling (the 2026-07-22q ceiling
-blocker RESOLVED from `analysis/label_noise_ceiling.py` — only
-r2max_ref is a hard ceiling; achieved skill legitimately exceeds the
-posterior-σ and empirical lines, so the §4.3 "ocean ≈ noise-limited"
-reading is CORRECTED in place), figC7_increment_attribution (the
-"ML-on-raw artifacts not local" claim was wrong — `de_prof_reg_mix_raw`
-plot_data is local; same 5.9 M-footprint population as the RAW_BC_ML
-report §4, verified by count), tables tabC1_predictor_inventory
-(from `models.pipeline`, cannot drift; description strings DRAFT —
-verify `s31`/`dpfrac`/`fs_rel_0` against the B11 DUG),
-tabC2_training_config (from the ten fold run_summary configs, asserted
-identical — this EXPOSED that production β-NLL uses **β = 1.0**, not
-the β = 0.5 in the Fig. 2 draft caption; caption fixed),
-tabC3_fold_sizes_metrics, tabC4_manifest_verification (zero overlap
-computed live: TCCON atrain 51 dates / drift 21 / ATom 8 / ship 4, all
-∩ 116 model dates = ∅), tabC6_fold_resolved_baselines,
-tabC7_cv_ablation; tab_raw_bc_ml renamed tabC8_raw_bc_ml (file +
-generator). figC2 REBUILT single-panel (user: ocean and land share the
-same date folds — verified identical fold-for-fold, and linreg == DE,
-now asserted in the generator). User decisions folded in: NO
-random-vs-date-split discussion in the manuscript (Fig. C3a/C3b retired
-to `internal_random_split_inflation`/`internal_cv_design`; §3.4, §4.3,
-and the Appendix C include-list updated; appendix figures now C1, C2,
-C4, C5, C7 — renumber at typesetting); figC4 given (a)/(b) panel
-letters with the legend outside the axes; Fig. C6 reconfirmed as
-deliberately file-less (covered by Fig. 6b + Table C7).  
-**Updated:** 2026-07-23b — Table C5 revisions (user request): model
-label → "DE", and the land-ridge out-of-domain artifact FIXED by
-applying the production output guard (|μ| > 25 ppm → correction
-withheld) to the ridge held-out predictions at CV evaluation — the
-same guard the deployed chain applies to every model, so the CV and
-TCCON protocols now agree. tabC5/tabC6/figC5 recomputed from per-fold
-artifacts (kfold_agg parse dropped; recompute verified to reproduce
-the stored fold R² exactly); no more median/dagger/hatch special
-cases. Guarded ridge: ocean fold RMSE 0.537 ± 0.023, land
-0.673 ± 0.021 (18 of ~11.6 M footprints guarded; land f2's raw
-extrapolation was ~10⁶ ppm on a −0.2 ppm target). §4.3 quoted ridge
-numbers updated 0.69→0.67 land / 0.56→0.54 ocean. Retrain rejected as
-the fix (deterministic model — seed no-op; test-time extrapolation
-can't be bounded by training-side guards; local retrain infeasible at
-26 GB). OPEN author decision: guard is asymmetric by design — uniform
-guarding would trip 93/94 mostly-correct DE/XGB land corrections and
-shift their frozen fold means +0.03 without changing the ordering.  
-**Updated:** 2026-07-23c — Fig. C6 briefly GENERATED
-(`figC6_cv_ablation`: paired per-fold ΔRMSE for the CV ablation
-variants) after the user twice looked for the file.  
-**Updated:** 2026-07-23d — Fig. C6 REMOVED again (user decision, now
-final): the ablation is discussed with main-text Fig. 6b, so the
-appendix carries Table C7 only; `figC6_cv_ablation` files deleted and
-the generator function dropped. Appendix C figure files: C1, C2, C4,
-C5, C7.  
-**Updated:** 2026-07-23e — TCCON slice symmetry + per-surface radii
-(user request): Tables 1, 2, C8 and Fig. 6 now carry OCEAN near-cloud
-rows mirroring the land rows, and the near/far split uses each
-surface's production target radius (ocean 5 km / land 15 km) instead
-of the common 10 km. Implemented by rerunning
-`tccon_comparison_report.py` on all 9 model trees (DE, XGB, Ridge, 5
-ablation variants, ML-on-raw) with `--cld-edges 0,5,inf` and
-`0,15,inf` under new suffixes (`_cldo5_r100km`/`_cldl15_r100km`;
-~40 s/run, production `_r100km` files untouched);
-`make_manuscript_tables.py` reads ocean slices from the o5 edition and
-land from l15 (13 slices total), and
-`make_baseline_ablation_figure.py` was rewritten to read the SAME CSVs
-(fixing a silent drift: its bars were hardcoded from the superseded
-2026-07-08 pre-foldpca docs). Headline consequences: near-cloud ocean
-is now a real slice (n = 2,645, before 1.54 → DE 1.12, DE best on
-every slice); the near-cloud land tail at ≤15 km reads DE 1.31 / XGB
-1.56 / Ridge 2.52 (§4.3 tail-divergence clause updated 1.61→1.56,
-0.30→0.25 ppm); spec-emphasis prose updated (no_xco2 up to +1.26 ppm
-at land ≤15 km QF1, range 0.8–1.2). Fig. 6 caption ns updated
-(2,645 / 81,347).  
-**Updated:** 2026-07-23f — Fig. 6b in-panel takeaway text removed
-(user request: the "spectral & contam.: free to drop / XCO2 group:
-load-bearing" annotation is interpretation, which lives in the §4.3
-prose per the caption rule); panel keeps only bars, value labels, and
-the full-feature-set reference annotation.  
-**Updated:** 2026-07-23g — draft captions added for every APPENDIX and
-SUPPLEMENT figure (user request), under each appendix's Display/Planned
-items: A1–A2, B2, B4, C1/C2/C4/C5/C7, D1–D6, E1–E4, F1–F3, G1, H1, and
-page-template captions for the S1–S5 galleries. Captions for staged
-artifacts (B2, B4, C-series, D2–D4, E2–E3, F1) were written against the
-actual figures; pending artifacts (A1–A2, D1, D5, D6, E1, E4, F2–F3,
-G1, H1) are marked PROVISIONAL — verify panel structure when produced.
-All follow the 2026-07-22k caption rule (descriptive only).  
-**Updated:** 2026-07-23h — Tables C1 and C2 converted to LONGTABLE
-(user: C2 too long in the PDF; C1 at 60+ rows has the same overflow,
-so both break across pages now, with repeated headers and wrapping
-p-column for the description/value text; `_tex_table` gained a
-`longtable` flag). Fig. 6b ablation rows RELABELED and REORDERED to
-match Table 2's heads — singles first (−spectral, −contamination,
-−X_CO2), then the double drops (−X_CO2−spectral, −X_CO2−contamination)
-— after the user briefly could not find the single −X_CO2 row: the old
-"−X_CO2 + spectral" phrasing read as add-spectral, and the old
-effect-size ordering placed a combo above the single drop.  
-**Updated:** 2026-07-23i — §4.3 draft results text gains the
-load-bearing-but-not-sufficient sentence: univariate R² of the
-xco2_raw − apriori departure against the production anomaly targets is
-0.21 (ocean r05) / 0.10 (land r15) versus 0.71 / 0.55 for the full
-ensemble — computed 2026-07-23 on the full combined parquet; the
-bc-based departure (not a model input) reads 0.32 / 0.19 and is kept
-as an author-side note only.  
-**Updated:** 2026-07-23j — per-feature permutation importance PROMOTED
-to main-text Fig. 7 in §4.3 (user request; previously unassigned — the
-manuscript had only group-level attribution). New generator
-`make_feature_importance_figure.py` (top-12 features per surface, DE
-permutation ΔRMSE from the existing feature_importance agg CSVs, bars
-by predictor group). Downstream figures RENUMBERED 7–11 → 8–12 (main
-text now TWELVE figures): files and generator stems renamed
-(fig08_tccon_dumbbell, fig09_significance_robustness,
-fig10_smoother_null, fig11a/b atom+ship, fig12a/b westar+k1-contrast;
-make_significance_panel / make_ocean_validation_figure /
-make_k1_contrast_figure updated), all live plan references and the §4
-figure map updated. §4.3 draft prose gains the feature-granularity
-sentence with the standing caveats (CV importance over-credits
-TCCON-neutral blocks; joint-group permutation is the honest number
-under collinearity — Fig. 6b/Table 2 remain primary). Changelog
-entries BEFORE this one use the old numbers.  
-**Updated:** 2026-07-23k — Fig. 8 caption + §4.4 prose DATE-RANGE FIX
-(user caught it): the 75 TCCON station-days span December 2014 –
-December 2021 (51 unique overpass dates, verified from the atrain case
-dirs when Table C4 was generated), NOT "2016–2020" — that span is the
-TRAINING set, and the evaluation dates are disjoint from it by the
-leakage guard, which the corrected sentences now state explicitly (a
-stronger claim: the validation includes eras the model never saw).  
-**Updated:** 2026-07-23l — Fig. 8 legend adopts the product-resolved
-notation (X_CO2^raw / X_CO2^B11 / X_CO2^DE via the plot_style
-constants; `tccon_comparison_report._bias_dumbbell`), and the user's
-where-is-the-evidence question exposed that the 1.26→0.81 mean-|bias|
-aggregate appeared nowhere in Fig. 8: the stat box now prints
-"mean |bias|" beside the signed bias and footprint RMSE, and the
-quoted 0.81/1.19 turned out to be the SUPERSEDED pre-foldpca tag's
-values — the fold-PCA production CSV gives mean |b_s| = 0.816 → 0.82
-and mean R_s = 1.196 → 1.20 (exactly the numbers the
-tccon-correction-config note says to quote); fixed in the §4.4 prose,
-§2.2 abstract values, and §4.5 smoother text. Production report rerun with the EXACT launcher flags
-(--exclude-sites ny --cld-edges 0,10,inf, seeded bootstrap) — all
-production CSVs verified byte-equal after the rerun; fig08 restaged.  
-**Updated:** 2026-07-23m — Fig. 8 annotation iteration (user feedback):
-the STAT BOX (not just the legend) now uses the product labels, adds
-the std of |bias| (raw 1.34 ± 1.07 / B11 1.26 ± 1.33 / DE 0.82 ± 0.60),
-and moved OUTSIDE the axes (above-left) so it cannot cover station-day
-markers; the series legend is a one-row band above-right. Both changes
-live in the shared report helpers, so the scatter-style D-series
-figures inherit them (scatter legend labels updated to the product
-notation too); figD2a/b + figD4 restaged from the rerun tree, figD3
-(r50 edition) unchanged. CSVs re-verified byte-equal after every
-rerun.  
-**Updated:** 2026-07-23n — Fig. 8 layout iteration (user feedback): the
-series legend moved back INSIDE the frame at bottom-right (framed,
-`framealpha=0.85`; the bottom rows are the most-negative biases whose
-markers sit left, so the corner is clear), the stat box moved back
-INSIDE at top-left (top rows' markers all sit right of the box — nothing
-covered), and the labeled-dumbbell canvas grew 6.2→7.8 in tall
-(`_one` gained a per-figure `figsize` override) so the ~75 six-pt
-'site date' y-tick labels no longer overlap. `_bias_stat_box` is now
-style-aware (`inside=` flag): dumbbell styles get the inside box,
-scatter_clddist (D-series) keeps the outside-above box unchanged —
-figD2a/b + figD4 verified byte-identical after the rerun, only fig08
-restaged. Production CSVs re-verified byte-equal.  
-**Updated:** 2026-07-23o — Fig. D2a/b (user feedback): the outside stat
-box moved from above-left to above-CENTER (`_bias_stat_box` outside
-branch, ha='center' at x=0.5), freeing the top-left corner for new
-panel labels — the qf0/qf1 single-panel bias views now carry (a)/(b)
-via `_emit_figures` (`_qp = {'qf0': '(a)', 'qf1': '(b)'}`; the pooled
-'all' view stays unlabeled). Report rerun with exact launcher flags;
-production CSVs byte-equal; figD2a/b restaged; fig08 + figD4 verified
-byte-identical (dumbbell inside-box path and by-site grid untouched).  
-**Updated:** 2026-07-23p — Appendix D/E/F display-item sweep (new
-generator `make_appendix_def_figures.py`, item statuses updated in
-place): figD1 (3×3 coincidence sweep RERUN on the fold-PCA tag — 9
-local report runs + `coincidence_sensitivity_table.py`; production
-r100 CSVs verified byte-equal after the sweep), figD5 (DL forest,
-pool cross-checked exactly), figE1 (±10/±100 s smoother windows),
-figE4 (drift-tree report rerun with current styling, staged), figF2
-(transects regenerated on fold-PCA tag then 3-col grid), figF3
-(6-window k1 contrast). CONSISTENCY FIX discovered en route: fig09
-(significance panel) and fig12b (k1 contrast) still read the
-SUPERSEDED pre-foldpca tag — both retargeted to the fold-PCA tag and
-regenerated; fig12b byte-identical (k1 columns are model-independent),
-fig09 panel-b matrix cells shift ≤0.02 ppm displayed (old-tag sweep vs
-fold-PCA sweep ≤0.024 ppm — the fold-PCA no-op bound). NOT produced
-(no local data / not yet run): figA1 + figA2 (need fitting_details h5
-— CURC), figG1 (3-D RT experiment not run), figH1 (TEMPO not run);
-figD6 SKIPPED per plan condition (would duplicate main-text Fig. 11a).  
-**Updated:** 2026-07-23q — Fig. 10 panel-a legend overlapped the scatter
-(user feedback): moved to the empty upper-left triangle above the 1:1
-line, below the mean annotation (`smoother_null_figure.py`; regenerated
-from the fold-PCA smoother_null CSVs, figure-only script). figE1
-panels a/c share the layout and got the same placement
-(`make_appendix_def_figures.py`); both restaged.  
-**Updated:** 2026-07-23r — Worsening-case investigation (§4.4/§Appendix
-E): (1) §4.4 headline sentence disambiguated — 71/75 is the fp-RMSE
-improvement count, station-day |bias| improves 46/75 (29 worsen, median
-+0.28 ppm, mostly near-zero starting biases); stale 0.81 → 0.82 and
-Wilcoxon p 0.0064 → 0.0063 fixed in the same sentence (sentence now
-refs `sec:result-worsening` — label must be added when the worsening
-subsection is pasted). (2) NEW stage 6 in `analyze_failure_modes.py`:
-held-out CV × albedo cross-check (5 land folds' held_out_predictions
-joined to the training parquet on exact lat/aod_total/fp, 100% match,
-3.84M footprints, TCCON-matched decile edges) — bright-surface TCCON
-failure signature does NOT reproduce against the anomaly label →
-verdict revised to UNDER-correction of a within-overpass common-mode
-bias (conclusions bullet 7); report regenerated as
-FAILURE_MODES_2026-07-23.md (supersedes 2026-07-16 edition), new CSV
-strat_cv_land_alb_o2a_r100km.csv; Appendix E gains Table E3 + caption.
-Supporting counts for the §4.4 discussion: 12,037 TCCON footprints
-(11.4%) have alb_o2a > 0.4, dominated by three Darwin station-days.  
-**Updated:** 2026-07-23s — Fig. E2 split + antimeridian RGB bug (user
-feedback): the old two-case E2 becomes Fig. E2 (ATom) + Fig. E3
-(ship); old E3/E4 renumbered E4 (failure modes) / E5 (drift), files
-renamed accordingly (figE2a deleted, figE2b→figE3, figE3→figE4,
-figE4→figE5). ROOT CAUSE of the "fully cloud-covered" E2a background:
-GIBS daily mosaics are keyed by the LOCAL day near the antimeridian —
-the 2017-10-09 case overpasses lon −175° at 01:32 UTC = local day
-2017-10-08 (the ATom flight date, as OCO_TO_FLIGHT already encodes),
-so the case-date tile showed the overcast scene 24 h later.
-`plot_atom_comparison.py` + `atom_modis_overlay.py` now fetch the
-local-solar date of the collocated footprints; the 2017-10-08 tile
-matches the cloud-distance field (clear band, broken cloud N+S,
-median 18 km). figE2 regenerated (numbers unchanged: n=313,
-+0.29→+0.28 ppm; also picks up product-label styling); any future
-regeneration of the other ATom case figures (Supplement S2) inherits
-the fix. E-caption block split/renumbered to match.  
-**Updated:** 2026-07-23t — Fig. E5 legend + stat box moved OUTSIDE the
-frame (user feedback; the drift dumbbell holds data in both inside
-corners, unlike Fig. 8): `tccon_comparison_report.py` gains
-`--dumbbell-annotations {inside,outside}` (default inside — Fig. 8's
-production layout unchanged, its tree not rerun); `_bias_stat_box`
-placement generalized to inside / above-left / above-center. Drift
-report rerun with `outside`, drift CSVs byte-equal, figE5 restaged —
-all 21 rows now unobstructed.  
-**Updated:** 2026-07-24a — ALL missing appendix tables GENERATED (user
-request) by the new `manuscript/scripts/make_appendix_tables.py`
-(`--only` per table; C-series \tophline style; longtable for the 75-row
-listings), 15 files into `manuscript/tables/`: A1 fitting config (from
-`constants.FIT_ORDER` + cumulant_fit source), B1 cohort attrition
-(116-date parquet counts: 17,769,270 rows, 17,745,005 valid cld-dist,
-ocean 10,546,333 / land 7,222,937; ocean r05 labeled 7,848,762 =
-fold-held-out sum EXACTLY, land r15 labeled 3,844,864; eval populations
-75/21 TCCON, 17 ATom legs, 4 ship), B2 target params + guards, B3
-label-noise ceilings (production r05/r15 rows of the 140-date CSV),
-D2 complete station-day metrics (75 r100 + 69 r50, longtable), D3
-Wilcoxon + bootstrap (r100+r50 × QF × excl-ny; plain 10^{-x} math, no
-siunitx), D4 per-case uncertainty budget (label `tab:unc_components`
-matching the Appendix D text; DL pool recomputed in-script: r100
-μ=−0.32±0.09 / τ=0.52 / I²=51%, r50 μ=−0.45±0.07 / τ=0.22 / I²=14% on
-68 of 69 evaluable cases — NaN-budget case dropped, matching the md),
-D5 ATom legs, D6 ship cases, E1 all 29 worsening cases with arithmetic
-categories (near-zero start / overshoot / amplified; fp-RMSE still
-improves in most), E2 driver-strata extremes (alb/snow/AOD/|lat|/σ ×
-low/high decile), E3 CV-albedo cross-check (Table E3 of 2026-07-23r),
-E4 smoother-null numerical table (|bias| 1.26→0.82 DE vs
-1.24/1.20/1.20; scatter 2.23→0.78 vs 0.66/0.51/0.35 — matches §4.5),
-F1 case inventory (19 screened cases, 3 RGB-vetted flagged), F2 plume
-bounds + control nulls (7 windows, 5 pass / 2 flagged-as-cloud).
-All 15 compile clean (scratch pdflatex: 0 errors, 0 overfull).
-Table D1 NOT generated — already covered by the hand-written
-`tab:tccon-stations-used` + dates tables in appendix_D.tex. Table A2
-(fit availability/failure accounting) BLOCKED locally: the combined
-parquet holds only successfully fitted soundings (trivially 100%), the
-real accounting needs a CURC sweep over per-date fitting_details.h5.
-G1/H1 remain artifact-pending with their conditional appendices.
-\input wiring into appendix_*.tex left to the author (no-unasked-tex-edit
-rule).  
-**Updated:** 2026-07-24b — **Appendix G COMPLETED and SELF-RUN; the
-conditional placement is RESOLVED → typeset appendix.** The cohort
-backward-MC figure (former A13) is replaced by our own er3t/MCARaTS
-v0.10.4 x–z slab simulation (`workspace/rt_slab_sim/`; production data =
-Blanca 1e9-photon sweep, 33 O2A wavelengths × {3-D, IPA} × {dark 0.03,
-bright 0.30}, Nrun 3). Scene: real OCO-2 sounding 2020010100281632
-(29252a, SZA 55°), column-conserving 21-layer grid, water cloud COD 10 at
-3–4 km in a 32-km Ny=1 periodic slab, sun along +x. The runs are refit
-with the PRODUCTION estimator (order 7, no-SG, exact lstsq/BVLS) and —
-beyond the original scope — MCARaTS' native path-length tally
-(Rad_mplen=3) records the per-column PPDF, giving a quantitative
-first-moment closure: r(fitted ⟨l′⟩, tallied mean path) = 0.999 (dark) /
-0.987 (bright) over clear columns; r(var(l′), tallied path variance) =
-0.989 on the bright surface; IPA-null residual ≤ 0.9 % of the 3-D range.
-Display items EXIST: `manuscript/figures/figG1_mc_3d_vs_ica.{png,pdf}`
-(AMT style, 4 rows × dark/bright: ⟨l′⟩, var(l′), effective reflectance,
-MC path-moment closure row) and `manuscript/tables/tabG1_slab_config.tex`
-(auto-generated from the simulation config — cannot drift). Generators:
-`workspace/rt_slab_sim/make_fig_g1.py` / `make_table_g1.py`; closure
-numbers in `results/rt_slab_sim/closure_stats.json`; supporting PPDF
-heat-map/cut figures (`slab_ppdf_{dark,bright}.png`) are S6 candidates.
-Appendix G section text + captions updated below (§5).  
-**Updated:** 2026-07-24c — **Table H1 DROPPED (user decision; paper
-length).** The instrument/geometry/sampling differences from OCO-2 fold
-into the Appendix H prose (they were already on its content list), and
-the Fig. H1 caption's closing Table-H1 sentence is deleted. The
-side-by-side comparison is retained AUTHOR-SIDE ONLY as
-`manuscript/tables/internal_tempo_fit_inputs.tex`
-(`make_appendix_tables.py --only internal_tempo_inputs`; TEMPO column
-from the verified numbers in the tempo TODO §5b, OCO-2 instrument-spec
-rows flagged for ATBD verification) — not \input anywhere, kept in case
-it proves useful later. Appendix H is now one granule + ONE figure.  
+**Last structural change:** 2026-07-26 (length trim + Discussion merge + Appendix B rewrite, 89 → 77 pages)
+**Change history:** `log/MANUSCRIPT_FLOW_PLAN_history.md` — 64 dated entries,
+2026-07-21 to 2026-07-26. Consult it for *why* a decision was made or whether
+an option was already rejected; this document states *what* the manuscript
+currently is.
+
+### State as compiled (2026-07-26, 77 pages)
+
+- **Results — 4 subsections.** 4.1 cloud-proximity phenomenology and its
+  spectral signature (former 4.1 + 4.2 merged) · 4.2 model comparison and
+  feature attribution · 4.3 independent validation (4.3.1 TCCON · 4.3.2
+  smoother null · 4.3.3 ocean references · 4.3.4 uncertainty and reliability)
+  · 4.4 plume preservation and safety.
+- **Main display items: 12 figures, 2 tables** (model comparison, feature-set
+  ablation). Figure/table RENUMBERING is deliberately deferred until the
+  manuscript is near-final (user decision 2026-07-26).
+- **Appendices A–H, all typeset.** A optical-depth/transmittance construction
+  (rescoped) · B analysis cohort and target construction (retitled and given
+  its prose 2026-07-26) · C model + CV evaluation (now also holds the
+  label-noise table beside Fig. C4) · D independent validation (TCCON + ocean
+  inventories) · E nulls, negative controls, failure cases · F case studies
+  and plume audit · G controlled 3-D RT demonstration · H TEMPO cross-sensor
+  feasibility (existence-proof scope).
+- **Discussion — 4 subsections** (merged from six on 2026-07-26). 5.1 physical
+  interpretation · 5.2 relationship to the operational correction and
+  observation recovery · 5.3 meaning and limits of imager independence ·
+  5.4 limitations and future work. 5.1 and 5.3 carry their opening paragraphs
+  (the skill-versus-trust synthesis, moved out of Results); the rest are
+  stubs. Target ≈ 2,000 words total.
+- **Journal: AMT.** Copernicus moved to a flat per-paper APC on 2025-01-01
+  (€1,800 net; EGU members €1,620; no per-page surcharge, supplements free),
+  so length carries no cost penalty — trimming is about reviewability only.
+- **Recovery.** `manuscript/` is gitignored. Pre-trim originals are in
+  `manuscript/backup/pre_trim_2026-07-26/`; material cut for the dissertation
+  is in `manuscript/backup/`.
+
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
 reviewer-readable manuscript flow. This document governs narrative order; the
@@ -756,15 +264,6 @@ contain real atmospheric gradients.
   (`manuscript/scripts/make_collocation_schematic.py`). The anomaly-distance
   decay curves are NOT part of this figure; they open Results 4.1 as Fig. 3.
 
-**Draft caption:**
-
-> **Figure 1.** Collocation geometry for one OCO-2 glint granule (orbit
-> 29265, 1 January 2020): Aqua-MODIS MYD35 cloud-mask pixels (Cloudy, blue;
-> Uncertain, grey; both classes retained; |Δt| ≤ 10 min) and OCO-2 soundings
-> coloured by nearest-cloud distance d (ECEF KD-tree search, capped at
-> 50 km). The arrow connects one sounding to its nearest cloudy pixel
-> (d = 13.9 km); inset: full granule track.
-
 #### 3.2 Photon path-length statistics
 
 Introduce the transform before empirical results:
@@ -825,18 +324,6 @@ information.
   --only no-cloud --out-dir manuscript/figures
   --basename fig02_deep_ensemble_architecture`; the generator stays in
   `src/models/` because `deep_ensemble_ARCHITECTURE.md` documents it).
-
-**Draft caption:**
-
-> **Figure 2.** Per-surface probabilistic correction model. (a) One
-> Gaussian-head MLP member (64→32 hidden units; layer normalization and
-> dropout 0.1; μ, log σ² heads; β-NLL loss, β = 1). (b) M = 5 members per
-> fold pooled as a Gaussian mixture, followed by split and Mondrian
-> conformal calibration of the 90 % intervals. All inputs are per-sounding
-> L2 Lite quantities: cloud distance enters only label construction and
-> evaluation — never the model input — so the correction runs
-> footprint-by-footprint with no imager and no along-track context at
-> inference.
 
 #### 3.4 Training, validation splits, and leakage control
 
@@ -933,7 +420,29 @@ Describe without reporting outcomes:
 
 ### 4 Results
 
-#### 4.1 Cloud-proximity phenomenology
+**Structure as compiled (2026-07-26 trim). The `#### 4.x` headings below keep
+their ORIGINAL numbers so the drafting notes stay traceable; the arrow gives
+the paper section each one became.** The `.tex` files were re-synced to the
+printed numbers on 2026-07-26, one file per section, labels unchanged:
+`4.1_phenomenology_spectra` · `4.2_model_comparison` · `4.3.1_tccon_val` ·
+`4.3.2_correction_vs_smoothing` · `4.3.3_ocean_far_cld` ·
+`4.3.4_uncertainty` · `4.4_plume`.
+
+| Plan heading | Paper section |
+|---|---|
+| 4.1 Cloud-proximity phenomenology | §4.1, first half |
+| 4.2 Spectral evidence for a common 3-D mechanism | §4.1, second half (merged) |
+| 4.3 Model comparison and feature attribution | §4.2 |
+| 4.4 Independent TCCON validation | §4.3.1 |
+| 4.5 Distinguishing correction from smoothing | §4.3.2 |
+| 4.6 Ocean validation and far-cloud controls | §4.3.3 |
+| 4.8 Uncertainty and failure modes | §4.3.4 |
+| 4.7 Plume preservation and correction safety | §4.4 — LAST in the paper |
+
+§4.3 opens with a short lead-in naming the three independent references; the
+four validation topics are `\subsubsection`s inside it.
+
+#### 4.1 Cloud-proximity phenomenology → paper §4.1 (first half)
 
 Lead with the observation:
 
@@ -994,21 +503,7 @@ show the common r10 target first, then the adopted r05/r15 targets.
   (Table B1), which should carry the same thresholds as a column so the
   coverage sentence is auditable.
 
-**Draft caption:**
-
-> **Figure 3.** Within-orbit clear-sky XCO2 anomaly versus nearest-cloud
-> distance for the 2016–2020 analysis set (116 dates; 1-km bins). (a) Both
-> surfaces under a common anomaly target whose clear-sky reference lies
-> beyond 10 km (ocean n = 5.0 M, land n = 4.2 M). (b) The adopted
-> production targets: ocean referenced beyond 5 km (r05, n = 7.8 M) and
-> land beyond 15 km (r15, n = 3.8 M). Solid lines show the bin mean,
-> dashed lines the median, and shading the interquartile range; dotted
-> verticals mark each reference threshold, beyond which the anomaly
-> returns to zero by construction. [If the box-plot rendering is chosen,
-> replace the rendering sentence with: box = interquartile range,
-> whiskers = 1.5×IQR, black line = bin mean.]
-
-#### 4.2 Spectral evidence for a common 3-D mechanism
+#### 4.2 Spectral evidence for a common 3-D mechanism → paper §4.1 (second half; MERGED with 4.1 on 2026-07-26)
 
 Build a three-part evidence chain:
 
@@ -1138,19 +633,6 @@ long); category atlases are in Supplement S3.
 - No main-text table; the Tasman case is Appendix F (Fig. F1); category
   atlases and inventories are Supplement S3.
 
-**Draft captions:**
-
-> **Figure 4.** Surface-stratified near-cloud spectral response: effect
-> size (Eq. \ref{eq:effect-size}; near-cloud 0–5 km minus far-cloud
-> 20–50 km, in far-field standard deviations) of the reference-corrected
-> path-length features for ocean and for each MCD12C1 land-cover class.
-> Quality-flag-0, snow-free soundings; per-sounding references use the
-> surface-specific clear-sky radii of the production targets (ocean beyond
-> 5 km, land beyond 15 km); asterisks mark effects exceeding their
-> analytic 95 % confidence interval. ⟨l′⟩ and var(l′) are the fitted mean
-> and variance of the relative photon path (the cumulants k1, k2 of
-> Sect. 3.2). Quality-flag sensitivity: Appendix B.
-
 **Effect-size definition for Fig. 4 (LaTeX draft, for Methods 3.2 or the
 caption's supporting text; matches `land_class.build_effect_sizes`):**
 
@@ -1193,14 +675,8 @@ production anomaly targets of Sect.~3.1.
 `src/constants.py` at writing time. Per-surface reference ADOPTED
 2026-07-22e; the common-r10 robustness variant lives in the `_r10` files.)
 
-> **Figure 5.** Shadowing versus brightening. Near-cloud land footprints
-> split by the sign of the O2A continuum-reflectance departure from the
-> clear-sky reference (exp-intercept low: cloud shadowing; high: side
-> illumination / brightening), with each branch's XCO2 anomaly and
-> band-resolved Δ⟨l′⟩ response. (A single-overpass illustration against
-> Aqua-MODIS true-colour imagery: Appendix F, Fig. F1.)
 
-#### 4.3 Model comparison and feature attribution
+#### 4.3 Model comparison and feature attribution → paper §4.2
 
 Open with a THREE-sentence date-blocked headline (extended from two,
 2026-07-23) so the model-selection result has a stated skill basis:
@@ -1357,28 +833,7 @@ variant as an author-side footnote if a reviewer asks.)**
   internal-only since 2026-07-23 (`internal_cv_design`,
   `manuscript/scripts/make_cv_design_figure.py`).
 
-**Draft caption:**
-
-> **Figure 6.** Model and feature-set comparison under one protocol
-> (identical features, date-blocked folds, and TCCON chain; AK-harmonised,
-> r = 100 km / ±60 min). (a) TCCON per-footprint RMSE after correction,
-> pooled over all quality flags (light, n = 105,683) and for the
-> near-cloud subsets of each surface at its production target radius
-> (ocean ≤ 5 km, green, n = 2,645; land ≤ 15 km, dark, n = 81,347); the
-> uncorrected product is shown for reference. (b) Feature-group ablation
-> of the deep ensemble: ΔRMSE relative to the full feature set, same
-> three slices.
-
-> **Figure 7.** Per-feature permutation importance of the production
-> deep ensemble: increase in held-out fold RMSE when one feature is
-> permuted (median over the five date-blocked folds; whiskers, fold
-> standard deviation), for the twelve highest-ranked features over
-> (a) ocean and (b) land. Bar colour gives the feature's predictor
-> group (Sect. 3.3); feature definitions in Table C1. Groups are
-> permuted jointly in the group-level attribution (Fig. 6b), which is
-> the appropriate quantity under feature collinearity.
-
-#### 4.4 Independent TCCON validation
+#### 4.4 Independent TCCON validation → paper §4.3.1
 
 Use AK-harmonized TCCON as the sole reported reference (decision 2026-07-21:
 manuscript tables and figures carry no direct-reference columns). The direct
@@ -1435,21 +890,6 @@ comparison appears.
 - Full coincidence matrix, station audit, and uncertainty budget are
   Appendix D (Figs. D1–D5, Tables D1–D4).
 
-**Draft caption:**
-
-> **Figure 8.** Independent TCCON validation (AK-harmonised reference;
-> harmonisation follows Rodgers and Connor, 2003, and Wunch et al., 2017;
-> before-vs-after differences are invariant to it): station-day mean
-> bias before and after correction for all 75 station-days (18 sites,
-> overpasses 2014–2021, all outside the model's training dates;
-> r = 100 km, ±60 min).
-
-> **Figure 9.** Significance and robustness of the TCCON validation:
-> site-clustered bootstrap estimates with 95 % confidence intervals for
-> the change in station-day mean |bias|, RMS bias, and per-footprint RMSE
-> (all sites and excluding Ny-Ålesund), and the change in mean |bias|
-> across collocation radius (25/50/100 km) × window (±30/60/120 min).
-
 **Metric definitions:** the b_s/R_s/aggregate definitions and the
 bootstrap machinery MOVED to Methods §3.5 (2026-07-23) so that §4.3's
 TCCON-based comparison can precede §4.4 without forward references —
@@ -1458,7 +898,7 @@ Fig. 9's caption cites Sect. 3.5.
 (No panel assembly — Figs. 7 and 8 are separate single-file floats since
 2026-07-23. fig08's internal panel tags from the generator stay.)
 
-#### 4.5 Distinguishing correction from smoothing
+#### 4.5 Distinguishing correction from smoothing → paper §4.3.2
 
 Place the feature-free smoother immediately after TCCON:
 
@@ -1487,15 +927,7 @@ denoising.
 - No main-text table; the full smoother numerical table is Appendix E
   (table with Fig. E1).
 
-**Draft caption:**
-
-> **Figure 10.** Correction versus smoothing null test. A feature-free
-> orbit-local running-mean smoother (±10/30/100 s half-widths, screened by
-> the same input guards as the production correction) compared with the
-> deep ensemble on footprint scatter (left) and TCCON station-day mean
-> |bias| (right).
-
-#### 4.6 Ocean validation and far-cloud controls
+#### 4.6 Ocean validation and far-cloud controls → paper §4.3.3
 
 Present ATom, shipborne EM27/SUN, and the far-cloud/clear-day cases where the
 correction is nearly inert. Treat these as independent corroboration, not as
@@ -1534,20 +966,6 @@ reference-scale caveats.
 - No main-text table; leg/case inventories and residuals are Appendix D
   (Tables D5–D6).
 
-**Draft caption:**
-
-> **Figure 11.** Independent ocean corroboration. (a, b) ATom aircraft
-> pseudo-column comparison (8 dates, 17 collocated legs, AK-smoothed; the
-> unmeasured stratosphere is filled with the OCO-2 prior so it cancels in
-> the comparison), including the far-cloud negative-control date
-> (9 October 2017): per-leg signed bias before and after correction, and
-> the same residuals against median cloud distance; grey bands mark each
-> leg's own pseudo-column ±1σ. (c, d) Shipborne EM27/SUN comparison
-> (R/V Sonne MORE-2 and R/V Mirai MR21-01; 100 km / ±2 h), including the
-> clear-sky control day (22 June 2019), in the same two views; grey bands
-> mark the ship reference uncertainty (measurement ⊕ within-window
-> variability).
-
 **Panel assembly, Fig. 11 (LaTeX draft):**
 
 ```latex
@@ -1564,7 +982,7 @@ Panel letters: native and continuous since 2026-07-23 — ATom carries
 (a)/(b), ship carries (c)/(d) from the producers' panel_offset kwarg;
 nothing to retag when compositing.
 
-#### 4.7 Plume preservation and correction safety
+#### 4.7 Plume preservation and correction safety → paper §4.4 (LAST section of Results)
 
 Report:
 
@@ -1611,20 +1029,6 @@ The required interpretation is:
 - All transects, per-case bounds, and control nulls are Appendix F
   (Figs. F2–F3, Tables F2–F3).
 
-**Draft caption:**
-
-> **Figure 12.** Plume preservation and the spectral cloud fingerprint.
-> (a–c) Along-track transect over the Westar power plant (26 June 2023,
-> clear sky, nearest cloud ≈ 50 km; overpass from the Nassar et al.
-> catalogue): XCO2 before and after correction (a), the predicted
-> correction μ (b), and nearest-cloud distance (c). (d) Band-resolved
-> Δ⟨l′⟩ (plume window minus background; ±1 SE) for the two flagged
-> removal windows and two clear-sky controls; error bars are ±1 standard
-> error of the window-mean difference (plume-window and background SEMs
-> combined in quadrature). Black ticks: signature
-> expected of a real CO2 plume (Δ⟨l′⟩ ≈ ⟨l′⟩·ΔXCO2/XCO2 in the CO2 bands
-> via the prior-based optical depth; exactly zero in O2A).
-
 **Panel assembly, Fig. 12 (LaTeX draft):**
 
 ```latex
@@ -1640,7 +1044,7 @@ The required interpretation is:
 Panel letters: native and continuous since 2026-07-23 — the transect
 carries (a)/(b)/(c), the fingerprint carries (d); nothing to retag.
 
-#### 4.8 Uncertainty and failure modes
+#### 4.8 Uncertainty and failure modes → paper §4.3.4 (precedes the plume section in the paper; now also carries the bright-surface / worsening-case paragraph moved out of §4.3.1)
 
 End Results by defining the boundary of reliability:
 
@@ -1667,14 +1071,38 @@ End Results by defining the boundary of reliability:
 
 ### 5 Discussion
 
-#### 5.1 Physical interpretation
+**Structure as compiled (2026-07-26): SIX subsections merged to FOUR**, one
+`.tex` file per section, re-synced to the printed numbers on 2026-07-26:
+`5.1_physics_interp` · `5.2_opt_bc_recovery` · `5.3_imager_indepent` ·
+`5.4_limitations_future` (the former `5.4_recovery.tex` and `5.6_future.tex`
+were folded into their hosts and deleted). Section labels are unchanged. The
+`#### 5.x` headings below keep their ORIGINAL numbers so the drafting notes
+stay traceable; the arrow gives the paper section each became. Two of the
+former subsections were never subsection-sized (5.2 = three sentences citing
+Appendix C; 5.4 = one sentence of QF1 counts), and 5.5/5.6 duplicated each
+other on PPDF closure and local-contrast attenuation.
+
+| Plan heading | Paper section |
+|---|---|
+| 5.1 Physical interpretation | §5.1 |
+| 5.2 Relationship to the operational bias correction | §5.2, first half |
+| 5.4 Observation-recovery implications | §5.2, second half (merged) |
+| 5.3 Meaning and limits of imager independence | §5.3 |
+| 5.5 Limitations | §5.4, first half |
+| 5.6 Future work | §5.4, second half (merged) |
+
+Whole-Discussion target: **~2,000 words** (5.1 ≈ 500 · 5.2 ≈ 400 · 5.3 ≈ 500 ·
+5.4 ≈ 600). §5.1 and §5.3 already carry their opening paragraphs, moved out of
+Results on 2026-07-26 (the skill-versus-trust synthesis); the rest are stubs.
+
+#### 5.1 Physical interpretation → paper §5.1
 
 Synthesize, rather than repeat, the land–ocean response, WCO2 sign rule, and
 shadow/brightening bifurcation. Explain why separate land and ocean models are
 physically justified. Distinguish the empirical mechanism evidence from full
 PPDF moment closure.
 
-#### 5.2 Relationship to the operational bias correction
+#### 5.2 Relationship to the operational bias correction → paper §5.2 (first half; MERGED with 5.4 on 2026-07-26)
 
 Discuss the raw/BC/ML experiment:
 
@@ -1697,7 +1125,7 @@ replacement for the operational correction.
   Table C8, alongside Fig. C7; Discussion 5.2 stays qualitative (three
   sentences citing Appendix C).
 
-#### 5.3 Meaning and limits of imager independence
+#### 5.3 Meaning and limits of imager independence → paper §5.3
 
 Use three tiers:
 
@@ -1716,7 +1144,7 @@ State the caveat once:
 Discuss post-2022 OCO-2 use and OCO-3, CO2M, GOSAT-GW, and TEMPO as prospects,
 not demonstrated cross-sensor equivalence.
 
-#### 5.4 Observation-recovery implications
+#### 5.4 Observation-recovery implications → paper §5.2 (second half; MERGED with 5.2 on 2026-07-26)
 
 Use production QF1 counts to quantify candidate recovery by distance, surface,
 and region — ONE SENTENCE with the counts, no display item (the former
@@ -1727,7 +1155,7 @@ and downstream application tests.
 Recommended language is **candidates for recovery** until an explicit
 acceptance criterion and inversion experiment exist.
 
-#### 5.5 Limitations
+#### 5.5 Limitations → paper §5.4 (first half; MERGED with 5.6 on 2026-07-26 — attach each future-work item to the limitation it resolves)
 
 Collect the limitations in one subsection:
 
@@ -1738,7 +1166,7 @@ Collect the limitations in one subsection:
 - absence of fitted-versus-tallied PPDF moment closure;
 - possible attenuation of local CO2 contrast by retrieval-state predictors.
 
-#### 5.6 Future work
+#### 5.6 Future work → paper §5.4 (second half; MERGED with 5.5 on 2026-07-26)
 
 Keep this short: Monte Carlo PPDF closure, plume-injection OSSE,
 transport-model decomposition of the target, cross-sensor validation, and a
@@ -1777,32 +1205,34 @@ responses lapsed when Fig. 3 moved to Results 4.1, 2026-07-21g; if a
 figure must be cut, fold the k1/k2 distance responses into Fig. 4
 instead.)
 
+**Section assignments updated 2026-07-26 for the 4-subsection Results.**
+
 | Figure | Manuscript role | Primary message |
 |---|---|---|
 | 1 | Methods 3.1 | Collocation geometry schematic: how cloud distance and the anomaly target are constructed. |
 | 2 | Methods 3.3 | Deep-ensemble architecture (no-cloud variant): member MLP, ensemble mixture, conformal calibration; no cloud information at inference. |
 | 3 | Results 4.1 | Anomaly–distance decay: (a) common r10 target motivates the surface-specific radii; (b) adopted r05/r15 targets — opposite-sign land/ocean phenomenon. |
-| 4 | Results 4.2 | WCO2 land-cover response changes sign across the measured albedo-contrast axis. |
-| 5 | Results 4.2 | Shadow and brightening branches connect spectral response to opposite XCO2 anomalies. |
-| 6 | Results 4.3 | Baseline/feature-ablation comparison decided in the near-cloud land tail; date-blocked skill and noise ceiling carried as a headline sentence, detail in Appendix C. |
-| 7 | Results 4.3 | Per-feature permutation importance of the deep ensemble (DE ΔRMSE, held folds), both surfaces. |
-| 8 | Results 4.4 | TCCON before/after station-day dumbbell (AK-harmonized). |
-| 9 | Results 4.4 | Significance/robustness of the TCCON validation (bootstrap CIs, radius × window). |
-| 10 | Results 4.5 | The feature-free smoother removes scatter but not station-day bias. |
-| 11 | Results 4.6 | ATom and shipborne ocean validation plus far-cloud negative controls. |
-| 12 | Results 4.7 | Plume-preservation transect and channel-attribution safety budget. |
+| 4 | Results 4.1 | WCO2 land-cover response changes sign across the measured albedo-contrast axis. |
+| 5 | Results 4.1 | Shadow and brightening branches connect spectral response to opposite XCO2 anomalies. |
+| 6 | Results 4.2 | Baseline/feature-ablation comparison decided in the near-cloud land tail; date-blocked skill and noise ceiling carried as a headline sentence, detail in Appendix C. |
+| 7 | Results 4.2 | Per-feature permutation importance of the deep ensemble (DE ΔRMSE, held folds), both surfaces. |
+| 8 | Results 4.3.1 | TCCON before/after station-day dumbbell (AK-harmonized). |
+| 9 | Results 4.3.1 | Significance/robustness of the TCCON validation (bootstrap CIs, radius × window). |
+| 10 | Results 4.3.2 | The feature-free smoother removes scatter but not station-day bias. |
+| 11 | Results 4.3.3 | ATom and shipborne ocean validation plus far-cloud negative controls. |
+| 12 | Results 4.4 | Plume-preservation transect and channel-attribution safety budget. |
 | — | — | The former optional QF1/failure figure stays DROPPED (2026-07-22m); QF1 counts are one sentence in Discussion 5.4. |
 
-Main-text table budget (THREE tables since 2026-07-22m, all AK-harmonized
+Main-text table budget (**TWO tables since 2026-07-26**, all AK-harmonized
 only, generated by `manuscript/scripts/make_manuscript_tables.py` into
-`manuscript/tables/`; the generator still writes all five files — two are
-consumed by appendices):
+`manuscript/tables/`; the generator also writes two appendix files and one
+backup file):
 
 | Table | Section | File | Content |
 |---|---|---|---|
-| 1 | Results 4.3 | `tab_model_comparison.tex` | DE/XGB/Ridge fp-RMSE by slice. |
-| 2 | Results 4.3 | `tab_featureset_ablation.tex` | Feature-group ablation by slice. |
-| 3 | Results 4.4 | `tab_station_equal_bias.tex` | Station-equal mean \|bias\| by QF. |
+| 1 | Results 4.2 | `tab_model_comparison.tex` | DE/XGB/Ridge fp-RMSE by slice. |
+| 2 | Results 4.2 | `tab_featureset_ablation.tex` | Feature-group ablation by slice. |
+| — | backup | `tab_station_equal_bias.tex` | Station-equal mean \|bias\| by QF — CUT 2026-07-26 (dissertation material; the generator now writes it to `manuscript/backup/`). |
 | — | Appendix F | `tab_nassar_attribution.tex` | Moved 2026-07-22m (merges with planned Table F3). |
 | — | Appendix C | `tabC8_raw_bc_ml.tex` | Moved 2026-07-22m (Table C8, with Fig. C7; file renamed 2026-07-23). |
 
@@ -1870,7 +1300,7 @@ before 2026-07-22n use the FORMER letters):**
 
 | Final | Job | Former |
 |---|---|---|
-| A | Spectral fitting and path-length derivation | A |
+| A | Optical-depth and transmittance construction (rescoped 2026-07-26) | A |
 | B | Data, collocation, and target construction | B |
 | C | Correction model: architecture, training, CV evaluation | C + D |
 | D | Independent validation: TCCON protocol + ocean references | E + H |
@@ -1885,7 +1315,21 @@ File names were re-synced to the final letters 2026-07-22o:
 `figF1_case_tasman`, `fig11_qf1_recovery_candidate`→
 `internal_qf1_recovery_candidate` (no manuscript number).
 
-### Appendix A: Spectral fitting and photon path-length derivation
+### Appendix A: Optical-depth and transmittance construction for the spectral fit
+
+**RESCOPED 2026-07-26 (title changed).** The derivation half of this appendix
+(Beer–Lambert → ensemble average → Laplace transform → gamma model →
+cumulant identification) duplicated Methods §3.2, which already carries the
+whole chain with the Irvine/Partain/Stephens citations; it was removed, and
+the gamma identity κ = k₁²/k₂ went with it (κ is not used anywhere in the
+paper). What remains — and what no citation can supply — is the
+implementation: how τ_v, the ILS-convolved channel SOD, and the solar
+normalization (Earth–Sun distance, Doppler stretch, ILS convolution) are
+built from L1B radiances, ABSCO tables, and the solar line list, plus
+Fig. A1 and Table A1. Figure A1 uses 2020-01-01 granule 29252a
+(`manuscript/scripts/make_appendix_a_fit_figure.py`). Removed block:
+`manuscript/backup/pre_trim_2026-07-26/appendix_A_ppdf_derivation_removed.tex`.
+The content list below is the PRE-TRIM plan, kept for reference.
 
 **Purpose:** make the physical observable and numerical fit independently
 reviewable.
@@ -1898,40 +1342,44 @@ Include:
 - band windows, optical-depth construction, channel masks, polynomial orders,
   bounds, and fallback behavior;
 - examples of accepted and rejected fits;
-- no-Savitzky–Golay versus Savitzky–Golay comparison;
 - convergence-radius and fit-order sensitivity;
 - fitting failure counts by band and failure category, if available.
 
 Planned items:
 
-- **Fig. A1:** representative O2A, WCO2, and SCO2 fits, including residuals
-  and fitted \(l'\) statistics;
-- **Fig. A2:** SG-versus-no-SG comparison (SUMMARY panel only, sourced from
-  working figure A5; the full SG robustness sweep and the extended
-  accepted/rejected fit-example gallery go to Supplement S5, 2026-07-22m);
-- **Table A1:** complete fitting configuration and QC thresholds;
-- **Table A2:** fit availability and failure accounting by band and surface.
+- **Fig. A1:** representative \ce{O2}A, W\ce{CO2}, and S\ce{CO2} production
+  fits from 2020-01-01 granule 29252a, including fitted
+  \(\langle l'\rangle\) and \(\mathrm{var}(l')\);
+- **Table A1:** complete fitting configuration and QC thresholds.
 
-**Draft captions (2026-07-23g; A1/A2 PROVISIONAL — artifacts pending,
-verify panel structure against the produced figures):**
-
-> **Figure A1.** Representative spectral fits. Measured ln T versus
-> channel slant optical depth with the fitted cumulant polynomial
-> (orders 7/3/7 for O2A/WCO2/SCO2), masked channels, and fit residuals,
-> for one accepted and one rejected sounding per band; the fitted
-> ⟨l′⟩, var(l′), and continuum-intercept values are annotated.
-
-> **Figure A2.** Savitzky–Golay sensitivity summary: ⟨l′⟩ and var(l′)
-> from the production no-presmoothing fit against the
-> Savitzky–Golay-presmoothed twin fit of the same soundings, per band.
-> The full sweep and the extended fit-example gallery are in Supplement
-> Sect. S5.
+*Status note (2026-07-26): Appendix A retains only generated Fig. A1 and
+Table A1; the figure caption lives in the .tex.*
 
 Do not present spectrum-fitted cumulants as directly tallied photon moments.
 The mathematical interpretation, numerical estimator, and Monte Carlo causal
 test should remain distinct.
 
-### Appendix B: Data provenance, cloud collocation, and target construction
+### Appendix B: Analysis cohort and target construction
+
+**As compiled 2026-07-26.** Retitled from "Data provenance, cloud collocation,
+and target construction": the collocation parameters are one block of
+Table B2 and Sect. 3.1 owns that material, so the old title over-promised.
+The appendix previously held five display items and NO prose, with only
+Fig. B2 referenced from the body; it now opens with ~660 words introducing
+each item. Contents: Fig. B1 target-radius sensitivity · Table B1 cohort
+attrition · Table B2 target-construction parameters and guards ·
+Fig. B2 QF-population land-class heatmaps. **Table B3 (label-noise ceilings)
+MOVED to Appendix C** beside Fig. C4, where the achieved-skill discussion
+lives (file renamed `tabB3_` → `tabC3_label_noise_ceilings.tex`; it prints as
+Table C3). **Body pointers added** so nothing is orphaned: Table B1 from
+Sect. 2, Table B2 + Fig. B1 from Sect. 3.1, Fig. B2 already cited from
+Sect. 4.1. Surfaced while writing the prose and now stated there: label
+retention is 74 % on ocean but only 53 % on land (a 15 km clear-sky floor is
+harder to populate than a 5 km one), so the labeled land population
+under-represents persistently cloudy scenes — decide at drafting time whether
+this also belongs in §5.4 Limitations.
+
+The content list below is the PRE-TRIM plan, kept for reference.
 
 **Purpose:** expose every selection that defines “near cloud” and the anomaly
 label.
@@ -1981,27 +1429,17 @@ Planned items:
   least-perturbed scenes) and do not interpret the thin all-QF-only
   wetland class.
 
-**Draft captions (2026-07-23g):**
-
-> **Figure B2.** Target-radius sensitivity of the anomaly–distance
-> relation: bin-mean $\Delta X_{\mathrm{CO2}}^{\mathrm{B11}}$ versus
-> nearest-cloud distance (1-km bins) with the same-orbit clear-sky
-> reference taken beyond 5, 10, and 15 km, for (a) ocean and (b) land
-> (population of Fig. 3). Each curve returns to zero beyond its own
-> reference radius by construction.
-
-> **Figure B4.** As Fig. 4 — surface-stratified near-cloud effect sizes
-> (Eq. \ref{eq:effect-size}) of the reference-corrected path-length
-> features — computed on (a) the quality-flag-1-only and (b) the
-> all-flag population (snow-free in both; Fig. 4 itself is
-> quality-flag 0). Asterisks mark effects exceeding their analytic
-> 95 % confidence interval; classes with fewer than 500 soundings in
-> either window are blanked.
+*Caption note (2026-07-23g) — caption text now lives in the .tex.*
 
 This appendix must resolve the currently mixed 116-date/17.8-million and
 140-date/21.5-million cohorts by naming the role of each population.
 
 ### Appendix C: Correction model — architecture, training, and cross-validated evaluation
+
+**As compiled 2026-07-26.** Gained **Table C3** (label-noise reference levels,
+moved from Appendix B) with an introducing paragraph, placed directly after
+Fig. C4 (skill vs ceiling) — the table is that figure's numerical companion.
+Appendix C tables now run C1–C10.
 
 (MERGED 2026-07-22n: former Appendix C + former Appendix D — "here is
 the model" and "why the model and split design are trustworthy" is one
@@ -2110,7 +1548,9 @@ Planned items:
 - **Fig. C4:** date-blocked skill versus the label-noise ceiling by surface
   and cloud-distance regime — GENERATED 2026-07-23:
   `figC4_skill_vs_ceiling` (achieved DE fold R², mean ± std, in
-  all/near/far regimes from the per-fold global + stratified metrics,
+  all/near/far regimes at the production target radii (ocean ≤5 km versus
+  >5 km; land ≤15 km versus >15 km), recomputed from the per-fold held-out
+  prediction artifacts,
   against the three ceiling columns of the 140-date CSV). The 2026-07-22q
   blocker is RESOLVED from `analysis/label_noise_ceiling.py` itself: the
   three r2max columns deliberately BRACKET the ceiling — `r2max_ref`
@@ -2197,58 +1637,29 @@ Planned items:
   2026-07-22m; file + generator renamed from `tab_raw_bc_ml` 2026-07-23;
   pairs with Fig. C7).
 
-**Draft captions (2026-07-23g):**
-
-> **Figure C1.** Training-versus-inference data flow of the correction
-> system. Left: per-surface training, with the Aqua-MODIS branch (cloud
-> mask → nearest-cloud distance → clear-sky-reference target) confined
-> to label construction and evaluation (dashed boundary). Right:
-> deployed inference — a single sounding's L1B spectrum and L2 Lite
-> retrieval pass through the same feature pipeline to the frozen
-> ensemble, with no imager and no neighboring-footprint access.
-
-> **Figure C2.** Date-blocked fold membership: the 116 analysis dates
-> (2016–2020) in the five contiguous-block cross-validation folds, with
-> each date's training, calibration, or held-out role per fold. One
-> panel serves both surfaces and all models — their fold manifests are
-> identical.
-
-> **Figure C4.** Held-out fold $R^2$ of the production deep ensemble
-> against label-noise reference levels, per surface and cloud-distance
-> regime. Bars: fold mean ± std (five folds) for all, near-cloud
-> ($<$10 km), and far-cloud ($>$10 km) soundings. Horizontal marks,
-> computed on the pooled 140-date population: the hard ceiling from
-> clear-sky-reference sampling noise alone; the level obtained when the
-> per-sounding retrieval posterior $\sigma^2$ is additionally treated
-> as irreducible noise; and the empirical level treating all far-field
-> variance as noise. The latter two are stated noise scenarios, not
-> bounds (Sect. 3.4).
-
-> **Figure C5.** Date-blocked five-fold cross-validation of the anomaly
-> target: held-out fold RMSE (left) and $R^2$ (right), mean ± std over
-> folds, for the deep ensemble, XGBoost, and ridge baselines per
-> surface. Ridge predictions pass the production output guard
-> (Table C5 note).
-
-> **Figure C7.** Relationship between the ML corrections and the
-> operational B11 increment over the unique-date union of the TCCON
-> cases (51 dates, 5.9 M footprints; guarded rows excluded).
-> (a) Per-footprint difference of the two ML corrections
-> $\Delta\mu \equiv \mu_{\mathrm{raw}} - \mu_{\mathrm{B11}}$ versus the
-> operational increment
-> $\mathrm{inc} \equiv X_{\mathrm{CO2}}^{\mathrm{raw}} -
-> X_{\mathrm{CO2}}^{\mathrm{B11}}$ (log-scaled density), with the
-> identity line and the pooled ordinary-least-squares fit.
-> (b) Correlation with the operational increment by surface ×
-> cloud-distance stratum, for $\Delta\mu$ (rediscovery by the
-> raw-trained model) and for the production correction
-> $\mu_{\mathrm{B11}}$ (overlap).
+*Caption note (2026-07-23g) — caption text now lives in the .tex.*
 
 The appendix should preserve the null result: `no_spec` is approximately
 TCCON-neutral. Do not select only strata that make the spectral block appear
 predictively essential.
 
 ### Appendix D: Independent validation — TCCON protocol and ocean
+
+**As compiled 2026-07-26.** Section title corrected (it had carried the stale
+Appendix-C title "Cross-validation, baselines, and feature attribution").
+Contents: Table D1 TCCON stations · Table D2 comparison-date inventory ·
+coincidence-criterion sensitivity (Fig. D1) · quality-flag-resolved comparison
+(Fig. D2a/b) · ocean inventories (Tables D3 ATom legs, D4 ship cases) ·
+DerSimonian–Laird estimator + forest plot · Table D5 training dates.
+**REMOVED:** the AK/prior-harmonization operator subsection (standard
+Rodgers–Connor/Wunch operator → citation in Methods §3.5, which now also
+states the GGG2020 wet→dry prior conversion explicitly, since that step is not
+part of the cited procedure and moves the reference by ≈1 ppm); Fig. D3 (r50)
+and Fig. D4 (station summary), both unreferenced; a duplicate copy of the
+QF0/QF1 figure. Generated-file names re-synced to printed numbers
+(`tabD3_atom_legs`, `tabD4_ship_cases`). Dissertation-only, in
+`manuscript/backup/`: `tabD2_stationday_metrics`, `tabD3_significance_tests`,
+`tabD4_uncertainty_components`. The plan text below predates the trim.
 references
 
 (MERGED 2026-07-22n: former Appendix E + former Appendix H. TCCON
@@ -2301,34 +1712,7 @@ Planned items:
 - **Table D3:** paired Wilcoxon and site-clustered bootstrap results;
 - **Table D4:** uncertainty components, \(\tau\), \(I^2\), and coverage.
 
-**Draft captions (2026-07-23g; D1/D5 PROVISIONAL — artifacts pending):**
-
-> **Figure D1.** Coincidence-criterion sensitivity: the station-day
-> comparison metrics recomputed for every combination of collocation
-> radius (25, 50, 100 km) and time window (±30, ±60, ±120 min),
-> AK-harmonized reference.
-
-> **Figure D2.** Station-day mean bias to AK-harmonized TCCON versus
-> the station-day-mean nearest-cloud distance for the raw,
-> operationally bias-corrected, and DE-corrected products; gray bars
-> show the per-station-day TCCON σ. (a) Quality-flag-0 footprints;
-> (b) quality-flag-1.
-
-> **Figure D3.** As Fig. D2, at the tighter 50 km coincidence radius
-> (±60 min, all quality flags) — the robustness variant of the primary
-> 100 km comparison.
-
-> **Figure D4.** Per-station summary over the 75 station-days
-> (18 sites, two-letter station codes): (a) mean absolute station-day
-> bias before and after correction, with the combined per-station TCCON
-> σ marked; (b) mean per-footprint RMSE; (c) mean within-overpass
-> OCO-2 scatter; (d) per-station skill
-> $1 - \mathrm{RMSE}_{\mathrm{after}}/\mathrm{RMSE}_{\mathrm{before}}$.
-
-> **Figure D5.** Random-effects residual comparison: per-station-day
-> corrected-minus-TCCON differences with their combined uncertainties,
-> and the DerSimonian–Laird pooled mean with the between-case spread
-> $\tau$ (forest plot).
+*Caption note (2026-07-23g; D1/D5 PROVISIONAL — artifacts pending) — caption text now lives in the .tex.*
 
 The main paper should carry the headline and one robustness summary. The full
 coincidence matrix and station-level audit belong here.
@@ -2358,17 +1742,21 @@ Planned items:
 - **Table D5:** ATom leg inventory and residuals;
 - **Table D6:** ship case inventory and residuals.
 
-**Draft caption (2026-07-23g; CONDITIONAL — only if D6 is kept beyond
-main-text Fig. 10a):**
-
-> **Figure D6.** ATom campaign summary: per-leg OCO-2-minus-pseudo-column
-> residuals before and after correction across the eight collocated
-> dates, with per-leg uncertainties (pseudo-column construction of
-> Sect. 2.3 and this appendix).
+*Caption note (2026-07-23g; CONDITIONAL — only if D6 is kept beyond main-text Fig. 10a) — caption text now lives in the .tex.*
 
 Do not pool these observations with TCCON into a single headline metric.
 
 ### Appendix E: Null tests, negative controls, and failure cases
+
+**As compiled 2026-07-26.** Figs. E1–E5 unchanged; Tables E2 (driver strata),
+E3 (CV albedo cross-check), E4 (smoother null) retained. **Table E1** (per-case
+worsening listing) moved to `manuscript/backup/` — its load-bearing number,
+"the per-footprint RMSE still improves in 25 of those 29", is now stated in
+§4.3.1. Table E2 was considered for the same cut and KEPT: §4.3.4 quotes it
+directly (bright-surface RMSE 4.58 → 1.55 ppm, worsened fraction 0.50 vs
+0.19–0.39, σ-decile 0.46 / 0.06), and Fig. E4 shows the RMSE curves but not the
+worsened-fraction or ⟨z²⟩ columns, so removing it would leave main-text
+numbers with no auditable source.
 (formerly Appendix F)
 
 **Purpose:** demonstrate that error reduction is not produced by generic
@@ -2432,53 +1820,9 @@ Planned items:
   `failure_modes/strat_cv_land_alb_o2a_r100km.csv` (stage 6 of
   `analyze_failure_modes.py`, report `FAILURE_MODES_2026-07-23.md`).
 
-**Draft caption (2026-07-23r):**
+*Caption note (2026-07-23r) — caption text now lives in the .tex.*
 
-> **Table E3.** Held-out cross-validation residuals of the land ensemble
-> stratified by O2A-band albedo (same decile edges as the TCCON
-> stratification): residual RMSE, the fraction of footprints where
-> applying the correction increases the error against the held-out
-> anomaly label, and the calibration ratio ⟨z²⟩. The bright-surface
-> failure signature seen against TCCON is absent against the anomaly
-> label, identifying the remaining bright-surface TCCON residual as a
-> within-overpass common-mode component outside the anomaly target.
-
-**Draft captions (2026-07-23g; renumbered E2→E2/E3 split, old E3/E4 →
-E4/E5, 2026-07-23s; all five figures now staged — E1 shows the windows
-not in main-text Fig. 10):**
-
-> **Figure E1.** Feature-free smoother null: footprint-scatter collapse
-> and TCCON station-day bias for orbit-local running-mean smoothers of
-> half-width ±10, ±30, and ±100 s beside the deep ensemble, under
-> identical footprints, guards, and TCCON chain (windows not shown in
-> main-text Fig. 9).
-
-> **Figure E2.** ATom far-cloud negative control, 9 October 2017
-> (313 ocean-glint footprints within 100 km / ±120 min of two profile
-> legs; median nearest-cloud distance 18 km): corrected and original
-> $X_{\mathrm{CO2}}$ maps over the coincident MODIS Aqua true-colour
-> scene (local day 8 October 2017 — the overpass crosses the
-> antimeridian, where the imagery date is the local day) with the
-> flight track, footprint distributions against the ATom
-> pseudo-column, and the aircraft profiles with the OCO-2 prior.
-
-> **Figure E3.** Shipborne clear-day negative control, 22 June 2019
-> (R/V Sonne EM27/SUN; 1 of 460 footprints within 10 km of cloud):
-> same construction as Fig. E2 against the shipborne column, with the
-> ship $X_{\mathrm{CO2}}$ time series around the overpass.
-
-> **Figure E4.** Per-footprint RMSE against AK-harmonized TCCON in
-> environmental-driver bins, before (dashed) and after (solid)
-> correction, per surface: aerosol load (total and dust AOD), geometry
-> (solar zenith angle, air mass, |latitude|), surface state (O2A and
-> SCO2 albedo, snow flag), humidity (total column water vapour),
-> retrieval diagnostics (dpfrac, O2A continuum SNR), nearest-cloud
-> distance, and the ensemble's own predictive σ.
-
-> **Figure E5.** High-latitude and post-2022 free-drift cases:
-> station-day comparisons for the high-latitude sites and for
-> drift-era overpasses where no MODIS collocation exists (correction
-> applied imager-free; drift-era case list in Table D1).
+*Caption note (2026-07-23g; renumbered E2→E2/E3 split, old E3/E4 → E4/E5, 2026-07-23s; all five figures now staged — E1 shows the windows not in main-text Fig. 10) — caption text now lives in the .tex.*
 
 If the smoother null remains a main figure, retain its full numerical table in
 this appendix and avoid duplicating the same plot.
@@ -2525,29 +1869,7 @@ Planned items:
   former main-text Table 4 (`tab_nassar_attribution.tex`, moved here
   2026-07-22m); one table, not two.
 
-**Draft captions (2026-07-23g; F2/F3 PROVISIONAL — artifacts pending):**
-
-> **Figure F1.** Tasman Sea case, 1 May 2018. (a) Aqua true-colour
-> scene (NASA GIBS) with OCO-2 footprints coloured by MODIS
-> nearest-cloud distance; (b) ±15 km zoom on the case frame, with the
-> tracked footprint column circled. (c–i) Along-track transects for the
-> tracked footprint: reference-corrected Δ⟨l′⟩ and Δvar(l′) per band,
-> continuum-intercept-minus-albedo departure, continuum-to-clear ratio,
-> albedo departure, bias-corrected $X_{\mathrm{CO2}}$, and
-> nearest-cloud distance; shading marks the near-cloud segment, faint
-> points the other footprint columns.
-
-> **Figure F2.** All Nassar power-plant overpass transects on identical
-> axes: $X_{\mathrm{CO2}}^{\mathrm{B11}}$ and
-> $X_{\mathrm{CO2}}^{\mathrm{DE}}$ along track with the plant window,
-> the matched plume-free control windows, and nearest-cloud distance
-> marked (case inventory in Table F1).
-
-> **Figure F3.** Band-resolved Δ⟨l′⟩ contrast for plume versus
-> cloud-contaminated windows: window-mean-minus-background differences
-> per band with ±1 SE (window and background SEMs in quadrature),
-> against the expected signatures — all-band response for cloud, CO2
-> bands only (prior-τ scaling, O2A flat) for a real enhancement.
+*Caption note (2026-07-23g; F2/F3 PROVISIONAL — artifacts pending) — caption text now lives in the .tex.*
 
 The main text shows only the Westar preservation case (the Tasman
 mechanism showcase moved here as Fig. F1, 2026-07-22c). The appendix must show the full set to avoid
@@ -2615,30 +1937,6 @@ Display items (EXIST, generators in `workspace/rt_slab_sim/`):
   `plot_ppdf.py`) and the slab atmosphere profile figure
   (`slab_atm_profiles.png`, `plot_atm_profiles.py`).
 
-**Final draft caption (2026-07-24b; artifact exists):**
-
-> **Figure G1.** Controlled three-dimensional radiative-transfer
-> demonstration on an x–z slab scene (configuration in Table G1): a
-> single water cloud (optical depth 10, 3–4 km altitude; grey band) in
-> an otherwise clear, periodic 32-km domain, computed with full 3-D
-> photon transport (red) and with the independent-pixel approximation
-> (IPA, blue) on the identical scene, over a dark (a, c, e, g; albedo
-> 0.03) and a bright (b, d, f, h; albedo 0.30) Lambertian surface.
-> (a, b) ⟨l′⟩ and (c, d) var(l′), fitted per column with the production
-> spectral estimator (order 7, no presmoothing; shading: spread of
-> three independent Monte Carlo runs); (e, f) effective scene
-> reflectance (exponential of the fitted intercept); (g, h) mean and
-> standard deviation of the directly tallied photon path-length
-> distribution at the continuum wavelength, shown as anomalies from the
-> clear-sky far field in relative-path units. Under IPA every quantity
-> is flat outside the cloud, whereas 3-D transport produces the
-> illuminated-edge brightening and the one-sided shadow-band response
-> (x ≈ 15–22 km), whose ⟨l′⟩ signature reverses sign between the dark
-> and the bright surface. The fitted ⟨l′⟩ tracks the tallied mean path
-> with r ≥ 0.99 over clear columns, and var(l′) tracks the tallied
-> path variance with r = 0.99 over the bright surface; the fitted
-> cumulants respond to cloud adjacency only when horizontal photon
-> transport is enabled.
 
 State explicitly that the first moment closes quantitatively in shape and
 the second moment closes where the cloud-detour population dominates
@@ -2648,6 +1946,16 @@ absorption-weighted tallies, the geometry sweep (SZA/COD/albedo), synthetic
 full-spectrum generation, and plume injection.
 
 ### Appendix H: Cross-sensor feasibility (TEMPO; formerly Appendix K)
+
+**As compiled 2026-07-26: KEPT and SHORTENED** (user decision — the TEMPO
+application stays, with less detail). 742 → 464 words: three subsections
+collapsed to flat prose, one figure, no table. Retained: what the proof
+establishes, the scene, the ⟨l′⟩ 0.91 → 0.76 decay, and both disclaimers
+(TEMPO retrieves no XCO2; the trained correction is not claimed to transfer).
+Cut: the instrument-specification paragraph, the two CLDO4 caveats (now one
+clause), and the "scope and implications" subsection. Discussion §5.3 cites it
+as the feasibility anchor. Long version:
+`manuscript/backup/pre_trim_2026-07-26/appendix_H_long.tex`.
 
 **Purpose:** bound the transfer claim with one existence proof, not imply a
 validated cross-sensor correction.
@@ -2680,32 +1988,7 @@ Planned items:
   only as `manuscript/tables/internal_tempo_fit_inputs.tex`
   (`make_appendix_tables.py --only internal_tempo_inputs`).
 
-**Caption (updated 2026-07-24 — artifact LANDED as
-`manuscript/figures/figH1_tempo_o2b_demo.{png,pdf}`, produced by
-`~/programming/tempo/scripts/make_h1_figure.py`. FINAL scene (author
-decision 2026-07-24, after a three-scene comparison):
-**S007G09_160926_o2b_3, Mexico Pacific east, ocean, GOES-West,
-2024-07-08 ≈16:09 UTC** — cleanest distance decay (median ⟨l′⟩
-0.91→0.76 over 0–25 km then plateau, N=5005, all 2.5-km bins populated
-to 50 km, 100% fit success; 0 pixels used the ocean poly_order branch,
-so no branch caveat needed). Kansas S010G06_160926_o2b_1 kept as
-rendered all-land alternate in the tempo repo. Corrections vs the
-2026-07-23g draft, per the tempo TODO §5 flag: (1) "production
-estimator" → reference-implementation wording — the tempo repo runs the
-pre-rewrite curve_fit+SG engine; (2) the var(l′) map was briefly dropped
-(drop-if-it-crowds rule) then REINSTATED same day by author request in a
-2×3 layout, labels column-major — (a) GOES RGB / (b) CLDO4 cloud
-fraction; (c) ⟨l′⟩ map / (d) var(l′) map; (e) ⟨l′⟩ vs distance /
-(f) var(l′) vs distance with per-bin sample sizes; rows pair each
-cumulant's map with its distance curve):**
-
-> **Figure H1.** Cross-sensor feasibility demonstration on one
-> pre-specified TEMPO granule: GOES ABI true-colour imagery; the
-> in-scene CLDO4 effective cloud fraction; maps of ⟨l′⟩ and var(l′)
-> fitted from the TEMPO O2-B window (683–697 nm) with the same cumulant
-> model in a reference implementation; and binned medians of ⟨l′⟩ and
-> var(l′) (IQR shaded) versus nearest-cloud distance derived from the
-> same granule's cloud product.
+*Caption note (updated 2026-07-24 — artifact LANDED as `manuscript/figures/figH1_tempo_o2b_demo.{png,pdf}`, produced by `~/programming/tempo/scripts/make_h1_figure.py`. FINAL scene (author decision 2026-07-24, after a three-scene comparison): **S007G09_160926_o2b_3, Mexico Pacific east, ocean, GOES-West, 2024-07-08 ≈16:09 UTC** — cleanest distance decay (median ⟨l′⟩ 0.91→0.76 over 0–25 km then plateau, N=5005, all 2.5-km bins populated to 50 km, 100% fit success; 0 pixels used the ocean poly_order branch, so no branch caveat needed). Kansas S010G06_160926_o2b_1 kept as rendered all-land alternate in the tempo repo. Corrections vs the 2026-07-23g draft, per the tempo TODO §5 flag: (1) "production estimator" → reference-implementation wording — the tempo repo runs the pre-rewrite curve_fit+SG engine; (2) the var(l′) map was briefly dropped (drop-if-it-crowds rule) then REINSTATED same day by author request in a 2×3 layout, labels column-major — (a) GOES RGB / (b) CLDO4 cloud fraction; (c) ⟨l′⟩ map / (d) var(l′) map; (e) ⟨l′⟩ vs distance / (f) var(l′) vs distance with per-bin sample sizes; rows pair each cumulant's map with its distance curve) — caption text now lives in the .tex.*
 
 Label this appendix **feasibility demonstration**. Do not include EMIT merely
 to broaden the sensor list; its sampling may not provide adequate optical-depth
@@ -2780,44 +2063,7 @@ then rerun the staging script.
   PPDF heat-map/cut figures and slab atmosphere profiles; the appendix
   itself is typeset — resolved 2026-07-24b).
 
-**Draft gallery captions (2026-07-23g; page-template style — one caption
-per section, repeated per page with the page's case identifier filled
-in; the §4 caption rule applies inside the Supplement too):**
-
-> **Figure S1.x.** TCCON station-day comparison, ⟨site⟩ ⟨date⟩:
-> footprint maps and distributions of the raw, operationally
-> bias-corrected, and DE-corrected $X_{\mathrm{CO2}}$ against the
-> AK-harmonized TCCON reference (protocol of Sect. 3.5). One page per
-> station-day; inventory in Table D1.
-
-> **Figure S2.x.** Ocean reference case, ⟨platform⟩ ⟨date⟩: OCO-2
-> footprint map with the aircraft track or ship position, footprint
-> distributions against the ATom pseudo-column or shipborne EM27/SUN
-> column, and (ATom pages) the aircraft profiles with the OCO-2 prior;
-> construction of Appendix D. One page per collocated date; inventories
-> in Tables D5–D6.
-
-> **Figure S3.x.** Case-study atlas, category ⟨category⟩: Aqua
-> true-colour scene (NASA GIBS) with OCO-2 footprints coloured by MODIS
-> nearest-cloud distance, and the along-track spectral and
-> $X_{\mathrm{CO2}}$ transects of the tracked footprint (layout of
-> Fig. F1). Categories: real cloud (land / ocean), MYD35 false
-> positive, visible cloud without an $X_{\mathrm{CO2}}$ response;
-> selection criteria in Table F1.
-
-> **Figure S4.1.** Spec-only near-cloud classifier: definition and
-> held-out receiver-operating characteristic per surface and fold
-> (single-sounding spectral features only; no imager input at any
-> stage). **Figure S4.2.** Sub-pixel spectral-index response versus
-> sub-MODIS-resolution cloud indicators. **Figure S4.3.** NoMODIS-era
-> application examples (post-2022 free drift). The
-> sensitivity-versus-skill disclaimer of the former Appendix I applies
-> throughout.
-
-> **Figure S5.x.** Extended fit robustness: the full
-> Savitzky–Golay-versus-no-smoothing parameter sweep, and the
-> accepted/rejected fit-example gallery per band (Appendix A carries
-> the single summary panel, Fig. A2).
+*Caption note (2026-07-23g; page-template style — one caption per section, repeated per page with the page's case identifier filled in; the §4 caption rule applies inside the Supplement too) — caption text now lives in the .tex.*
 
 ## 6. Terminology and claim controls
 
@@ -2890,8 +2136,8 @@ summary text:
 Draft in evidence order rather than manuscript order:
 
 1. Methods 3.1–3.6, freezing definitions and evaluation units.
-2. Results 4.1–4.8 directly from final tables and figures (draft the
-   Appendix D cross-validation material alongside 4.3, since its conclusions
+2. Results 4.1–4.4 directly from final tables and figures (draft the
+   Appendix C cross-validation material alongside §4.2, since its conclusions
    feed the two-sentence headline there).
 3. Data 2.1–2.4, reconciling cohort provenance and product versions.
 4. Discussion 5.1–5.6, constrained to what Results demonstrate.
@@ -2909,8 +2155,8 @@ Before submission, a reader should be able to answer these questions in order:
 2. What spectral evidence supports a 3-D radiative mechanism?
 3. Exactly what information is and is not available to the correction at
    inference?
-4. Does performance survive date blocking (headline sentence in 4.3, full
-   analysis in Appendix D) and independent validation?
+4. Does performance survive date blocking (headline sentence in §4.2, full
+   analysis in Appendix C) and independent validation?
 5. Is the gain bias correction rather than smoothing?
 6. Are real plume enhancements preserved in the tested cases?
 7. Where does the correction remain unreliable?

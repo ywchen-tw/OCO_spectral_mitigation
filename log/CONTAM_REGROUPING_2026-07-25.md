@@ -4,7 +4,7 @@
 `src/models/pipeline.py` showed the `CONTAM_FEATURES` ablation group was defined by
 *provenance* (whatever the forward-selection round happened to add) rather than by
 *physics*. The group was wrong in both directions, which undermines the
-`no_contam` conclusion quoted in `manuscript/4.3_model_comparison.tex`
+`no_contam` conclusion quoted in `manuscript/4.2_model_comparison.tex`
 ("dropping the spectral or contamination groups is TCCON-neutral").
 
 **Evidence base:** 3 × 2018 per-date parquets (`combined_2018-02-21`, `-03-13`,
@@ -240,10 +240,59 @@ only recomputed. No manuscript figure or table reads them (checked); they would
 need a CURC re-run of `models.feature_importance` before anyone quotes them.
 
 **Caption mismatch spotted, NOT edited** (predates this work, needs an author
-decision): the Fig. 6 caption in `4.3_model_comparison.tex` still says the dark
+decision): the Fig. 6 caption in `4.2_model_comparison.tex` still says the dark
 bars are "near-cloud land subset (≤ 10 km, n = 75,157)", but the figure has shown
 three series at the production radii since 2026-07-23 — pooled (n = 105,683),
 near-cloud ocean ≤5 km (n = 2,645) and near-cloud land ≤15 km (n = 81,347).
+
+### 5c-bis. Feature-importance recompute (2026-07-26) — a second, unrelated bug
+
+Recomputing the permutation importances surfaced a defect that has nothing to do
+with the regrouping: the stored `importance_de_*` CSVs had been computed against
+checkpoints that are no longer in the model dirs (most likely pre-dating the
+2026-07-15 fold-PCA production retrain, written under the same filenames). Proof:
+row counts matched exactly, but `base_rmse` did not — e.g. land f3 near-cloud
+0.8676 stored vs 0.8079 recomputed (7 %) — and only the recomputed value matches
+that fold's `run_summary.json` primary metric (to 1e-10, the run's own gate).
+
+So the whole table was recomputed on the current checkpoints: both scopes, three
+models (DE / XGB / Ridge), 5 folds × 2 surfaces, full held folds, 5 repeats. All
+30 model-fold gates passed. Previous state backed up at
+`results/model_comparison/feature_importance_pre_2026-07-25/`. A `--scopes
+{both,feature,group}` option was added to `models.feature_importance` (a grouping
+change only invalidates the joint-group units; per-feature deltas are
+grouping-invariant), with the partial-rerun path re-deriving the `group` label of
+the kept rows so a file can never end up half-old/half-new.
+
+DE group permutation ΔRMSE, global stratum, median over folds:
+
+| group | orig | new | Δ | note |
+|---|---|---|---|---|
+| ocean `contam` | 0.262 | **0.126** | −0.136 | membership changed |
+| ocean `met_other` | 0.336 | **0.419** | +0.082 | membership changed |
+| ocean `spec` | 0.267 | 0.190 | −0.077 | membership unchanged → checkpoint fix |
+| ocean `xco2` | 0.643 | 0.621 | −0.023 | checkpoint fix |
+| land `contam` | 0.197 | **0.142** | −0.055 | membership changed |
+| land `met_other` | 0.536 | **0.716** | +0.181 | membership changed |
+| land `xco2` | 0.962 | 0.997 | +0.035 | checkpoint fix |
+| land `spec` | 0.097 | 0.120 | +0.023 | checkpoint fix |
+
+The regrouping moves contamination DOWN on both surfaces even though the group
+gained five features: the members that left (`t700`, `alb_sco2_over_wco2`,
+`alt_std`, `dpfrac`, `fs_rel_0`) carried more permutation weight than the
+scattering diagnostics that joined, consistent with the TCCON ablation.
+Contamination is now the second-least important block on both surfaces.
+
+Fig. 7 consequences (regenerated): per-feature deltas shifted by a median of
+0.003 ppm but the top-12 changed by two features per surface — ocean gains
+`exp_o2a_intercept` and `max_declock_wco2`, loses `tropopause_temp` and
+`wco2_k2_nosg`; land gains `dpfrac` and `fp_0`, loses `exp_o2a_intercept` and
+`t_pc02`. Three claims in the Fig. 7 paragraph of `4.2_model_comparison.tex`
+(renamed from 4.3) were falsified and rewritten: ΔP/P_prior is 2nd over land but
+3rd over ocean (glint angle 2nd); the strongest spectral feature is ⟨l′⟩ of WCO2
+on ocean and var(l′) of WCO2 on LAND (the old text had them swapped); and
+exp(O2A intercept) is the 2nd spectral feature over land, not the 1st. Every
+rewritten rank is asserted against the aggregate CSVs.
 
 ## 6. Reference
 

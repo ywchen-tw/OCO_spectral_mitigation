@@ -211,7 +211,7 @@ def _r2(y, mu):
 
 def permutation_importance(predict_mu, X, y, features: list, groups: dict,
                            strata: dict, n_repeats: int, fold: int,
-                           seed: int = SEED) -> pd.DataFrame:
+                           seed: int = SEED, scopes=('feature', 'group')) -> pd.DataFrame:
     """Permutation ΔRMSE/ΔR² per feature and per group, per stratum.
 
     strata : {name: bool row mask over X}.  Shuffling happens within the
@@ -219,12 +219,23 @@ def permutation_importance(predict_mu, X, y, features: list, groups: dict,
     arrays are seeded by (seed, fold, stratum, repeat) ONLY — identical across
     models and across permuted column sets, so model-to-model differences are
     never shuffle noise.
+
+    scopes : which unit types to permute.  ('feature', 'group') is the full run.
+    Restricting to ('group',) recomputes only the joint-group units — needed when
+    the GROUPING changes but the model does not (e.g. the 2026-07-25
+    CONTAM_FEATURES regrouping), since per-feature deltas are grouping-invariant
+    while the joint-group deltas are not.  The permutation seeds depend only on
+    (seed, fold, stratum, repeat), so a group-only rerun reproduces exactly the
+    shuffles a full rerun would have used.
     """
     col_idx = {f: i for i, f in enumerate(features)}
-    units = [(f, 'feature', groups[f], [col_idx[f]]) for f in features]
-    for gname in sorted(set(groups.values())):
-        cols = [col_idx[f] for f in features if groups[f] == gname]
-        units.append((gname, 'group', gname, cols))
+    units = []
+    if 'feature' in scopes:
+        units += [(f, 'feature', groups[f], [col_idx[f]]) for f in features]
+    if 'group' in scopes:
+        for gname in sorted(set(groups.values())):
+            cols = [col_idx[f] for f in features if groups[f] == gname]
+            units.append((gname, 'group', gname, cols))
 
     rows = []
     for sname, mask in strata.items():
@@ -401,7 +412,7 @@ def aggregate(out_dir: Path, surface: str, models: list) -> None:
 
 def run_fold(surface: str, fold: int, models: list, data_path, out_dir: Path,
              n_repeats: int, n_rows: int, rmse_tol: float,
-             exclude_snow: bool) -> None:
+             exclude_snow: bool, scopes=('feature', 'group')) -> None:
     cfg = SURF[surface]
     storage = get_storage_dir()
 
@@ -479,11 +490,24 @@ def run_fold(surface: str, fold: int, models: list, data_path, out_dir: Path,
         strata = {'global': np.ones(len(yv), dtype=bool),
                   'nearcloud': (cld >= 0) & (cld <= NEAR_CLOUD_KM)}
         res = permutation_importance(predict_mu, Xv, yv, feats0, groups,
-                                     strata, n_repeats, fold)
+                                     strata, n_repeats, fold, scopes=scopes)
         res.insert(0, 'model', mk)
         res.insert(1, 'surface', surface)
         res.insert(2, 'fold', fold)
         out_csv = out_dir / f'importance_{mk}_{surface}_f{fold}.csv'
+        if set(scopes) != {'feature', 'group'} and out_csv.exists():
+            # Partial rerun: splice the recomputed scope into the existing file,
+            # leaving the untouched scope's DELTAS byte-identical.  Their `group`
+            # LABEL is re-derived from the current grouping, so the file cannot
+            # end up half-old / half-new after a --scopes group rerun (per-feature
+            # deltas are grouping-invariant; only the label moves).
+            prev = pd.read_csv(out_csv)
+            keep = prev[~prev.scope.isin(scopes)].copy()
+            relabelled = int((keep.group != keep.name.map(groups).fillna(keep.group)).sum())
+            keep['group'] = keep.name.map(groups).fillna(keep.group)
+            res = pd.concat([keep, res], ignore_index=True)[prev.columns.tolist()]
+            print(f"[{mk} f{fold}] spliced scope(s) {sorted(scopes)} into existing CSV "
+                  f"({len(keep)} rows kept, {relabelled} regrouped)")
         res.to_csv(out_csv, index=False)
         print(f"[{mk} f{fold}] importance → {out_csv}")
 
@@ -517,6 +541,13 @@ def main():
     parser.add_argument('--exclude-snow', action='store_true',
                         help='Match a trainer run that used --exclude_snow '
                              '(production kept snow — leave unset).')
+    parser.add_argument('--scopes', default='both',
+                        choices=['both', 'feature', 'group'],
+                        help="Which permutation units to compute. 'both' (default) "
+                             "is the full run. 'group' recomputes ONLY the joint-group "
+                             "units and splices them into the existing per-fold CSV — "
+                             "the correct/cheap response to a change in the ablation "
+                             "GROUPING (per-feature deltas are grouping-invariant).")
     parser.add_argument('--aggregate', action='store_true',
                         help='Aggregate existing per-fold CSVs into the '
                              'comparison table instead of computing.')
@@ -524,6 +555,7 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     models = [m.strip() for m in args.models.split(',') if m.strip()]
+    scopes = ('feature', 'group') if args.scopes == 'both' else (args.scopes,)
     for m in models:
         if m not in MODEL_DIRS:
             raise SystemExit(f"unknown model {m!r} (choose from {sorted(MODEL_DIRS)})")
@@ -545,7 +577,8 @@ def main():
     folds = [args.fold] if args.fold is not None else list(range(N_FOLDS))
     for fold in folds:
         run_fold(args.surface, fold, models, data_path, out_dir,
-                 args.n_repeats, args.n_rows, args.rmse_tol, args.exclude_snow)
+                 args.n_repeats, args.n_rows, args.rmse_tol, args.exclude_snow,
+                 scopes=scopes)
 
 
 if __name__ == '__main__':
