@@ -321,6 +321,9 @@ def _metrics_agg(g, n_boot=2000, seed=20260707):
         mu = g[mucol].to_numpy(float)
         out[f'{tag}_mu'] = _safe_nanmean(mu); out[f'{tag}_mu_sd'] = _safe_nanstd(mu)
         out[f'bias_{tag}'] = _safe_nanmean(b); out[f'bias_{tag}_sd'] = _safe_nanstd(b)
+        # station-day-equal mean |bias| (the abstract's headline aggregate),
+        # alongside the signed mean above which allows cross-station cancellation
+        out[f'abs_bias_{tag}'] = _safe_nanmean(np.abs(b))
         mr = np.isfinite(r) & np.isfinite(n); wr = float(n[mr].sum())
         rmse_p = float(np.sqrt(np.sum((n * r ** 2)[mr]) / wr)) if wr > 0 else np.nan
         ma = np.isfinite(ae) & np.isfinite(n); wa = float(n[ma].sum())

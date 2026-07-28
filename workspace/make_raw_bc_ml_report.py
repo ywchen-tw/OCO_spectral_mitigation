@@ -232,12 +232,11 @@ def main():
     md = [
         f"# Raw vs BC vs ML-corrected against TCCON — {today}",
         "",
-        # NOTE (2026-07-27): text below assumes the fold-PCA raw retrain
-        # (de_*_prof_reg_raw_foldpca_*) — rebuild the de_prof_reg_mix_raw tree
-        # with `build_ablation_variant_trees.sh raw_base` before regenerating.
-        # (The 2026-07-16 edition on disk was the global-PCA checkpoints, which
-        # also used the r05/r15 raw targets despite its header saying
-        # `xco2_raw_anomaly`.)
+        # The de_prof_reg_mix_raw tree runs on the fold-PCA raw retrain
+        # (de_*_prof_reg_raw_foldpca_*) since 2026-07-27; the global-PCA
+        # edition is archived as de_prof_reg_mix_raw_globalpca (its 2026-07-16
+        # report also used the r05/r15 raw targets despite its header saying
+        # `xco2_raw_anomaly`).
         "Four series vs TCCON (100 km / ±60 min): **raw** = pre-bias-correction "
         "`xco2_raw`; **bc** = operational bias-corrected `xco2_bc`; **ML-on-bc** = "
         f"production fold-PCA DE (`{TAG}`, corrected = xco2_bc − μ); **ML-on-raw** = "
@@ -281,20 +280,20 @@ def main():
         "(global, full-day) — it characterizes the structure of the corrections, "
         "independent of TCCON truth; the tables above are the TCCON-truth view.",
         "",
-        "## Conclusions (2026-07-16 edition)", "",
+        "## Conclusions (2026-07-27 edition, fold-PCA ML(raw))", "",
         "1. **Keep correcting `xco2_bc`.** ML-on-bc has the best station-equal "
         "mean |bias| on every reference × QF row, the best direct-reference "
-        "RMSE on every slice, and is far better on ocean (AK 0.98 vs 1.55 ppm). "
-        "ML-on-raw's apparent AK-RMSE edge on land is a footprint-scatter tie "
-        "(±0.05–0.2 ppm) that does not survive the station-equal or direct "
-        "views.",
+        "RMSE on every unflagged slice, and is far better on ocean (AK 0.98 "
+        "vs 1.54 ppm). ML-on-raw's AK-RMSE edge (pooled 1.15 vs 1.22) lives "
+        "in flagged-land footprint scatter and does not survive the "
+        "station-equal or ocean views.",
         "2. **But the ML layer can largely subsume the operational correction.** "
         "End-to-end, correcting raw directly gets within ~0.1 ppm of the "
-        "production chain pooled (AK 1.18 vs 1.22; direct 1.19 vs 1.09) — vs "
+        "production chain pooled (AK 1.15 vs 1.22; direct 1.15 vs 1.09) — vs "
         "the 2026-07-04 edition the gap has effectively closed. Trained on "
         "the raw anomaly target, the DE rediscovers the operational increment with "
-        "r(Δmu, inc) = +0.79 pooled / +0.86 on near-cloud land, at ~53–66 % of "
-        "its amplitude (slope), explaining 60 % / 73 % of var(inc). The answer "
+        "r(Δmu, inc) = +0.79 pooled / +0.87 on near-cloud land, at ~53–67 % of "
+        "its amplitude (slope), explaining 61 % / 74 % of var(inc). The answer "
         "to \"can the ML correction explain part of the operational bias "
         "correction?\" is YES — most of its variance over these scenes, from "
         "footprint-local features alone.",
