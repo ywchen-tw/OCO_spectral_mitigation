@@ -1131,8 +1131,10 @@ Use three tiers:
 
 1. **Deployment:** no imager or neighboring footprints at inference.
 2. **Sensitivity:** the spectrum contains cloud-proximity information,
-   including a response below the MODIS resolution floor (cite in bulk:
-   Supplement Sect. S4 — the former Appendix I, moved 2026-07-22m).
+   including a response below the MODIS resolution floor. The bulk S4
+   citation (spec-only classifier AUC sentence) was DROPPED 2026-07-27
+   (user decision): this tier is carried qualitatively / by the TEMPO
+   demonstration, and the main text now cites the Supplement nowhere.
 3. **Transferability:** the conceptual requirements are resolved absorption
    bands, channel-level prior optical depth, and single-footprint spectra.
 
@@ -2005,6 +2007,14 @@ Supplement as a complete section (contents listed under S4 below);
 Discussion 5.3 cites it in bulk: "spec-only classifiers recover near-cloud
 state from single spectra (AUC 0.72 land / 0.66 ocean; Supplement
 Sect. S4)". Letters were reassigned 2026-07-22n (mapping table at the top of §5).
+
+**UPDATE 2026-07-27 (user decision):** the §5.3 bulk citation above was
+DROPPED — the main text now cites the Supplement NOWHERE, so the paper can
+be submitted without a Supplement. S1–S6 remain author-side (S1/S2/S4
+staged locally; S3/S5 never regenerated); if a reviewer asks for the
+per-case galleries, a data-repository archive (e.g. Zenodo) referenced
+from the data-availability statement is the alternative to a formal
+Supplement.
 
 ### Appendix triage
 

@@ -635,3 +635,22 @@ IS the collocation parameter set. The retitle was made on emphasis grounds
 label carried a decision rather than provenance it survives as a one-line
 `*Caption note (...)*`, including the full TEMPO scene-selection rationale.
 This history file was split out of the flow plan in the same pass.
+
+**Updated:** 2026-07-27 — Discussion §5.3 drafted with production numbers and
+unbound from the Supplement. (1) Drift-era TCCON numbers landed in
+`5.3_imager_indepent.tex` from the production fold-PCA drift tree (21
+station-days / 7 sites, 2023–2024: mean |bias| 1.24 → 0.67 ppm,
+per-footprint RMSE 2.41 → 1.01 ppm, improved in 20/21; paired Wilcoxon
+p = 0.026 for |bias| and 1.3e-5 for RMSE, n = 21), plus the TEMPO ⟨l′⟩
+0.91 → 0.76 decay and the trained-correction-does-not-transfer caveat.
+Verified against `de_beta_nll_prof_reg_foldpca_o05l15_m5/drift/`
+(`tccon_comparison_r100km.csv` station-day-equal aggregates, qf=all,
+surface=all, n_tccon>0; `tccon_significance_r100km.csv`). (2) The S4
+sensitivity sentence (spec-only classifier AUC 0.72/0.66, Supplement
+Sect. S4) was added per the plan and then DROPPED the same day (user
+decision, choosing "drop the sentence entirely" over a qualitative
+rewording or a resurrected slim appendix): the main text now cites the
+Supplement nowhere, which makes submitting without a Supplement possible —
+consistent with the §5 admission rule that no main-text number leans on
+Supplement material. The sensitivity tier of §5.3 is now carried
+qualitatively by the TEMPO demonstration.
