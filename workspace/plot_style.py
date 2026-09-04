@@ -44,6 +44,7 @@ XCO2_LABEL = r"$X_{\mathrm{CO2}}$"
 # constants — never retype the superscripts.
 XCO2_BC_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{B11}}$"      # xco2_bc (operational BC)
 XCO2_RAW_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{raw}}$"     # xco2_raw
+XCO2_PRIOR_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{prior}}$"  # a priori column
 XCO2_ATOM_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{ATom}}$"   # ATom pseudo-column
 XCO2_SHIP_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{ship}}$"   # shipborne EM27/SUN
 DXCO2_BC_LABEL = r"$\Delta X_{\mathrm{CO2}}^{\mathrm{B11}}$"  # xco2_bc_anomaly

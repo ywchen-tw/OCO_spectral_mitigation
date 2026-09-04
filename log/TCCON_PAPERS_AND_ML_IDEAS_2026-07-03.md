@@ -3,12 +3,13 @@
 **Date:** 2026-07-03
 **Companion to:** `log/PROJECT_REVIEW.md`
 **Updated 2026-07-08:** Cluster 8 added (Nassar power-plant plume papers — now load-bearing: the M1 plume negative controls ran against their overpass catalog; both DOIs Crossref-verified 2026-07-08) plus MCD12C1/GIBS data citations. Cluster 9 added (MODIS cloud-mask accuracy — backing for the product-dependence Discussion paragraph; 6 entries, DOIs verified). Part 2: the baseline-table item (§2.5 / §2.8-7) is DONE via the 5-model same-protocol comparison; §2.7 extended with the spec-feature predictive-redundancy verdict (QF ablation).
+**Updated 2026-07-28:** Cluster 10 added (spaceborne XCO2 mission lineage and next-generation imaging missions; 10 new entries, DOI/journal metadata verified 2026-07-28).
 
 ---
 
 ## Part 1 — TCCON comparison literature
 
-All DOIs verified against Crossref / journal landing pages (2026-07-03). 45 entries, 7 clusters.
+Clusters 1–7 were DOI-verified against Crossref / journal landing pages on 2026-07-03; later clusters carry their own verification dates. 65 entries, 10 clusters.
 
 ### Cluster 1 — TCCON network + data protocol
 
@@ -94,6 +95,23 @@ Backing for the Discussion paragraph on cloud-product dependence (storyline §8b
 - **Holz, R. E., et al. (2008).** Global MODIS cloud detection and height evaluation using CALIOP. *JGR-Atmos*, 113, D00A19. DOI: 10.1029/2008JD009837 — Global CALIOP benchmark (87 % cloudy agreement; height low by 1.4 ± 2.9 km) — the height number also feeds the parallax bound (M5).
 - **Stubenrauch, C. J., et al. (2013).** Assessment of global cloud datasets from satellites (GEWEX Radiation Panel). *BAMS*, 94, 1031–1049. DOI: 10.1175/BAMS-D-12-00117.1 — Product-to-product spread in cloud amount/detection across 12 datasets; the citation for "a different cloud product would shift the distance axis."
 - **Platnick, S., et al. (2017).** The MODIS cloud optical and microphysical products: Collection 6 updates. *IEEE TGRS*, 55, 502–525. DOI: 10.1109/TGRS.2016.2610522 — MYD06 reference (optical properties / cloud-top); cite when discussing MYD06 as the alternative-product / parallax route. (Note: MYD04 is the *aerosol* product — relevant only to the far-field Δk1-vs-aerosol caveat, not as an alternative cloud mask.)
+
+### Cluster 10 — Spaceborne XCO2 mission lineage + next-generation imaging (added 2026-07-28; DOI/journal metadata verified)
+
+Scope note: these missions do not all deliver interchangeable products. SCIAMACHY, the GOSAT series, OCO-2/OCO-3, TanSat, and MicroCarb primarily extend the global column record and constrain regional-to-global fluxes, although several can also sample large plumes. GOSAT-GW, CO2M, and TANGO move toward wide-swath or targeted imaging of anthropogenic enhancements, with different footprint, precision, coverage, and auxiliary-gas trade-offs. Any quantitative cross-mission comparison must therefore harmonize priors and averaging kernels (Rodgers & Connor, Cluster 1), sampling, quality screening, and bias scales rather than treating all reported XCO2 values as drop-in equivalents.
+
+OCO anchors already listed above: **OCO-2** — Eldering et al. (2017) and Crisp et al. (2017) in Cluster 2; **OCO-3** — Taylor et al. (2020, 2023) in Cluster 7. The entries below fill the historical and forward mission landscape without duplicating those references.
+
+- **Buchwitz, M., et al. (2005).** Atmospheric methane and carbon dioxide from SCIAMACHY satellite data: initial comparison with chemistry and transport models. *ACP*, 5, 941–962. DOI: 10.5194/acp-5-941-2005 — Historical anchor: SCIAMACHY produced the first global satellite XCO2 dataset, establishing the pre-dedicated-mission SWIR lineage.
+- **Kuze, A., et al. (2009).** Thermal and near infrared sensor for carbon observation Fourier-transform spectrometer on the Greenhouse Gases Observing Satellite for greenhouse gases monitoring. *Applied Optics*, 48, 6716–6733. DOI: 10.1364/AO.48.006716 — Canonical **GOSAT/TANSO-FTS** instrument reference; first satellite dedicated to greenhouse-gas observations.
+- **Imasu, R., et al. (2023).** Greenhouse gases Observing SATellite 2 (GOSAT-2): mission overview. *Progress in Earth and Planetary Science*, 10, 33. DOI: 10.1186/s40645-023-00562-2 — Current **GOSAT-2** mission-level synthesis; complements the first-year TANSO-FTS-2 instrument paper in Cluster 7.
+- **Tanimoto, H., et al. (2025).** The greenhouse gas observation mission with Global Observing SATellite for Greenhouse gases and Water cycle (GOSAT-GW): objectives, conceptual framework and scientific contributions. *Progress in Earth and Planetary Science*, 12, 8. DOI: 10.1186/s40645-025-00684-9 — Canonical **GOSAT-GW/TANSO-3** concept: push-broom Wide Mode for global mapping plus 1–3 km Focus Mode for cities and power plants. GOSAT-GW launched on 29 June 2025; treat the paper's pre-launch schedule as superseded.
+- **Eldering, A., et al. (2019).** The OCO-3 mission: measurement objectives and expected performance based on 1 year of simulated data. *AMT*, 12, 2341–2370. DOI: 10.5194/amt-12-2341-2019 — Canonical **OCO-3** mission-design reference: ISS precessing orbit and Snapshot Area Mapping, complementary to the on-orbit papers in Cluster 7.
+- **Liu, Y., et al. (2018).** The TanSat mission: preliminary global observations. *Science Bulletin*, 63, 1200–1207. DOI: 10.1016/j.scib.2018.08.004 — Canonical **TanSat** mission/results paper; includes initial global XCO2 retrievals and TCCON validation.
+- **Bertaux, J.-L., et al. (2020).** The use of the 1.27 µm O2 absorption band for greenhouse gas monitoring from space and application to MicroCarb. *AMT*, 13, 3329–3374. DOI: 10.5194/amt-13-3329-2020 — **MicroCarb** instrument/retrieval-design anchor; the added 1.27 µm O2 band probes optical path closer in wavelength to the CO2 bands. The mission launched on 26 July 2025 and is operational; the paper's planned launch date is obsolete (current status: <https://cnes.fr/en/projects/microcarb>).
+- **Sierk, B., et al. (2021).** The Copernicus CO2M mission for monitoring anthropogenic carbon dioxide emissions from space. *International Conference on Space Optics — ICSO 2020*, SPIE 11852, 1563–1580. DOI: 10.1117/12.2599613 — Canonical **Copernicus Anthropogenic CO2 Monitoring (CO2M)** mission/instrument reference: a wide-swath imaging constellation with co-registered NO2, cloud, and aerosol measurements for emission monitoring.
+- **Borsdorff, T., et al. (2026).** TANGO CO2 and NO2 observations: synergistic usage to improve emission quantification and characterize atmospheric chemistry. *AMT*, 19, 4617–4636. DOI: 10.5194/amt-19-4617-2026 — Current **Twin Anthropogenic Greenhouse Gas Observers (TANGO)** reference: two formation-flying CubeSats target quasi-coincident CO2/CH4 and NO2 plumes at ~300 m sampling; planned launch in 2028.
+- **Dogniaux, M., & Crevoisier, C. (2024).** Mapping the CO2 total column retrieval performance from shortwave infrared measurements: synthetic impacts of the spectral resolution, signal-to-noise ratio, and spectral band selection. *AMT*, 17, 5373–5396. DOI: 10.5194/amt-17-5373-2024 — Cross-mission synthesis comparing OCO-2, MicroCarb, CO2M, and NanoCarb; the clean citation for instrument-design trade-offs and why nominal XCO2 precision cannot be compared independently of spectral resolution, SNR, and band choice.
 
 ### MUST-CITE shortlist (reviewer expectations)
 

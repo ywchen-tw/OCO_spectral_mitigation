@@ -1,7 +1,9 @@
 # Manuscript Flow Plan — AMT
 
 **Created:** 2026-07-19  
-**Last structural change:** 2026-07-26 (length trim + Discussion merge + Appendix B rewrite, 89 → 77 pages)
+**Last structural change:** 2026-07-31 (shipborne comparison removed — scope
+change entry below; previously 2026-07-26 length trim + Discussion merge +
+Appendix B rewrite, 89 → 77 pages)
 **Change history:** `log/MANUSCRIPT_FLOW_PLAN_history.md` — 64 dated entries,
 2026-07-21 to 2026-07-26. Consult it for *why* a decision was made or whether
 an option was already rejected; this document states *what* the manuscript
@@ -36,6 +38,65 @@ currently is.
 - **Recovery.** `manuscript/` is gitignored. Pre-trim originals are in
   `manuscript/backup/pre_trim_2026-07-26/`; material cut for the dissertation
   is in `manuscript/backup/`.
+
+### SCOPE CHANGE 2026-07-31 — shipborne comparison removed (user decision)
+
+Prompted by the second advisor's scope feedback ("way too much material").
+The shipborne EM27/SUN comparison (MORE-2 + MR21-01, 4 cases) is dropped
+FULLY, not demoted: it was the sole exception to the AK-harmonized-only
+reference basis (2026-07-21 decision), forcing the §3.5 direct-comparison
+caveat and the hedged +0.99 → +1.18 ppm offset explanation, and its
+headline number was a scatter collapse — the evidence class the §4.3.2
+smoother null itself disarms. ATom keeps the ocean story with its own
+far-cloud negative control (2017-10-09); the TCCON far-cloud strata are the
+second null. Applied batch: log/MANUSCRIPT_REVIEW_SUGGESTIONS_2026-07-28.md
+§9 (9.1–9.16). Consequences, superseding any ship mention below:
+
+- **§4.3.3 and Fig. 11 are ATom-only** (fig11a panels a/b; the Fig. 11
+  spec and draft text in §4 below are superseded). Fig. E3 (ship clear-day
+  control) and Table D4 (ship cases) removed; Table D2 loses its ship
+  block (82 → 79 distinct comparison dates); tabB1 loses the ship row;
+  tabC4 loses the ship tree.
+- **§3.5 is uniformly AK-harmonized** — the direct-comparison sentences
+  are gone, and the §7/8.10 direct-comparison anchoring question is
+  CLOSED BY SCOPE (no direct comparison remains in the paper).
+- **§2 abstract flow move 5/7 and the conclusions outline** must not
+  mention shipborne when drafted (validation reads "TCCON and aircraft
+  references"); same for the intro ¶6/¶7 (already edited).
+- Assets and pre-edit tex in `manuscript/backup/ship_removal_2026-07-31/`;
+  commented includes carry `SHIP-REMOVAL 2026-07-31` markers; the
+  `\xcoship` macro, fig11a filename, and knapp2020/hanft2021 bib entries
+  are cleaned at the final renumbering pass. The terminology-table
+  \xcoship row and Supplement S2 ship pages are dissertation-side only.
+- MC RT promotion (main-text visibility for the slab experiment) is the
+  approved companion direction, pending as §9 item 9.17.
+
+### ADDITION 2026-08-01 — footprint-size analysis (Appendix B, Fig. B5)
+
+User-requested analysis of the influence of footprint size/area on the
+near-cloud XCO2 bias and its correction — RAN 2026-08-01 (local, fold-safe;
+`workspace/fp_area_analysis.py`, CSVs under
+`results/figures/cld_dist_analysis/fp_area/`, headline numbers in
+`fp_area_headline.md`). **Figure in the APPENDIX, not the main text (user
+decision 2026-08-01):** `manuscript/figures/figB5_fp_area_robustness.{png,pdf}`
+(`manuscript/scripts/make_fp_area_figure.py`; file number — print number at
+the final renumbering pass). Verdicts: (1) at fixed nearest-cloud distance
+the anomaly ATTENUATES with footprint area on both surfaces
+(geometry-controlled OLS: ocean +0.079 ± 0.002 ppm km⁻² at 0.5 km, land
+−0.271 ± 0.025); (2) the effect is confined to each surface's response zone
+(→ real near-cloud interaction, not a scene confound); (3) the
+edge-proximity distance-shift hypothesis is REJECTED (best-fit shift ~0 km
+— amplitude, not offset); (4) the correction ABSORBS the dependence
+(held-out near-cloud residual bias flat across area quartiles: ocean span
+0.105 → 0.020 ppm, land 0.105 → 0.051 ppm). Full record + tex edit plan
+(10.1–10.5, drafts awaiting approval) in
+`log/MANUSCRIPT_REVIEW_SUGGESTIONS_2026-07-28.md` §10. SIDE FINDING —
+**§10.6 APPLIED 2026-08-01 (user go-ahead):** Fig. 3's land MEAN curve was
+carried by 192 catastrophic QF1 outlier rows (|anomaly| > 100 ppm, all
+near-cloud); the generator now screens at the training threshold, the
+figures are regenerated, and §4.1/§3.1/Table B2 carry the corrected
+median-positive land reading — see the RESOLVED Fig. 3 note in Results 4.1
+below and the §10.6 record (incl. the mean–median decomposition).
 
 **Target journal:** *Atmospheric Measurement Techniques* (AMT)  
 **Purpose:** Convert the project evidence ledger into a conventional,
@@ -127,6 +188,38 @@ inversion impact remains to be tested.
 ## 3. Manuscript architecture
 
 ### 1 Introduction
+
+**STATUS 2026-07-29: DRAFTED and review-polished — 1_intro.tex is no longer
+an outline.** How the draft maps to the plan below:
+
+- **1.1 covered in full.** Opener = "CO2 rises / sources and sinks
+  uncertain / satellites provide the constraint" (option B of three
+  proposed 2026-07-29). The sub-ppm motivation is anchored to the OCO-2
+  mission's ~1 ppm regional-accuracy target, citing eldering2017 +
+  crisp2017 already in refs.bib — user decision: frame by the 1-ppm
+  requirement, NOT "a few tenths of a ppm"; §1 now states the near-cloud
+  biases "can reach about 1 ppm or more, comparable to the accuracy
+  requirement". The suggested preferential-screening sentence was applied
+  in adapted form ("Quality filtering is therefore not only a loss of
+  sample size. It preferentially removes near-cloud observations, and the
+  losses concentrate in persistently cloudy regions ..."), with the
+  subject "Quality filtering" chosen to match the Massie QF = 0/QF = 1
+  evidence and the §5.2 wording — review item 2.20 is closed on both ends.
+- **1.2 covered:** operational ACOS chain ("not fully resolved"; the
+  cloud-aware guardrail below respected, B10 notation dropped) → RT
+  characterization (Massie SHDOM lookup, Chen EaR3T spectra modification,
+  Emde MYSTIC) → ML corrections (Mauceri 2023; Mauceri part 1 / Keely
+  part 2, 2025).
+- **1.3 DEVIATION (accepted):** the four-questions framing and the
+  five-item contributions list were not used. The gap and contributions
+  live in two compact sentences (physical interpretation + ML +
+  single-footprint imager-free inference; independent validation against
+  TCCON, aircraft, and shipborne references + explicit plume-preservation
+  tests). Deployment independence is stated with the §6-controlled wording
+  ("imager-independent at inference"), and the path-length features are
+  tied to the 3D-cloud mechanism in the closing paragraph.
+
+Original plan (kept for reference):
 
 #### 1.1 Scientific and measurement problem
 
@@ -456,7 +549,13 @@ and (2026-07-21g) motivates the surface-specific target radii on the page:
 show the common r10 target first, then the adopted r05/r15 targets.
 
 **Draft results text (interpretation moved out of the Fig. 3 caption,
-2026-07-22h):**
+2026-07-22h). SUPERSEDED IN PART 2026-08-01 (§10.6 applied): the "land
+response still ~0.5 ppm at the cut" and the closing mean-vs-median /
+tail-driven sentences were outlier artifacts — the tex now carries the
+screened reading (land median-positive, persisting to ~15 km; QF0
+snow-free symmetrically +0.17 ppm; the negative 0–2 km mean carried by
+flagged/snow scenes). The ocean sentences and the r05/r15 motivation
+stand.**
 
 > Under the common 10-km target (Fig. 3a) the ocean response has decayed
 > by ~5 km, well inside the threshold, whereas the land response is still
@@ -489,6 +588,27 @@ show the common r10 target first, then the adopted r05/r15 targets.
   over ocean the whole distribution shifts. Anomalies return to zero
   beyond the respective reference threshold by construction — state this
   in the caption.
+  **RESOLVED 2026-08-01 (was the OPEN ISSUE from the footprint-size
+  analysis; applied as MANUSCRIPT_REVIEW_SUGGESTIONS §10.6, user
+  go-ahead):** the "MEAN far exceeds the barely-moving MEDIAN /
+  tail-driven land bias" reading above is RETRACTED — it was carried by
+  192 catastrophic QF1 rows with |anomaly| > 100 ppm (median ≈ 3,974
+  ppm, all within 15 km of cloud; ocean has zero). The generator now
+  screens at `models.pipeline.MAX_ABS_ANOMALY_PPM` (training
+  population); fig03/fig03alt/figB2 regenerated. CORRECTED reading, now
+  in the tex: over land the MEDIAN is positive throughout (+0.13 at
+  0–1 km, persisting to ~15 km under r15; +0.05 at the r10 cut — the
+  r15 motivation survives via the median), while the 0–2 km bin MEAN is
+  negative (−0.51 at 0–1 km). Decomposition (2026-08-01 follow-up): the
+  QF0 snow-free stratum is symmetrically positive (mean = median =
+  +0.17); the sub-−2-ppm tail carrying the mean is 88 % QF1 / 12 % snow,
+  with shadowing the systematic secondary (shadow-branch mean −0.30 vs
+  brightening −0.04) — full numbers in REVIEW_SUGGESTIONS §10.6.
+  §4.1 prose + caption, §3.1 methods screen sentence, and the new
+  Table B2 "Target outlier screen" row are APPLIED (originals in
+  `manuscript/backup/fig3_screen_2026-08-01/tex_originals/`; build
+  clean, 82 pages). The draft results text above predates this and is
+  superseded on the land mean/median sentences.
 - **Near-cloud coverage statistics — present as ONE SENTENCE, not a table**
   (four tightly related percentages do not earn a float; a table would also
   duplicate the Appendix B cohort inventory). Computed 2026-07-21 from
@@ -565,7 +685,8 @@ user-approved; follows the sign-rule paragraph above):**
 Do not use the superseded “forest sign flip” or “albedo-contrast ordering”
 claims. Point to the Appendix F Tasman case study rather than closing with
 it in the main text (moved 2026-07-22c: the multi-panel case figure is too
-long); category atlases are in Supplement S3.
+long); category atlases are author-side S3 staging (Supplement
+backup-only, 2026-07-28).
 
 
 **Display items:**
@@ -630,8 +751,35 @@ long); category atlases are in Supplement S3.
   moved BELOW the panels, the old in-panel legend covered the O2A curves;
   pre-restyle caveat cleared). Ocean companion staged as
   `internal_shadow_brightening_ocean` until it gets a slot.
-- No main-text table; the Tasman case is Appendix F (Fig. F1); category
-  atlases and inventories are Supplement S3.
+  **UPDATE 2026-08-01 (§10.7 applied, user request):** the §4.1 tex now
+  carries the full three-class definition (z_exp = Δexp-int_O2A/σ_ref;
+  shadowed < −0.5, neutral |z| ≤ 0.5, brightened > +0.5, with the
+  physical reading of each class), the Fig. 5 caption is rewritten to
+  that definition (<10 km window, 10-km reference), and a NEW
+  condition-resolved sign paragraph follows the Fig. 5 float
+  (albedo-tercile × illumination two-way: dark×shadowed −0.12 ppm is the
+  only negative QF0 land cell; ocean all-negative, shadowed deepest;
+  AOD/wind/SZA modulate amplitude; aerosol sign flips with surface under
+  the contrast rule). Data: `workspace/bias_sign_conditions.py` →
+  `results/figures/cld_dist_analysis/bias_sign_conditions/`.
+  **UPDATE 2026-08-01b (user decision — Fig. 5 reference unified):** the
+  manuscript Fig. 5 now uses the PRODUCTION per-surface reference
+  (`spec_sensitivity.py --analyses shadow --reference production`, run
+  locally on the full parquet; QF0 snow-free as before, + the 100-ppm
+  anomaly screen, land anomaly = r15 target) → stats in
+  `spec_sensitivity/prodref/`; the common-r10 CURC stats/figure remain
+  as the internal originals (`--reference common-r10` in both scripts →
+  `internal_shadow_brightening_r10_*`). CONSEQUENCE for the evidence
+  chain: under the production reference the branches ORDER the land
+  anomaly (brightened ≈ +0.3 ppm, neutral ≈ +0.14, shadowed ≈ 0, turning
+  negative only over dark surfaces per the two-way) rather than carrying
+  opposite signs — the "opposite XCO2 responses" phrasing in older plan
+  notes/captions is superseded; Δ⟨l′⟩ branch responses stay
+  opposite-signed. §4.1 sentence + Fig. 5 caption updated accordingly;
+  build clean.
+- No main-text table; the Tasman case is Appendix F (Fig. F1); the vetted
+  inventory is typeset Table F1; category atlases are author-side S3
+  staging (Supplement backup-only, 2026-07-28).
 
 **Effect-size definition for Fig. 4 (LaTeX draft, for Methods 3.2 or the
 caption's supporting text; matches `land_class.build_effect_sizes`):**
@@ -743,6 +891,10 @@ values):**
 > what the bias is and bound what the correction may touch; the
 > retrieval-state features are the operationally sufficient predictor of
 > it.
+
+*(Note 2026-07-28: apply this draft without the "(Supplement S4)"
+citation — the S4 bulk cite was dropped 2026-07-27 and the Supplement is
+backup-only.)*
 
 **Draft results text (moved out of the Fig. 6 caption, 2026-07-22h):**
 
@@ -1100,7 +1252,11 @@ Results on 2026-07-26 (the skill-versus-trust synthesis); the rest are stubs.
 Synthesize, rather than repeat, the land–ocean response, WCO2 sign rule, and
 shadow/brightening bifurcation. Explain why separate land and ocean models are
 physically justified. Distinguish the empirical mechanism evidence from full
-PPDF moment closure.
+PPDF moment closure. **2026-08-01:** the MC paragraph now carries one added
+synthesis sentence from the condition-resolved sign analysis (§10.7):
+dark×shadowed is the only negative quality-passing land population — the
+dark endpoint of the contrast axis — and aerosol deepens the ocean deficit
+while mildly strengthening the land positive, obeying the same contrast rule.
 
 #### 5.2 Relationship to the operational bias correction → paper §5.2 (first half; MERGED with 5.4 on 2026-07-26)
 
@@ -1373,7 +1529,23 @@ attrition · Table B2 target-construction parameters and guards ·
 Fig. B2 QF-population land-class heatmaps. **Table B3 (label-noise ceilings)
 MOVED to Appendix C** beside Fig. C4, where the achieved-skill discussion
 lives (file renamed `tabB3_` → `tabC3_label_noise_ceilings.tex`; it prints as
-Table C3). **Body pointers added** so nothing is orphaned: Table B1 from
+Table C3). **ADDED 2026-08-01: footprint-size robustness figure**
+(`figB5_fp_area_robustness.{png,pdf}`, file number — prints as the next
+B-figure at the renumbering pass; generator
+`manuscript/scripts/make_fp_area_figure.py`, data
+`workspace/fp_area_analysis.py` → `results/figures/cld_dist_analysis/
+fp_area/`): (a) footprint-area distributions + quartile edges (L2 Lite
+vertex-polygon areas, QC window 0.2–10 km²), (b, c) anomaly-vs-distance by
+area quartile per surface (all-QF, |y| ≤ 100 ppm screen), (d, e)
+geometry-controlled area coefficient vs distance (attenuation, confined to
+each response zone), (f) fold-safe held-out near-cloud residual bias by
+quartile before/after correction (flat after — the correction absorbs the
+footprint-size dependence). Appendix prose + main-text pointer sentences
+drafted as §10.1–10.4 of `MANUSCRIPT_REVIEW_SUGGESTIONS_2026-07-28.md`
+(awaiting approval per the no-unasked-tex rule); spectral effect sizes by
+quartile stay CSV-only (ocean sign-stable; the land WCO2 swing is the
+land-cover mix aliasing through the strata — named as a confound, not
+footprint physics). **Body pointers added** so nothing is orphaned: Table B1 from
 Sect. 2, Table B2 + Fig. B1 from Sect. 3.1, Fig. B2 already cited from
 Sect. 4.1. Surfaced while writing the prose and now stated there: label
 retention is 74 % on ocean but only 53 % on land (a 15 km clear-sky floor is
@@ -1853,12 +2025,35 @@ Planned items:
 - ~~Figs. G2–G8~~: the seven case-atlas pages move to Supplement S3
   (2026-07-22m; resolves the previous conflict with the §4 Supplement
   list; renumbering resolved 2026-07-22n: transects/Δl′ are Figs. F2–F3);
-- **Fig. F2:** all Nassar transects — GENERATED 2026-07-23p:
-  `figF2_nassar_transects` (3-column grid of the 10 renderable per-case
-  transects, REGENERATED first on the fold-PCA tag with the current
-  product-label styling via `nassar_plume_transects.py`; Sasan
-  2023-06-26 has no in-window footprints and Matimba 2024-04-15 no
-  overpass segment — state both exclusions in the caption);
+- **Fig. F2:** Nassar transects — RE-RENDERED AND REDUCED TO THE SIX
+  AUDITED WINDOWS 2026-07-28 (user, two decisions: the 10-case × 3-panel
+  mosaic was unreadable, and the three F2a groups carry the story alone):
+  `figF2a_nassar_audited` (plume / flagged / clear-sky columns, one XCO2 +
+  nearest-cloud-distance panel pair per case) is the ONLY Nassar transect
+  figure in the paper. Rendered NATIVELY from the per-case plot_data by
+  `make_appendix_def_figures.py` (via the new
+  `nassar_plume_transects.load_transect_segment`), not by tiling PNGs —
+  fonts stay print-size. The four far-approach cases (14–38 km) render
+  author-side as `internal_nassar_null_transects`; the briefly-generated
+  `figF2b_nassar_null` and the old `figF2_nassar_transects.png` mosaic are
+  DELETED; the full 3-panel per-case dossiers remain under
+  `nassar_plumes/plume_preservation/transects/`. Completeness now lives in
+  the TABLE F2 NOTE (UPDATED later 2026-07-28, user decision on the
+  "§4.4 hard-coded pointers" review item: the testable set is now DEFINED
+  by a 12 km closest-approach criterion, so the six shown windows ARE the
+  testable set and the main-text count is 4/6; Kozienice 2024-06-26
+  (14.3 km) joins Colstrip/Comanche/Vindhyachal (30–38 km) in the
+  not-testable list; Matimba no segment. Caveat accepted by user: the
+  only cut that yields exactly six sits between Westar-06 11.9 km and
+  Kozienice-24 14.3 km). Tex label `app-fig:nassar_transects`
+  unchanged. The two §4.4 companion sentences were APPLIED with user
+  approval 2026-07-28: the inventory pointer now reads "per-case results
+  and accounting in Appendix F, Table F2" (it had pointed at Table F1, the
+  case-atlas inventory), and the not-a-selection sentence now reads (after the six-only
+  redefinition, later 2026-07-28) "The six testable windows are shown
+  ... and the cataloged overpasses without a testable window are
+  accounted for in the Table F2 note"; all §4.4 Appendix-F pointers are
+  now \ref-based (review item done);
 - **Fig. F3:** band-resolved \(\Delta l'\) for plume and cloud-contaminated
   windows — GENERATED 2026-07-23p: `figF3_k1_contrast_full` (all SIX
   audited windows in three groups: plume [Kozienice 2021-09-06, Taean
@@ -1866,7 +2061,14 @@ Planned items:
   controls [Westar 2023-06-26, Ghent]; main-text Fig. 12b keeps the
   4-window subset; fold-PCA-tag `nassar_k1_contrast.csv`);
 - **Table F1:** vetted case inventory and category assignments;
-- **Table F2:** per-case plume-removal bounds and control-null results;
+- **Table F2:** per-case plume-removal bounds and control-null results —
+  RESTRUCTURED 2026-07-28: regular table float (was longtable — the 4-in
+  \LTcapwidth caption and full-width note looked broken next to the narrow
+  table; the longtable helper now sets \LTcapwidth=\linewidth for the
+  tables that stay long), SIX rows matching Fig. F2a's panels (letters
+  (a)–(f) in the first column, middlehline between groups); the note
+  carries the non-testable-case accounting (incl. Kozienice 2024-06-26
+  since the 12 km closest-approach criterion, later 2026-07-28);
 - **Table F3:** full/no-spec/no-xco2 smoothing attribution — this IS the
   former main-text Table 4 (`tab_nassar_attribution.tex`, moved here
   2026-07-22m); one table, not two.
@@ -1914,7 +2116,10 @@ config so it cannot drift from the code):
   reduced to mean/s.d. per column (closure row of Fig. G1);
 - results: one-sided shadow-band response (x ≈ 15–22 km) + illuminated-edge
   brightening under 3-D only; IPA exactly flat outside the cloud
-  (residual ≤ 0.9 % of the 3-D dynamic range); the shadow-band ⟨l′⟩
+  (residual ≤ 0.9 % of the 3-D dynamic range in ⟨l′⟩; the dark-surface
+  var(l′) null is 4.6 % — manuscript claims scoped per-feature
+  2026-07-29, "within 0.9 % in ⟨l′⟩ and within 5 % in var(l′)");
+  the shadow-band ⟨l′⟩
   response REVERSES SIGN between the dark (0.78 → 0.41) and bright
   (0.99 → 1.17) surface — the albedo-contrast mechanism (EMPHASIS 1)
   reproduced causally; 3-D-only var(l′) plateau (~0.45) across the bright
@@ -2016,6 +2221,16 @@ per-case galleries, a data-repository archive (e.g. Zenodo) referenced
 from the data-availability statement is the alternative to a formal
 Supplement.
 
+**UPDATE 2026-07-28 (user decision):** the Supplement is now BACKUP-ONLY —
+the paper IS submitted without one; S1–S6 stay staged author-side and are
+produced/offered only if reviewers ask for more detail (formal Supplement
+or Zenodo archive at revision, whichever fits the request). The last
+paper-facing citations were removed the same day: tabF1 caption + note no
+longer say "Supplement Sect.~S3" (fixed in `make_appendix_tables.py` and
+regenerated), and the applied F.1 opening paragraph omits the draft's
+"atlas pages are in the Supplement" clause. The S1–S6 plan below is kept
+as the activation spec.
+
 ### Appendix triage
 
 Resolved 2026-07-22m/n into the appendix/Supplement split above
@@ -2034,16 +2249,18 @@ Never include a placeholder or partially documented simulation. If working
 figures A12 or A13 are not completed to manuscript standard, retain their
 claims as future work and remove the corresponding appendix references.
 
-### Supplement plan (S1–S6, 2026-07-22m)
+### Supplement plan (S1–S6, 2026-07-22m; BACKUP-ONLY since 2026-07-28)
 
-Published as one author-formatted PDF with its own DOI. Rules (per the
+**STATUS 2026-07-28: not submitted with the paper — activate only on
+reviewer request (see the UPDATE above).** If activated: published as one
+author-formatted PDF with its own DOI. Rules (per the
 §5 ADMISSION RULE): unrestricted in logical scope but NO new central
 scientific conclusions; cited from the paper in BULK only ("see
 Supplement Sect. Sx"), never as the audit trail for a specific main-text
 number — everything quantitative the paper leans on stays in the main
-text or a lettered appendix. Reviewers see the Supplement during review;
-it is not copy-edited, so it must be self-contained and carry its own
-caption discipline (the §4 caption rule applies).
+text or a lettered appendix. If provided at revision, it is not
+copy-edited, so it must be self-contained and carry its own caption
+discipline (the §4 caption rule applies).
 
 STAGING (2026-07-22p): `manuscript/scripts/stage_supplement_figures.py`
 copies the S1/S2/S4 assets (91 files, ~295 MB) into
@@ -2151,7 +2368,8 @@ Draft in evidence order rather than manuscript order:
    feed the two-sentence headline there).
 3. Data 2.1–2.4, reconciling cohort provenance and product versions.
 4. Discussion 5.1–5.6, constrained to what Results demonstrate.
-5. Introduction 1.1–1.3, positioning the now-fixed contribution.
+5. ~~Introduction 1.1–1.3, positioning the now-fixed contribution~~ —
+   DRAFTED 2026-07-29 (see the §1 status note above).
 6. Conclusions, then Abstract and title.
 
 This order minimizes narrative drift and prevents the Introduction or Abstract

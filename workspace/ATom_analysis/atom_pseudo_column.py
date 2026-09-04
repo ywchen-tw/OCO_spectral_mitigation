@@ -240,6 +240,52 @@ def make_summary_plot(df, out_png, panel_offset=0, suptitle=True,
     print(f"wrote {out_png}")
 
 
+def tccon_parallel_metrics(d):
+    """The four aggregates the TCCON report quotes, computed for ATom legs.
+
+    A leg is the ATom analogue of a TCCON station-day: one reference value
+    (the pseudo-column) against many OCO-2 footprints. Per-leg footprint RMSE
+    follows from RMSE^2 = resid^2 + sd^2, with sd the within-leg footprint
+    scatter already stored by process().
+    """
+    out = {}
+    for lab, rc, sdc in (("bc", "resid_bc", "oco_bc_sd"),
+                         ("corr", "resid_corr", "oco_corr_sd")):
+        res = d[rc].to_numpy(float)
+        sd = d[sdc].to_numpy(float)
+        n = d["n_oco"].to_numpy(float)
+        fp = np.sqrt(res ** 2 + sd ** 2)
+        out[lab] = {
+            "mean_abs_resid": float(np.abs(res).mean()),
+            "rms_resid": float(np.sqrt((res ** 2).mean())),
+            "mean_fp_rmse": float(fp.mean()),
+            "pooled_fp_rmse": float(np.sqrt((n * fp ** 2).sum() / n.sum())),
+        }
+    return out
+
+
+def write_tccon_parallel_metrics(df, out_dir):
+    """Emit the TCCON-parallel metric table so the paper never hand-carries it."""
+    keys = ("mean_abs_resid", "rms_resid", "mean_fp_rmse", "pooled_fp_rmse")
+    rows = []
+    for subset, d in [("all_legs", df), ("near_cloud_legs", df[df.cld_med <= 10])]:
+        if not len(d):
+            continue
+        m = tccon_parallel_metrics(d)
+        print(f"\n=== TCCON-parallel metrics: {subset} (n={len(d)} legs) ===")
+        for k in keys:
+            print(f"  {k:15s} {m['bc'][k]:.2f} -> {m['corr'][k]:.2f}")
+        row = {"subset": subset, "n_legs": len(d)}
+        for k in keys:
+            row[k + "_bc"] = round(m["bc"][k], 3)
+            row[k + "_corr"] = round(m["corr"][k], 3)
+        rows.append(row)
+    out = os.path.join(out_dir, "atom_metrics_tccon_parallel.csv")
+    pd.DataFrame(rows).to_csv(out, index=False)
+    print(f"\nwrote {out}")
+    return out
+
+
 def main():
     # module globals used by load_oco/load_atom/process/make_summary_plot; declared
     # up front (before argparse reads them as defaults) so the overrides below are legal
@@ -302,6 +348,7 @@ def main():
                   f"  ->  |resid_corr| mean {d.resid_corr.abs().mean():.3f}"
                   f"   bias_bc {d.resid_bc.mean():+.3f}±{d.resid_bc.std():.3f} -> "
                   f"bias_corr {d.resid_corr.mean():+.3f}±{d.resid_corr.std():.3f}")
+    write_tccon_parallel_metrics(df, OUT_BASE)
     print(f"\nwrote {out}")
     make_summary_plot(df, os.path.join(OUT_BASE, "atom_pseudo_column_summary.png"))
 

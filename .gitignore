@@ -95,3 +95,6 @@ fonts/
 
 # Manuscript is maintained outside this repository.
 /manuscript/
+
+# Talk slides (local only, not for the repo)
+/slides/

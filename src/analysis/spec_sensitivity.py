@@ -301,15 +301,45 @@ def run_spec_classifier(df: pd.DataFrame, outdir: str,
 
 # ── driver ────────────────────────────────────────────────────────────────────
 
-def _needed_columns(analyses: list[str]) -> list[str]:
+def _needed_columns(analyses: list[str], reference: str = 'common-r10') -> list[str]:
     cols = {'date', 'lon', 'lat', 'sfc_type', 'cld_dist_km',
             'xco2_bc', 'xco2_qf', 'snow_flag', 'xco2_bc_anomaly'}
     if 'subpixel' in analyses or 'shadow' in analyses:
         for obs, ref_m, ref_s, *_ in _REF_PAIRS:
             cols.update((obs, ref_m, ref_s))
+    if reference == 'production':
+        from analysis.ref_corrected import _R05_PAIRS, _R15_PAIRS
+        for obs, ref_m, ref_s, *_ in _R05_PAIRS + _R15_PAIRS:
+            cols.update((obs, ref_m, ref_s))
+        cols.update(('xco2_bc_anomaly_r05', 'xco2_bc_anomaly_r15'))
     if 'classifier' in analyses:
         cols.update(SPEC_FEATURE_SETS['full_spec'])
     return sorted(cols)
+
+
+# production-reference aliasing (2026-08-01, manuscript consistency pass):
+# expected column <- (ocean r05 source, land r15 source).  The shadow analysis
+# then runs unchanged on per-surface production-reference deltas/z-scores.
+_PRODREF_ALIAS = {
+    'zexp_o2a': ('zr05exp_o2a', 'zr15exp_o2a'),
+    'dk1_o2a': ('dr05k1_o2a', 'dr15k1_o2a'),
+    'dk1_wco2': ('dr05k1_wco2', 'dr15k1_wco2'),
+    'dk1_sco2': ('dr05k1_sco2', 'dr15k1_sco2'),
+    'xco2_bc_anomaly': ('xco2_bc_anomaly_r05', 'xco2_bc_anomaly_r15'),
+}
+
+
+def _apply_production_reference(df: pd.DataFrame) -> pd.DataFrame:
+    """Alias the shadow-analysis columns to each surface's production
+    reference (ocean r05 / land r15) and screen the anomaly at the
+    training threshold (models.pipeline.filter_target_outliers)."""
+    from analysis.ref_corrected import add_r05_anomalies, add_r15_anomalies
+    df = add_r15_anomalies(add_r05_anomalies(df))
+    ocean = df['sfc_type'] == 0
+    for alias, (c05, c15) in _PRODREF_ALIAS.items():
+        df[alias] = np.where(ocean, df[c05], df[c15])
+    df.loc[df['xco2_bc_anomaly'].abs() > 100.0, 'xco2_bc_anomaly'] = np.nan
+    return df
 
 
 def main():
@@ -321,8 +351,16 @@ def main():
                     choices=['subpixel', 'shadow', 'classifier'])
     ap.add_argument('--max-rows', type=int, default=None,
                     help='Optional row cap for quick runs (head of file).')
+    ap.add_argument('--reference', choices=['common-r10', 'production'],
+                    default='common-r10',
+                    help="Clear-sky reference for the shadow analysis: "
+                         "'common-r10' (original) or 'production' (ocean r05 "
+                         "/ land r15 per-surface aliasing + |anomaly|<=100 ppm "
+                         "screen; shadow-only, writes to <outdir>/prodref).")
     ap.add_argument('--outdir', default=None)
     args = ap.parse_args()
+    if args.reference == 'production' and args.analyses != ['shadow']:
+        ap.error("--reference production supports --analyses shadow only")
 
     storage_dir = get_storage_dir()
     path = storage_dir / 'results' / 'csv_collection' / args.parquet_fname
@@ -330,9 +368,14 @@ def main():
                                 / 'cld_dist_analysis' / 'spec_sensitivity')
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
+    if args.reference == 'production':
+        outdir = str(Path(outdir) / 'prodref')
+        Path(outdir).mkdir(parents=True, exist_ok=True)
+
     import pyarrow.parquet as pq
     avail = set(pq.read_schema(path).names)
-    cols = [c for c in _needed_columns(args.analyses) if c in avail]
+    cols = [c for c in _needed_columns(args.analyses, args.reference)
+            if c in avail]
     logger.info(f"Loading {len(cols)} columns from {path.name} …")
     if args.max_rows:
         pf = pq.ParquetFile(path)
@@ -350,7 +393,10 @@ def main():
     logger.info(f"Loaded {len(df):,} rows")
 
     df = apply_quality_filter(df)
-    if any(a in args.analyses for a in ('subpixel', 'shadow')):
+    if args.reference == 'production':
+        logger.info("Computing production-reference (r05/r15) deltas …")
+        df = _apply_production_reference(df)
+    elif any(a in args.analyses for a in ('subpixel', 'shadow')):
         logger.info("Computing ref-corrected deltas …")
         df = add_ref_anomalies(df)
 

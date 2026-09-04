@@ -8,6 +8,11 @@ cloud_no_bias), one column per case, four compact rows:
   2. delta k1 for the three bands (chosen footprint),
   3. continuum / clear ratio,
   4. absolute XCO2 BC vs the clear-scene median.
+
+With --absolute, rows 2/3 show the ABSOLUTE per-sounding cumulants instead:
+  2. <l'>  (k1, three bands),
+  3. var(l') (k2, three bands),
+row 4 unchanged; files are written as atlas_abs_<category>.<fmt>.
 Yellow shading marks where the chosen footprint is within --shade-km of a
 MODIS cloud. Each column is annotated with the peak |dXCO2| inside the
 shaded window. Categories with more than --max-cols cases are split into
@@ -38,7 +43,7 @@ ROOT_WORKSPACE = Path(__file__).resolve().parents[1]
 if str(ROOT_WORKSPACE) not in sys.path:
     sys.path.insert(0, str(ROOT_WORKSPACE))
 from plot_style import (apply_manuscript_style, CMAPS,  # noqa: E402
-                        XCO2_LABEL, MEAN_L_LABEL)
+                        XCO2_LABEL, MEAN_L_LABEL, VAR_L_LABEL)
 from spec_case_figure import (  # noqa: E402
     BAND_COLORS,
     BANDS,
@@ -100,17 +105,25 @@ def case_column(fig, gs_col, case_row, args, show_ylabels: bool) -> None:
     ax_rgb.set_title(f"{case_row['date']} {tstr}Z\n"
                      f"({clat:.1f}°, {clon:.1f}°)  fp {fp_sel}", fontsize=7)
 
-    # row 2: delta k1
-    for b in BANDS:
-        ax_k1.plot(mine["x_km"], mine[f"d_{b}_k1"], "-", color=BAND_COLORS[b],
-                   lw=0.9, label=b.upper())
-    ax_k1.axhline(0, color="k", lw=0.4)
+    if args.absolute:
+        # row 2: absolute <l'> (k1); row 3: absolute var(l') (k2)
+        for b in BANDS:
+            ax_k1.plot(mine["x_km"], mine[f"{b}_k1"], "-",
+                       color=BAND_COLORS[b], lw=0.9, label=b.upper())
+            ax_cont.plot(mine["x_km"], mine[f"{b}_k2"], "-",
+                         color=BAND_COLORS[b], lw=0.9)
+    else:
+        # row 2: delta k1
+        for b in BANDS:
+            ax_k1.plot(mine["x_km"], mine[f"d_{b}_k1"], "-",
+                       color=BAND_COLORS[b], lw=0.9, label=b.upper())
+        ax_k1.axhline(0, color="k", lw=0.4)
 
-    # row 3: continuum ratio
-    for b in BANDS:
-        ax_cont.plot(mine["x_km"], mine[f"r_h_cont_{b}"], "-",
-                     color=BAND_COLORS[b], lw=0.9)
-    ax_cont.axhline(1, color="k", lw=0.4)
+        # row 3: continuum ratio
+        for b in BANDS:
+            ax_cont.plot(mine["x_km"], mine[f"r_h_cont_{b}"], "-",
+                         color=BAND_COLORS[b], lw=0.9)
+        ax_cont.axhline(1, color="k", lw=0.4)
 
     # row 4: absolute XCO2 BC
     base_bc = mine.loc[mine["cld_dist_km"] >= args.clear_km,
@@ -143,8 +156,12 @@ def case_column(fig, gs_col, case_row, args, show_ylabels: bool) -> None:
     for a in (ax_k1, ax_cont, ax_xco2):
         a.tick_params(labelsize=6.5)
     if show_ylabels:
-        ax_k1.set_ylabel(rf"$\Delta${MEAN_L_LABEL}", fontsize=8)
-        ax_cont.set_ylabel("cont./clear", fontsize=8)
+        if args.absolute:
+            ax_k1.set_ylabel(MEAN_L_LABEL, fontsize=8)
+            ax_cont.set_ylabel(VAR_L_LABEL, fontsize=8)
+        else:
+            ax_k1.set_ylabel(rf"$\Delta${MEAN_L_LABEL}", fontsize=8)
+            ax_cont.set_ylabel("cont./clear", fontsize=8)
         ax_xco2.set_ylabel(f"{XCO2_LABEL} BC (ppm)", fontsize=8)
     return ax_k1
 
@@ -160,6 +177,10 @@ def main() -> None:
     ap.add_argument("--shade-km", type=float, default=10.0)
     ap.add_argument("--zoom-km", type=float, default=15.0)
     ap.add_argument("--img-width", type=int, default=800)
+    ap.add_argument("--absolute", action="store_true",
+                    help="rows 2/3 show absolute <l'> (k1) and var(l') (k2) "
+                         "instead of delta-k1 and the continuum ratio; output "
+                         "files get an atlas_abs_ prefix")
     ap.add_argument("--fmt", default="png", choices=["png", "pdf"])
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--parquet-fname", type=Path, default=DEFAULT_PARQUET)
@@ -196,7 +217,8 @@ def main() -> None:
             fig.suptitle(title + (f" ({ipage}/{len(pages)})"
                                   if len(pages) > 1 else ""),
                          fontsize=10, y=1.005)
-            out = args.output_dir / f"atlas_{cat}{suffix}.{args.fmt}"
+            stem = "atlas_abs" if args.absolute else "atlas"
+            out = args.output_dir / f"{stem}_{cat}{suffix}.{args.fmt}"
             fig.savefig(out, dpi=args.dpi, bbox_inches="tight")
             plt.close(fig)
             print(f"Wrote {out}")

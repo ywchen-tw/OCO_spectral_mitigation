@@ -54,12 +54,19 @@ def rolling(x: np.ndarray, y: np.ndarray, width_km: float = 5.0):
     return xs, med
 
 
-def transect_case(pair, plants, plot_base, outdir, max_km=100.0):
+def load_transect_segment(pair, plants, plot_base, max_km=100.0):
+    """Load the closest-approach overpass segment for one (plant, date) case.
+
+    Returns (seg, src, min_dist) with seg carrying the along-track x_km
+    column, or None when the case has no plot_data or too few footprints on
+    the segment. Shared by the per-case dossiers below and the manuscript
+    Appendix F composites (manuscript/scripts/make_appendix_def_figures.py).
+    """
     plant_id, date = pair
     path = plot_base / f"combined_{date}" / "plot_data.parquet"
     if not path.exists():
         print(f"  SKIP {plant_id}:{date} — missing {path}")
-        return
+        return None
     src = plants[plant_id]
     df = pd.read_parquet(path, columns=[
         "time", "lat", "lon", "cld_dist_km", "xco2_bc",
@@ -76,10 +83,18 @@ def transect_case(pair, plants, plot_base, outdir, max_km=100.0):
     if len(seg) < 20:
         print(f"  SKIP {plant_id}:{date} — only {len(seg)} footprints "
               f"within {max_km} km on the overpass segment")
-        return
+        return None
     lat0 = seg.loc[seg["source_dist_km"].idxmin(), "lat"]
     seg["x_km"] = (seg["lat"] - lat0) * 111.0
-    min_dist = float(seg["source_dist_km"].min())
+    return seg, src, float(seg["source_dist_km"].min())
+
+
+def transect_case(pair, plants, plot_base, outdir, max_km=100.0):
+    loaded = load_transect_segment(pair, plants, plot_base, max_km=max_km)
+    if loaded is None:
+        return
+    seg, src, min_dist = loaded
+    plant_id, date = pair
 
     fig, axes = plt.subplots(3, 1, figsize=(9, 9), sharex=True,
                              gridspec_kw={"height_ratios": [2, 1.2, 1]})
