@@ -17,8 +17,11 @@ absorption-weighted (pressure-weighted altitude sampling) while the mode-3
 tally is geometric path -- amplitudes differ where photons turn around
 aloft; state this in the caption.
 
-Outputs: manuscript/figures/figG1_mc_3d_vs_ica.{png,pdf}
-         (+ preview copy in results/rt_slab_sim/figs/)
+Outputs: figG1_mc_3d_vs_ica.{png,pdf} into BOTH manuscript figure trees,
+         manuscript/AMT_draft/figures/ and manuscript/JQSRT_draft/figures/
+         (+ preview copy in results/rt_slab_sim/figs/).
+         Set SLAB_FIG_OUT_DIR to send the pair to a single scratch directory
+         instead (verification runs); the default is the two manuscript trees.
 
 Run:  python workspace/rt_slab_sim/make_fig_g1.py
 """
@@ -37,7 +40,13 @@ sys.path.insert(0, os.path.join(cfg.REPO_ROOT, "workspace"))
 from plot_style import (MEAN_L_LABEL, VAR_L_LABEL, apply_manuscript_style,
                         panel_label)
 
-FIG_DIR = os.path.join(cfg.REPO_ROOT, "manuscript", "figures")
+FIG_DIRS = [
+    os.path.join(cfg.REPO_ROOT, "manuscript", "AMT_draft", "figures"),
+    os.path.join(cfg.REPO_ROOT, "manuscript", "JQSRT_draft", "figures"),
+]
+# verification escape hatch: send the pair to one scratch directory instead
+if os.environ.get("SLAB_FIG_OUT_DIR"):
+    FIG_DIRS = [os.environ["SLAB_FIG_OUT_DIR"]]
 OUT_BASE = "figG1_mc_3d_vs_ica"
 
 COL_3D = "#c1272d"     # 3-D
@@ -189,12 +198,14 @@ def main():
     fig.tight_layout()
     fig.subplots_adjust(hspace=0.14, wspace=0.22)
 
-    os.makedirs(FIG_DIR, exist_ok=True)
-    for ext in ("png", "pdf"):
-        fig.savefig(os.path.join(FIG_DIR, f"{OUT_BASE}.{ext}"))
+    for fig_dir in FIG_DIRS:
+        os.makedirs(fig_dir, exist_ok=True)
+        for ext in ("png", "pdf"):
+            fig.savefig(os.path.join(fig_dir, f"{OUT_BASE}.{ext}"))
     prev = os.path.join(cfg.OUT_DIR, "figs", f"{OUT_BASE}.png")
     fig.savefig(prev)
-    print(f"Wrote {FIG_DIR}/{OUT_BASE}.png/.pdf (+ preview {prev})")
+    print(f"Wrote {OUT_BASE}.png/.pdf into "
+          + ", ".join(FIG_DIRS) + f" (+ preview {prev})")
 
 
 if __name__ == "__main__":

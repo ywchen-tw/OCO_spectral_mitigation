@@ -3,10 +3,16 @@ Table G1 (manuscript): configuration of the controlled 3D-vs-IPA slab
 simulation, generated from slab_config.py + the stage-1/2 data files so the
 typeset table cannot drift from the code.
 
-Output: manuscript/tables/tabG1_slab_config.tex   (Copernicus style)
+Output: manuscript/AMT_draft/tables/tabG1_slab_config.tex   (Copernicus style,
+        AMT-era cross-references).  The JQSRT copy is produced by
+        manuscript/JQSRT_draft/scripts/make_table_g1.py, which imports this
+        module, runs main() into a temporary file and retargets the refs.
 
-Run:  python workspace/rt_slab_sim/make_table_g1.py
+Run:  python workspace/rt_slab_sim/make_table_g1.py [--out PATH]
+      (--out writes elsewhere, e.g. for a verification diff; the default
+       stays manuscript/AMT_draft/tables/tabG1_slab_config.tex)
 """
+import argparse
 import os
 import sys
 
@@ -16,11 +22,14 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 import slab_config as cfg
 
-OUT_TEX = os.path.join(cfg.REPO_ROOT, "manuscript", "tables",
+OUT_TEX = os.path.join(cfg.REPO_ROOT, "manuscript", "AMT_draft", "tables",
                        "tabG1_slab_config.tex")
 
 
-def main():
+def main(out_tex=None):
+    # module-level OUT_TEX is read at call time so importers (the JQSRT
+    # wrapper) can redirect the output by patching it
+    out_tex = out_tex or OUT_TEX
     with h5py.File(cfg.ATM_FILE, "r") as f:
         meta = dict(f["meta"].attrs)
         fine = {k: f["fine"][k][...] for k in ("h_edge_m", "d_o2", "dz_m")}
@@ -138,11 +147,15 @@ def main():
             lines.append(f"{name} & {val} \\\\")
     lines += ["\\bottomhline", "\\end{tabular}", "\\end{table}", ""]
 
-    os.makedirs(os.path.dirname(OUT_TEX), exist_ok=True)
-    with open(OUT_TEX, "w") as f:
+    os.makedirs(os.path.dirname(out_tex), exist_ok=True)
+    with open(out_tex, "w") as f:
         f.write("\n".join(lines))
-    print(f"Wrote {OUT_TEX}")
+    print(f"Wrote {out_tex}")
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--out", default=None, metavar="PATH",
+                    help="write the .tex here instead of the default "
+                         "manuscript/AMT_draft/tables/tabG1_slab_config.tex")
+    main(ap.parse_args().out)

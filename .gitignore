@@ -98,3 +98,6 @@ fonts/
 
 # Talk slides (local only, not for the repo)
 /slides/
+
+# Working logs and plan docs (local only)
+/log/

@@ -152,8 +152,18 @@ def run_subpixel_check(df: pd.DataFrame, outdir: str,
 # ── 2. Shadow vs brightening ──────────────────────────────────────────────────
 
 def run_shadow_brightening(df: pd.DataFrame, outdir: str,
-                           z_thresh: float = 0.5, n_min: int = 500) -> None:
-    """Near-cloud Δk₁/anomaly profiles split by continuum shift sign."""
+                           z_thresh: float = 0.5, n_min: int = 500,
+                           exclude_mixed_ref: str | Path | None = None) -> None:
+    """Near-cloud Δk₁/anomaly profiles split by continuum shift sign.
+
+    ``exclude_mixed_ref`` (opt-in) points at the per-footprint flag file written
+    by ``workspace/mixed_surface_reference_count.py``
+    (``mixed_window_flags.parquet``: fp_id, sfc_type, n_ref, n_ref_other,
+    mixed).  Targets whose clear-sky reference window contains at least one
+    footprint of the other surface type are dropped before the branch
+    statistics, and the outputs get a ``_samesfc`` stem so the unfiltered
+    versions survive for comparison.
+    """
     need = ['zexp_o2a', 'dk1_o2a', 'dk1_wco2', 'dk1_sco2', 'xco2_bc_anomaly']
     if not all(c in df.columns for c in need):
         logger.warning("shadow: missing delta/z columns — skipped")
@@ -161,6 +171,22 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
 
     d = df['cld_dist_km']
     near = df[(d >= 0) & (d < _NEAR_MAX)].copy()
+    suffix = ''
+    if exclude_mixed_ref is not None:
+        suffix = '_samesfc'
+        if 'fp_id' not in near.columns:
+            raise ValueError("--exclude-mixed-ref needs the fp_id column")
+        flags = pd.read_parquet(exclude_mixed_ref, columns=['fp_id', 'mixed'])
+        mixed_ids = flags.loc[flags['mixed'], 'fp_id'].to_numpy()
+        drop = near['fp_id'].isin(mixed_ids)
+        logger.info(f"  exclude_mixed_ref: {len(flags):,} flagged footprints, "
+                    f"{len(mixed_ids):,} mixed-window")
+        for _sname, _scode in _SURFACES:
+            _s = near['sfc_type'] == _scode
+            logger.info(f"  exclude_mixed_ref [{_sname}]: dropping "
+                        f"{int((_s & drop).sum()):,} of {int(_s.sum()):,} "
+                        f"near-cloud footprints")
+        near = near[~drop]
     edges = [0, 1, 2, 3, 5, 7, 10]
     labels = [f"{edges[i]}–{edges[i+1]}" for i in range(len(edges) - 1)]
     near['_bin'] = pd.cut(near['cld_dist_km'], bins=edges, labels=labels,
@@ -210,11 +236,11 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
         fig.suptitle(f'{sname.capitalize()}: near-cloud response split by '
                      'continuum shift (brightened vs shadowed)', y=0.995)
         fig.tight_layout()
-        _save(fig, outdir, f'shadow_brightening_{sname}.png')
+        _save(fig, outdir, f'shadow_brightening_{sname}{suffix}.png')
 
-    pd.DataFrame(rows).to_csv(f"{outdir}/shadow_brightening_stats.csv",
-                              index=False)
-    logger.info(f"  wrote {outdir}/shadow_brightening_stats.csv")
+    pd.DataFrame(rows).to_csv(
+        f"{outdir}/shadow_brightening_stats{suffix}.csv", index=False)
+    logger.info(f"  wrote {outdir}/shadow_brightening_stats{suffix}.csv")
 
 
 # ── 3. Spec-only cloud-proximity classifier ───────────────────────────────────
@@ -301,9 +327,12 @@ def run_spec_classifier(df: pd.DataFrame, outdir: str,
 
 # ── driver ────────────────────────────────────────────────────────────────────
 
-def _needed_columns(analyses: list[str], reference: str = 'common-r10') -> list[str]:
+def _needed_columns(analyses: list[str], reference: str = 'common-r10',
+                    need_fp_id: bool = False) -> list[str]:
     cols = {'date', 'lon', 'lat', 'sfc_type', 'cld_dist_km',
             'xco2_bc', 'xco2_qf', 'snow_flag', 'xco2_bc_anomaly'}
+    if need_fp_id:
+        cols.add('fp_id')
     if 'subpixel' in analyses or 'shadow' in analyses:
         for obs, ref_m, ref_s, *_ in _REF_PAIRS:
             cols.update((obs, ref_m, ref_s))
@@ -320,6 +349,10 @@ def _needed_columns(analyses: list[str], reference: str = 'common-r10') -> list[
 # production-reference aliasing (2026-08-01, manuscript consistency pass):
 # expected column <- (ocean r05 source, land r15 source).  The shadow analysis
 # then runs unchanged on per-surface production-reference deltas/z-scores.
+_MIXED_FLAGS_DEFAULT = str(
+    ROOT / 'results' / 'figures' / 'cld_dist_analysis' / 'spec_sensitivity'
+    / 'prodref' / 'mixed_surface_windows' / 'mixed_window_flags.parquet')
+
 _PRODREF_ALIAS = {
     'zexp_o2a': ('zr05exp_o2a', 'zr15exp_o2a'),
     'dk1_o2a': ('dr05k1_o2a', 'dr15k1_o2a'),
@@ -358,9 +391,20 @@ def main():
                          "/ land r15 per-surface aliasing + |anomaly|<=100 ppm "
                          "screen; shadow-only, writes to <outdir>/prodref).")
     ap.add_argument('--outdir', default=None)
+    ap.add_argument('--exclude-mixed-ref', nargs='?', const=_MIXED_FLAGS_DEFAULT,
+                    default=None, metavar='FLAGS_PARQUET',
+                    help="Drop shadow-analysis targets whose clear-sky "
+                         "reference window contains footprints of the other "
+                         "surface type, using the flag file from "
+                         "workspace/mixed_surface_reference_count.py (bare "
+                         f"flag = {_MIXED_FLAGS_DEFAULT}). Writes "
+                         "shadow_brightening_stats_samesfc.csv; the "
+                         "unfiltered outputs are left in place.")
     args = ap.parse_args()
     if args.reference == 'production' and args.analyses != ['shadow']:
         ap.error("--reference production supports --analyses shadow only")
+    if args.exclude_mixed_ref and not Path(args.exclude_mixed_ref).exists():
+        ap.error(f"--exclude-mixed-ref file not found: {args.exclude_mixed_ref}")
 
     storage_dir = get_storage_dir()
     path = storage_dir / 'results' / 'csv_collection' / args.parquet_fname
@@ -374,7 +418,8 @@ def main():
 
     import pyarrow.parquet as pq
     avail = set(pq.read_schema(path).names)
-    cols = [c for c in _needed_columns(args.analyses, args.reference)
+    cols = [c for c in _needed_columns(args.analyses, args.reference,
+                                       need_fp_id=bool(args.exclude_mixed_ref))
             if c in avail]
     logger.info(f"Loading {len(cols)} columns from {path.name} …")
     if args.max_rows:
@@ -405,7 +450,8 @@ def main():
         run_subpixel_check(df, outdir)
     if 'shadow' in args.analyses:
         logger.info("── shadow vs brightening ──")
-        run_shadow_brightening(df, outdir)
+        run_shadow_brightening(df, outdir,
+                               exclude_mixed_ref=args.exclude_mixed_ref)
     if 'classifier' in args.analyses:
         logger.info("── spec-only cloud classifier ──")
         run_spec_classifier(df, outdir)
