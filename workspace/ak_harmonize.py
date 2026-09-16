@@ -60,6 +60,28 @@ def _pressure_to_hpa(arr, units):
     return arr * fac
 
 
+# TCCON prior_h2o unit conversion to a mole fraction (parts per part).  GGG2020
+# public files declare units '1' (or 'parts'); GGG2020.1 declares 'ppm' for the
+# same quantity, so the attribute has to be honoured or the wet->dry conversion
+# below silently saturates its clip guard.
+_H2O_TO_FRACTION = {'1': 1.0, '': 1.0, 'parts': 1.0, 'parts per part': 1.0,
+                    'ppp': 1.0, 'mol/mol': 1.0, 'mol mol-1': 1.0,
+                    'ppm': 1e-6, 'ppmv': 1e-6, 'umol/mol': 1e-6,
+                    'ppb': 1e-9, 'ppbv': 1e-9, 'nmol/mol': 1e-9}
+
+
+def _h2o_to_fraction(arr, units):
+    fac = _H2O_TO_FRACTION.get(str(units).strip().lower())
+    if fac is None:
+        raise ValueError(f"Unrecognized H2O units {units!r}")
+    out = arr * fac
+    med = np.nanmedian(out)
+    if np.isfinite(med) and med > 0.1:
+        raise ValueError(f"prior_h2o with units {units!r} gives a median mole "
+                         f"fraction of {med:.3g}; expected < 0.1")
+    return out
+
+
 def find_lite_file(date_str, roots=None):
     """Locate the day-level OCO-2 Lite file for date_str ('YYYY-MM-DD').
 
@@ -164,10 +186,13 @@ def operator_from_dataframe(df, min_n=3):
                 ca=float(ca.mean()), n_lite=int(len(df)))
 
 
-def ak_adjusted_ref_from_operator(op, tccon_nc_path, tmin, tmax, window_min=60.0):
+def ak_adjusted_ref_from_operator(op, tccon_nc_path, tmin, tmax, window_min=60.0,
+                                  xco2_var='xco2'):
     """AK/prior-harmonized TCCON reference given a prepared OCO-2 operator.
 
     op : dict from mean_oco2_operator() or operator_from_dataframe().
+    xco2_var : TCCON XCO2 variable to read (default 'xco2'; GGG2020.1 files carry
+        'xco2_x2007'/'xco2_x2019' instead).  The priors are unchanged in name.
     Returns dict(tccon_ref_ak, tccon_sd_ak, n_tccon, ak_delta, n_lite) or None.
     ak_delta = harmonized mean − raw window mean (ppm): the smoothing/prior term.
     """
@@ -182,7 +207,7 @@ def ak_adjusted_ref_from_operator(op, tccon_nc_path, tmin, tmax, window_min=60.0
 
     with nc4.Dataset(tccon_nc_path, 'r') as ds:
         t = np.ma.filled(ds.variables['time'][:], np.nan).astype(float)
-        xco2 = np.ma.filled(ds.variables['xco2'][:], np.nan).astype(float)
+        xco2 = np.ma.filled(ds.variables[xco2_var][:], np.nan).astype(float)
         sel = np.where((t >= s0) & (t <= s1)
                        & np.isfinite(xco2) & (xco2 > 300) & (xco2 < 550))[0]
         if not sel.size:
@@ -191,7 +216,10 @@ def ak_adjusted_ref_from_operator(op, tccon_nc_path, tmin, tmax, window_min=60.0
         prior_co2 = np.ma.filled(ds.variables['prior_co2'][sel], np.nan).astype(float)
         # prior_co2 is a WET mole fraction (see module docstring); prior_h2o is
         # needed to convert it to the dry-air basis of the OCO-2 operator.
-        prior_h2o = np.ma.filled(ds.variables['prior_h2o'][sel], np.nan).astype(float)
+        h2o_var = ds.variables['prior_h2o']
+        prior_h2o = _h2o_to_fraction(
+            np.ma.filled(h2o_var[sel], np.nan).astype(float),
+            getattr(h2o_var, 'units', '1'))
         p_var = ds.variables['prior_pressure']
         prior_p = _pressure_to_hpa(np.ma.filled(p_var[sel], np.nan).astype(float),
                                    getattr(p_var, 'units', 'atm'))
@@ -232,7 +260,7 @@ def ak_adjusted_ref_from_operator(op, tccon_nc_path, tmin, tmax, window_min=60.0
 
 
 def ak_adjusted_ref(lite_path, tccon_nc_path, st_lon, st_lat, radius_km,
-                    tmin, tmax, window_min=60.0):
+                    tmin, tmax, window_min=60.0, xco2_var='xco2'):
     """AK/prior-harmonized TCCON reference for one case, from the Lite file.
 
     Builds the mean OCO-2 operator over Lite soundings (QF 0 and 1) within radius_km
@@ -242,4 +270,4 @@ def ak_adjusted_ref(lite_path, tccon_nc_path, st_lon, st_lat, radius_km,
     """
     op = mean_oco2_operator(lite_path, st_lon, st_lat, radius_km)
     return ak_adjusted_ref_from_operator(op, tccon_nc_path, tmin, tmax,
-                                         window_min=window_min)
+                                         window_min=window_min, xco2_var=xco2_var)

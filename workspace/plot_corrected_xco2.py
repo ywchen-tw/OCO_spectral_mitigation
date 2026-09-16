@@ -139,15 +139,37 @@ def _select_model_cfg(df: pd.DataFrame, requested: str):
 
 # ── Data loaders ───────────────────────────────────────────────────────────────
 
-def load_tccon(nc_path: str) -> pd.DataFrame:
-    """Return DataFrame (time [UTC-aware], lat, lon, xco2, xco2_error)."""
+def tccon_error_var(xco2_var: str) -> str:
+    """Name of the error variable matching a TCCON XCO2 variable.
+
+    'xco2' -> 'xco2_error', 'xco2_x2019' -> 'xco2_error_x2019',
+    'xco2_x2007' -> 'xco2_error_x2007'.  GGG2020.1 files drop the plain
+    'xco2'/'xco2_error' pair and carry the scale-tagged ones only.
+    """
+    if xco2_var == 'xco2':
+        return 'xco2_error'
+    if xco2_var.startswith('xco2_'):
+        return 'xco2_error_' + xco2_var[len('xco2_'):]
+    raise ValueError(f"unrecognised TCCON XCO2 variable {xco2_var!r}")
+
+
+def load_tccon(nc_path: str, xco2_var: str = None) -> pd.DataFrame:
+    """Return DataFrame (time [UTC-aware], lat, lon, xco2, xco2_error).
+
+    xco2_var selects which TCCON XCO2 variable to read (default None -> 'xco2',
+    today's behaviour).  The matching error variable is derived by
+    tccon_error_var().  The returned column names are always 'xco2'/'xco2_error'
+    whatever the source variable was, so every downstream consumer is unchanged.
+    """
+    _xv = 'xco2' if xco2_var is None else xco2_var
+    _xe = tccon_error_var(_xv)
     with nc4.Dataset(nc_path, 'r') as ds:
         # TCCON files use 'long' (not 'lon') and time in seconds since 1970-01-01 UTC
         time_sec  = np.ma.filled(ds.variables['time'][:],      np.nan).astype(np.float64)
         lat_arr   = np.ma.filled(ds.variables['lat'][:],       np.nan).astype(np.float64)
         lon_arr   = np.ma.filled(ds.variables['long'][:],      np.nan).astype(np.float64)
-        xco2_arr  = np.ma.filled(ds.variables['xco2'][:],      np.nan).astype(np.float64)
-        xco2e_arr = np.ma.filled(ds.variables['xco2_error'][:], np.nan).astype(np.float64)
+        xco2_arr  = np.ma.filled(ds.variables[_xv][:],         np.nan).astype(np.float64)
+        xco2e_arr = np.ma.filled(ds.variables[_xe][:],         np.nan).astype(np.float64)
 
     # TCCON time: "seconds since 1970-01-01 00:00:00" (gregorian UTC).
     # pd.to_datetime(float_array, unit='s') fails in pandas 2.x when the array

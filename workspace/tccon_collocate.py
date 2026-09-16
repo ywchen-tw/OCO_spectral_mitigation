@@ -52,6 +52,17 @@ SITE_COORDS = {
     'rj': (143.7700, 43.4600),   # Rikubetsu
     'wg': (150.8800, -34.4100),  # Wollongong
     'xh': (116.9600, 39.8000),   # Xianghe
+    # added 2026-09-15 with the extended validation sample (same source: the
+    # constant lat/long metadata of the GGG2020 files, 0.01° precision)
+    'bi': (23.0200, 53.2300),    # Bialystok
+    'br': (8.8500, 53.1000),     # Bremen
+    'gm': (11.0600, 47.4800),    # Garmisch
+    'hw': (-1.3200, 51.5700),    # Harwell
+    'll': (169.6800, -45.0400),  # Lauder 125HR (lauder02)
+    'lr': (169.6800, -45.0400),  # Lauder 125HR (lauder03)
+    'ni': (33.3800, 35.1400),    # Nicosia
+    'so': (26.6300, 67.3700),    # Sodankylä
+    'tk': (140.1200, 36.0500),   # Tsukuba 125HR (tsukuba02)
 }
 
 

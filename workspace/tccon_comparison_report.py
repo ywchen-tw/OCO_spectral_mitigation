@@ -5,7 +5,7 @@ case reproduces the figure's comparison logic:
     drop guarded footprints → lon/lat box → footprints ≤ --radius-km of the TCCON
     station → TCCON within ± --window-min of the OCO-2 pass on that date.
 Then computes mean ± std of the ORIGINAL (xco2_bc), CORRECTED, and TCCON XCO2, and
-the bias to TCCON before/after correction.
+the residual to TCCON before/after correction.
 
 Every metric variable and figure is emitted THREE times, split by OCO-2 quality
 flag: 'all' (xco2_qf 0+1, the headline — original behaviour), plus 'qf0' (good)
@@ -20,7 +20,7 @@ window mean).  The 'ak' set only appears under --ak-harmonize; 'direct' always d
     tccon_comparison.md           — markdown tables + aggregate summary + metrics table
     tccon_metrics_{ref}.csv       — comprehensive per-(surface × cloud-group) metrics
     tccon_{ref}_scatter.png       — corrected/original/raw vs TCCON scatter (1:1 + OLS)
-    tccon_{ref}_bias.png          — bias-to-TCCON panel (style = --bias-style)
+    tccon_{ref}_bias.png          — residual-to-TCCON panel (style = --bias-style)
     tccon_{ref}_by_surface_*.png  — ocean/land stacked, (a)/(b) panels
     tccon_{ref}_by_cld_*.png      — one panel per nearest-cloud-distance bin
     tccon_{ref}_by_surface_by_cld_bias.png,  tccon_by_site_bias.png
@@ -46,7 +46,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# Bias-panel style variants (item 3); --bias-style picks the production one and the
+# Residual-panel style variants (item 3); --bias-style picks the production one and the
 # 4-file low-dpi test set is always emitted for the headline all-cases view.
 BIAS_STYLES = ('scatter_clddist', 'dumbbell_clddist', 'dumbbell_nolabel', 'dumbbell_label')
 
@@ -136,8 +136,8 @@ def _mse_aggregate(g, series=('raw', 'before', 'after')):
       * pooled_mse    — footprint-weighted mean of (XCO₂−TCCON)², Σ n·RMSE² / Σ n
                         (the 'absolute' overall squared error; big cases dominate),
       * mean_case_mse — mean over station-days of the per-case MSE (= RMSE²),
-      * station_mse   — mean over station-days of the squared station-day bias,
-      * mean_absbias / mean_mae / mean_rmse — station-day means of |bias|, per-case
+      * station_mse   — mean over station-days of the squared station-day mean residual,
+      * mean_absbias / mean_mae / mean_rmse — station-day means of |residual|, per-case
         MAE and per-case RMSE.
     A tag whose columns are absent or all-NaN (e.g. raw with no xco2_raw) yields
     NaN and is skipped by the markdown formatter."""
@@ -206,11 +206,11 @@ def _significance(cmp, n_boot=10000, seed=20260703):
     """Paired significance of the correction across station-days (M3).
 
     Two complementary tests on the per-case (station-day) metrics:
-      * paired Wilcoxon signed-rank on |bias| and on per-footprint RMSE
+      * paired Wilcoxon signed-rank on |residual| and on per-footprint RMSE
         (treats station-days as exchangeable pairs), and
       * a SITE-CLUSTERED bootstrap (sites resampled with replacement, each
         bringing all its station-days) for the after−before deltas of
-        mean |bias|, RMS bias, and mean RMSE — this respects the strong
+        mean |residual|, RMS residual, and mean RMSE — this respects the strong
         within-site clustering (e.g. Réunion 14 days) that the Wilcoxon
         ignores.  p_boot = 2·min(P(Δ≥0), P(Δ≤0)), floored at 2/(B+1).
 
@@ -264,19 +264,19 @@ def _sig_lines(sig, label):
     def fp(p):
         return '' if not np.isfinite(p) else (f'p = {p:.4f}' if p >= 1e-4 else 'p < 1e-4')
     lines = ['', f'### Significance ({label})', '',
-             f"- paired Wilcoxon signed-rank, station-day |bias| after vs before "
+             f"- paired Wilcoxon signed-rank, station-day |residual| after vs before "
              f"(n={sig.get('wilcoxon_absbias_n', 0)}): **{fp(sig.get('wilcoxon_absbias_p', np.nan))}**",
-             f"- paired Wilcoxon signed-rank, per-footprint RMSE after vs before "
+             f"- paired Wilcoxon signed-rank, fp-RMSE after vs before "
              f"(n={sig.get('wilcoxon_rmse_n', 0)}): **{fp(sig.get('wilcoxon_rmse_p', np.nan))}**"]
     if 'd_mean_absbias_mean' in sig:
         lines += [f"- site-clustered bootstrap ({sig['n_sites']} sites, 95% CI of after−before):",
-                  f"  - Δ mean |bias| = {sig['d_mean_absbias_mean']:+.2f} "
+                  f"  - Δ station-day mean |residual| = {sig['d_mean_absbias_mean']:+.2f} "
                   f"[{sig['d_mean_absbias_ci_lo']:+.2f}, {sig['d_mean_absbias_ci_hi']:+.2f}] ppm, "
                   f"**{fp(sig['d_mean_absbias_p'])}**",
-                  f"  - Δ RMS bias = {sig['d_rms_bias_mean']:+.2f} "
+                  f"  - Δ station-day RMS residual = {sig['d_rms_bias_mean']:+.2f} "
                   f"[{sig['d_rms_bias_ci_lo']:+.2f}, {sig['d_rms_bias_ci_hi']:+.2f}] ppm, "
                   f"**{fp(sig['d_rms_bias_p'])}**",
-                  f"  - Δ mean footprint RMSE = {sig['d_mean_rmse_mean']:+.2f} "
+                  f"  - Δ station-day mean fp-RMSE = {sig['d_mean_rmse_mean']:+.2f} "
                   f"[{sig['d_mean_rmse_ci_lo']:+.2f}, {sig['d_mean_rmse_ci_hi']:+.2f}] ppm, "
                   f"**{fp(sig['d_mean_rmse_p'])}**"]
     return lines
@@ -304,7 +304,7 @@ def _boot_bias_ci(vals, sites, n_boot, seed):
 def _metrics_agg(g, n_boot=2000, seed=20260707):
     """Aggregate one (ref, surface, cld-group) block of per-case metric rows into the
     comprehensive cross-model metrics dict (item 5).  Station-day level for means,
-    biases, robust stats and the OCO-vs-TCCON OLS (reusing _ols_fit); footprint-
+    residuals, robust stats and the OCO-vs-TCCON OLS (reusing _ols_fit); footprint-
     weighted for pooled RMSE/MAE and reduced-χ²."""
     out = dict(n_station_days=int(len(g)), n_footprints=int(g['n_oco'].sum()))
     sites = g['site'].to_numpy() if 'site' in g.columns else np.array([])
@@ -321,7 +321,7 @@ def _metrics_agg(g, n_boot=2000, seed=20260707):
         mu = g[mucol].to_numpy(float)
         out[f'{tag}_mu'] = _safe_nanmean(mu); out[f'{tag}_mu_sd'] = _safe_nanstd(mu)
         out[f'bias_{tag}'] = _safe_nanmean(b); out[f'bias_{tag}_sd'] = _safe_nanstd(b)
-        # station-day-equal mean |bias| (the abstract's headline aggregate),
+        # station-day-equal mean |residual| (the abstract's headline aggregate),
         # alongside the signed mean above which allows cross-station cancellation
         out[f'abs_bias_{tag}'] = _safe_nanmean(np.abs(b))
         mr = np.isfinite(r) & np.isfinite(n); wr = float(n[mr].sum())
@@ -394,10 +394,10 @@ def _metrics_md_lines(tbl):
     out = ['', '## Comprehensive metrics table (per surface × cloud group)', '',
            '_Pooled `all` surface, corrected (after) series shown; full '
            'raw/before/after × ocean/land breakdown in `tccon_metrics_{ref}.csv`. '
-           'RMSE/MAE footprint-weighted; cRMSE = bias-removed RMSE; slope/R² from the '
+           'RMSE/MAE footprint-weighted; cRMSE = mean-residual-removed RMSE; slope/R² from the '
            'station-mean OCO-vs-TCCON OLS; ⟨z²⟩ = reduced-χ² vs `de_sigma` (≈1 ideal); '
            'skill = 1−RMSE_after/RMSE_before (fractional RMSE reduction, >0 = correction '
-           'helps); 95% CI is site-clustered bootstrap on the mean bias._']
+           'helps); 95% CI is site-clustered bootstrap on the mean residual._']
     qf_labels = [q for q, _ in QF_GROUPS]
     for ref in ('ak', 'direct'):
         for qf in qf_labels:
@@ -406,7 +406,7 @@ def _metrics_md_lines(tbl):
             if not len(t):
                 continue
             out += ['', f'### {ref.upper()} reference — {QF_TITLES[qf]}', '',
-                    '| cld group | n_days | n_fp | cloud dist (km) | bias after | 95% CI | '
+                    '| cld group | n_days | n_fp | cloud dist (km) | residual after | 95% CI | '
                     'RMSE | cRMSE | MAE | median±MAD | slope±SE | R² | ⟨z²⟩ | skill |',
                     '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|']
             for _, r in t.iterrows():
@@ -425,7 +425,7 @@ def _metrics_md_lines(tbl):
 
 def _tccon_band(ax, frame):
     """Draw each case's OWN ±(reported TCCON xco2_error) zone as a short grey
-    segment centered at bias=0, at that row's y-position.  Rows are assumed
+    segment centered at residual = 0, at that row's y-position.  Rows are assumed
     plotted at y = 0..n-1 in ``frame`` order (as the dumbbell / direct-vs-AK
     series do).  Per-case TCCON measurement uncertainty — it varies station-day
     to station-day (sparse or high-error windows are wider).  Reference-
@@ -443,7 +443,7 @@ def _tccon_band(ax, frame):
             continue
         ax.fill_betweenx([i - 0.4, i + 0.4], -err, err, color='gray', alpha=0.20,
                          lw=0, zorder=0,
-                         label=(None if labelled else '±TCCON σ (per case)'))
+                         label=(None if labelled else '±TCCON σ (per station-day)'))
         labelled = True
     return float(np.nanmean(e))
 
@@ -498,10 +498,10 @@ def _draw_scatter(ax, cmp, panel=None):
 
 
 def _bias_stat_box(ax, cmp, has_raw, placement='above-center'):
-    """Shared before/after (and raw) station-bias ± σ + footprint-RMSE annotation box.
+    """Shared before/after (and raw) mean-residual ± σ + footprint-RMSE box.
 
     ``placement``: 'inside' = top-left corner inside the axes (atrain
-    dumbbell: top rows are the most-positive biases, markers on the right,
+    dumbbell: top rows are the most-positive residuals, markers on the right,
     corner clear); 'above-left' = outside above the frame, left-aligned
     (dumbbell with data in the corners — pairs with the outside legend
     above-right); 'above-center' = outside, centered (scatter_clddist,
@@ -515,9 +515,15 @@ def _bias_stat_box(ax, cmp, has_raw, placement='above-center'):
         _b = cmp[_col].to_numpy(float); _b = _b[np.isfinite(_b)]
         _r = cmp[_rcol].to_numpy(float); _r = _r[np.isfinite(_r)]
         if _b.size:
-            _rtxt = f"   footprint RMSE {np.mean(_r):.2f}" if _r.size else ""
-            _btxt.append(f"{_lbl}:  station bias {np.mean(_b):+.2f} ± {np.std(_b):.2f}"
-                         f"   |bias| {np.mean(np.abs(_b)):.2f} ± "
+            # 2026-09-15 (author): the signed 'residual mean ± sd' entry was
+            # dropped so the box lists only the two manuscript aggregates,
+            # the station-day mean |residual| (± its sd across station-days)
+            # and the station-day mean fp-RMSE (JQSRT plan item 18). The
+            # signed network mean is still in the per-case CSV (bias_*).
+            # The second number is the station-day mean fp-RMSE; the box is
+            # narrow, so it is labelled 'mean fp-RMSE' without the prefix.
+            _rtxt = f"   mean fp-RMSE {np.mean(_r):.2f}" if _r.size else ""
+            _btxt.append(f"{_lbl}:  |residual| {np.mean(np.abs(_b)):.2f} ± "
                          f"{np.std(np.abs(_b)):.2f}{_rtxt}")
     if _btxt:
         if placement == 'inside':
@@ -535,7 +541,7 @@ def _bias_stat_box(ax, cmp, has_raw, placement='above-center'):
 
 
 def _bias_dumbbell(ax, cmp, sort_col, show_labels, has_raw):
-    """Per-case bias-to-TCCON dumbbell (raw→before→after, errorbar = footprint σ),
+    """Per-case residual-to-TCCON dumbbell (raw→before→after, errorbar = footprint σ),
     rows sorted by ``sort_col`` (bias_before or cld_dist_mu).  ``show_labels`` toggles
     the crowded per-case 'site date' y-tick text (item 3)."""
     cmp = cmp.sort_values(sort_col).reset_index(drop=True)
@@ -563,28 +569,39 @@ def _bias_dumbbell(ax, cmp, sort_col, show_labels, has_raw):
     if show_labels:
         ax.set_yticks(y)
         ax.set_yticklabels([f"{r.site} {r.date}" for r in cmp.itertuples()], fontsize=6)
-        ax.set_ylabel('station-day (sorted by pre-correction bias)')
+        ax.set_ylabel('station-day (sorted by pre-correction residual)')
     else:
         ax.set_yticks([])
         _order = ('nearest-cloud distance, near→far' if sort_col == 'cld_dist_mu'
-                  else 'pre-correction bias')
+                  else 'pre-correction residual')
         ax.set_ylabel(f'station-day (sorted by {_order}; IDs in CSV)')
-    ax.set_xlabel(f'{XCO2} bias to TCCON (ppm)')
+    ax.set_xlabel(f'{XCO2} residual to TCCON (ppm)')
     if DUMBBELL_ANNOT == 'inside':
-        # bottom-right corner is clear (bottom rows = most-negative biases,
-        # whose markers sit left), so the legend lives inside the frame there
-        ax.legend(loc='lower right', fontsize=7, framealpha=0.85)
+        # bottom-right corner is clear when rows are sorted by residual (bottom
+        # rows = most-negative residuals, whose markers sit left), so the legend
+        # lives inside the frame there; for the cloud-distance sort the far-cloud
+        # rows at the bottom spread wide, and the top-right corner is the clear one.
+        ax.legend(loc='upper right' if sort_col == 'cld_dist_mu' else 'lower right',
+                  fontsize=7, framealpha=0.85)
     else:
-        # one-row legend ABOVE the axes, right-aligned (pairs with the
-        # above-left stat box) — for trees whose corners hold data
-        ax.legend(loc='lower right', bbox_to_anchor=(1.0, 1.005), ncol=4,
+        # two-column legend ABOVE the axes, right-aligned (pairs with the
+        # above-left stat box) — for trees whose corners hold data.
+        # 2026-09-14: was one row of four; with the three-number stat box
+        # (mean fp-RMSE added 2026-09-13) the two ran into each other on the
+        # drift tree, so the entries now fill two rows, reordered so they
+        # read row by row (σ, raw / B11, DE) rather than column by column.
+        _h, _l = ax.get_legend_handles_labels()
+        _n = len(_h)
+        _order = list(range(0, _n, 2)) + list(range(1, _n, 2))
+        ax.legend([_h[i] for i in _order], [_l[i] for i in _order],
+                  loc='lower right', bbox_to_anchor=(1.0, 1.005), ncol=2,
                   fontsize=7, frameon=False, columnspacing=1.2,
                   handletextpad=0.5)
     ax.grid(alpha=0.3, axis='x')
 
 
 def _bias_scatter_clddist(ax, cmp, has_raw):
-    """Bias-to-TCCON vs station-mean nearest-cloud distance (item 3 default): each
+    """Residual-to-TCCON vs station-mean nearest-cloud distance (item 3 default): each
     station-day is a point, before→after linked by a thin connector.  Ties the figure
     to the cloud-proximity thesis; no per-case labels."""
     cmp = cmp.sort_values('cld_dist_mu').reset_index(drop=True)
@@ -610,12 +627,12 @@ def _bias_scatter_clddist(ax, cmp, has_raw):
         ax.vlines(x[m], -err[m], err[m], color='gray', alpha=0.30, lw=4,
                   zorder=0, label='±TCCON σ (per station-day)')
     ax.set_xlabel('station-mean nearest-cloud distance (km)')
-    ax.set_ylabel(f'{XCO2} bias to TCCON (ppm)')
+    ax.set_ylabel(f'{XCO2} residual to TCCON (ppm)')
     ax.legend(loc='best', fontsize=7); ax.grid(alpha=0.3)
 
 
 def _draw_bias(ax, cmp, style='scatter_clddist', panel=None):
-    """Per-case bias panel on a SINGLE axes, in one of BIAS_STYLES (item 3).  Shared
+    """Per-case residual panel on a SINGLE axes, in one of BIAS_STYLES (item 3).  Shared
     stat box + ±TCCON σ shading; no title (item 4)."""
     cmp = cmp.copy()
     has_raw = 'bias_raw' in cmp.columns and cmp['bias_raw'].notna().any()
@@ -645,6 +662,15 @@ def main():
                     help="Corrected-XCO2 column read from each plot_data.parquet "
                          "(default 'deep_ensemble_corrected_xco2'; use "
                          "'tabm_corrected_xco2' for TabM).")
+    ap.add_argument('--tccon-dir', default='data/TCCON',
+                    help="Directory holding the TCCON *.public.qc.nc files "
+                         "(default 'data/TCCON' = GGG2020; use "
+                         "'data/TCCON_GGG2020.1' for the GGG2020.1 release, whose "
+                         "file names differ from the run_case column).")
+    ap.add_argument('--tccon-xco2-var', default='xco2',
+                    help="TCCON XCO2 variable read from the netCDF file (default "
+                         "'xco2' = GGG2020 X2007-scale column).  GGG2020.1 files "
+                         "have no 'xco2'; use 'xco2_x2007' or 'xco2_x2019'.")
     ap.add_argument('--radius-km', type=float, default=100.0)
     ap.add_argument('--window-min', type=float, default=60.0)
     ap.add_argument('--fname-suffix', default='',
@@ -663,8 +689,8 @@ def main():
                     help='Figure DPI (default 150 for iteration; use 300 for the final '
                          'manuscript figures). Also used for the bias-style test set.')
     ap.add_argument('--bias-style', default='scatter_clddist', choices=BIAS_STYLES,
-                    help="Bias-panel style used for the production *_bias figures "
-                         "(default 'scatter_clddist' = bias vs nearest-cloud distance). "
+                    help="Residual-panel style used for the production *_bias figures "
+                         "(default 'scatter_clddist' = residual vs nearest-cloud distance). "
                          "All four styles are always emitted as a low-DPI test set for "
                          "the headline all-cases view so the paper style can be chosen.")
     ap.add_argument('--dumbbell-annotations', default='inside',
@@ -683,7 +709,7 @@ def main():
                     help='AK/prior-harmonize the TCCON reference (Rodgers & Connor 2003 / '
                          'Wunch et al. 2017) using the day OCO-2 Lite file; cases whose '
                          'Lite file is not found fall back to the raw TCCON window mean '
-                         '(ak_delta = NaN in the CSV). Shifts absolute biases only — '
+                         '(ak_delta = NaN in the CSV). Shifts absolute residuals only — '
                          'before/after improvement metrics are invariant.')
     ap.add_argument('--n-boot', type=int, default=10000,
                     help='Site-clustered bootstrap replicates for the significance block.')
@@ -743,14 +769,42 @@ def main():
         cases.append(dict(date=date, tccon=tccon, lonmin=lonmin, lonmax=lonmax,
                           latmin=latmin, latmax=latmax, site=site))
 
+    # TCCON file resolution.  The run_case column carries a GGG2020 file name;
+    # a different release (--tccon-dir) uses the same 2-letter site code but a
+    # different date span, so fall back to a unique <code>*.public.qc.nc glob.
+    _tccon_roots = [Path(args.tccon_dir), storage / args.tccon_dir]
+    _tccon_path_cache = {}
+
     def tccon_path(name):
-        p = Path('data/TCCON') / name
-        return p if p.exists() else storage / 'data/TCCON' / name
+        if name in _tccon_path_cache:
+            return _tccon_path_cache[name]
+        for root in _tccon_roots:
+            p = root / name
+            if p.exists():
+                _tccon_path_cache[name] = p
+                return p
+        code = name[:2]
+        hits, searched = [], []
+        for root in _tccon_roots:
+            searched.append(str(root))
+            if root.is_dir():
+                hits = sorted(root.glob(f'{code}*.public.qc.nc'))
+                if hits:
+                    break
+        if len(hits) != 1:
+            raise SystemExit(
+                f"[tccon-dir] cannot resolve TCCON file for run_case entry "
+                f"'{name}' (site code '{code}') in {searched}: exact name absent "
+                f"and the glob '{code}*.public.qc.nc' matched {len(hits)} file(s)"
+                + (': ' + ', '.join(h.name for h in hits) if hits else ''))
+        _tccon_path_cache[name] = hits[0]
+        return hits[0]
 
     _tccon_cache = {}
     def tccon_df(name):
         if name not in _tccon_cache:
-            _tccon_cache[name] = load_tccon(str(tccon_path(name)))
+            _tccon_cache[name] = load_tccon(str(tccon_path(name)),
+                                            xco2_var=args.tccon_xco2_var)
         return _tccon_cache[name]
 
     def source_parquet(date):
@@ -763,7 +817,7 @@ def main():
                 return p
         return None
 
-    # per-value helper: mu, sd, signed bias-to-TCCON, per-footprint RMSE-to-TCCON,
+    # per-value helper: mu, sd, signed residual-to-TCCON, per-footprint RMSE-to-TCCON,
     # and per-footprint MAE-to-TCCON (mean |XCO2 − TCCON|).
     def _stat(vals, tmu, n_tc):
         v = np.asarray(vals, float)
@@ -786,7 +840,7 @@ def main():
         _, _, bias_before_dg, rmse_before_dg, _ = _stat(drop['xco2_bc'], tmu, n_tc)
         _, _, bias_after_dg, rmse_after_dg, _ = _stat(drop[CORR], tmu, n_tc)
         # station-mean nearest-cloud distance (reference-independent; drives the
-        # cloud-distance bias figure + the metrics table's cloud-distance column).
+        # cloud-distance residual figure + the metrics table's cloud-distance column).
         cd = (frame['cld_dist_km'].to_numpy(float) if 'cld_dist_km' in frame.columns
               else np.array([]))
         cd = cd[np.isfinite(cd)]
@@ -876,8 +930,9 @@ def main():
                     op = operator_from_dataframe(near)
                     op_case = op
                     if op is not None:
-                        adj = ak_adjusted_ref_from_operator(op, tpath, t0, t1,
-                                                            window_min=args.window_min)
+                        adj = ak_adjusted_ref_from_operator(
+                            op, tpath, t0, t1, window_min=args.window_min,
+                            xco2_var=args.tccon_xco2_var)
                         if adj is not None:
                             ak_source = 'parquet'
                     if adj is None:
@@ -885,7 +940,8 @@ def main():
                         if lite is not None:
                             adj = ak_adjusted_ref(
                                 lite, tpath, col['st_lon'], col['st_lat'],
-                                args.radius_km, t0, t1, window_min=args.window_min)
+                                args.radius_km, t0, t1, window_min=args.window_min,
+                                xco2_var=args.tccon_xco2_var)
                             if adj is not None:
                                 ak_source = 'lite'
                 except Exception as e:                       # noqa: BLE001 — per-case fallback
@@ -956,7 +1012,7 @@ def main():
                 # reference; also compute the direct (raw window-mean) reference metrics
                 # so ONE run emits both comparisons (…_direct columns + overlay figure).
                 # RMSE-to-TCCON is non-linear in the reference, so it must be recomputed
-                # (the bias terms alone would shift by ak_delta, but RMSE would not).
+                # (the residual terms alone would shift by ak_delta, but RMSE would not).
                 if args.ak_harmonize and np.isfinite(tmu_raw) and tmu_raw != tmu:
                     md = _case_metrics(frame, tmu_raw, n_tc)
                     row.update({f'{k}_direct': md[k] for k in (
@@ -1022,7 +1078,9 @@ def main():
     lines = ['# OCO-2 corrected vs TCCON — combined comparison', '',
              f'TCCON within ±{args.window_min:g} min, ≤{args.radius_km:g} km.  '
              f'XCO2 in ppm (mean ± std).  Split into quality-flag groups: '
-             f'all (QF 0+1), QF=0 (good), QF=1.']
+             f'all (QF 0+1), QF=0 (good), QF=1.', '',
+             f'TCCON directory: `{args.tccon_dir}`.  '
+             f'TCCON XCO2 variable: `{args.tccon_xco2_var}`.']
     site_rows_all, sig_rows_all, cld_agg_all, unc_md_all = [], [], [], []
     for qflab, _qfv in QF_GROUPS:
         rep_all_qf = rep_all[rep_all['qf_group'] == qflab]
@@ -1032,7 +1090,7 @@ def main():
         lines += ['', '', f'# ═══════════ Quality flag: {QF_TITLES[qflab]} ═══════════', '',
                   f'{len(rep_all_qf)} cases ({len(cmp)} with TCCON in ±{args.window_min:g} min, '
                   f'≤{args.radius_km:g} km).', '',
-                  '| site | date | n_oco | n_tccon | original | corrected | TCCON | bias before | bias after |',
+                  '| site | date | n_oco | n_tccon | original | corrected | TCCON | residual before | residual after |',
                   '|---|---|--:|--:|---|---|---|--:|--:|']
         for _, r in rep_all_qf.iterrows():
             lines.append(f"| {r['site']} | {r['date']} | {r['n_oco']} | {r['n_tccon']} | "
@@ -1056,13 +1114,13 @@ def main():
                       'xco2_bc): the end-to-end result. The drop-guards line below excludes them._'
                       + ('' if not has_raw else '  raw = pre-bias-correction xco2_raw; '
                          'before = xco2_bc (operational bias correction); after = ML-corrected.'), '',
-                      f"- mean |bias|:  {_r_absbias}before **{np.nanmean(np.abs(bb)):.2f}** → after **{np.nanmean(np.abs(ba)):.2f}** ppm",
-                      f"- RMS bias:    {_r_rmsbias}before **{np.sqrt(np.nanmean(bb**2)):.2f}** → after **{np.sqrt(np.nanmean(ba**2)):.2f}** ppm",
-                      f"- mean OCO std: {_r_ocostd}before **{cmp['orig_sd'].mean():.2f}** → after **{cmp['corr_sd'].mean():.2f}** ppm",
-                      f"- mean per-footprint RMSE-to-TCCON: {_r_fprmse}before **{np.nanmean(rb):.2f}** → after **{np.nanmean(ra):.2f}** ppm",
-                      f"- improved (|bias| down) in **{int((np.abs(ba)<np.abs(bb)).sum())}/{len(cmp)}** cases",
+                      f"- station-day mean |residual|: {_r_absbias}before **{np.nanmean(np.abs(bb)):.2f}** → after **{np.nanmean(np.abs(ba)):.2f}** ppm",
+                      f"- station-day RMS residual:    {_r_rmsbias}before **{np.sqrt(np.nanmean(bb**2)):.2f}** → after **{np.sqrt(np.nanmean(ba**2)):.2f}** ppm",
+                      f"- mean OCO std:    {_r_ocostd}before **{cmp['orig_sd'].mean():.2f}** → after **{cmp['corr_sd'].mean():.2f}** ppm",
+                      f"- station-day mean fp-RMSE to TCCON: {_r_fprmse}before **{np.nanmean(rb):.2f}** → after **{np.nanmean(ra):.2f}** ppm",
+                      f"- improved (|residual| down) in **{int((np.abs(ba)<np.abs(bb)).sum())}/{len(cmp)}** cases",
                       f"- improved (per-footprint RMSE down) in **{int((ra<rb).sum())}/{len(cmp)}** cases",
-                      f"- **drop-guards** ({n_g_tot} guarded footprints excluded): corrected mean |bias| "
+                      f"- **drop-guards** ({n_g_tot} guarded footprints excluded): corrected mean |residual| "
                       f"**{np.nanmean(np.abs(ba_dg)):.2f}** ppm, per-footprint RMSE **{np.nanmean(ra_dg):.2f}** ppm"]
 
             if args.ak_harmonize:
@@ -1077,12 +1135,12 @@ def main():
                               f"Δ = {np.nanmean(ak):+.2f} ± {np.nanstd(ak):.2f} ppm "
                               f"(un-harmonized cases keep the raw window mean; the shift moves the "
                               f"reference, so the SIGNED per-case after−before delta is invariant, but "
-                              f"the |bias|/RMSE headline below is not — see the direct-vs-AK table)"]
+                              f"the |residual|/RMSE headline below is not — see the direct-vs-AK table)"]
                     # Direct (raw window-mean) vs AK-harmonized headline, from the SAME
                     # footprints — the two references computed in one run.
                     if 'bias_before_direct' in cmp.columns:
                         def _refagg(brw, bb, ba, rrw, rb, ra):
-                            """mean |bias| and mean fp-RMSE strings, raw→before→after."""
+                            """mean |residual| and mean fp-RMSE strings, raw→before→after."""
                             brw, bb, ba = (x.to_numpy(float) for x in (brw, bb, ba))
                             rrw, rb, ra = (x.to_numpy(float) for x in (rrw, rb, ra))
                             _rb = f"{np.nanmean(np.abs(brw)):.2f} → " if has_raw else ''
@@ -1096,7 +1154,7 @@ def main():
                         _seq = 'raw→before→after' if has_raw else 'before→after'
                         lines += ['', '### Reference comparison: direct window-mean vs AK-harmonized',
                                   '_Same footprints, two TCCON references (both computed this run)._', '',
-                                  f'| reference | mean \\|bias\\| {_seq} | mean fp-RMSE {_seq} |',
+                                  f'| reference | mean \\|residual\\| {_seq} | mean fp-RMSE {_seq} |',
                                   '|---|--:|--:|',
                                   f"| direct | {_d[0]} | {_d[1]} |",
                                   f"| AK-harmonized | {_a[0]} | {_a[1]} |"]
@@ -1137,7 +1195,7 @@ def main():
             site_rows_all.append(site_agg.assign(qf_group=qflab))
             lines += ['', f'## Per-site aggregate — {QF_TITLES[qflab]} '
                       '(cases with TCCON, sorted by post-correction RMSE)', '',
-                      '| site | n | mean \\|bias\\| before | after | mean RMSE before | after | mean σ before | after | \\|bias\\|↓ | RMSE↓ |',
+                      '| site | n | mean \\|residual\\| before | after | mean RMSE before | after | mean σ before | after | \\|residual\\|↓ | RMSE↓ |',
                       '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|']
             for _, s in site_agg.iterrows():
                 lines.append(f"| {s['site']} | {int(s['n'])} | {s['mean_abs_bias_before']:.2f} | "
@@ -1168,14 +1226,14 @@ def main():
             agg_all = {r['cld_group']: r for r in agg_rows if r['surface'] == 'all'}
             has_raw = any(np.isfinite(a.get('mean_rmse_raw', np.nan)) for a in agg_all.values())
             _seq = 'raw → before → after' if has_raw else 'before → after'
-            # (1) error metrics: |bias|, MAE, RMSE — each raw → before(xco2_bc) → after(ML).
+            # (1) error metrics: |residual|, MAE, RMSE — each raw → before(xco2_bc) → after(ML).
             lines += ['', f'## Cloud-distance-grouped aggregate — {QF_TITLES[qflab]} ({era})', '',
                       f'_Each collocation\'s footprints split by nearest-cloud distance '
                       f'(edges {args.cld_edges} km); station-day mean per bin, over '
                       f'{n_days} station-days.  Each cell is {_seq} (ppm).'
                       + ('  raw = pre-bias-correction xco2_raw, before = xco2_bc, '
                          'after = ML-corrected._' if has_raw else '_'), '',
-                      f'| cld group | n | mean \\|bias\\| ({_seq}) | MAE ({_seq}) | fp-RMSE ({_seq}) | \\|bias\\|↓ |',
+                      f'| cld group | n | mean \\|residual\\| ({_seq}) | MAE ({_seq}) | fp-RMSE ({_seq}) | \\|residual\\|↓ |',
                       '|---|--:|--:|--:|--:|--:|']
             for glab, _, _ in cld_bins:
                 g = rc_all[rc_all['cld_group'] == glab]
@@ -1190,7 +1248,7 @@ def main():
             lines += ['', f'### Cloud-distance-grouped absolute MSE (ppm², {_seq})', '',
                       '_pooled = footprint-weighted mean of (XCO₂−TCCON)² (Σ n·RMSE²/Σ n); '
                       'per-case = mean of per-station-day MSE (=RMSE²); station = mean of '
-                      'squared station-day bias.  Full surface×bin breakdown in the _agg CSV._', '',
+                      'squared station-day mean residual.  Full surface×bin breakdown in the _agg CSV._', '',
                       f'| cld group | n | pooled fp-MSE ({_seq}) | mean per-case MSE ({_seq}) | station-mean MSE ({_seq}) |',
                       '|---|--:|--:|--:|--:|']
             for glab, _, _ in cld_bins:
@@ -1310,7 +1368,7 @@ def main():
         if not len(allc):
             return
         _one(lambda ax: _draw_scatter(ax, allc), out_dir / f'tccon_{ref}_scatter{q}{sfx}.png')
-        # qf0/qf1 bias views are staged as manuscript Fig. D2 panels (a)/(b)
+        # qf0/qf1 residual views are staged as manuscript Fig. D2 panels (a)/(b)
         _qp = {'qf0': '(a)', 'qf1': '(b)'}.get(qf)
         _one(lambda ax: _draw_bias(ax, allc, _bs, panel=_qp),
              out_dir / f'tccon_{ref}_bias{q}{sfx}.png')
@@ -1328,7 +1386,7 @@ def main():
         _stack([(lambda ax, ltr, g=_sel(ref, 'all', gl, qf), gl=gl: _draw_bias(ax, g, _bs, panel=f'({ltr}) {gl}'))
                 for gl in cld_labels if len(_sel(ref, 'all', gl, qf))],
                out_dir / f'tccon_{ref}_by_cld_bias{q}{sfx}.png')
-        # surface × cloud group (bias only) — 2×ncld grid: rows = ocean/land,
+        # surface × cloud group (residual only) — 2×ncld grid: rows = ocean/land,
         # cols = cloud bins (item 2), None-padded so empty (surface, bin) stay aligned.
         cells = [(None if not len(_sel(ref, s, gl, qf)) else
                   (lambda ax, ltr, g=_sel(ref, s, gl, qf), s=s, gl=gl:
@@ -1358,12 +1416,14 @@ def main():
             allc0 = _sel(ref0, 'all', 'all')
             if len(allc0):
                 for st in BIAS_STYLES:
-                    # taller canvas for the labeled dumbbell so the ~75 per-row
-                    # 'site date' y-tick labels don't overlap at 6 pt
+                    # taller canvas for the labeled dumbbell so the per-row
+                    # 'site date' y-tick labels don't overlap at 6 pt; 7.8 in
+                    # fits 75 rows, and the height scales up with more rows
+                    # (2026-09-15: 99 A-Train station-days).
                     _one(lambda ax, allc0=allc0, st=st: _draw_bias(ax, allc0, st),
                          out_dir / f'tccon_{ref0}_bias_{st}{sfx}.png',
-                         figsize=(7.2, 7.8) if st == 'dumbbell_label'
-                         else (7.2, 6.2))
+                         figsize=(7.2, max(7.8, 7.8 * len(allc0) / 75.0))
+                         if st == 'dumbbell_label' else (7.2, 6.2))
 
     # ── AK-vs-direct overlay + reference-shift, split into two single-panel files ──
     # One pair per quality-flag group (all/qf0/qf1); QF suffix keeps the 'all' names.
@@ -1390,8 +1450,8 @@ def main():
                             markeredgecolor='black', markeredgewidth=0.5,
                             label='AK-harmonized', zorder=4)
                 ax.axvline(0, color='k', lw=1); _tccon_band(ax, s1)
-                ax.set_yticks([]); ax.set_xlabel(f'corrected {XCO2} bias to TCCON (ppm)')
-                ax.set_ylabel('station-day (sorted by direct bias; IDs in CSV)')
+                ax.set_yticks([]); ax.set_xlabel(f'corrected {XCO2} residual to TCCON (ppm)')
+                ax.set_ylabel('station-day (sorted by direct residual; IDs in CSV)')
                 ax.legend(loc='lower right', fontsize=7); ax.grid(alpha=0.3, axis='x')
 
             def _draw_ak_shift(ax):
@@ -1411,7 +1471,7 @@ def main():
             _emit_ak_overlay(cmp_qf, qf)
 
     # ── per-site 2×2 bar chart, one figure per reference (items 2 + 4) ──────────
-    # (a) mean |bias|, (b) mean footprint RMSE, (c) mean OCO-2 σ — before vs after;
+    # (a) mean |residual|, (b) mean footprint RMSE, (c) mean OCO-2 σ — before vs after;
     # (d) per-site skill = 1−RMSE_after/RMSE_before.  Built per ref from mrep.
     def _draw_site_fig(ref, qf):
         g = _sel(ref, 'all', 'all', qf)
@@ -1442,7 +1502,7 @@ def main():
             ax.set_ylabel(ylabel); ax.legend(fontsize=7); ax.grid(alpha=0.3, axis='y')
             _panel_label(ax, letter)
 
-        _bars(axg[0, 0], 'abias_before', 'abias_after', 'mean |bias to TCCON| (ppm)', '(a)')
+        _bars(axg[0, 0], 'abias_before', 'abias_after', 'mean |residual to TCCON| (ppm)', '(a)')
         # per-station combined TCCON σ guide segment over each site's bar group
         ts = sa['terr'].to_numpy(float); _lab = False
         for xi, ti in zip(x, ts):
