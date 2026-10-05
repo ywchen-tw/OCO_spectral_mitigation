@@ -31,6 +31,13 @@ xco2_qf == 0, snow_flag == 0) and `_apply_production_reference`
     land uses zr15exp_o2a = (exp_o2a_intercept - r15_exp_int_o2a_mean)
                             / r15_exp_int_o2a_std
 
+`--population snowfree` drops the `xco2_qf == 0` condition (snow-free, BOTH
+quality flags) and `--near-max 15` widens the target window to 15 km, adding
+the 10-12 and 12-15 km bins; that pair is the population of the 2026-09-13
+manuscript Fig. 5.  Both options tag every output file
+(`..._snowfree_15km...`), so the 2026-09-06 QF0 / 10 km production outputs are
+never overwritten.
+
 This script replicates that population, recomputes each target's reference
 window membership with a sorted-latitude searchsorted (O(N log N)), splits the
 members by sfc_type, and reports the mixed-window fraction overall, per
@@ -44,7 +51,7 @@ suffix -- so this script uses the non-`_nosg` columns.  (`_USE_NOSG_K = True` in
 models/pipeline.py concerns the ML FEATURES, not the reference-window mask.)
 
 Read-only on the repo apart from the output directory.  Besides the summary
-tables it writes `mixed_window_flags.parquet` (fp_id, sfc_type, n_ref,
+tables it writes `mixed_window_flags<tag>.parquet` (fp_id, sfc_type, n_ref,
 n_ref_other, mixed) covering both evaluated populations; that file is what
 `spec_sensitivity.py --exclude-mixed-ref` merges on to drop mixed-window
 targets from the Fig.-6 statistics.
@@ -52,7 +59,12 @@ targets from the Fig.-6 statistics.
 Usage
 -----
     PYTHONPATH=src:workspace python workspace/mixed_surface_reference_count.py \
+        [--population qf0snowfree|snowfree] [--near-max 10|15] \
         [--max-row-groups 10] [--outdir ...]
+
+    # manuscript Fig. 5 edition (2026-09-13)
+    python3 workspace/mixed_surface_reference_count.py \
+        --population snowfree --near-max 15
 """
 
 import argparse
@@ -84,6 +96,18 @@ Z_THRESH = 0.5                                # run_shadow_brightening default
 BIN_EDGES = [0, 1, 2, 3, 5, 7, 10]
 BIN_LABELS = [f"{BIN_EDGES[i]}-{BIN_EDGES[i+1]}" for i in range(len(BIN_EDGES) - 1)]
 ANOM_SCREEN_PPM = 100.0                       # _apply_production_reference
+
+
+def bins_for(near_max: float) -> tuple[list[int], list[str]]:
+    """Distance-bin edges/labels for a near-cloud window (mirrors
+    spec_sensitivity.run_shadow_brightening; hyphen labels are this script's
+    own style)."""
+    if near_max <= 10:
+        return list(BIN_EDGES), list(BIN_LABELS)
+    edges = BIN_EDGES + [12, 15]
+    labels = [f"{edges[i]}-{edges[i+1]}" for i in range(len(edges) - 1)]
+    return edges, labels
+
 
 # extra_vars passed by spectral/fitting.py (SG cumulants -> non-_nosg columns)
 EXTRA_VAR_COLS = [
@@ -190,8 +214,14 @@ def _win_mean_std(cs, cs2, lo, hi):
 
 
 def analyse(data: dict, surface: int, min_cld_dist: float, near_max: float,
-            anom_col: str, ref_mean_col: str, ref_std_col: str) -> pd.DataFrame:
-    """Per-target reference-window composition for one surface's production ref."""
+            anom_col: str, ref_mean_col: str, ref_std_col: str,
+            require_qf0: bool = True) -> pd.DataFrame:
+    """Per-target reference-window composition for one surface's production ref.
+
+    ``require_qf0=False`` keeps BOTH quality flags in the target population
+    (snow-free is always required), matching
+    ``analysis.utils.apply_quality_filter(require_qf0=False)``.
+    """
     lat = data["lat"].astype(np.float64)
     cld = data["cld_dist_km"].astype(np.float64)
     xco2 = data["xco2_bc"].astype(np.float64)
@@ -211,13 +241,17 @@ def analyse(data: dict, surface: int, min_cld_dist: float, near_max: float,
     # Fig.-6 target population (quality filter + near-cloud + surface)
     with np.errstate(invalid="ignore"):
         zprod = np.where(rstd > 0, (exp_o2a - rmean) / rstd, np.nan)
-    target = ((sfc == surface) & (qf == 0) & (snow == 0) & (xco2 > 0)
+    target = ((sfc == surface) & (snow == 0) & (xco2 > 0)
               & np.isfinite(lat) & (cld >= 0) & (cld < near_max)
               & np.isfinite(zprod) & np.isfinite(anom)
               & (np.abs(anom) <= ANOM_SCREEN_PPM))
+    if require_qf0:
+        target &= (qf == 0)
 
-    logger.info("  clear-sky candidates (>%.0f km): %s | targets: %s",
-                min_cld_dist, f"{int(clear.sum()):,}", f"{int(target.sum()):,}")
+    logger.info("  clear-sky candidates (>%.0f km): %s | targets: %s "
+                "(<%.0f km, %s)", min_cld_dist, f"{int(clear.sum()):,}",
+                f"{int(target.sum()):,}", near_max,
+                "QF0 snow-free" if require_qf0 else "snow-free, both QF")
 
     order = np.argsort(gkey, kind="stable")
     gsorted = gkey[order]
@@ -334,25 +368,47 @@ def main():
     ap.add_argument("--outdir", default=str(
         ROOT / "results/figures/cld_dist_analysis/spec_sensitivity/prodref"
              / "mixed_surface_windows"))
+    ap.add_argument("--population", choices=["qf0snowfree", "snowfree"],
+                    default="qf0snowfree",
+                    help="Target population: 'qf0snowfree' (default, "
+                         "unchanged: xco2_qf == 0 and snow_flag == 0) or "
+                         "'snowfree' (snow-free, BOTH quality flags). "
+                         "'snowfree' tags every output with _snowfree.")
+    ap.add_argument("--near-max", type=float, choices=[10.0, 15.0],
+                    default=NEAR_MAX,
+                    help="Outer edge of the target near-cloud window in km "
+                         "(10 = original, 15 adds the 10-12 and 12-15 km bins "
+                         "and a _15km output tag).")
     args = ap.parse_args()
+
+    require_qf0 = args.population == "qf0snowfree"
+    near_max = float(args.near_max)
+    bin_edges, bin_labels = bins_for(near_max)
+    pop_tag = "" if require_qf0 else "_snowfree"
+    win_tag = "" if near_max <= 10 else f"_{int(near_max)}km"
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    tag = "" if args.max_row_groups is None else f"_rg{args.max_row_groups}"
+    tag = pop_tag + win_tag + (
+        "" if args.max_row_groups is None else f"_rg{args.max_row_groups}")
+    logger.info("population=%s (require_qf0=%s), near_max=%.0f km, tag=%r",
+                args.population, require_qf0, near_max, tag)
 
     data = load(Path(args.parquet), args.max_row_groups)
 
-    logger.info("── LAND targets (<%.0f km), r15 reference window ──", NEAR_MAX)
-    land = analyse(data, surface=1, min_cld_dist=15.0, near_max=NEAR_MAX,
+    logger.info("── LAND targets (<%.0f km), r15 reference window ──", near_max)
+    land = analyse(data, surface=1, min_cld_dist=15.0, near_max=near_max,
                    anom_col="xco2_bc_anomaly_r15",
                    ref_mean_col="r15_exp_int_o2a_mean",
-                   ref_std_col="r15_exp_int_o2a_std")
+                   ref_std_col="r15_exp_int_o2a_std",
+                   require_qf0=require_qf0)
 
-    logger.info("── OCEAN targets (<%.0f km), r05 reference window ──", NEAR_MAX)
-    ocean = analyse(data, surface=0, min_cld_dist=5.0, near_max=NEAR_MAX,
+    logger.info("── OCEAN targets (<%.0f km), r05 reference window ──", near_max)
+    ocean = analyse(data, surface=0, min_cld_dist=5.0, near_max=near_max,
                     anom_col="xco2_bc_anomaly_r05",
                     ref_mean_col="r05_exp_int_o2a_mean",
-                    ref_std_col="r05_exp_int_o2a_std")
+                    ref_std_col="r05_exp_int_o2a_std",
+                    require_qf0=require_qf0)
     del data
 
     # ── per-footprint flag file (consumed by spec_sensitivity's
@@ -392,14 +448,14 @@ def main():
 
     # ── land breakdown: distance bin x branch ──────────────────────────────────
     land = land.copy()
-    land["cld_bin"] = pd.cut(land["cld_dist_km"], bins=BIN_EDGES,
-                             labels=BIN_LABELS, right=False)
+    land["cld_bin"] = pd.cut(land["cld_dist_km"], bins=bin_edges,
+                             labels=bin_labels, right=False)
     land["branch"] = branch(land["z_prod"].to_numpy())
     land["mixed"] = land["n_ref_other"] > 0
 
     rows = []
     rows.append({"group": "all", "level": "all", **summarise(land, "land_r15_all")})
-    for b in BIN_LABELS:
+    for b in bin_labels:
         sub = land[land["cld_bin"] == b]
         rows.append({"group": "cld_bin", "level": b,
                      **summarise(sub, f"land_r15_bin_{b}")})
@@ -408,10 +464,12 @@ def main():
         rows.append({"group": "branch", "level": br,
                      **summarise(sub, f"land_r15_branch_{br}")})
     for br in ("shadowed", "neutral", "brightened"):
-        for b in BIN_LABELS:
+        for b in bin_labels:
             sub = land[(land["branch"] == br) & (land["cld_bin"] == b)]
             rows.append({"group": "branch_x_bin", "level": f"{br}|{b}",
                          **summarise(sub, f"land_r15_{br}_{b}")})
+    # population label kept for backwards compatibility with the 2026-09-06
+    # tables; the actual window is near_max km.
     rows.append({"group": "all", "level": "all",
                  **summarise(ocean, "ocean_r05_all_lt10km")})
     o5 = ocean[ocean["cld_dist_km"] < 5.0]
@@ -454,9 +512,11 @@ def main():
         "lat_thres_deg": LAT_THRES,
         "std_thres_ppm": STD_THRES,
         "n_min_ref": N_MIN_REF,
-        "near_max_km": NEAR_MAX,
+        "population": args.population,
+        "require_qf0": require_qf0,
+        "near_max_km": near_max,
         "z_thresh": Z_THRESH,
-        "bin_edges_km": BIN_EDGES,
+        "bin_edges_km": bin_edges,
         "anomaly_screen_ppm": ANOM_SCREEN_PPM,
         "extra_var_cols": EXTRA_VAR_COLS,
         "k_family": "SG (non-_nosg), matching spectral/fitting.py ref_extra_vars",
@@ -473,9 +533,13 @@ def main():
     lines = []
     lines.append("# Mixed-surface clear-sky reference windows in the Fig. 6 population\n")
     lines.append(f"Generated by `workspace/mixed_surface_reference_count.py` "
-                 f"({'full 116-date pass' if args.max_row_groups is None else f'first {args.max_row_groups} row groups'}).\n")
+                 f"({'full 116-date pass' if args.max_row_groups is None else f'first {args.max_row_groups} row groups'}; "
+                 f"population `{args.population}`, near_max {near_max:.0f} km).\n")
     lines.append("## Headline\n")
-    lines.append(f"- Land Fig.-6 targets (`sfc_type==1`, QF0, no snow, 0 <= cld_dist < 10 km, "
+    pop_txt = ("QF0, no snow" if require_qf0
+               else "no snow, both quality flags (QF 0 and 1)")
+    lines.append(f"- Land Fig.-6 targets (`sfc_type==1`, {pop_txt}, "
+                 f"0 <= cld_dist < {near_max:.0f} km, "
                  f"valid `zr15exp_o2a` and `xco2_bc_anomaly_r15`): "
                  f"**{int(allrow['n_targets']):,}**")
     lines.append(f"- With >= 1 OCEAN footprint in the r15 reference window: "
@@ -488,7 +552,7 @@ def main():
                  f"IQR {allrow['other_share_q25_mixed']*100:.1f}–"
                  f"{allrow['other_share_q75_mixed']*100:.1f} %, "
                  f"mean {allrow['mean_other_share_mixed']*100:.1f} %")
-    lines.append(f"- Mirror (ocean targets < 10 km, r05 window): "
+    lines.append(f"- Mirror (ocean targets < {near_max:.0f} km, r05 window): "
                  f"{int(orow['n_targets']):,} targets, "
                  f"{orow['frac_mixed']*100:.1f} % have >= 1 land reference "
                  f"(land-majority {orow['frac_other_majority']*100:.1f} %). "
@@ -520,7 +584,7 @@ def main():
     lines.append("| bin (km) | targets | mixed | frac mixed | ocean-majority frac | "
                  "median ocean share (mixed) |")
     lines.append("|---|---|---|---|---|---|")
-    for b in BIN_LABELS:
+    for b in bin_labels:
         r = table[(table["group"] == "cld_bin") & (table["level"] == b)].iloc[0]
         lines.append(f"| {b} | {int(r['n_targets']):,} | {int(r['n_mixed']):,} | "
                      f"{r['frac_mixed']*100:.1f} % | {r['frac_other_majority']*100:.1f} % | "
@@ -561,10 +625,10 @@ def main():
         f"({n_mixed:,} of {int(allrow['n_targets']):,}), and for "
         f"{allrow['frac_other_majority']*100:.1f} % of them the window is majority "
         "ocean. Mixing falls off with cloud distance (from "
-        f"{table[(table['group']=='cld_bin') & (table['level']==BIN_LABELS[0])].iloc[0]['frac_mixed']*100:.1f} % "
-        f"in the 0-1 km bin to "
-        f"{table[(table['group']=='cld_bin') & (table['level']==BIN_LABELS[-1])].iloc[0]['frac_mixed']*100:.1f} % "
-        "at 7-10 km) because the closest-to-cloud land footprints are the coastal "
+        f"{table[(table['group']=='cld_bin') & (table['level']==bin_labels[0])].iloc[0]['frac_mixed']*100:.1f} % "
+        f"in the {bin_labels[0]} km bin to "
+        f"{table[(table['group']=='cld_bin') & (table['level']==bin_labels[-1])].iloc[0]['frac_mixed']*100:.1f} % "
+        f"at {bin_labels[-1]} km) because the closest-to-cloud land footprints are the coastal "
         "ones. Across the three z_exp branches the mixed fraction is "
         f"{br_txt} — a mild excess in the brightened branch (bright ocean glint "
         "raises the reference continuum for the land target), not a concentration "

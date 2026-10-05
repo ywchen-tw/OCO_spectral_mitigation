@@ -4,10 +4,11 @@ Fig. G1 (manuscript, AMT style): controlled 3-D-vs-IPA slab demonstration.
 Layout: 2 columns (dark / bright surface) x 4 rows --
   (a,b) fitted <l'> (production estimator, order 7, no-SG)
   (c,d) fitted var(l')
-  (e,f) effective scene reflectance exp(intercept)
-  (g,h) MC-tallied PPDF moment anomalies (relative-path units, continuum
-        wavelength) -- the closure row: the directly tallied path moments
-        the fitted cumulants are supposed to encode.
+  (e,f) MC-tallied PPDF moments (relative-path units, continuum
+        wavelength; mean on the left axis, variance on the right) -- the
+        closure row: the directly tallied path moments the fitted
+        cumulants are supposed to encode.
+  (g,h) effective scene reflectance exp(intercept)
 
 Also computes closure statistics (Pearson r between fitted k1/k2 and the
 tallied geometric moments across 3-D columns; IPA-null residuals) ->
@@ -89,16 +90,27 @@ def main():
                          for v in cfg.SOLVERS)}
 
     mom = {}
+    hist = {}
     with h5py.File(cfg.RAD_FILE, "r") as f:
         edges = np.linspace(f.attrs["plen_min_m"], f.attrs["plen_max_m"],
                             f.attrs["plen_nbin"] + 1)
         mid = 0.5 * (edges[:-1] + edges[1:]) / 1e3       # km
         for s in cfg.SURFACE_ALBEDOS:
             for v in cfg.SOLVERS:
-                mean, std, _ = continuum_moments(f, s, v, mid)
+                mean, std, h = continuum_moments(f, s, v, mid)
                 mom[f"{s}/{v}"] = (mean, std)
+                hist[f"{s}/{v}"] = h
 
     far = x_km < 5.0
+
+    # Absolute-path anchor for the MC moment row: the far-field clear-sky
+    # histogram peak IS the direct-bounce population, so its bin midpoint is
+    # the tallied path of an l = 1 photon.  Subtracting it removes the
+    # constant instrumental offset (645 km vacuum TOA->sensor leg plus the
+    # injection-plane accounting, slab_config.PLEN_MODE) exactly as
+    # plot_ppdf.py panel (d) does.  One anchor for both surfaces and both
+    # solvers; native 200 m bins, no rebin.
+    L_peak = float(mid[int(np.argmax(hist["dark/3d"][far].mean(axis=0)))])
     in_cloud = (x_km >= cfg.CLOUD_X_KM[0]) & (x_km < cfg.CLOUD_X_KM[1])
 
     # ---------------- closure statistics ----------------
@@ -139,25 +151,34 @@ def main():
     fig, axes = plt.subplots(4, 2, figsize=(7.48, 9.2), sharex=True)
     tags = "abcdefgh"
 
+    # right-hand axes of the MC moment row (variance); the mean lives on the
+    # primary axis so the panel carries both moments at their own scales
+    twins = [axes[2, jc].twinx() for jc in range(2)]
+
     for jc, s in enumerate(cfg.SURFACE_ALBEDOS):
         for v, col, lbl in (("3d", COL_3D, "3-D"), ("ipa", COL_ICA, "IPA")):
             res = fit[f"{s}/{v}"]
             for jr, name in enumerate(("k1", "k2")):
                 ax = axes[jr, jc]
-                ax.plot(x_km, res[name], color=col, lw=1.3, label=lbl)
+                # k2 dashed in both columns, matching the variance styling of
+                # the MC row below it
+                ax.plot(x_km, res[name], color=col, lw=1.3,
+                        ls="--" if name == "k2" else "-", label=lbl)
                 if f"{name}_std" in res:
                     ax.fill_between(x_km, res[name] - res[f"{name}_std"],
                                     res[name] + res[f"{name}_std"],
                                     color=col, alpha=0.25, lw=0)
-            axes[2, jc].plot(x_km, np.exp(res["intercept"]), color=col,
-                             lw=1.3, label=lbl)
             mean, std = mom[f"{s}/{v}"]
-            dmean = (mean - np.nanmean(mean[far])) / l_direct
-            dstd = (std - np.nanmean(std[far])) / l_direct
-            axes[3, jc].plot(x_km, dmean, color=col, lw=1.3,
-                             label=f"{lbl} " + r"$\Delta$mean")
-            axes[3, jc].plot(x_km, dstd, color=col, lw=1.0, ls="--",
-                             label=f"{lbl} " + r"$\Delta$s.d.")
+            # direct moments (not anomalies): the far-field direct-bounce
+            # population sits at l = 1 by construction of L_peak
+            l_mean = 1.0 + (mean - L_peak) / l_direct
+            var_l = std**2 / l_direct**2
+            axes[2, jc].plot(x_km, l_mean, color=col, lw=1.3,
+                             label=f"{lbl} mean")
+            twins[jc].plot(x_km, var_l, color=col, lw=1.0, ls="--",
+                           label=f"{lbl} var")
+            axes[3, jc].plot(x_km, np.exp(res["intercept"]), color=col,
+                             lw=1.3, label=lbl)
 
         alb = cfg.SURFACE_ALBEDOS[s]
         axes[0, jc].set_title(
@@ -165,9 +186,11 @@ def main():
             + f" surface (albedo {alb:.2f})", fontsize=10)
         axes[3, jc].set_xlabel("Along-slab distance $x$ (km)")
 
+    # MC row reuses the plot_style l' labels with an "MC" prefix so the
+    # tallied moments read as the same quantities the fit estimates
     row_labels = (MEAN_L_LABEL, VAR_L_LABEL,
-                  "Effective reflectance",
-                  "MC path-moment anomaly\n(relative-path units)")
+                  "MC " + MEAN_L_LABEL,
+                  "Effective reflectance")
     for jr in range(4):
         for jc in range(2):
             ax = axes[jr, jc]
@@ -175,8 +198,14 @@ def main():
             panel_label(ax, f"({tags[jr * 2 + jc]})")
             if jc == 0:
                 ax.set_ylabel(row_labels[jr])
+    twins[1].set_ylabel("MC " + VAR_L_LABEL)
     axes[0, 0].legend(fontsize=8, loc="lower right", frameon=False)
-    axes[3, 0].legend(fontsize=7, loc="upper left", frameon=False, ncol=1)
+    # one legend for the two axes of panel (e), mean/var interleaved per solver
+    h_m, l_m = axes[2, 0].get_legend_handles_labels()
+    h_v, l_v = twins[0].get_legend_handles_labels()
+    axes[2, 0].legend([h for p in zip(h_m, h_v) for h in p],
+                      [l for p in zip(l_m, l_v) for l in p],
+                      fontsize=7, loc="center right", frameon=False, ncol=1)
 
     # top headroom on the first row so the sun annotation sits above the data
     for jc in range(2):
@@ -196,7 +225,7 @@ def main():
     ax.text(12.0, 0.88, "cloud", fontsize=8, ha="center", color="0.3")
 
     fig.tight_layout()
-    fig.subplots_adjust(hspace=0.14, wspace=0.22)
+    fig.subplots_adjust(hspace=0.14, wspace=0.36)   # room for the (e) twin ticks
 
     for fig_dir in FIG_DIRS:
         os.makedirs(fig_dir, exist_ok=True)

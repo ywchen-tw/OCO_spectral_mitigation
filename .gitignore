@@ -101,3 +101,7 @@ fonts/
 
 # Working logs and plan docs (local only)
 /log/
+
+# HYSPLIT practice meteorology (large ARL files)
+workspace/hysplit_test/met/
+workspace/hysplit_test/hysplit_install/

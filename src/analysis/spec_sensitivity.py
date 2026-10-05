@@ -13,7 +13,8 @@ beyond predictive skill — the "spec features are the physics" evidence chain:
    (Caveat for the text: elevated far-field Δk₁ can also be aerosol; the
    cross-band coherence requirement suppresses single-band noise.)
 
-2. shadow     — Near-cloud soundings (< 10 km) split by the sign of the
+2. shadow     — Near-cloud soundings (< 10 km by default, --near-max 15 for
+   the 15-km window used by the manuscript Fig. 5) split by the sign of the
    ref-corrected continuum shift (zexp_o2a > +0.5 brightened / < −0.5
    shadowed). Binned profiles of Δk₁ per band and the XCO₂ anomaly for the two
    branches: coherent, opposite-signed responses demonstrate the
@@ -33,6 +34,12 @@ Usage
     python src/analysis/spec_sensitivity.py \
         --parquet-fname combined_2016_2020_dates.parquet \
         [--analyses subpixel shadow classifier] [--max-rows 4000000]
+
+    # manuscript Fig. 5 edition (2026-09-13): snow-free, BOTH quality flags,
+    # 15-km window, same-surface reference windows only
+    PYTHONPATH=src python3 -m analysis.spec_sensitivity --analyses shadow \
+        --reference production --population snowfree --near-max 15 \
+        --exclude-mixed-ref .../mixed_window_flags_snowfree_15km.parquet
 """
 
 import sys
@@ -151,18 +158,52 @@ def run_subpixel_check(df: pd.DataFrame, outdir: str,
 
 # ── 2. Shadow vs brightening ──────────────────────────────────────────────────
 
+def _median_ci(vals) -> tuple[float, float, float]:
+    """Median and its 95 % confidence interval from order statistics.
+
+    With ``n`` finite values sorted ascending, the interval endpoints are the
+    values at ranks ``floor(n/2 - 1.96*sqrt(n)/2)`` and
+    ``ceil(n/2 + 1.96*sqrt(n)/2)``, clipped to ``[0, n-1]`` (the usual
+    distribution-free binomial/normal-approximation interval).
+    """
+    v = np.asarray(vals, dtype=np.float64)
+    v = np.sort(v[np.isfinite(v)])
+    n = v.size
+    if n == 0:
+        return np.nan, np.nan, np.nan
+    med = float(np.median(v))
+    half = 1.96 * np.sqrt(n) / 2.0
+    lo = int(np.clip(int(np.floor(n / 2.0 - half)), 0, n - 1))
+    hi = int(np.clip(int(np.ceil(n / 2.0 + half)), 0, n - 1))
+    return med, float(v[lo]), float(v[hi])
+
+
 def run_shadow_brightening(df: pd.DataFrame, outdir: str,
                            z_thresh: float = 0.5, n_min: int = 500,
-                           exclude_mixed_ref: str | Path | None = None) -> None:
+                           exclude_mixed_ref: str | Path | None = None,
+                           near_max: float = _NEAR_MAX,
+                           pop_tag: str = '') -> None:
     """Near-cloud Δk₁/anomaly profiles split by continuum shift sign.
 
     ``exclude_mixed_ref`` (opt-in) points at the per-footprint flag file written
     by ``workspace/mixed_surface_reference_count.py``
-    (``mixed_window_flags.parquet``: fp_id, sfc_type, n_ref, n_ref_other,
+    (``mixed_window_flags*.parquet``: fp_id, sfc_type, n_ref, n_ref_other,
     mixed).  Targets whose clear-sky reference window contains at least one
     footprint of the other surface type are dropped before the branch
     statistics, and the outputs get a ``_samesfc`` stem so the unfiltered
     versions survive for comparison.
+
+    ``near_max`` is the outer edge of the near-cloud window (10 km, the
+    original, or 15 km — the land clear-sky reference starts beyond 15 km).
+    The bin edges follow: ``[0,1,2,3,5,7,10]`` at 10 km, extended by
+    ``10,12,15`` at 15 km.  ``pop_tag`` labels the population in the output
+    file names (``''`` = QF0 snow-free, ``'_snowfree'`` = snow-free with both
+    quality flags); a ``_<n>km`` window tag is appended for near_max > 10.
+
+    Every (surface, branch, variable) gets one row per distance bin plus a
+    pooled ``cld_bin == 'all'`` row over the whole near-cloud window.  Each row
+    carries mean/sem/n and the median with its 95 % order-statistic interval
+    (median/med_lo/med_hi).
     """
     need = ['zexp_o2a', 'dk1_o2a', 'dk1_wco2', 'dk1_sco2', 'xco2_bc_anomaly']
     if not all(c in df.columns for c in need):
@@ -170,7 +211,7 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
         return
 
     d = df['cld_dist_km']
-    near = df[(d >= 0) & (d < _NEAR_MAX)].copy()
+    near = df[(d >= 0) & (d < near_max)].copy()
     suffix = ''
     if exclude_mixed_ref is not None:
         suffix = '_samesfc'
@@ -187,8 +228,11 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
                         f"{int((_s & drop).sum()):,} of {int(_s.sum()):,} "
                         f"near-cloud footprints")
         near = near[~drop]
-    edges = [0, 1, 2, 3, 5, 7, 10]
+    edges = ([0, 1, 2, 3, 5, 7, 10] if near_max <= 10
+             else [0, 1, 2, 3, 5, 7, 10, 12, 15])
     labels = [f"{edges[i]}–{edges[i+1]}" for i in range(len(edges) - 1)]
+    win_tag = '' if near_max <= 10 else f'_{int(near_max)}km'
+    tag = f"{pop_tag}{win_tag}{suffix}"
     near['_bin'] = pd.cut(near['cld_dist_km'], bins=edges, labels=labels,
                           right=False)
     branches = [
@@ -214,18 +258,30 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
                 b = sdf[bmask.reindex(sdf.index, fill_value=False)]
                 g = b.groupby('_bin', observed=False)[var].agg(
                     ['mean', 'sem', 'count']).reindex(labels)
+                per_bin = {str(_k): _v.to_numpy()
+                           for _k, _v in b.groupby('_bin', observed=False)[var]}
                 ok = g['count'] >= n_min
-                if not ok.any():
-                    continue
-                m = np.where(ok, g['mean'], np.nan)
-                e = np.where(ok, g['sem'], np.nan)
-                ax.errorbar(x, m, yerr=e, color=color, marker='o', ms=3.5,
-                            capsize=2, lw=1.3, label=bname)
+                if ok.any():
+                    m = np.where(ok, g['mean'], np.nan)
+                    e = np.where(ok, g['sem'], np.nan)
+                    ax.errorbar(x, m, yerr=e, color=color, marker='o', ms=3.5,
+                                capsize=2, lw=1.3, label=bname)
                 for lbl, (_, r) in zip(labels, g.iterrows()):
+                    med, mlo, mhi = _median_ci(per_bin.get(lbl, []))
                     rows.append({'surface': sname, 'branch': bname,
                                  'variable': var, 'cld_bin': lbl,
                                  'mean': r['mean'], 'sem': r['sem'],
-                                 'n': int(r['count'])})
+                                 'n': int(r['count']), 'median': med,
+                                 'med_lo': mlo, 'med_hi': mhi})
+                # pooled row over the whole near-cloud window
+                pooled = b[var]
+                med, mlo, mhi = _median_ci(pooled.to_numpy())
+                rows.append({'surface': sname, 'branch': bname,
+                             'variable': var, 'cld_bin': 'all',
+                             'mean': (pooled.mean() if len(pooled) else np.nan),
+                             'sem': (pooled.sem() if len(pooled) else np.nan),
+                             'n': int(pooled.count()), 'median': med,
+                             'med_lo': mlo, 'med_hi': mhi})
             ax.axhline(0, color='gray', lw=0.8)
             ax.set_title(vlabel, fontsize=10)
             ax.grid(alpha=0.3)
@@ -233,14 +289,15 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
             ax.set_xticks(x, labels, rotation=45, ha='right')
             ax.set_xlabel('cloud distance bin (km)')
         axes[0, 0].legend(fontsize=9, title=f'zexp_o2a vs ±{z_thresh}')
-        fig.suptitle(f'{sname.capitalize()}: near-cloud response split by '
-                     'continuum shift (brightened vs shadowed)', y=0.995)
+        fig.suptitle(f'{sname.capitalize()}: near-cloud (<{near_max:.0f} km) '
+                     'response split by continuum shift '
+                     '(brightened vs shadowed)', y=0.995)
         fig.tight_layout()
-        _save(fig, outdir, f'shadow_brightening_{sname}{suffix}.png')
+        _save(fig, outdir, f'shadow_brightening_{sname}{tag}.png')
 
     pd.DataFrame(rows).to_csv(
-        f"{outdir}/shadow_brightening_stats{suffix}.csv", index=False)
-    logger.info(f"  wrote {outdir}/shadow_brightening_stats{suffix}.csv")
+        f"{outdir}/shadow_brightening_stats{tag}.csv", index=False)
+    logger.info(f"  wrote {outdir}/shadow_brightening_stats{tag}.csv")
 
 
 # ── 3. Spec-only cloud-proximity classifier ───────────────────────────────────
@@ -391,6 +448,18 @@ def main():
                          "/ land r15 per-surface aliasing + |anomaly|<=100 ppm "
                          "screen; shadow-only, writes to <outdir>/prodref).")
     ap.add_argument('--outdir', default=None)
+    ap.add_argument('--population', choices=['qf0snowfree', 'snowfree'],
+                    default='qf0snowfree',
+                    help="Footprint population: 'qf0snowfree' (default, "
+                         "unchanged: xco2_qf == 0 and snow_flag == 0) or "
+                         "'snowfree' (snow-free, BOTH quality flags). "
+                         "'snowfree' tags the shadow outputs with _snowfree.")
+    ap.add_argument('--near-max', type=float, choices=[10.0, 15.0],
+                    default=10.0,
+                    help='Outer edge of the shadow-analysis near-cloud window '
+                         'in km (10 = original, 15 = out to the land clear-sky '
+                         'reference distance; 15 adds the 10–12 and 12–15 km '
+                         'bins and a _15km output tag).')
     ap.add_argument('--exclude-mixed-ref', nargs='?', const=_MIXED_FLAGS_DEFAULT,
                     default=None, metavar='FLAGS_PARQUET',
                     help="Drop shadow-analysis targets whose clear-sky "
@@ -398,9 +467,10 @@ def main():
                          "surface type, using the flag file from "
                          "workspace/mixed_surface_reference_count.py (bare "
                          f"flag = {_MIXED_FLAGS_DEFAULT}). Writes "
-                         "shadow_brightening_stats_samesfc.csv; the "
+                         "shadow_brightening_stats*_samesfc.csv; the "
                          "unfiltered outputs are left in place.")
     args = ap.parse_args()
+    pop_tag = '' if args.population == 'qf0snowfree' else '_snowfree'
     if args.reference == 'production' and args.analyses != ['shadow']:
         ap.error("--reference production supports --analyses shadow only")
     if args.exclude_mixed_ref and not Path(args.exclude_mixed_ref).exists():
@@ -437,7 +507,8 @@ def main():
         df = pd.read_parquet(path, columns=cols)
     logger.info(f"Loaded {len(df):,} rows")
 
-    df = apply_quality_filter(df)
+    df = apply_quality_filter(
+        df, require_qf0=(args.population == 'qf0snowfree'))
     if args.reference == 'production':
         logger.info("Computing production-reference (r05/r15) deltas …")
         df = _apply_production_reference(df)
@@ -451,7 +522,8 @@ def main():
     if 'shadow' in args.analyses:
         logger.info("── shadow vs brightening ──")
         run_shadow_brightening(df, outdir,
-                               exclude_mixed_ref=args.exclude_mixed_ref)
+                               exclude_mixed_ref=args.exclude_mixed_ref,
+                               near_max=args.near_max, pop_tag=pop_tag)
     if 'classifier' in args.analyses:
         logger.info("── spec-only cloud classifier ──")
         run_spec_classifier(df, outdir)

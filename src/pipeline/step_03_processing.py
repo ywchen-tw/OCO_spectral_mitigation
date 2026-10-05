@@ -6,12 +6,16 @@ This module extracts and processes OCO-2 footprints and MODIS cloud masks
 to prepare datasets for geometric collocation.
 
 Key Functions:
-- extract_oco2_footprints: Extract footprint coordinates and timing from L2 Lite files
+- extract_oco2_footprints: Extract footprint coordinates and timing from L1B Science files,
+  filtered to the sounding_ids present in the L2 Lite file
 - extract_modis_cloud_mask: Parse 48-bit cloud mask and unpack bits 1-2
 - match_temporal_windows: Align OCO-2 to MODIS granules with drift correction
 
 OCO-2 Processing:
-- L2 Lite NetCDF4 files contain: footprint_latitude, footprint_longitude, sounding_time
+- L1B Science HDF5 /SoundingGeometry group provides: sounding_latitude, sounding_longitude,
+  sounding_time_tai93 (footprint centers)
+- L2 Lite NetCDF4 file provides the retrieved sounding_id set (filter) and the footprint
+  corner vertices (vertex_latitude, vertex_longitude), attached afterwards
 - Index by sounding_id for later matching
 - Extract viewing mode (GL = Glint, ND = Nadir)
 

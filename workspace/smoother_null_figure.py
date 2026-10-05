@@ -6,11 +6,11 @@ for (1) the production deep ensemble and (2) the pure-smoother null columns
 
   (a) per-case footprint scatter sd, after vs before  — BOTH arms collapse it
       (a smoother trivially wins this metric);
-  (b) per-case |bias to TCCON|, after vs before       — the smoother sits on
+  (b) per-case |residual to TCCON|, after vs before   — the smoother sits on
       the 1:1 line (it preserves the local mean by construction) while the
       deep ensemble falls below it.
 
-So the TCCON bias improvement cannot be an artifact of variance removal.
+So the TCCON residual improvement cannot be an artifact of variance removal.
 
 Usage:
   python workspace/smoother_null_figure.py \
@@ -121,7 +121,7 @@ def main():
               frameon=False)
     panel_label(ax, "(a)")
 
-    # (b) |case bias to TCCON|, after vs before
+    # (b) |station-day residual to TCCON|, after vs before
     ax = axes[1]
     lim = max(de["bias_before"].abs().max(), de["bias_after"].abs().max(),
               smP["bias_after"].abs().max()) * 1.06
@@ -132,8 +132,8 @@ def main():
                marker="^", facecolors="none", edgecolors=C_SM,
                linewidths=0.8, zorder=2)
     ax.set_xlim(0, lim); ax.set_ylim(0, lim)
-    ax.set_xlabel("|case bias to TCCON| before (ppm)")
-    ax.set_ylabel("|case bias to TCCON| after (ppm)")
+    ax.set_xlabel("|station-day residual to TCCON| before (ppm)")
+    ax.set_ylabel("|station-day residual to TCCON| after (ppm)")
     ax.text(0.03, 0.92,
             f"mean {A_de['ab_b']:.2f} → {A_de['ab_a']:.2f} (DE)\n"
             f"mean {A_sm['ab_b']:.2f} → {A_sm['ab_a']:.2f} (smoother)",

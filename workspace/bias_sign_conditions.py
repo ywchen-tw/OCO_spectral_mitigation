@@ -11,8 +11,10 @@ state).
 
 Populations: per surface, cloud distance <= 5 km (the strong-response zone
 of both surfaces; the land <= 15 km variant is included in the CSV), target
-screen |y| <= 100 ppm (training population).  Reported for all-flag and for
-QF0 snow-free separately, since flag state is itself a dominant condition.
+screen |y| <= 100 ppm (training population).  Reported for all-flag, snow-free
+(all flags), QF0 snow-free, QF1 snow-free, and QF1 separately, since flag
+state is itself a dominant condition.  The two-way table is written for the
+three snow-free populations (column `population`).
 
 Output: results/figures/cld_dist_analysis/bias_sign_conditions/
   bias_sign_conditions.csv   binned stats, all (surface, population, condition)
@@ -80,7 +82,9 @@ def main():
         for win, dmax in [('near5', 5.0)] + ([('near15', 15.0)] if name == 'land' else []):
             base = np.isfinite(y_all) & d.cld_dist_km.between(0, dmax)
             for pop, pm in [('allqf', base),
+                            ('snowfree', base & (d.snow_flag == 0)),
                             ('qf0snowfree', base & (d.xco2_qf == 0) & (d.snow_flag == 0)),
+                            ('qf1snowfree', base & (d.xco2_qf == 1) & (d.snow_flag == 0)),
                             ('qf1', base & (d.xco2_qf == 1))]:
                 sub, y = d[pm], y_all[pm]
                 # categorical conditions
@@ -121,20 +125,28 @@ def main():
                                       'population': pop, 'condition': cond,
                                       'spearman_r': float(r), 'p': float(p),
                                       'n': int(ok.sum())})
-            # two-way: brightness terciles x three-class branch (QF0 snowfree)
-            pm = base & (d.xco2_qf == 0) & (d.snow_flag == 0)
-            sub, y = d[pm], y_all[pm]
-            ok = np.isfinite(sub.alb_wco2) & np.isfinite(sub.zexp_o2a)
-            terc = pd.qcut(sub.alb_wco2[ok], 3, labels=['dark', 'mid', 'bright'])
-            for t in ['dark', 'mid', 'bright']:
-                for blab, bm in [('shadowed', sub.zexp_o2a[ok] < -0.5),
-                                 ('neutral', sub.zexp_o2a[ok].abs() <= 0.5),
-                                 ('brightened', sub.zexp_o2a[ok] > 0.5)]:
-                    mm = (terc == t) & bm
-                    if mm.sum() > 200:
-                        tw_rows.append({'surface': name, 'window': win,
-                                        'alb_wco2': t, 'branch': blab,
-                                        **stats_block(y[ok][mm])})
+            # two-way: brightness terciles x three-class branch, for the
+            # snow-free populations (all flags, QF0 only, QF1 only); terciles
+            # are recomputed within each population
+            for pop, pm in [('snowfree', base & (d.snow_flag == 0)),
+                            ('qf0snowfree', base & (d.xco2_qf == 0) & (d.snow_flag == 0)),
+                            ('qf1snowfree', base & (d.xco2_qf == 1) & (d.snow_flag == 0))]:
+                sub, y = d[pm], y_all[pm]
+                ok = np.isfinite(sub.alb_wco2) & np.isfinite(sub.zexp_o2a)
+                terc = pd.qcut(sub.alb_wco2[ok], 3, labels=['dark', 'mid', 'bright'])
+                edges = np.quantile(sub.alb_wco2[ok], [0, 1/3, 2/3, 1])
+                for t in ['dark', 'mid', 'bright']:
+                    for blab, bm in [('shadowed', sub.zexp_o2a[ok] < -0.5),
+                                     ('neutral', sub.zexp_o2a[ok].abs() <= 0.5),
+                                     ('brightened', sub.zexp_o2a[ok] > 0.5)]:
+                        mm = (terc == t) & bm
+                        if mm.sum() > 200:
+                            tw_rows.append({'surface': name, 'window': win,
+                                            'population': pop,
+                                            'alb_wco2': t, 'branch': blab,
+                                            'alb_wco2_lo': float(edges[['dark', 'mid', 'bright'].index(t)]),
+                                            'alb_wco2_hi': float(edges[['dark', 'mid', 'bright'].index(t) + 1]),
+                                            **stats_block(y[ok][mm])})
     pd.DataFrame(rows).to_csv(OUT_DIR / 'bias_sign_conditions.csv', index=False)
     pd.DataFrame(corr_rows).to_csv(OUT_DIR / 'bias_sign_corr.csv', index=False)
     pd.DataFrame(tw_rows).to_csv(OUT_DIR / 'bias_sign_twoway.csv', index=False)

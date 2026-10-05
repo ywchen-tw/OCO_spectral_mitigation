@@ -7,7 +7,8 @@ Contents
 --------
 - get_storage_dir       Platform-aware data root (macOS / Linux / default)
 - load_data             Load combined parquet or concatenate per-date parquets
-- apply_quality_filter  xco2_bc > 0, xco2_qf == 0, snow_flag == 0; float32 downcast
+- apply_quality_filter  xco2_bc > 0, snow_flag == 0 and (default) xco2_qf == 0;
+                        float32 downcast.  require_qf0=False keeps both flags.
 - split_by_surface      sfc_type 0=ocean / 1=land
 - cld_dist_bins         Fixed cloud-distance bin edges + labels
 - bin_by_cld_dist       pd.cut wrapper
@@ -69,10 +70,21 @@ def load_data(csv_dir: Path, parquet_fname: str | None = None) -> pd.DataFrame:
     return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
 
 
-def apply_quality_filter(df: pd.DataFrame) -> pd.DataFrame:
-    """Keep good-quality soundings: valid xco2_bc, qf==0, no snow."""
+def apply_quality_filter(df: pd.DataFrame,
+                         require_qf0: bool = True) -> pd.DataFrame:
+    """Keep good-quality soundings: valid xco2_bc, no snow, and (by default)
+    xco2_qf == 0.
+
+    Parameters
+    ----------
+    require_qf0
+        ``True`` (default, unchanged behaviour) keeps only QF = 0 soundings.
+        ``False`` keeps BOTH quality flags (QF 0 and 1) — the snow-free
+        both-flags population — while still requiring ``xco2_bc > 0`` and
+        ``snow_flag == 0``.
+    """
     mask = df['xco2_bc'] > 0
-    if 'xco2_qf' in df.columns:
+    if require_qf0 and 'xco2_qf' in df.columns:
         mask &= df['xco2_qf'] == 0
     if 'snow_flag' in df.columns:
         # snow_flag is stored as uint8/int; treat any non-zero value as snowy
@@ -83,7 +95,9 @@ def apply_quality_filter(df: pd.DataFrame) -> pd.DataFrame:
     if len(float_cols):
         df[float_cols] = df[float_cols].astype('float32')
         logger.info(f"Downcast {len(float_cols)} float64 columns to float32")
-    logger.info(f"After QF+snow filter: {len(df):,} soundings")
+    population = ('QF0 + snow-free' if require_qf0
+                  else 'snow-free, both quality flags (QF 0 and 1)')
+    logger.info(f"After quality filter [{population}]: {len(df):,} soundings")
     return df
 
 

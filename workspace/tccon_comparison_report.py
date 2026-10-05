@@ -523,8 +523,11 @@ def _bias_stat_box(ax, cmp, has_raw, placement='above-center'):
             # The second number is the station-day mean fp-RMSE; the box is
             # narrow, so it is labelled 'mean fp-RMSE' without the prefix.
             _rtxt = f"   mean fp-RMSE {np.mean(_r):.2f}" if _r.size else ""
+            # Sample sd (ddof=1) across station-days, the convention the
+            # manuscript text quotes (2026-09-24; was population sd → 1.25
+            # vs 1.26 in the text for the B11 |residual|).
             _btxt.append(f"{_lbl}:  |residual| {np.mean(np.abs(_b)):.2f} ± "
-                         f"{np.std(np.abs(_b)):.2f}{_rtxt}")
+                         f"{np.std(np.abs(_b), ddof=1):.2f}{_rtxt}")
     if _btxt:
         if placement == 'inside':
             ax.text(0.015, 0.99, '\n'.join(_btxt), transform=ax.transAxes,

@@ -1,4 +1,4 @@
-"""Publication schematic for the deep-ensemble MLP + conformal model.
+"""Publication schematic for the deep-ensemble MLP and its prediction intervals.
 
 The figure mirrors ``deep_ensemble.py`` and writes manuscript-ready vector and
 raster outputs using the shared AMT style (Arial text and Arial mathtext).
@@ -158,7 +158,7 @@ def _member_panel(ax, show_cloud_head: bool) -> None:
 
 def _ensemble_panel(ax) -> None:
     panel_label(ax, "(b)", size=9.0, dx=0.0, dy=1.01)
-    ax.text(0.06, 9.55, "Ensemble mixture and conformal calibration",
+    ax.text(0.06, 9.55, "Ensemble mixture and interval widths",
             fontsize=8.6, fontweight="bold", ha="left", va="top")
 
     # Member stack.
@@ -189,16 +189,16 @@ def _ensemble_panel(ax) -> None:
     _small_note(ax, 6.80, 6.58, r"point correction $\hat{y}=\mu^*$",
                 ha="center", fontsize=5.6)
 
-    _box(ax, 1.62, 4.23, 2.06, 0.95, "calibration\nblock", C_INPUT,
+    _box(ax, 1.62, 4.23, 2.06, 0.95, "tuning\nblock", C_INPUT,
          fontsize=5.4)
-    _box(ax, 4.84, 3.95, 2.32, 1.30, "conformal\nrecalibration", C_CALIB,
+    _box(ax, 4.84, 3.95, 2.32, 1.30, "interval-width\nsetting", C_CALIB,
          fontsize=5.6)
     _arrow(ax, 6.82, 6.83, 6.82, 5.25)
     _arrow(ax, 3.68, 4.70, 4.84, 4.70)
 
     _box(ax, 8.00, 4.82, 2.42, 0.58, "raw Gaussian", C_OUTPUT,
          fontsize=5.0)
-    _box(ax, 8.00, 3.96, 2.42, 0.58, "split conformal", C_OUTPUT,
+    _box(ax, 8.00, 3.96, 2.42, 0.58, "90 % interval", C_OUTPUT,
          fontsize=5.0)
     _box(ax, 8.00, 3.10, 2.42, 0.58, "Mondrian bins", C_HEADLINE,
          fontsize=5.0, fontweight="bold")
@@ -211,8 +211,8 @@ def _ensemble_panel(ax) -> None:
         0.22,
         1.72,
         "All interval variants share the same ensemble mean.\n"
-        "Mondrian conformal uses per-bin residual quantiles\n"
-        "from predicted-mean deciles, so no cloud information is needed at inference.",
+        "Widths are set per decile of the predicted anomaly,\n"
+        "so no cloud information is needed at inference.",
         fontsize=6.2,
     )
 

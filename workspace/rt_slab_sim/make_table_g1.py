@@ -95,7 +95,7 @@ def main(out_tex=None):
     rows.append(("Absorption",
                  "ABSCO v5.2 O$_2$ + H$_2$O cross-sections on the slab "
                  "layers (trilinear $p$/$T$/broadener interpolation, as in "
-                 "the production fit inputs)"))
+                 "the OCO-2 fit inputs)"))
     rows.append(("Wavelengths",
                  f"{nwvl} monochromatic wavelengths: {cfg.N_CONTINUUM} "
                  "continuum anchors + 30 log-spaced in slant optical depth "
@@ -112,13 +112,13 @@ def main(out_tex=None):
     rows.append(("Photons",
                  f"$10^9$ per wavelength and solver, {cfg.NRUN} independent "
                  "runs (run-to-run spread shown as shading in Fig.~\\ref{app-fig:rt-summary})"))
-    rows.append(("Path-length tally",
+    rows.append(("Path-length record",
                  f"per-column histogram of total geometric photon path "
                  f"(radiance-contribution weighted; {cfg.PLEN_NBIN} bins "
                  f"$\\times$ {1e-3 * (cfg.PLEN_MAX_M - cfg.PLEN_MIN_M) / cfg.PLEN_NBIN * 1e3:.0f}\\,m)"))
     rows.append(("\\textit{Spectral estimator}", None))
     rows.append(("Fit",
-                 "production cumulant estimator (Sect.~\\ref{sec:methods_photon_path}, Table~\\ref{tab:fit-config}): "
+                 "cumulant estimator of Sect.~\\ref{sec:methods_photon_path} (Table~\\ref{tab:fit-config}): "
                  f"order {cfg.FIT_ORDER} in slant $\\tau$, exact linear "
                  "least squares with nonnegative first- and second-cumulant "
                  "fallback; $\\mathcal T=\\pi I/(\\mu_0 F_0)$ per column"))
