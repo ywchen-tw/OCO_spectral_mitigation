@@ -1,6 +1,15 @@
 # Pipeline & Model Infrastructure Changelog
 
-**Last updated**: 2026-07-06
+**Last updated**: 2026-10-09
+
+---
+
+## 2026-10-09 — Keep-only feature sets (KSS review E4 / decision D9)
+
+- `pipeline._resolve_feature_set` accepts a `'keep'` spec, applied after appends and before drops. New sets `keep_spec_geom` (path length with γ instead of γ − albedo, plus geometry/L1B), `keep_geom` (geometry/L1B, the skill floor) and `keep_xco2_geom` (xco2_raw_minus_apriori plus geometry/L1B). The fp one-hot is always appended. New group constants are `GEOM_L1B_FEATURES` and `SPEC_GAMMA_FEATURES`. Existing sets are unchanged.
+- `deep_ensemble --feature_set` choices extended.
+- `curc_shell_blanca_de_keep_only_ablation.sh` is a 20-task array (2 variants × 2 surfaces × 5 folds), with the optional third variant at `--array=20-29`. Production DE config, `--no-profile-pca`, suffix `de_{ocean|land}_<v>_noprof_r{05|15}_f<k>`. A task skips if its `run_summary.json` exists.
+- `workspace/build_ablation_variant_trees.sh` builds `keep_*` trees, and `workspace/make_featureset_ablation_doc.py` adds `keep_*` columns once their TCCON tree exists. The drop-only output is unchanged.
 
 ---
 

@@ -2,7 +2,7 @@
 # Build the feature-set-ablation variant plot_data trees (build-only replay).
 #
 # For ONE variant (arg 1: no_spec | no_xco2 | no_contam | no_xco2_and_spec |
-# no_contam_and_xco2) this replays the ACTIVE run_case lines of the production
+# no_contam_and_xco2 | keep_spec_geom | keep_geom | keep_xco2_geom) this replays the ACTIVE run_case lines of the production
 # TCCON launcher and rebuilds every case's plot_data.parquet with the variant's
 # fold-PCA deep-ensemble models (ocean r05 / land r15), writing to the
 # de_prof_mix_<variant> tree that tccon_comparison_report.py is then pointed at:
@@ -52,6 +52,13 @@ if [[ "$VARIANT" == raw_base ]]; then
     LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_raw_foldpca_r15_f*)
     EXTRA_BUILD_ARGS=(--correction-base raw)
     OUT_BASE_NAME=de_prof_reg_mix_raw
+elif [[ "$VARIANT" == keep_* ]]; then
+    # 2026-10-09 keep-only arms (KSS E4 / D9), trained WITHOUT the profile EOF
+    # block by curc_shell_blanca_de_keep_only_ablation.sh.  The tree keeps the
+    # de_prof_mix_ prefix so make_featureset_ablation_doc.py finds it.
+    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_noprof_r05_f*)
+    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_${VARIANT}_noprof_r15_f*)
+    OUT_BASE_NAME=de_prof_mix_${VARIANT}
 else
     OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_prof_foldpca_r05_f*)
     # 2026-07-17: variants RETRAINED with lndo01 (--norm layer --dropout 0.1) —

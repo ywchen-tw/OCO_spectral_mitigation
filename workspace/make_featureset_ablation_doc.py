@@ -30,6 +30,12 @@ BASE = Path("results/model_comparison/deep_ensemble")
 FULL_DIR = BASE / TAG / "atrain"
 VARIANTS = ["no_spec", "no_contam", "no_xco2", "no_xco2_and_spec",
             "no_contam_and_xco2"]
+# 2026-10-09 keep-only arms (KSS E4 / D9; curc_shell_blanca_de_keep_only_ablation.sh),
+# included only once their TCCON tree has been reported, so the drop-only
+# edition still regenerates without them.
+KEEP_VARIANTS = ["keep_spec_geom", "keep_geom", "keep_xco2_geom"]
+VARIANTS += [v for v in KEEP_VARIANTS
+             if (BASE / f"de_prof_mix_{v}" / "tccon_metrics_ak_r100km.csv").exists()]
 MODELS = ["full"] + VARIANTS
 
 # (label, qf_group, surface, cld_group) rows for the two slice tables
@@ -50,6 +56,10 @@ NEARCLOUD_SLICES = [
 FOLD_STEM = {
     "ocean": "results/model_deep_ensemble/de_ocean_{v}_prof_foldpca_r05_f*",
     "land": "results/model_deep_ensemble/de_land_{v}_prof_foldpca_r15_f*",
+}
+FOLD_STEM_KEEP = {   # keep-only arms are trained without the profile EOF block
+    "ocean": "results/model_deep_ensemble/de_ocean_{v}_noprof_r05_f*",
+    "land": "results/model_deep_ensemble/de_land_{v}_noprof_r15_f*",
 }
 FOLD_STEM_FULL = {
     "ocean": "results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05_f*",
@@ -103,6 +113,7 @@ def heldout_table() -> tuple[list[str], list[str]]:
     for surf in ("ocean", "land"):
         for model in MODELS:
             stem = (FOLD_STEM_FULL[surf] if model == "full"
+                    else FOLD_STEM_KEEP[surf].format(v=model) if model in KEEP_VARIANTS
                     else FOLD_STEM[surf].format(v=model))
             per_fold = []
             for d in sorted(glob(stem)):

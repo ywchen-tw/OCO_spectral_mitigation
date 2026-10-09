@@ -473,6 +473,32 @@ CONTAM_FEATURES = frozenset([
 # EVERY set and never dropped, so `full`+profile_pca is the "new full" (active
 # features + profile EOFs + tropopause) and no_xco2/no_spec/no_xco2_and_spec
 # remove only the xco2 / spectroscopy raw features from that new full.
+#
+# KEEP-ONLY sets (2026-10-09, KSS review E4 / response-map decision D9).  The drop
+# sets above never isolate the path-length skill: no_contam_and_xco2 still holds the
+# retrieved ACOS state of the meteorology-surface group (dp_psfc_prior_ratio, dpfrac,
+# h2o_scale, delT, co2_grad_del, alb_sco2_over_wco2, fs_rel_0), and the two
+# *_exp_intercept-alb spectral features subtract the retrieved albedo.  A 'keep' set
+# retains ONLY the named features, so
+#   keep_spec_geom  = path length + geometry/L1B (+ fp one-hot)   no ACOS state
+#   keep_geom       = geometry/L1B (+ fp one-hot)                  skill floor
+#   keep_xco2_geom  = xco2_raw_minus_apriori + geometry/L1B        ACOS-side match
+# and keep_spec_geom - keep_geom is the path-length skill without any ACOS input.
+# In keep_spec_geom the continuum reflectance gamma replaces gamma - albedo: land
+# appends exp_wco2_intercept (the W-band gamma), and both surfaces drop the two
+# *_exp_intercept-alb columns.  Train these WITHOUT --profile-pca (the profile EOF
+# block is fitted from the prior profiles and would otherwise ride along).
+# Caveat for the write-up: s31 is an L1B band-signal ratio (SCO2/O2A), so the floor
+# still carries a coarse spectral-brightness signal.
+GEOM_L1B_FEATURES = frozenset([
+    'fp_area_km2', 'cos_glint_angle', 'pol_ang_rad', 's31',
+    '1_over_cos_sza', '1_over_cos_vza', 'sin_raa',
+])
+SPEC_GAMMA_FEATURES = (
+    (SPEC_FEATURES - {'o2a_exp_intercept-alb', 'wco2_exp_intercept-alb'})
+    | {'exp_wco2_intercept'}
+)
+
 _FEATURE_SETS: dict = {
     'full':               None,
     'no_xco2':            {'drop': XCO2_FEATURES},
@@ -480,6 +506,10 @@ _FEATURE_SETS: dict = {
     'no_xco2_and_spec':   {'drop': XCO2_FEATURES | SPEC_FEATURES},
     'no_contam':          {'drop': CONTAM_FEATURES},
     'no_contam_and_xco2': {'drop': CONTAM_FEATURES | XCO2_FEATURES},
+    'keep_spec_geom':     {'add_per_sfc': {1: ['exp_wco2_intercept']},
+                           'keep': SPEC_GAMMA_FEATURES | GEOM_L1B_FEATURES},
+    'keep_geom':          {'keep': GEOM_L1B_FEATURES},
+    'keep_xco2_geom':     {'keep': XCO2_FEATURES | GEOM_L1B_FEATURES},
 }
 
 
@@ -490,8 +520,9 @@ def _resolve_feature_set(qt_features: list, feature_set: str,
     A spec may combine appends and a drop.  Appends run first: 'add' appends the
     same features for both surfaces, 'add_per_sfc' selects the append list by
     ``sfc_type`` (appended columns must exist in the dataframe at fit time).  A
-    'drop' set then removes features (including any just appended).  ``None`` is a
-    sentinel leaving the base list unchanged.
+    'keep' set then retains only the named features, and a 'drop' set removes
+    features (including any just appended).  ``None`` is a sentinel leaving the
+    base list unchanged.
     """
     if feature_set not in _FEATURE_SETS:
         raise ValueError(
@@ -506,6 +537,9 @@ def _resolve_feature_set(qt_features: list, feature_set: str,
         result += [f for f in add_src if f not in result]
     if 'add' in spec:                     # append (both surfaces)
         result += [f for f in spec['add'] if f not in result]
+    if 'keep' in spec:                    # retain only the named group(s)
+        keep = spec['keep']
+        result = [f for f in result if f in keep]
     if 'drop' in spec:                    # remove named group(s)
         drop = spec['drop']
         result = [f for f in result if f not in drop]
