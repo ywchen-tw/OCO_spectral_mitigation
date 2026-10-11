@@ -48,7 +48,11 @@ TREE="$DATA_ROOT"/results/model_comparison/deep_ensemble/de_prof_mix_full_noprof
 
 # 1. Build the variant tree (replays the active run_case lines of
 #    curc_shell_blanca_plot_corr_xco2_deepens.sh, TCCON-available cases only).
-bash workspace/build_ablation_variant_trees.sh full_noprof
+#    SKIP_BUILD=1 reruns only the report on an existing tree:
+#      sbatch --export=ALL,SKIP_BUILD=1 curc_shell_blanca_tccon_full_noprof.sh
+if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
+    bash workspace/build_ablation_variant_trees.sh full_noprof
+fi
 
 # 2. TCCON report on the tree, same settings as the drop/keep arms.
 python workspace/tccon_comparison_report.py \
