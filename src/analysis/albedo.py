@@ -30,7 +30,7 @@ _O2A, _WCO2, _SCO2 = 'O$_2$A', 'WCO$_2$', 'SCO$_2$'
 
 
 def plot_alb_vs_exp_intercept(df, outdir, n_roll=200):
-    """Scatter (hexbin) + rolling median of albedo vs exp_intercept for each band."""
+    """Scatter (hexbin) + rolling median of albedo vs gamma for each band."""
     bands = [
         ('alb_o2a',  'exp_o2a_intercept',  _O2A,  'C0'),
         ('alb_wco2', 'exp_wco2_intercept', _WCO2, 'C1'),
@@ -39,7 +39,7 @@ def plot_alb_vs_exp_intercept(df, outdir, n_roll=200):
     avail = [(alb, eint, nm, c) for alb, eint, nm, c in bands
              if alb in df.columns and eint in df.columns]
     if not avail:
-        logger.warning("No alb/exp_intercept column pairs found — skipping plot")
+        logger.warning("No alb/gamma column pairs found — skipping plot")
         return
 
     fig, axes = plt.subplots(1, len(avail), figsize=(6 * len(avail), 5))
@@ -61,22 +61,22 @@ def plot_alb_vs_exp_intercept(df, outdir, n_roll=200):
         ax.fill_between(xs, q25, q75, color=col, alpha=0.25, label='IQR')
 
         r, _ = stats.pearsonr(xm, ym)
-        ax.set_title(f'{nm}: albedo vs exp_intercept   r={r:.3f}', fontsize=10)
+        ax.set_title(f'{nm}: albedo vs $\\gamma$   r={r:.3f}', fontsize=10)
         ax.set_xlabel(f'{nm} albedo', fontsize=9)
-        ax.set_ylabel(f'{nm} exp_intercept', fontsize=9)
+        ax.set_ylabel(f'{nm} $\\gamma$', fontsize=9)
         ax.legend(fontsize=8)
 
-    fig.suptitle('Albedo vs exp_intercept — all bands', fontsize=12)
+    fig.suptitle('Albedo vs $\\gamma$ — all bands', fontsize=12)
     fig.tight_layout()
     _save(fig, outdir, 'alb_vs_exp_intercept.png')
 
 
 def plot_alb_vs_exp_intercept_cross(df, outdir, n_roll=200):
-    """3×3 cross-band scatter: each exp_intercept (rows) vs each albedo (cols)."""
+    """3×3 cross-band scatter: each gamma (rows) vs each albedo (cols)."""
     intercepts = [
-        ('exp_o2a_intercept',  f'{_O2A} exp_intercept'),
-        ('exp_wco2_intercept', f'{_WCO2} exp_intercept'),
-        ('exp_sco2_intercept', f'{_SCO2} exp_intercept'),
+        ('exp_o2a_intercept',  f'{_O2A} $\\gamma$'),
+        ('exp_wco2_intercept', f'{_WCO2} $\\gamma$'),
+        ('exp_sco2_intercept', f'{_SCO2} $\\gamma$'),
     ]
     albedos = [
         ('alb_o2a',  f'{_O2A} albedo'),
@@ -86,7 +86,7 @@ def plot_alb_vs_exp_intercept_cross(df, outdir, n_roll=200):
     row_avail = [(col, lbl) for col, lbl in intercepts if col in df.columns]
     col_avail = [(col, lbl) for col, lbl in albedos  if col in df.columns]
     if not row_avail or not col_avail:
-        logger.warning("No exp_intercept/albedo columns found for cross-band plot — skipping")
+        logger.warning("No gamma/albedo columns found for cross-band plot — skipping")
         return
 
     nrows, ncols = len(row_avail), len(col_avail)
@@ -122,14 +122,14 @@ def plot_alb_vs_exp_intercept_cross(df, outdir, n_roll=200):
             ax.set_ylabel(int_lbl, fontsize=9)
             ax.legend(fontsize=7)
 
-    fig.suptitle('exp_intercept vs albedo — cross-band (rows: intercept band, cols: albedo band)',
+    fig.suptitle('$\\gamma$ vs albedo — cross-band (rows: intercept band, cols: albedo band)',
                  fontsize=11)
     fig.tight_layout()
     _save(fig, outdir, 'alb_vs_exp_intercept_cross.png')
 
 
 def plot_intercept_binned_profile(df, bins, labels, outdir):
-    """Mean ± SEM (bars) / ± std (shading) of the spectral exp_intercept per band."""
+    """Mean ± SEM (bars) / ± std (shading) of the spectral gamma per band."""
     bands = [
         ('exp_o2a_intercept',  _O2A,  'C0'),
         ('exp_wco2_intercept', _WCO2, 'C1'),
@@ -164,8 +164,8 @@ def plot_intercept_binned_profile(df, bins, labels, outdir):
         ax.set_xticks(x)
         ax.set_xticklabels(labels, rotation=30, fontsize=8)
         ax.set_xlabel('Cloud distance (km)', fontsize=9)
-        ax.set_ylabel(f'{nm} exp_intercept', fontsize=9)
-        ax.set_title(f'{nm} exp_intercept: mean \u00b1 SEM (bars) / \u00b1 std (shading)', fontsize=10)
+        ax.set_ylabel(f'{nm} $\\gamma$', fontsize=9)
+        ax.set_title(f'{nm} $\\gamma$: mean \u00b1 SEM (bars) / \u00b1 std (shading)', fontsize=10)
         ax.grid(axis='y', alpha=0.3)
         finite_means = means.dropna()
         finite_stds  = stds.dropna()
@@ -191,7 +191,7 @@ def plot_exp_intercept_interband_coherence(df: pd.DataFrame, outdir: str) -> Non
     avail = [(a, b, na, nb) for a, b, na, nb in pairs
              if a in df.columns and b in df.columns]
     if not avail:
-        logger.warning("exp_intercept columns missing — skipping interband coherence plot")
+        logger.warning("gamma columns missing — skipping interband coherence plot")
         return
 
     subsets = [('Ocean', df[df['sfc_type'] == 0]),
@@ -218,12 +218,12 @@ def plot_exp_intercept_interband_coherence(df: pd.DataFrame, outdir: str) -> Non
             sc = ax.scatter(x, y, c=c, cmap=CMAPS['cld_dist'], s=2, alpha=0.3,
                             vmin=0, vmax=50)
             plt.colorbar(sc, ax=ax, label='Cloud distance (km)')
-            ax.set_xlabel(f'{na} exp_intercept', fontsize=9)
-            ax.set_ylabel(f'{nb} exp_intercept', fontsize=9)
+            ax.set_xlabel(f'{na} $\\gamma$', fontsize=9)
+            ax.set_ylabel(f'{nb} $\\gamma$', fontsize=9)
             ax.set_title(f'{sfc_name}: {na} vs {nb}  r={r:.3f}', fontsize=9)
 
     fig.suptitle(
-        'exp_intercept inter-band coherence (color = cloud distance km)',
+        '$\\gamma$ inter-band coherence (color = cloud distance km)',
         fontsize=12)
     fig.tight_layout()
     _save(fig, outdir, 'exp_intercept_interband_coherence.png')
@@ -250,7 +250,7 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
     avail = [(alb, exp, nm, c) for alb, exp, nm, c in bands
              if alb in df.columns and exp in df.columns]
     if not avail:
-        logger.warning("albedo or exp_intercept columns missing — skipping divergence plot")
+        logger.warning("albedo or gamma columns missing — skipping divergence plot")
         return
 
     subsets = [('Ocean', df[df['sfc_type'] == 0]),
@@ -330,12 +330,12 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
                 diff_pct     = (diff_m - diff_ref_val) / abs(diff_ref_val) * 100
                 diff_std_pct = diff_std / abs(diff_ref_val) * 100
                 diff_sem_pct = diff_sem / abs(diff_ref_val) * 100
-                diff_ylabel  = 'exp−alb: % change from ref'
+                diff_ylabel  = '$\\gamma$−alb: % change from ref'
             else:
                 diff_pct     = diff_m
                 diff_std_pct = diff_std
                 diff_sem_pct = diff_sem
-                diff_ylabel  = 'exp−alb (absolute)'
+                diff_ylabel  = '$\\gamma$−alb (absolute)'
 
             r_alb = stats.pearsonr(sdf[alb_col].dropna(),
                                    sdf['cld_dist_km'].reindex(sdf[alb_col].dropna().index))[0]
@@ -349,16 +349,16 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
                         label=f'albedo  r={r_alb:.2f}')
             ax.errorbar(xp, exp_pct.values, yerr=exp_sem_pct.values, fmt='o--',
                         capsize=3, color=col, lw=1.8,
-                        label=f'exp_int r={r_exp:.2f}')
+                        label=f'$\\gamma$ r={r_exp:.2f}')
             ax.fill_between(xp, alb_pct.values, exp_pct.values,
                             color=col, alpha=0.12,
-                            label='gap (exp − alb)')
+                            label='gap ($\\gamma$ − alb)')
             ax.axhline(0, color='gray', lw=0.8, linestyle='--')
             ax.set_xticks(xp)
             ax.set_xticklabels(labels, rotation=30, fontsize=8)
             ax.set_xlabel('Cloud distance (km)', fontsize=9)
             ax.set_ylabel('% change from 30–50 km ref', fontsize=9)
-            ax.set_title(f'{nm} — {sfc_name}: alb vs exp_intercept', fontsize=9)
+            ax.set_title(f'{nm} — {sfc_name}: alb vs $\\gamma$', fontsize=9)
             ax.legend(fontsize=7)
             ax.grid(axis='y', alpha=0.3)
 
@@ -370,7 +370,7 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
                              color=col, alpha=0.15, label='± 1 std')
             ax2.errorbar(xp, ratio_pct.values, yerr=ratio_sem_pct.values,
                          fmt='o-', capsize=3, color=col, lw=1.8,
-                         label='(exp/alb) % change ± SEM')
+                         label='($\\gamma$/alb) % change ± SEM')
             ax2.axhline(0, color='gray', lw=0.8, linestyle='--')
             near_val = ratio_pct.iloc[0]
             if np.isfinite(near_val):
@@ -382,8 +382,8 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
             ax2.set_xticks(xp)
             ax2.set_xticklabels(labels, rotation=30, fontsize=8)
             ax2.set_xlabel('Cloud distance (km)', fontsize=9)
-            ax2.set_ylabel('exp/alb ratio: % change from ref', fontsize=9)
-            ax2.set_title(f'{nm} — {sfc_name}: exp/alb divergence', fontsize=9)
+            ax2.set_ylabel('$\\gamma$/alb ratio: % change from ref', fontsize=9)
+            ax2.set_title(f'{nm} — {sfc_name}: $\\gamma$/alb divergence', fontsize=9)
             ax2.legend(fontsize=7)
             ax2.grid(axis='y', alpha=0.3)
 
@@ -395,7 +395,7 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
                              color=col, alpha=0.15, label='± 1 std')
             ax3.errorbar(xp, diff_pct.values, yerr=diff_sem_pct.values,
                          fmt='o-', capsize=3, color=col, lw=1.8,
-                         label='(exp−alb) % change ± SEM')
+                         label='($\\gamma$−alb) % change ± SEM')
             ax3.axhline(0, color='gray', lw=0.8, linestyle='--')
             near_diff = diff_pct.iloc[0]
             if np.isfinite(near_diff):
@@ -408,24 +408,24 @@ def plot_alb_exp_divergence(df: pd.DataFrame, bins, labels, outdir: str) -> None
             ax3.set_xticklabels(labels, rotation=30, fontsize=8)
             ax3.set_xlabel('Cloud distance (km)', fontsize=9)
             ax3.set_ylabel(diff_ylabel, fontsize=9)
-            ax3.set_title(f'{nm} — {sfc_name}: exp_intercept − alb divergence', fontsize=9)
+            ax3.set_title(f'{nm} — {sfc_name}: $\\gamma$ − alb divergence', fontsize=9)
             ax3.legend(fontsize=7)
             ax3.grid(axis='y', alpha=0.3)
 
     fig1.suptitle(
-        'Albedo vs exp_intercept: % change from far-cloud reference (30–50 km)',
+        'Albedo vs $\\gamma$: % change from far-cloud reference (30–50 km)',
         fontsize=11)
     fig1.tight_layout()
     _save(fig1, outdir, 'alb_exp_pct_change_vs_cld_dist.png')
 
     fig2.suptitle(
-        'exp/alb ratio % change from far-cloud reference — isolates non-albedo cloud effect',
+        '$\\gamma$/alb ratio % change from far-cloud reference — isolates non-albedo cloud effect',
         fontsize=11)
     fig2.tight_layout()
     _save(fig2, outdir, 'alb_exp_ratio_divergence_vs_cld_dist.png')
 
     fig3.suptitle(
-        'exp_intercept − albedo: % change from far-cloud reference (30–50 km)\n'
+        '$\\gamma$ − albedo: % change from far-cloud reference (30–50 km)\n'
         'shading = ± 1 std,  error bars = ± SEM',
         fontsize=11)
     fig3.tight_layout()
@@ -448,7 +448,7 @@ def plot_exp_intercept_albedo_residuals(df: pd.DataFrame, bins, labels,
     avail = [(ei, alb, nm, c) for ei, alb, nm, c in bands
              if ei in df.columns and alb in df.columns]
     if not avail:
-        logger.warning("exp_intercept or albedo columns missing — skipping residual plot")
+        logger.warning("gamma or albedo columns missing — skipping residual plot")
         return
 
     control_cols = ['airmass', 'mu_sza']
@@ -498,7 +498,7 @@ def plot_exp_intercept_albedo_residuals(df: pd.DataFrame, bins, labels,
             ax.set_xticks(xp)
             ax.set_xticklabels(labels, rotation=30, fontsize=8)
             ax.set_xlabel('Cloud distance (km)', fontsize=9)
-            ax.set_ylabel(f'{nm} exp_int residual', fontsize=9)
+            ax.set_ylabel(f'{nm} $\\gamma$ residual', fontsize=9)
             ax.set_title(
                 f'{nm} — {sfc_name}  |  r_raw={r_raw:.3f} \u2192 r_resid={r_res:.3f}',
                 fontsize=9)
@@ -512,7 +512,7 @@ def plot_exp_intercept_albedo_residuals(df: pd.DataFrame, bins, labels,
                 ax.set_ylim(finite_means.min() - spread, finite_means.max() + spread)
 
     fig.suptitle(
-        'exp_intercept residuals after removing albedo + airmass + cos(SZA)',
+        '$\\gamma$ residuals after removing albedo + airmass + cos(SZA)',
         fontsize=11)
     fig.tight_layout()
     _save(fig, outdir, 'exp_intercept_albedo_residuals.png')
@@ -537,7 +537,7 @@ def plot_exp_alb_ratio_residuals(df: pd.DataFrame, bins, labels,
     avail = [(ei, alb, nm, c) for ei, alb, nm, c in ratio_defs
              if ei in df.columns and alb in df.columns]
     if not avail:
-        logger.warning("exp_intercept or albedo columns missing — skipping ratio residual plot")
+        logger.warning("gamma or albedo columns missing — skipping ratio residual plot")
         return
 
     ratio_assign = {
@@ -594,7 +594,7 @@ def plot_exp_alb_ratio_residuals(df: pd.DataFrame, bins, labels,
             ax.set_xticks(xp)
             ax.set_xticklabels(labels, rotation=30, fontsize=8)
             ax.set_xlabel('Cloud distance (km)', fontsize=9)
-            ax.set_ylabel(f'{nm} exp/alb residual', fontsize=9)
+            ax.set_ylabel(f'{nm} $\\gamma$/alb residual', fontsize=9)
             ax.set_title(
                 f'{nm} — {sfc_name}  |  r_raw={r_raw:.3f} \u2192 r_resid={r_res:.3f}',
                 fontsize=9)
@@ -608,7 +608,7 @@ def plot_exp_alb_ratio_residuals(df: pd.DataFrame, bins, labels,
                 ax.set_ylim(finite_means.min() - spread, finite_means.max() + spread)
 
     fig.suptitle(
-        'exp/alb ratio residuals after removing airmass + cos(SZA) + AOD\n'
+        '$\\gamma$/alb ratio residuals after removing airmass + cos(SZA) + AOD\n'
         '(albedo already divided out — residual is the pure cloud-adjacency component)',
         fontsize=11)
     fig.tight_layout()
@@ -623,8 +623,8 @@ _CROSS_BAND_PAIRS = [
 # (column prefix, row label) — must match build_feature_dataset.py naming
 _CROSS_BAND_QUANTITIES = [
     ('alb',               'albedo ratio',          'C0'),
-    ('exp_int',           'exp_intercept ratio',   'C1'),
-    ('exp_int_minus_alb', '(exp_int − alb) ratio', 'C2'),
+    ('exp_int',           '$\\gamma$ ratio',   'C1'),
+    ('exp_int_minus_alb', '($\\gamma$ − alb) ratio', 'C2'),
 ]
 
 

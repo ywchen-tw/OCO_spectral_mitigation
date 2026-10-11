@@ -57,9 +57,9 @@ LAND_CLASS_VARS = [
     ('wco2_k2',             f'WCO$_2$ {VAR_L_LABEL}'),
     ('sco2_k1',             f'SCO$_2$ {MEAN_L_LABEL}'),
     ('sco2_k2',             f'SCO$_2$ {VAR_L_LABEL}'),
-    ('exp_o2a_intercept',   'O$_2$A exp-intercept'),
-    ('exp_wco2_intercept',  'WCO$_2$ exp-intercept'),
-    ('exp_sco2_intercept',  'SCO$_2$ exp-intercept'),
+    ('exp_o2a_intercept',   'O$_2$A $\\gamma$'),
+    ('exp_wco2_intercept',  'WCO$_2$ $\\gamma$'),
+    ('exp_sco2_intercept',  'SCO$_2$ $\\gamma$'),
     ('xco2_bc_anomaly',     f'{XCO2_LABEL} BC anomaly'),
     ('xco2_raw_minus_apriori', f'{XCO2_LABEL} raw - apriori'),
 ]
@@ -76,9 +76,9 @@ LAND_CLASS_DELTA_VARS = [
     ('dk2_wco2',  f'Δ{VAR_L_LABEL} WCO$_2$ (obs-ref)'),
     ('dk1_sco2',  f'Δ{MEAN_L_LABEL} SCO$_2$ (obs-ref)'),
     ('dk2_sco2',  f'Δ{VAR_L_LABEL} SCO$_2$ (obs-ref)'),
-    ('dexp_o2a',  'Δexp-int O$_2$A (obs-ref)'),
-    ('dexp_wco2', 'Δexp-int WCO$_2$ (obs-ref)'),
-    ('dexp_sco2', 'Δexp-int SCO$_2$ (obs-ref)'),
+    ('dexp_o2a',  'Δ$\\gamma$ O$_2$A (obs-ref)'),
+    ('dexp_wco2', 'Δ$\\gamma$ WCO$_2$ (obs-ref)'),
+    ('dexp_sco2', 'Δ$\\gamma$ SCO$_2$ (obs-ref)'),
 ]
 
 _NEAR = (0.0, 5.0)     # near-cloud window (km)

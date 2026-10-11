@@ -103,7 +103,7 @@ def make_summary_plot(df, out_png, panel_offset=0, suptitle=True,
                  elinewidth=1, capsize=3, zorder=3, label=f"{MODEL_LABEL} − ship")
     ax1.axvline(0, color="k", lw=0.7)
     ax1.set_yticks(y); ax1.set_yticklabels(lbl, fontsize=9); ax1.invert_yaxis()
-    ax1.set_xlabel("OCO-2 − ship EM27/SUN (ppm)   [±1σ of collocated soundings]")
+    ax1.set_xlabel("OCO-2 − ship EM27/SUN (ppm)   [±1σ of co-located soundings]")
     ax1.set_title(f"Per-case bias: {XCO2_BC_LABEL} → {MODEL_LABEL}", pad=10)
     ax1.legend(fontsize=8)
     panel_label(ax1, f"({chr(ord('a') + panel_offset)})")
@@ -123,7 +123,7 @@ def make_summary_plot(df, out_png, panel_offset=0, suptitle=True,
         ax2.plot([r.cld_med, r.cld_med], [r.resid_bc, r.resid_corr], color="0.8", zorder=0)
         ax2.annotate(r.date[5:], (r.cld_med, r.resid_corr), fontsize=7,
                      xytext=(3, 3), textcoords="offset points")
-    ax2.set_xlabel("median cloud distance of collocated OCO-2 (km)")
+    ax2.set_xlabel("median cloud distance of co-located OCO-2 (km)")
     ax2.set_ylabel("OCO-2 − ship (ppm)"); ax2.set_title("Bias vs cloud distance", pad=10)
     ax2.legend(fontsize=8)
     panel_label(ax2, f"({chr(ord('a') + panel_offset + 1)})")

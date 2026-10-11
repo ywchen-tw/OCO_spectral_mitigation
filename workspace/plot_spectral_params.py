@@ -41,7 +41,7 @@ BANDS = [('o2a', 'O$_2$A'), ('wco2', 'WCO$_2$'), ('sco2', 'SCO$_2$')]
 # k1/k2 shown by their physical meaning: mean / variance of the relative
 # photon path l' (caption defines k1 = <l'>, k2 = var(l')).
 QUANTS = [(MEAN_L_LABEL, '{b}_k1'), (VAR_L_LABEL, '{b}_k2'),
-          ('exp. intercept $-$ albedo', '{b}_exp_intercept-alb')]
+          ('$\\gamma$ $-$ albedo', '{b}_exp_intercept-alb')]
 
 
 def main():

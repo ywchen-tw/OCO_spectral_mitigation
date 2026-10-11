@@ -84,8 +84,8 @@ def main(out_tex=None):
                  f"{cfg.SURFACE_ALBEDOS['bright']:.2f} (bright)"))
     rows.append(("\\textit{Cloud}", None))
     rows.append(("Geometry / optics",
-                 f"water cloud, base {cfg.CLOUD_BASE_KM:.0f}\\,km / top "
-                 f"{cfg.CLOUD_TOP_KM:.0f}\\,km, $x = {cfg.CLOUD_X_KM[0]}$--"
+                 f"water cloud, base {cfg.CLOUD_BASE_EFF_KM:.0f}\\,km / top "
+                 f"{cfg.CLOUD_TOP_EFF_KM:.0f}\\,km, $x = {cfg.CLOUD_X_KM[0]}$--"
                  f"{cfg.CLOUD_X_KM[1]}\\,km ({cfg.CLOUD_X_KM[1] - cfg.CLOUD_X_KM[0]:.0f}\\,km wide); "
                  f"COT {cfg.CLOUD_COD:.0f}, $r_\\mathrm{{eff}} = "
                  f"{cfg.CLOUD_CER_UM:.0f}\\,\\mu\\mathrm{{m}}$, "

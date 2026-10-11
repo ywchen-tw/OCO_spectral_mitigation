@@ -416,12 +416,12 @@ def _run_subset_analysis(
 
     # ── Section 2a: albedo vs exp_intercept ─────────────────────────────────
     if is_core_or_full:
-        logger.info("Plotting albedo vs exp_intercept …")
+        logger.info("Plotting albedo vs gamma …")
         plot_alb_vs_exp_intercept(sdf, subset_outdir)
 
     if is_full and legacy_full:
         # exploratory 3x3 hexbin matrix — superseded by the ratio profiles
-        logger.info("Plotting albedo vs exp_intercept cross-band …")
+        logger.info("Plotting albedo vs gamma cross-band …")
         plot_alb_vs_exp_intercept_cross(sdf, subset_outdir)
 
     # ── Section 2g: cross-band ratio profiles (alb / exp_int / exp_int−alb) ──
@@ -664,15 +664,15 @@ def main():
 
     if args.analysis_profile in ('core', 'full'):
         # ── Section 2b: exp_intercept albedo residuals ────────────────────────
-        logger.info("Section 2b: Plotting exp_intercept albedo residuals …")
+        logger.info("Section 2b: Plotting gamma albedo residuals …")
         plot_exp_intercept_albedo_residuals(df, bins, labels, overall_outdir)
 
         # ── Section 2e: albedo vs exp_intercept divergence ───────────────────
-        logger.info("Section 2e: Plotting alb vs exp_intercept divergence …")
+        logger.info("Section 2e: Plotting alb vs gamma divergence …")
         plot_alb_exp_divergence(df, bins, labels, overall_outdir)
 
         # ── Section 2f: exp/alb ratio residuals ──────────────────────────────
-        logger.info("Section 2f: Plotting exp/alb ratio residuals …")
+        logger.info("Section 2f: Plotting gamma/alb ratio residuals …")
         plot_exp_alb_ratio_residuals(df, bins, labels, overall_outdir)
 
         # ── Section 3e: k1, k2, k3 albedo residuals ──────────────────────────
@@ -680,7 +680,7 @@ def main():
         plot_k_albedo_residuals(df, bins, labels, overall_outdir)
 
         # ── Section 2d: exp_intercept inter-band coherence ───────────────────
-        logger.info("Section 2d: Plotting exp_intercept inter-band coherence …")
+        logger.info("Section 2d: Plotting gamma inter-band coherence …")
         plot_exp_intercept_interband_coherence(df, overall_outdir)
 
         # ── Section 3c: higher-order k profiles (k3 for SCO₂ and WCO₂) ──────
@@ -723,7 +723,7 @@ def main():
             logger.info("R4: Ref z-score profiles …")
             plot_ref_zscore_profiles(df_r, bins, labels, ref_outdir)
 
-            logger.info("R6: Ref albedo-decoupled exp_intercept residuals …")
+            logger.info("R6: Ref albedo-decoupled gamma residuals …")
             plot_ref_alb_decoupled_exp(df_r, bins, labels, ref_outdir)
 
             logger.info("R7: Obs vs ref scatter …")

@@ -42,6 +42,10 @@ EDGE = "#2f2f2f"
 ARROW = "#333333"
 BOXSTYLE = "round,pad=0.025,rounding_size=0.055"
 
+# Manuscript notation: the predicted anomaly is written with a hat over the
+# target symbol (Sect. 6, Eq. S17), so mu is not used for it.
+DX = r"\widehat{\Delta\mathrm{X}}"
+
 
 def _box(ax, x, y, w, h, text, facecolor, *, fontsize=5.7, lw=0.8,
          linestyle="-", fontweight="normal"):
@@ -118,9 +122,9 @@ def _member_panel(ax, show_cloud_head: bool) -> None:
              C_HEAD, fontsize=5.1, linestyle=(0, (3, 2)))
         _arrow(ax, 6.17, 5.78, 7.02, 7.02, lw=0.95)
         _arrow(ax, 6.17, 5.78, 7.02, 4.43, lw=0.9, linestyle=(0, (3, 2)))
-        _box(ax, 9.88, 6.88, 1.48, 0.47, r"$\mu_m$", C_OUTPUT,
+        _box(ax, 9.88, 6.88, 1.48, 0.47, rf"${DX}_m$", C_OUTPUT,
              fontsize=5.7)
-        _box(ax, 9.88, 6.24, 1.48, 0.47, r"$\log\sigma_m^2$", C_OUTPUT,
+        _box(ax, 9.88, 6.24, 1.48, 0.47, r"$\log\hat\sigma_m^2$", C_OUTPUT,
              fontsize=4.9)
         _box(ax, 9.88, 4.18, 1.48, 0.47, "near-cloud\nlogit", C_OUTPUT,
              fontsize=4.2, linestyle=(0, (3, 2)))
@@ -138,9 +142,9 @@ def _member_panel(ax, show_cloud_head: bool) -> None:
         _box(ax, 7.02, 5.30, 1.98, 0.95, "head\nLinear -> 2",
              C_HEAD, fontsize=5.1)
         _arrow(ax, 6.17, 5.78, 7.02, 5.78, lw=0.95)
-        _box(ax, 9.88, 6.03, 1.48, 0.47, r"$\mu_m$", C_OUTPUT,
+        _box(ax, 9.88, 6.03, 1.48, 0.47, rf"${DX}_m$", C_OUTPUT,
              fontsize=5.7)
-        _box(ax, 9.88, 5.38, 1.48, 0.47, r"$\log\sigma_m^2$", C_OUTPUT,
+        _box(ax, 9.88, 5.38, 1.48, 0.47, r"$\log\hat\sigma_m^2$", C_OUTPUT,
              fontsize=4.9)
         _arrow(ax, 9.00, 5.88, 9.88, 6.17)
         _arrow(ax, 9.00, 5.66, 9.88, 5.61)
@@ -151,8 +155,8 @@ def _member_panel(ax, show_cloud_head: bool) -> None:
         1.45,
         "Each hidden block is Linear -> LayerNorm -> ReLU -> Dropout (p = 0.1);\n"
         "dropout is active in training only, so there is no MC-dropout at inference.\n"
-        "The second head output is clamped to [-10, 10]. For Student-t loss it is\n"
-        "interpreted as log scale; otherwise it is log variance.",
+        "The second head output is clamped to [-10, 10] and interpreted\n"
+        "as the log variance.",
     )
 
 
@@ -167,7 +171,7 @@ def _ensemble_panel(ax) -> None:
              "MLP\nmember" if i == 2 else "", C_BODY, fontsize=5.2)
     ax.text(1.18, 6.50, r"$m = 1,\ldots,M$", fontsize=6.5,
             color=C_NOTE, ha="center")
-    _small_note(ax, 0.22, 8.77, "independent seeds\noptional DE++ widths",
+    _small_note(ax, 0.22, 8.77, "independent seeds",
                 fontsize=5.9)
 
     _box(ax, 2.80, 7.00, 1.70, 1.05, "Gaussian\nmixture", C_ENSEMBLE,
@@ -180,13 +184,13 @@ def _ensemble_panel(ax) -> None:
         6.83,
         4.24,
         1.38,
-        r"$\mu^* = M^{-1}\sum_m \mu_m$" "\n"
-        r"$\sigma^{*2}=M^{-1}\sum_m(\sigma_m^2+\mu_m^2)-\mu^{*2}$",
+        rf"${DX} = M^{{-1}}\sum_m {DX}_m$" "\n"
+        rf"$\hat\sigma^{{2}}=M^{{-1}}\sum_m(\hat\sigma_m^2+{DX}_m^2)-{DX}^{{2}}$",
         C_OUTPUT,
         fontsize=4.4,
     )
     _arrow(ax, 4.50, 7.53, 4.88, 7.53)
-    _small_note(ax, 6.80, 6.58, r"point correction $\hat{y}=\mu^*$",
+    _small_note(ax, 6.80, 6.58, rf"point correction ${DX}$",
                 ha="center", fontsize=5.6)
 
     _box(ax, 1.62, 4.23, 2.06, 0.95, "tuning\nblock", C_INPUT,

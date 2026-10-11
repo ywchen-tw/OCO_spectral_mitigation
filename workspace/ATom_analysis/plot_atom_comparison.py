@@ -32,7 +32,7 @@ from atom_pseudo_column import (load_atom, load_oco, pseudo_profile_on_grid,   #
                                 PLOT_BASE, MERGED_DIR, DATES, CORR_COL)
 from ak_harmonize import operator_from_dataframe, _haversine_km               # noqa: E402
 from plot_corrected_xco2 import download_modis_rgb                            # noqa: E402
-from plot_style import apply_manuscript_style, panel_label, CMAPS, XCO2_LABEL, XCO2_DE_LABEL  # noqa: E402
+from plot_style import apply_manuscript_style, panel_label, CMAPS, XCO2_LABEL, XCO2_BC_LABEL, XCO2_DE_LABEL  # noqa: E402
 
 TILES_DIR = os.path.join(PLOT_BASE, "_modis_tiles")
 
@@ -164,9 +164,9 @@ def make_fig(date, radius_km, twin_s, do_modis):
     hi = max(np.nanmax(o_orig), np.nanmax(o_corr), c_aks.max())
     bins = np.linspace(lo, hi, 50)
     a.hist(o_orig, bins, density=True, alpha=0.45, color="tab:blue",
-           label=f"OCO-2 original  μ={np.nanmean(o_orig):.2f} σ={np.nanstd(o_orig):.2f}")
+           label=f"OCO-2 {XCO2_BC_LABEL}   mean={np.nanmean(o_orig):.2f} SD={np.nanstd(o_orig):.2f}")
     a.hist(o_corr, bins, density=True, alpha=0.45, color="tab:green",
-           label=f"OCO-2 DeepEns   μ={np.nanmean(o_corr):.2f} σ={np.nanstd(o_corr):.2f}")
+           label=f"OCO-2 {XCO2_DE_LABEL}   mean={np.nanmean(o_corr):.2f} SD={np.nanstd(o_corr):.2f}")
     for i, L in enumerate(legs):
         a.axvline(L["c_ak"], color="tab:red", lw=2,
                   label="ATom pseudo-column" if i == 0 else None)
@@ -201,7 +201,7 @@ def make_fig(date, radius_km, twin_s, do_modis):
         a.plot(L["op"]["xa"], L["op"]["pl"], ":", color=col, lw=1.2,
                label="OCO-2 prior" if i == 0 else None)
     a.axvline(ref, color="tab:red", lw=2, ls="--", label=f"ATom pseudo-column {XCO2_LABEL}")
-    a.axvline(np.nanmedian(o_orig), color="tab:blue", lw=1.5, label="OCO orig median")
+    a.axvline(np.nanmedian(o_orig), color="tab:blue", lw=1.5, label=f"OCO {XCO2_BC_LABEL} median")
     a.axvline(np.nanmedian(o_corr), color="tab:green", lw=1.5, label=f"OCO {XCO2_DE_LABEL} median")
     a.invert_yaxis()
     a.set(xlabel=f"CO2 / {XCO2_LABEL} (ppm)", ylabel="Pressure (hPa)",

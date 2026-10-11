@@ -311,7 +311,7 @@ def main() -> None:
 
     band_panel(axes[0], "d_{b}_k1", rf"$\Delta${MEAN_L_LABEL}", legend=True)
     band_panel(axes[1], "d_{b}_k2", rf"$\Delta${VAR_L_LABEL}")
-    band_panel(axes[2], "d_{b}_exp_intercept-alb", r"$\Delta$(exp int $-$ alb)")
+    band_panel(axes[2], "d_{b}_exp_intercept-alb", r"$\Delta$($\gamma$ $-$ alb)")
     band_panel(axes[3], "r_h_cont_{b}", "continuum / clear", ratio=True)
     band_panel(axes[4], "d_alb_{b}", r"$\Delta$ albedo")
 

@@ -357,7 +357,7 @@ def plot_ref_coverage_bias(df: pd.DataFrame, bins, labels, outdir: str,
     check_vars = {
         'o2a_k1':            f'{_O2A} {MEAN_L_LABEL}',
         'alb_o2a':           f'{_O2A} albedo',
-        'exp_o2a_intercept': f'{_O2A} exp_int',
+        'exp_o2a_intercept': f'{_O2A} $\\gamma$',
         'sco2_k1':           f'{_SCO2} {MEAN_L_LABEL}',
         'xco2_bc_anomaly':   f'{XCO2_LABEL} BC anomaly (ppm)',
         'airmass':           'Airmass',
@@ -506,12 +506,12 @@ def plot_ref_corrected_profiles(df: pd.DataFrame, bins, labels, outdir: str,
         ('albedo', [p for p in pairs if p[5] == 'albedo'],       f'{tag}_corrected_alb_profiles.png'),
         ('exp_int',[p for p in pairs if p[5] == 'exp_int'],      f'{tag}_corrected_exp_profiles.png'),
         # derived groups — 4-tuples padded: (None, None, None, dcol, band, term, color)
-        ('exp\u2212alb',
-         [(None, None, None, f'd_exp_minus_alb_{b}', b, 'exp\u2212alb', _BAND_COLOR[b])
+        ('$\\gamma$\u2212alb',
+         [(None, None, None, f'd_exp_minus_alb_{b}', b, '$\\gamma$\u2212alb', _BAND_COLOR[b])
           for b in _BANDS],
          f'{tag}_corrected_exp_minus_alb_profiles.png'),
-        ('exp/alb',
-         [(None, None, None, f'd_exp_over_alb_{b}', b, 'exp/alb', _BAND_COLOR[b])
+        ('$\\gamma$/alb',
+         [(None, None, None, f'd_exp_over_alb_{b}', b, '$\\gamma$/alb', _BAND_COLOR[b])
           for b in _BANDS],
          f'{tag}_corrected_exp_over_alb_profiles.png'),
         (f'{VAR_L_LABEL}/{MEAN_L_LABEL}',
@@ -736,7 +736,7 @@ def plot_ref_alb_decoupled_exp(df: pd.DataFrame, bins, labels, outdir: str,
             ax.set_xticks(xp)
             ax.set_xticklabels(labels, rotation=30, fontsize=8)
             ax.set_xlabel('Cloud distance (km)', fontsize=9)
-            ax.set_ylabel(f'{nm} \u0394exp_int | \u0394alb removed', fontsize=9)
+            ax.set_ylabel(f'{nm} \u0394$\\gamma$ | \u0394alb removed', fontsize=9)
             ax.set_title(f'{nm} — {sfc_name}  |  r_raw={r_raw:.3f} \u2192 r_resid={r_res:.3f}',
                          fontsize=9)
             ax.legend(fontsize=7)
@@ -747,7 +747,7 @@ def plot_ref_alb_decoupled_exp(df: pd.DataFrame, bins, labels, outdir: str,
                 spread = max(finite_stds.max() * 2, abs(finite_means).max() * 2, 1e-9)
                 ax.set_ylim(-spread, spread)
 
-    fig.suptitle(f'[{tag}] \u0394exp_int residual after removing \u0394alb (OLS) — ref-corrected space\n'
+    fig.suptitle(f'[{tag}] \u0394$\\gamma$ residual after removing \u0394alb (OLS) — ref-corrected space\n'
                  'Surviving signal is independent of surface reflectance co-variation',
                  fontsize=11)
     fig.tight_layout()
@@ -872,8 +872,8 @@ def plot_ref_delta_multivar(df: pd.DataFrame, bins, labels,
     _BAND_COLOR = {_O2A: 'C0', _WCO2: 'C1', _SCO2: 'C2'}
     _derived_terms = []
     for derived_lbl, col_prefix in [
-        ('exp\u2212alb',    'd_exp_minus_alb'),
-        ('exp/alb',         'd_exp_over_alb'),
+        ('$\\gamma$\u2212alb',    'd_exp_minus_alb'),
+        ('$\\gamma$/alb',         'd_exp_over_alb'),
         (f'{VAR_L_LABEL}/{MEAN_L_LABEL}', 'd_k2_over_k1'),
     ]:
         entries = [(f'{col_prefix}_{b}', b, _BAND_COLOR[b])
@@ -1212,8 +1212,8 @@ def plot_ref_delta_partial_xco2(df: pd.DataFrame, outdir: str,
     _BANDS = [_O2A, _WCO2, _SCO2]
     _BAND_COLOR = {_O2A: 'C0', _WCO2: 'C1', _SCO2: 'C2'}
     for derived_lbl, col_prefix in [
-        ('exp\u2212alb',    'd_exp_minus_alb'),
-        ('exp/alb',         'd_exp_over_alb'),
+        ('$\\gamma$\u2212alb',    'd_exp_minus_alb'),
+        ('$\\gamma$/alb',         'd_exp_over_alb'),
         (f'{VAR_L_LABEL}/{MEAN_L_LABEL}', 'd_k2_over_k1'),
     ]:
         for b in _BANDS:
@@ -1370,7 +1370,7 @@ def plot_ref_corrected_profiles_by_fp_area(
         dc_minus = f'_d_exp_minus_alb_{band}'
         if dcol_exp in df.columns and dcol_alb in df.columns:
             df[dc_minus] = df[dcol_exp] - df[dcol_alb]
-            derived_minus.append((dc_minus, band, 'exp\u2212alb', color))
+            derived_minus.append((dc_minus, band, '$\\gamma$\u2212alb', color))
 
         # Δ(exp / alb) = obs_exp/obs_alb − ref_exp/ref_alb
         dc_ratio = f'_d_exp_over_alb_{band}'
@@ -1380,7 +1380,7 @@ def plot_ref_corrected_profiles_by_fp_area(
                 df[obs_exp_col] / df[obs_alb_col].replace(0, np.nan)
                 - df[ref_exp_col] / df[ref_alb_col].replace(0, np.nan)
             )
-            derived_ratio.append((dc_ratio, band, 'exp/alb', color))
+            derived_ratio.append((dc_ratio, band, '$\\gamma$/alb', color))
 
     # Slice after all new columns are on df so subsets inherit them
     sfc_subsets = [('Ocean', df[df['sfc_type'] == 0]),
@@ -1400,20 +1400,20 @@ def plot_ref_corrected_profiles_by_fp_area(
          f'[{tag}] Ref-corrected \u0394albedo by footprint area quintile'),
         ('exp_int',        [p for p in pairs if p[5] == 'exp_int'],
          f'{tag}_corrected_exp_profiles_by_fp_area.png',
-         f'[{tag}] Ref-corrected \u0394exp_intercept by footprint area quintile'),
+         f'[{tag}] Ref-corrected \u0394$\\gamma$ by footprint area quintile'),
     ]
     # Derived groups use a different row tuple format: (diff_col, band_lbl, term_lbl, color)
     if derived_minus:
         var_groups.append((
-            'exp\u2212alb', derived_minus,
+            '$\\gamma$\u2212alb', derived_minus,
             f'{tag}_corrected_exp_minus_alb_profiles_by_fp_area.png',
-            f'[{tag}] Ref-corrected \u0394(exp\u2212alb) by footprint area quintile',
+            f'[{tag}] Ref-corrected \u0394($\\gamma$\u2212alb) by footprint area quintile',
         ))
     if derived_ratio:
         var_groups.append((
-            'exp/alb', derived_ratio,
+            '$\\gamma$/alb', derived_ratio,
             f'{tag}_corrected_exp_over_alb_profiles_by_fp_area.png',
-            f'[{tag}] Ref-corrected \u0394(exp/alb) by footprint area quintile',
+            f'[{tag}] Ref-corrected \u0394($\\gamma$/alb) by footprint area quintile',
         ))
 
     fp_outdir = os.path.join(outdir, 'fp_area')

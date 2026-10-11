@@ -17,6 +17,9 @@ import sys
 from pathlib import Path
 
 import matplotlib
+import matplotlib.colors  # noqa: E402
+import matplotlib.ticker  # noqa: E402
+import matplotlib.transforms  # noqa: E402
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
@@ -37,13 +40,19 @@ DEFAULT_CSV = ('results/model_comparison/deep_ensemble/'
                'de_beta_nll_prof_reg_foldpca_o05l15_m5/atrain/'
                'tccon_comparison_r100km.csv')
 
-RAW_COLOR = '#fdbf6f'
-BC_COLOR = 'steelblue'
-DE_COLOR = 'green'
+# Okabe-Ito blue / vermillion differ in hue AND lightness (readable by
+# colour-blind readers and in greyscale); raw is pushed back in light grey.
+# Main text (JQSRT, 2026-10-11) calls the corrected product X_CO2^model and never uses "DE"
+# (Massie audit), so this figure overrides the shared plot_style label.
+XCO2_DE_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{model}}$"
+RAW_COLOR = '0.6'
+BC_COLOR = '#0072B2'
+DE_COLOR = '#D55E00'
 TCCON_BAND_LABEL = '±TCCON σ (per station-day)'
-# Pale yellow so the ±band shading is told apart from the grey per-row TCCON
+# Light blue-grey (author, 2026-10-11; was pale yellow #f5e6a3, which Massie disliked in
+# Fig. S5) so the ±1 ppm band stays distinct from the neutral grey per-row TCCON
 # sigma segments and from the three product colours.
-BAND_COLOR = '#f5e6a3'
+BAND_COLOR = '#b8c7d9'
 BAND_ALPHA = 0.45
 
 
@@ -85,6 +94,8 @@ def _stat_box(ax, frame, cols, header=None):
         if not b.size:
             continue
         rtxt = f"   mean fp-RMSE {np.mean(r):.2f}" if r.size else ""
+        # KSS review 2026-10-11: station-days within the +/-1 ppm band.
+        rtxt += f"   within ±1 ppm {int(np.sum(np.abs(b) <= 1.0))}/{b.size}"
         # Sample sd (ddof=1) across station-days, as quoted in the text.
         lines.append(f"{label}:  |residual| {np.mean(np.abs(b)):.2f} ± "
                      f"{np.std(np.abs(b), ddof=1):.2f}{rtxt}")
@@ -105,68 +116,95 @@ def _draw_dumbbell(ax, frame, cols, band):
         if pts.size:
             ax.plot([pts.min(), pts.max()], [yi, yi], '-', color='lightgray',
                     lw=1.2, zorder=1)
-    for label, bcol, sdcol, _, color, z in cols:
-        ax.errorbar(frame[bcol], y, xerr=frame[sdcol], fmt='o', ms=6,
-                    color=color, ecolor=color, elinewidth=0.8, capsize=2.5,
-                    capthick=0.8, markeredgecolor='black',
-                    markeredgewidth=0.5, label=label, zorder=z)
+    for k, (label, bcol, sdcol, _, color, z) in enumerate(cols):
+        if k == 0:
+            # Raw: small hollow grey markers, no error bars (background).
+            ax.plot(frame[bcol], y, 'o', ms=4, mfc='none', mec=color,
+                    mew=0.8, label=label, zorder=z)
+            continue
+        ecol = matplotlib.colors.to_rgba(color, 0.55)
+        ax.errorbar(frame[bcol], y, xerr=frame[sdcol], fmt='o', ms=5,
+                    color=color, ecolor=ecol, elinewidth=0.6, capsize=1.8,
+                    capthick=0.6, markeredgecolor='black',
+                    markeredgewidth=0.4, label=label, zorder=z)
     ax.axvline(0, color='k', lw=1)
     _tccon_band(ax, frame)
     ax.axvspan(-band, band, color=BAND_COLOR, alpha=BAND_ALPHA, lw=0,
                zorder=0, label=f'±{band:g} ppm residual')
     ax.set_yticks([])
     ax.set_ylabel(f'station-day (sorted by {XCO2_BC_LABEL} residual)')
-    ax.set_ylim(-1, n)
+    # Pad so the first and last rows sit clear of the frame.
+    ax.set_ylim(-3, n + 2)
     ax.grid(alpha=0.3, axis='x')
 
 
 def _draw_hist(ax, frame, cols, band, bin_ppm):
-    arrays = []
-    for _, bcol, _, _, color, _ in cols:
+    """Mirrored residual distributions: the uncorrected products (raw, B11)
+    above the zero line, the corrected DE below.
+
+    B11 and DE are thin step histograms with their Gaussians (sample mean and
+    sd) as thick solid curves, ±1 SD arrows, and direct labels. Raw sits in
+    the background on the upper side as a faint step outline and a dotted
+    grey Gaussian (its width equals B11's). Returns the x range drawn."""
+    series = []
+    for k, (label, bcol, _, _, color, _) in enumerate(cols):
         x = frame[bcol].to_numpy(float)
-        arrays.append((x[np.isfinite(x)], color))
-    allx = np.concatenate([a for a, _ in arrays])
-    # Bins span the residuals only; the error bars would stretch them to
-    # empty tails. Edges are aligned on zero so the ±band edges fall on bins.
+        series.append((label, x[np.isfinite(x)], color, k == 0))
+    allx = np.concatenate([x for _, x, _, _ in series])
     lo = np.floor(allx.min() / bin_ppm) * bin_ppm
     hi = np.ceil(allx.max() / bin_ppm) * bin_ppm
     bins = np.arange(lo, hi + bin_ppm / 2, bin_ppm)
-    counts = []
-    for x, color in arrays:
-        ax.hist(x, bins, histtype='stepfilled', color=color, alpha=0.25, lw=0)
-        c, _, _ = ax.hist(x, bins, histtype='step', color=color, lw=1.3)
-        counts.append(c)
-    counts = np.max(counts, axis=0)      # tallest bar per bin, any series
-    # Gaussian with the sample mean and sd of each series, scaled to counts
-    # (N × bin width × pdf) so it overlays the histogram directly.
-    xg = np.linspace(bins[0], bins[-1], 400)
-    lines = ['Gaussian fit (dashed), ± 1 standard error:']
-    for (x, color), (label, *_) in zip(arrays, cols):
+    xlim = (np.floor(allx.min()) - 0.5, np.ceil(allx.max()) + 1.5)
+    xg = np.linspace(*xlim, 600)
+    peak = 0.0
+    for sign, (label, x, color, is_raw) in zip((1, 1, -1), series):
+        c, _ = np.histogram(x, bins)
+        ax.stairs(sign * c, bins, color=color, lw=0.7 if is_raw else 0.8,
+                  alpha=0.35 if is_raw else 0.55, baseline=0,
+                  zorder=2 if is_raw else 3)
         n = x.size
         mu, sd = float(np.mean(x)), float(np.std(x, ddof=1))
-        # Standard errors of the mean and of the sd for a normal sample.
-        se_mu = sd / np.sqrt(n)
-        se_sd = sd / np.sqrt(2 * (n - 1))
-        pdf = np.exp(-0.5 * ((xg - mu) / sd) ** 2) / (sd * np.sqrt(2 * np.pi))
-        ax.plot(xg, n * bin_ppm * pdf, '--', color=color, lw=1.4, zorder=5)
-        lines.append(f'{label}:  μ = {mu:.2f} ± {se_mu:.2f}   '
-                     f'σ = {sd:.2f} ± {se_sd:.2f} ppm')
-    # Same box style as the panel (a) stat box so the two read as a pair.
-    # The wider pad and line spacing keep the plain-text header line clear
-    # of the frame: the mathtext superscripts make the other lines taller.
-    txt = ax.text(0.015, 0.96, '\n'.join(lines), transform=ax.transAxes,
-                  va='top', ha='left', fontsize=7, zorder=6, linespacing=1.4,
-                  bbox=dict(boxstyle='round,pad=0.5', fc='white', ec='gray',
-                            alpha=0.85))
-    ax.axvline(0, color='k', lw=1)
+        se_mu, se_sd = sd / np.sqrt(n), sd / np.sqrt(2 * (n - 1))
+        g = n * bin_ppm * np.exp(-0.5 * ((xg - mu) / sd) ** 2) / (
+            sd * np.sqrt(2 * np.pi))
+        gmax = n * bin_ppm / (sd * np.sqrt(2 * np.pi))
+        peak = max(peak, gmax, c.max())
+        if is_raw:
+            # Drawn above the B11 curve: same width, means 0.2 ppm apart.
+            ax.plot(xg, g, ':', color='0.15', lw=1.8, zorder=6)
+            ax.text(0.015, 0.95,
+                    f'{label} (dotted)\nSD = {sd:.2f} ± {se_sd:.2f} ppm\n'
+                    f'mean = {mu:.2f} ± {se_mu:.2f} ppm',
+                    transform=ax.transAxes, ha='left', va='top',
+                    color='0.35', fontsize=8, linespacing=1.3, zorder=7)
+            continue
+        ax.plot(xg, sign * g, '-', color=color, lw=2.5, zorder=5)
+        # ±1 SD arrow at the height where the Gaussian falls to exp(-1/2).
+        h = sign * gmax * np.exp(-0.5)
+        ax.annotate('', xy=(mu - sd, h), xytext=(mu + sd, h),
+                    arrowprops=dict(arrowstyle='<->', color=color, lw=1.3,
+                                    shrinkA=0, shrinkB=0), zorder=6)
+        # Words, not mu/sigma: the manuscript reserves no symbol for these
+        # sample statistics (mu was retired from the notation, 2026-10).
+        ax.text(0.985, 0.95 if sign > 0 else 0.05,
+                f'{label}\nSD = {sd:.2f} ± {se_sd:.2f} ppm\n'
+                f'mean = {mu:.2f} ± {se_mu:.2f} ppm',
+                transform=ax.transAxes, ha='right',
+                va='top' if sign > 0 else 'bottom', color=color, fontsize=8,
+                linespacing=1.3, zorder=7)
+    ax.axhline(0, color='k', lw=0.8, zorder=4)
+    ax.axvline(0, color='k', lw=0.8, zorder=4)
     ax.axvspan(-band, band, color=BAND_COLOR, alpha=BAND_ALPHA, lw=0,
                zorder=0)
-    # Headroom so the tallest bar does not touch the frame.
-    ax.set_ylim(0, ax.get_ylim()[1] * 1.10)
+    ax.set_xlim(*xlim)
+    top = peak * 1.15
+    ax.set_ylim(-top, top)
+    ax.yaxis.set_major_formatter(
+        matplotlib.ticker.FuncFormatter(lambda v, _: f'{abs(v):g}'))
     ax.set_ylabel('station-days')
     ax.set_xlabel(f'{XCO2_LABEL} residual to TCCON (ppm)')
     ax.grid(alpha=0.3, axis='x')
-    return txt, bins, counts
+    return xlim
 
 
 def _axes_frac_bbox(fig, ax, artists):
@@ -322,21 +360,33 @@ def main():
     df = df.sort_values(cols[1][1]).reset_index(drop=True)
 
     apply_manuscript_style()
-    fig = plt.figure(figsize=(7.2, 8.6))
-    gs = fig.add_gridspec(2, 1, height_ratios=[4.2, 1.3], hspace=0.06)
+    fig = plt.figure(figsize=(7.2, 10.0))
+    # (b) gets a third of the height and its own zoomed x-axis, so the two
+    # distributions are not squeezed by panel (a)'s outlier-driven range.
+    gs = fig.add_gridspec(2, 1, height_ratios=[4.2, 2.1], hspace=0.16)
     ax_a = fig.add_subplot(gs[0])
-    ax_b = fig.add_subplot(gs[1], sharex=ax_a)
-    ax_a.tick_params(labelbottom=False)
+    ax_b = fig.add_subplot(gs[1])
 
     _draw_dumbbell(ax_a, df, cols, args.band_ppm)
+    # KSS review 2026-10-11: the -17 ppm whisker wasted half of panel (a);
+    # clip at -10 ppm (whiskers beyond are cut at the axis edge).
+    xa = ax_a.get_xlim()
+    ax_a.set_xlim(max(xa[0], -10.0), xa[1])
+    ax_a.set_xlabel(f'{XCO2_LABEL} residual to TCCON (ppm)')
     txt = _stat_box(ax_a, df, cols, header)
-    txt_b, bins, counts = _draw_hist(ax_b, df, cols, args.band_ppm,
-                                     args.bin_ppm)
+    xlim_b = _draw_hist(ax_b, df, cols, args.band_ppm, args.bin_ppm)
+    # Bracket on (a)'s x-axis marking the range that (b) zooms into.
+    blend = matplotlib.transforms.blended_transform_factory(
+        ax_a.transData, ax_a.transAxes)
+    # Drawn on the bottom spine itself so it never covers data rows; the
+    # caption explains it.
+    ax_a.plot(xlim_b, [0, 0], '-', color='0.25', lw=3,
+              solid_capstyle='butt', transform=blend, clip_on=False,
+              zorder=7)
     panel_label(ax_a, '(a)')
     panel_label(ax_b, '(b)')
     leg = _legend_below_box(fig, ax_a, txt, args.band_ppm)
     _clear_dumbbell_annotations(fig, ax_a, df, cols, [txt, leg])
-    _clear_hist_annotation(fig, ax_b, txt_b, bins, counts)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=args.dpi, bbox_inches='tight')

@@ -218,7 +218,7 @@ def make_summary_plot(df, out_png, panel_offset=0, suptitle=True,
                  ms=7, elinewidth=0.8, capsize=2, label=MODEL_LABEL)
     for r in d.itertuples():
         ax2.plot([r.cld_med, r.cld_med], [r.resid_bc, r.resid_corr], color="0.8", zorder=0)
-    ax2.set_xlabel("median cloud distance of collocated OCO-2 (km)")
+    ax2.set_xlabel("median cloud distance of co-located OCO-2 (km)")
     ax2.set_ylabel("OCO-2 − ATom (ppm)"); ax2.set_title("Residual vs cloud distance", pad=10)
     ax2.legend(handles=[Patch(facecolor=GREY, alpha=0.3, label="ATom pseudo-column ±1σ (per leg)"),
                         *ax2.get_legend_handles_labels()[0]], fontsize=8)

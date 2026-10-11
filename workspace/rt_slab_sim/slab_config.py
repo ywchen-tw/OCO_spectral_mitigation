@@ -61,6 +61,12 @@ DY_KM = 1.0
 CLOUD_X_KM = (9.5, 14.5)   # 5 km wide, centered mid-domain
 CLOUD_BASE_KM = 3.0
 CLOUD_TOP_KM = 4.0
+# Effective height in the MCARaTS runs (found 2026-10-10): er3t rtm/mca/mca_atm.py writes
+# Atm_iz3l = (lay_index + 1) + 1, so the 3D layer lands one model layer (1 km here) above
+# CLOUD_BASE_KM/CLOUD_TOP_KM. The shadow edges in slab_rad.h5 (x ~ 15.2-21.6 km at SZA 55)
+# confirm 4-5 km. Report these values; keep the requested ones so reruns reproduce the data.
+CLOUD_BASE_EFF_KM = CLOUD_BASE_KM + 1.0
+CLOUD_TOP_EFF_KM = CLOUD_TOP_KM + 1.0
 CLOUD_COD = 10.0
 CLOUD_CER_UM = 10.0        # micron, water cloud (pha_mie_wc)
 

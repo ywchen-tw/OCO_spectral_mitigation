@@ -57,7 +57,7 @@ DISPLAY_NAMES = {
     "wco2_k1": f"WCO2 {MEAN_L_LABEL}", "wco2_k2": f"WCO2 {VAR_L_LABEL}",
     "wco2_k3": r"WCO2 $k_3$",
     "sco2_k1": f"SCO2 {MEAN_L_LABEL}", "sco2_k2": f"SCO2 {VAR_L_LABEL}",
-    "exp_o2a_intercept":     r"O2A $\gamma$ (exp intercept)",
+    "exp_o2a_intercept":     r"O2A $\gamma$",
     "o2a_exp_intercept-alb": r"O2A $\gamma$ $-$ albedo",
     "wco2_exp_intercept-alb": r"WCO2 $\gamma$ $-$ albedo",
     "alb_sco2_over_wco2":    "SCO2/WCO2 albedo ratio",

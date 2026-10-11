@@ -150,7 +150,7 @@ def make_figure(x_km, l_rel, hist, tau_shown, l_direct, bin_km, sza,
     fig.suptitle(
         f"PPDF column cuts by region, slant tau = {tau_shown:.3f}, "
         f"SZA {sza:.1f} deg (sun from the west); cloud "
-        f"{cfg.CLOUD_BASE_KM:.0f}-{cfg.CLOUD_TOP_KM:.0f} km at x = "
+        f"{cfg.CLOUD_BASE_EFF_KM:.0f}-{cfg.CLOUD_TOP_EFF_KM:.0f} km at x = "
         f"{cfg.CLOUD_X_KM[0]}-{cfg.CLOUD_X_KM[1]} km, "
         f"$L_{{direct}}$ = {l_direct:.0f} km",
         y=0.995, fontsize=11)

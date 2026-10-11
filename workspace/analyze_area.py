@@ -274,21 +274,21 @@ def _plot_k_vs_alb(df: pd.DataFrame, outpath: Path, title_prefix: str = ''):
 
 
 def _plot_k_vs_exp(df: pd.DataFrame, outpath: Path, title_prefix: str = ''):
-    """(5) kN vs exp_intercept, colored by nearest cloud distance."""
+    """(5) kN vs gamma, colored by nearest cloud distance."""
     def _x(bp, bname):
-        return f'exp_{bp}_intercept', f'{bname} exp_intercept'
+        return f'exp_{bp}_intercept', f'{bname} $\\gamma$'
 
     _plot_k_vs_x(df, 'exp', _x, outpath,
-                 f'{title_prefix}k vs exp_intercept  (color = nearest cloud distance km)')
+                 f'{title_prefix}k vs $\\gamma$  (color = nearest cloud distance km)')
 
 
 def _plot_exp_vs_alb(df: pd.DataFrame, outpath: Path, title_prefix: str = ''):
-    """(6) exp_intercept vs albedo, hexbin density, 1×3 grid (3 bands)."""
+    """(6) gamma vs albedo, hexbin density, 1×3 grid (3 bands)."""
     avail = [(bp, bname)
              for bp, bname, _ in BANDS
              if f'alb_{bp}' in df.columns and f'exp_{bp}_intercept' in df.columns]
     if not avail:
-        print(f"    skipping {outpath.name} — no alb/exp columns", flush=True)
+        print(f"    skipping {outpath.name} — no alb/gamma columns", flush=True)
         return
 
     fig, axes = plt.subplots(1, len(avail),
@@ -308,12 +308,12 @@ def _plot_exp_vs_alb(df: pd.DataFrame, outpath: Path, title_prefix: str = ''):
                        mincnt=1, norm=mcolors.LogNorm())
         plt.colorbar(hb, ax=ax, label='count')
         r, _ = _stats.pearsonr(xm, ym)
-        ax.set_title(f'{bname}: exp_intercept vs albedo  r={r:.3f}', fontsize=9)
+        ax.set_title(f'{bname}: $\\gamma$ vs albedo  r={r:.3f}', fontsize=9)
         ax.set_xlabel(f'{bname} albedo', fontsize=8)
-        ax.set_ylabel(f'{bname} exp_intercept', fontsize=8)
+        ax.set_ylabel(f'{bname} $\\gamma$', fontsize=8)
         ax.tick_params(labelsize=7)
 
-    fig.suptitle(f'{title_prefix}exp_intercept vs albedo', fontsize=12)
+    fig.suptitle(f'{title_prefix}$\\gamma$ vs albedo', fontsize=12)
     fig.tight_layout()
     fig.savefig(str(outpath), dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -321,12 +321,12 @@ def _plot_exp_vs_alb(df: pd.DataFrame, outpath: Path, title_prefix: str = ''):
 
 
 def _plot_exp_vs_alb_cld(df: pd.DataFrame, outpath: Path, title_prefix: str = ''):
-    """(6b) exp_intercept vs albedo scatter colored by nearest cloud distance, 1×3 grid."""
+    """(6b) gamma vs albedo scatter colored by nearest cloud distance, 1×3 grid."""
     avail = [(bp, bname)
              for bp, bname, _ in BANDS
              if f'alb_{bp}' in df.columns and f'exp_{bp}_intercept' in df.columns]
     if not avail:
-        print(f"    skipping {outpath.name} — no alb/exp columns", flush=True)
+        print(f"    skipping {outpath.name} — no alb/gamma columns", flush=True)
         return
 
     cld = (df['cld_dist_km'].values.astype(float)
@@ -341,10 +341,10 @@ def _plot_exp_vs_alb_cld(df: pd.DataFrame, outpath: Path, title_prefix: str = ''
         y = df[f'exp_{bp}_intercept'].values.astype(float)
         _scatter_cld_colored(ax, x, y, cld,
                              xlabel=f'{bname} albedo',
-                             ylabel=f'{bname} exp_intercept',
-                             title=f'{bname}: exp_intercept vs albedo')
+                             ylabel=f'{bname} $\\gamma$',
+                             title=f'{bname}: $\\gamma$ vs albedo')
 
-    fig.suptitle(f'{title_prefix}exp_intercept vs albedo  (color = nearest cloud distance km)',
+    fig.suptitle(f'{title_prefix}$\\gamma$ vs albedo  (color = nearest cloud distance km)',
                  fontsize=12)
     fig.tight_layout()
     fig.savefig(str(outpath), dpi=150, bbox_inches='tight')
@@ -437,7 +437,7 @@ def _analyze_subset(df: pd.DataFrame, name: str, out: Path,
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Area analysis: k/exp/alb scatter plots per footprint with MODIS background.'
+        description='Area analysis: k/gamma/alb scatter plots per footprint with MODIS background.'
     )
     parser.add_argument('--lon-range', nargs=2, type=float, required=True,
                         metavar=('LON_MIN', 'LON_MAX'),

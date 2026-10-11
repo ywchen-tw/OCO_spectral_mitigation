@@ -167,7 +167,7 @@ def main():
         axes[0, jc].set_title(f"{surface} surface (albedo {alb:.2f})")
         for jr, lab in enumerate((r"$k_1$  ($\langle l'\rangle$)",
                                   r"$k_2$  (var $l'$)",
-                                  "exp(intercept)  (effective reflectance)",
+                                  "$\\gamma$  (effective reflectance)",
                                   "path enh. @ %.2f nm, slant $\\tau\\approx$"
                                   "%.2f (km)"
                                   % (wvl_nm_all[iw_mid], slant_tau_all[iw_mid]))):

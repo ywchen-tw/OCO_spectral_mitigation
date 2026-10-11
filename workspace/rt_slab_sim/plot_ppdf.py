@@ -152,7 +152,7 @@ def main():
         fig.suptitle(
             f"Photon path-length distributions, {surface} surface "
             f"(albedo {alb:.2f}), slant tau = {tau_shown:.3f}; "
-            f"cloud {cfg.CLOUD_BASE_KM:.0f}-{cfg.CLOUD_TOP_KM:.0f} km at "
+            f"cloud {cfg.CLOUD_BASE_EFF_KM:.0f}-{cfg.CLOUD_TOP_EFF_KM:.0f} km at "
             f"x = {cfg.CLOUD_X_KM[0]}-{cfg.CLOUD_X_KM[1]} km, SZA 55",
             y=1.0)
         fig.tight_layout()

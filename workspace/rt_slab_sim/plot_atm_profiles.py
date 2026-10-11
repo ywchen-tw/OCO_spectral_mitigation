@@ -109,7 +109,7 @@ def main():
         ax.plot(lay[ckey], alt_c, "o", color=col, ms=5, mfc="none")
     for z in lev["altitude_km"]:
         ax.axhline(z, color="0.85", lw=0.5, zorder=0)
-    ax.axhspan(cfg.CLOUD_BASE_KM, cfg.CLOUD_TOP_KM, color="tab:cyan",
+    ax.axhspan(cfg.CLOUD_BASE_EFF_KM, cfg.CLOUD_TOP_EFF_KM, color="tab:cyan",
                alpha=0.25, label="cloud layer")
     ax.set_xscale("log")
     ax.set_xlim(1e10, 1e20)

@@ -1,14 +1,16 @@
 """
 Fig. G1 (manuscript, AMT style): controlled 3-D-vs-IPA slab demonstration.
 
-Layout: 2 columns (dark / bright surface) x 4 rows --
+Layout: 2 columns (dark / bright surface) x 5 rows --
   (a,b) fitted <l'> (production estimator, order 7, no-SG)
   (c,d) fitted var(l')
-  (e,f) MC-tallied PPDF moments (relative-path units, continuum
-        wavelength; mean on the left axis, variance on the right) -- the
-        closure row: the directly tallied path moments the fitted
-        cumulants are supposed to encode.
-  (g,h) effective scene reflectance exp(intercept)
+  (e,f) MC-tallied PPDF mean (relative-path units, continuum wavelength)
+  (g,h) MC-tallied PPDF variance -- rows (e-h) are the closure rows: the
+        directly tallied path moments the fitted cumulants are supposed
+        to encode.
+  (i,j) continuum reflectance gamma = exp(intercept)
+Each row shares one fixed y range across the two surfaces (ROW_YLIM;
+reviewer request, 2026-10) so the dark and bright columns compare by eye.
 
 Also computes closure statistics (Pearson r between fitted k1/k2 and the
 tallied geometric moments across 3-D columns; IPA-null residuals) ->
@@ -49,9 +51,33 @@ FIG_DIRS = [
 if os.environ.get("SLAB_FIG_OUT_DIR"):
     FIG_DIRS = [os.environ["SLAB_FIG_OUT_DIR"]]
 OUT_BASE = "figG1_mc_3d_vs_ica"
+# opt-in single-surface edition (2026-10-10, main-text figure with the dark surface only;
+# the default two-column figure moves to the SI): SLAB_FIG_SURFACES=dark
+SURFACES = [s for s in os.environ.get("SLAB_FIG_SURFACES", ",".join(cfg.SURFACE_ALBEDOS)).split(",") if s]
+if len(SURFACES) < len(cfg.SURFACE_ALBEDOS):
+    OUT_BASE += "_" + "_".join(SURFACES)
+# opt-in row subset (2026-10-11, KSS review: the main text uses only <l'>, so the main
+# figure drops the two variance rows): SLAB_FIG_ROWS=0,2,4 (0 fitted mean, 1 fitted var,
+# 2 MC mean, 3 MC var, 4 reflectance). Default: all five rows.
+ROWS = [int(r) for r in os.environ.get("SLAB_FIG_ROWS", "0,1,2,3,4").split(",")]
+if ROWS != [0, 1, 2, 3, 4]:
+    OUT_BASE += "_rows" + "".join(str(r) for r in ROWS)
+
+
+class _NullAx:
+    """Stand-in for a dropped row: every plotting call is a no-op."""
+    def __getattr__(self, name):
+        return lambda *a, **k: None
 
 COL_3D = "#c1272d"     # 3-D
 COL_ICA = "#0000a7"    # IPA
+
+# one y range per row, shared by the dark and bright columns
+ROW_YLIM = ((0.4, 1.3),      # fitted <l'>
+            (0.0, 0.8),      # fitted var(l')
+            (0.9, 1.04),     # MC mean
+            (0.0, 0.035),    # MC variance
+            (0.0, 0.8))      # effective reflectance
 
 
 def continuum_moments(f, surface, solver, mid):
@@ -148,14 +174,17 @@ def main():
     print(json.dumps(stats, indent=2))
 
     # ---------------- figure ----------------
-    fig, axes = plt.subplots(4, 2, figsize=(7.48, 9.2), sharex=True)
-    tags = "abcdefgh"
+    ncol = len(SURFACES)
+    nrow = len(ROWS)
+    fig, axes_real = plt.subplots(nrow, ncol, figsize=(3.9 * ncol if ncol > 1 else 4.2, 10.8 * nrow / 5 + 0.4),
+                                  sharex=True, squeeze=False)
+    axes = np.empty((5, ncol), dtype=object)
+    for jr in range(5):
+        for jc in range(ncol):
+            axes[jr, jc] = axes_real[ROWS.index(jr), jc] if jr in ROWS else _NullAx()
+    tags = "abcdefghij"
 
-    # right-hand axes of the MC moment row (variance); the mean lives on the
-    # primary axis so the panel carries both moments at their own scales
-    twins = [axes[2, jc].twinx() for jc in range(2)]
-
-    for jc, s in enumerate(cfg.SURFACE_ALBEDOS):
+    for jc, s in enumerate(SURFACES):
         for v, col, lbl in (("3d", COL_3D, "3-D"), ("ipa", COL_ICA, "IPA")):
             res = fit[f"{s}/{v}"]
             for jr, name in enumerate(("k1", "k2")):
@@ -173,44 +202,33 @@ def main():
             # population sits at l = 1 by construction of L_peak
             l_mean = 1.0 + (mean - L_peak) / l_direct
             var_l = std**2 / l_direct**2
-            axes[2, jc].plot(x_km, l_mean, color=col, lw=1.3,
-                             label=f"{lbl} mean")
-            twins[jc].plot(x_km, var_l, color=col, lw=1.0, ls="--",
-                           label=f"{lbl} var")
-            axes[3, jc].plot(x_km, np.exp(res["intercept"]), color=col,
+            axes[2, jc].plot(x_km, l_mean, color=col, lw=1.3, label=lbl)
+            axes[3, jc].plot(x_km, var_l, color=col, lw=1.3, ls="--",
+                             label=lbl)
+            axes[4, jc].plot(x_km, np.exp(res["intercept"]), color=col,
                              lw=1.3, label=lbl)
 
         alb = cfg.SURFACE_ALBEDOS[s]
         axes[0, jc].set_title(
             ("Dark" if s == "dark" else "Bright")
             + f" surface (albedo {alb:.2f})", fontsize=10)
-        axes[3, jc].set_xlabel("Along-slab distance $x$ (km)")
+        axes_real[-1, jc].set_xlabel("Along-slab distance $x$ (km)")
 
-    # MC row reuses the plot_style l' labels with an "MC" prefix so the
+    # MC rows reuse the plot_style l' labels with an "MC" prefix so the
     # tallied moments read as the same quantities the fit estimates
     row_labels = (MEAN_L_LABEL, VAR_L_LABEL,
                   "MC " + MEAN_L_LABEL,
-                  "Effective reflectance")
-    for jr in range(4):
-        for jc in range(2):
+                  "MC " + VAR_L_LABEL,
+                  "Continuum reflectance $\\gamma$")
+    for kr, jr in enumerate(ROWS):
+        for jc in range(ncol):
             ax = axes[jr, jc]
             ax.axvspan(*cfg.CLOUD_X_KM, color="0.88", zorder=0)
-            panel_label(ax, f"({tags[jr * 2 + jc]})")
+            ax.set_ylim(*ROW_YLIM[jr])
+            panel_label(ax, f"({tags[kr * ncol + jc]})")
             if jc == 0:
                 ax.set_ylabel(row_labels[jr])
-    twins[1].set_ylabel("MC " + VAR_L_LABEL)
     axes[0, 0].legend(fontsize=8, loc="lower right", frameon=False)
-    # one legend for the two axes of panel (e), mean/var interleaved per solver
-    h_m, l_m = axes[2, 0].get_legend_handles_labels()
-    h_v, l_v = twins[0].get_legend_handles_labels()
-    axes[2, 0].legend([h for p in zip(h_m, h_v) for h in p],
-                      [l for p in zip(l_m, l_v) for l in p],
-                      fontsize=7, loc="center right", frameon=False, ncol=1)
-
-    # top headroom on the first row so the sun annotation sits above the data
-    for jc in range(2):
-        lo, hi = axes[0, jc].get_ylim()
-        axes[0, jc].set_ylim(lo, hi + 0.12 * (hi - lo))
 
     # sun direction (tilted by the SZA, pointing down-sun toward +x) +
     # shadow annotation on the top-left panel
@@ -225,7 +243,7 @@ def main():
     ax.text(12.0, 0.88, "cloud", fontsize=8, ha="center", color="0.3")
 
     fig.tight_layout()
-    fig.subplots_adjust(hspace=0.14, wspace=0.36)   # room for the (e) twin ticks
+    fig.subplots_adjust(hspace=0.14, wspace=0.25)
 
     for fig_dir in FIG_DIRS:
         os.makedirs(fig_dir, exist_ok=True)

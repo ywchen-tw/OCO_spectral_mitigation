@@ -448,7 +448,7 @@ def plot_xco2_sign_comparison(
     _DELTA_VARS = [
         ('dk1',  f'Δ{MEAN_L_LABEL}'),
         ('dk2',  f'Δ{VAR_L_LABEL}'),
-        ('dexp', 'Δexp intercept'),
+        ('dexp', 'Δ$\\gamma$'),
         ('dalb', 'Δalbedo'),
     ]
     _BANDS = [
@@ -590,10 +590,10 @@ def run_xco2_sign_analysis(
         logger.info(f"  [{sign_label}] distributions box-plots …")
         plot_distributions_vs_cld_dist(sdf, bins, labels, sub_outdir)
 
-        logger.info(f"  [{sign_label}] exp_intercept binned profiles …")
+        logger.info(f"  [{sign_label}] gamma binned profiles …")
         plot_intercept_binned_profile(sdf, bins, labels, sub_outdir)
 
-        logger.info(f"  [{sign_label}] albedo vs exp_intercept …")
+        logger.info(f"  [{sign_label}] albedo vs gamma …")
         plot_alb_vs_exp_intercept(sdf, sub_outdir)
         plot_alb_vs_exp_intercept_cross(sdf, sub_outdir)
 

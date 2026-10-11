@@ -163,7 +163,7 @@ def plot_k1_k2_overlay(df: pd.DataFrame, cld_bins, cld_labels,
 def plot_intercept_overlay(df: pd.DataFrame, cld_bins, cld_labels,
                            outdir: str, strat_var: str,
                            strat_labels: list) -> None:
-    """exp_intercept profiles for all strata overlaid on one figure."""
+    """gamma profiles for all strata overlaid on one figure."""
     bands = [
         ('exp_o2a_intercept',  _O2A,  'C0'),
         ('exp_wco2_intercept', _WCO2, 'C1'),
@@ -204,8 +204,8 @@ def plot_intercept_overlay(df: pd.DataFrame, cld_bins, cld_labels,
         ax.set_xticks(x)
         ax.set_xticklabels(cld_labels, rotation=30, fontsize=8)
         ax.set_xlabel('Cloud distance (km)', fontsize=9)
-        ax.set_ylabel(f'{nm} exp_intercept', fontsize=9)
-        ax.set_title(f'{nm} exp_intercept — stratified by {strat_var}', fontsize=10)
+        ax.set_ylabel(f'{nm} $\\gamma$', fontsize=9)
+        ax.set_title(f'{nm} $\\gamma$ — stratified by {strat_var}', fontsize=10)
         ax.legend(fontsize=7, title=strat_var, title_fontsize=7)
         ax.grid(axis='y', alpha=0.3)
         if all_means:
@@ -215,7 +215,7 @@ def plot_intercept_overlay(df: pd.DataFrame, cld_bins, cld_labels,
                 spread = max((vmax - vmin) * 1.5, 1e-9)
                 ax.set_ylim(vmin - spread, vmax + spread)
 
-    fig.suptitle(f'Spectral exp_intercepts by {strat_var} stratum', fontsize=12)
+    fig.suptitle(f'Spectral $\\gamma$ by {strat_var} stratum', fontsize=12)
     fig.tight_layout()
     _save(fig, outdir, 'exp_intercept_binned_profile_overlay.png')
 
