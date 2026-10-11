@@ -36,6 +36,10 @@ VARIANTS = ["no_spec", "no_contam", "no_xco2", "no_xco2_and_spec",
 KEEP_VARIANTS = ["keep_spec_geom", "keep_geom", "keep_xco2_geom"]
 VARIANTS += [v for v in KEEP_VARIANTS
              if (BASE / f"de_prof_mix_{v}" / "tccon_metrics_ak_r100km.csv").exists()]
+# 2026-10-10 full feature set without the profile EOF block (same launcher,
+# array 30-39), included once its TCCON tree has been reported.
+if (BASE / "de_prof_mix_full_noprof" / "tccon_metrics_ak_r100km.csv").exists():
+    VARIANTS.append("full_noprof")
 MODELS = ["full"] + VARIANTS
 
 # (label, qf_group, surface, cld_group) rows for the two slice tables
@@ -113,6 +117,7 @@ def heldout_table() -> tuple[list[str], list[str]]:
     for surf in ("ocean", "land"):
         for model in MODELS:
             stem = (FOLD_STEM_FULL[surf] if model == "full"
+                    else FOLD_STEM_KEEP[surf].format(v="full") if model == "full_noprof"
                     else FOLD_STEM_KEEP[surf].format(v=model) if model in KEEP_VARIANTS
                     else FOLD_STEM[surf].format(v=model))
             per_fold = []

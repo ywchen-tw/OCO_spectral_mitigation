@@ -2,7 +2,7 @@
 # Build the feature-set-ablation variant plot_data trees (build-only replay).
 #
 # For ONE variant (arg 1: no_spec | no_xco2 | no_contam | no_xco2_and_spec |
-# no_contam_and_xco2 | keep_spec_geom | keep_geom | keep_xco2_geom) this replays the ACTIVE run_case lines of the production
+# no_contam_and_xco2 | keep_spec_geom | keep_geom | keep_xco2_geom | full_noprof) this replays the ACTIVE run_case lines of the production
 # TCCON launcher and rebuilds every case's plot_data.parquet with the variant's
 # fold-PCA deep-ensemble models (ocean r05 / land r15), writing to the
 # de_prof_mix_<variant> tree that tccon_comparison_report.py is then pointed at:
@@ -59,6 +59,13 @@ elif [[ "$VARIANT" == keep_* ]]; then
     OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_noprof_r05_f*)
     LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_${VARIANT}_noprof_r15_f*)
     OUT_BASE_NAME=de_prof_mix_${VARIANT}
+elif [[ "$VARIANT" == full_noprof ]]; then
+    # 2026-10-10 full feature set WITHOUT the profile EOF block (array 30-39 of
+    # curc_shell_blanca_de_keep_only_ablation.sh), the model-size check against
+    # Mauceri et al. (2023).  The production reference stays the atrain tree.
+    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_full_noprof_r05_f*)
+    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_full_noprof_r15_f*)
+    OUT_BASE_NAME=de_prof_mix_full_noprof
 else
     OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_prof_foldpca_r05_f*)
     # 2026-07-17: variants RETRAINED with lndo01 (--norm layer --dropout 0.1) —
