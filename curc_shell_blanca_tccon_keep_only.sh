@@ -30,19 +30,27 @@
 # Submit:  sbatch curc_shell_blanca_tccon_keep_only.sh
 #          sbatch --array=0 curc_shell_blanca_tccon_keep_only.sh            # one arm
 #          sbatch --export=ALL,SKIP_BUILD=1 curc_shell_blanca_tccon_keep_only.sh  # report only
+# Report only, no batch job (run on a compile node, e.g. acompile, not a login node):
+#          SKIP_BUILD=1 SLURM_ARRAY_TASK_ID=0 bash curc_shell_blanca_tccon_keep_only.sh
 
-set -euo pipefail
+set -uo pipefail
 
-# purge first: sbatch exports the submitting shell's module state, and a
-# stale MODULEPATH there makes Lmod fail to find anaconda on the node.
-module purge
-module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
-conda activate data
-if [[ "$(uname -s)" == "Linux" ]]; then
-    export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:${LD_LIBRARY_PATH:-}
-else
-    export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}
-fi
+# Environment.  Lmod failed on the node for this job (2026-10-11, "Please check
+# the spelling or version number"), so the modules are tried one by one and the
+# job falls back to the data env's own python, which carries its own HDF5/netCDF
+# libraries (the LD_LIBRARY_PATH line below already prefers them).
+ENV_DIR=/projects/yuch8913/software/anaconda/envs/data
+echo "node $(hostname)  $(date)"
+module purge 2>/dev/null || true
+for MOD in anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8; do
+    module load "$MOD" 2>/dev/null || echo "module load $MOD FAILED"
+done
+conda activate data 2>/dev/null || echo "conda activate data FAILED, using $ENV_DIR/bin directly"
+export PATH="$ENV_DIR/bin:$PATH"
+export LD_LIBRARY_PATH=$ENV_DIR/lib:${LD_LIBRARY_PATH:-}
+echo "python: $(command -v python)"
+python -c "import numpy, pandas, pyarrow" || { echo "data env python not usable" >&2; exit 1; }
+set -e
 export HDF5_USE_FILE_LOCKING=FALSE
 export MKL_THREADING_LAYER=GNU
 
