@@ -25,8 +25,13 @@
 #   keep_spec_geom  path-length features (gamma, not gamma - albedo) + geometry/L1B + fp one-hot
 #   keep_geom       geometry/L1B + fp one-hot                        (skill floor)
 #   keep_xco2_geom  xco2_raw_minus_apriori + geometry/L1B + fp one-hot (optional ACOS-side match)
+#   full            ALL production features, profile EOF block OFF       (2026-10-10)
 #
 # keep_spec_geom - keep_geom = path-length skill with no ACOS state.
+# full (noprof) = production model minus the profile EOFs: (i) the cost of the EOF
+# block under the current fold/target/regularization config (the 2026-07-03 A/B in
+# results/model_comparison/de_*_profile_ab.md predates r05/r15 and lndo01), and
+# (ii) a no-EOF reference for the keep-only arms, which are all trained noprof.
 #
 # Same config as the production / drop-ablation DE (beta_nll beta=1.0, M=5,
 # --norm layer --dropout 0.1, near_cloud_target 0.98, Mondrian cld_dist_km,
@@ -40,9 +45,11 @@
 #   0-9   keep_spec_geom   (0-4 ocean f0-f4, 5-9 land f0-f4)
 #   10-19 keep_geom
 #   20-29 keep_xco2_geom   (optional; not in the default --array)
+#   30-39 full             (no profile EOFs; not in the default --array)
 # Submit:
 #   sbatch curc_shell_blanca_de_keep_only_ablation.sh                  # two core variants
 #   sbatch --array=20-29 curc_shell_blanca_de_keep_only_ablation.sh    # optional third
+#   sbatch --array=30-39 curc_shell_blanca_de_keep_only_ablation.sh    # full, no EOFs
 #   sbatch --array=7 curc_shell_blanca_de_keep_only_ablation.sh        # rerun one task
 # A task whose run_summary.json already exists exits at once, so a --requeue
 # after preemption, or a resubmit of the whole array, never overwrites a finished
@@ -50,7 +57,7 @@
 #
 # After ALL tasks finish:
 #   1. Held-out fold aggregation (no GPU):
-#        for V in keep_spec_geom keep_geom; do
+#        for V in keep_spec_geom keep_geom keep_xco2_geom full; do
 #          PYTHONPATH=src python -m models.aggregate_folds \
 #            --dirs "results/model_deep_ensemble/de_ocean_${V}_noprof_r05_f*" \
 #            --label "DE ${V} ocean" \
@@ -84,7 +91,7 @@ export MKL_THREADING_LAYER=GNU
 cd /projects/yuch8913/OCO_spectral_mitigation
 export PYTHONPATH=src:${PYTHONPATH:-}
 
-VARIANTS=(keep_spec_geom keep_geom keep_xco2_geom)
+VARIANTS=(keep_spec_geom keep_geom keep_xco2_geom full)
 NFOLDS=5
 IDX=${SLURM_ARRAY_TASK_ID}
 VI=$(( IDX / 10 ))
