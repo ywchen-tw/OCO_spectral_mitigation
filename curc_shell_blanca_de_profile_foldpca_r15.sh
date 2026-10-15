@@ -3,7 +3,9 @@
 ###SBATCH --nodes=1
 ###SBATCH --ntasks=4
 ###SBATCH --ntasks-per-node=4
-#SBATCH --mem=128G
+#SBATCH --mem=64G
+# 64G (2026-10-15): read_surface_rows loads the land rows only (est. peak ~40G);
+# the old whole-file read peaked at ~80G and OOM-killed fold 3 at --mem=80G.
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
 #SBATCH --ntasks-per-node=8
