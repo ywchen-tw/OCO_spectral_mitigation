@@ -517,20 +517,34 @@ SPEC_FEATURES = frozenset([
 #                 strictly stronger for having removed both screens.
 # BOUNDARY CASES, still deliberately NOT included (brightness/consistency terms that are
 # surface-driven as much as scattering-driven): s31, alb_sco2_over_wco2.
-CONTAM_FEATURES = frozenset([
+#
+# SPLIT BY ORIGIN 2026-10-14 (v2 rerun).  Membership is unchanged; the group is the
+# union of three subgroups, each with its own drop arm, so `no_contam` stays
+# comparable with v1:
+#   CG_FULLPHYS_FEATURES  (a)+(b)  Lite Retrieval/: the scattering the full-physics
+#                                  retrieval solved for
+#   CG_INHOM_FEATURES     (c)      Lite Preprocessors/: radiance inhomogeneity across
+#                                  neighbouring soundings (h_cont) or within the
+#                                  footprint (csnr, max_declock)
+#   CG_SCREEN_FEATURES    (d)      Lite Preprocessors/: the operational cloud screens
+CG_FULLPHYS_FEATURES = frozenset([
     # (a) retrieved cloud/aerosol optical depth
     'aod_water', 'aod_ice',
     'aod_dust', 'aod_oc', 'aod_seasalt', 'aod_sulfate', 'aod_strataer',
     # (b) retrieved layer heights
     'water_height', 'ice_height', 'dust_height',
-    # (c) scene inhomogeneity / inter-sounding radiance variability
+])
+CG_INHOM_FEATURES = frozenset([
     'h_cont_o2a', 'h_cont_wco2', 'h_cont_sco2',
     'csnr_o2a', 'csnr_sco2',
     'max_declock_wco2',
-    # (d) operational cloud screens: A-band preprocessor + IMAP-DOAS band ratios
+])
+CG_SCREEN_FEATURES = frozenset([
+    # A-band preprocessor + IMAP-DOAS band ratios
     'dp_abp',
     'co2_ratio_bc', 'h2o_ratio_bc',
 ])
+CONTAM_FEATURES = CG_FULLPHYS_FEATURES | CG_INHOM_FEATURES | CG_SCREEN_FEATURES
 
 # snow_flag is NOT a model feature.  The land A/B (test_snow_features.py) showed it is
 # neutral — ~0 ΔR²/ΔRMSE even with snow footprints present — so it is not added to any
@@ -586,6 +600,9 @@ _FEATURE_SETS: dict = {
     'no_xco2_and_spec':   {'drop': XCO2_FEATURES | SPEC_FEATURES},
     'no_contam':          {'drop': CONTAM_FEATURES},
     'no_contam_and_xco2': {'drop': CONTAM_FEATURES | XCO2_FEATURES},
+    'no_fpcloud':         {'drop': CG_FULLPHYS_FEATURES},
+    'no_inhom':           {'drop': CG_INHOM_FEATURES},
+    'no_screen':          {'drop': CG_SCREEN_FEATURES},
     'keep_spec_geom':     {'add_per_sfc': {1: [f'exp_wco2_intercept{_S}']},
                            'keep': SPEC_GAMMA_FEATURES | GEOM_L1B_FEATURES},
     'keep_geom':          {'keep': GEOM_L1B_FEATURES},

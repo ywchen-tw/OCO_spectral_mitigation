@@ -56,7 +56,8 @@ import pandas as pd
 
 from .pipeline import (FeaturePipeline, _ensure_derived_features,
                        filter_target_outliers,
-                       XCO2_FEATURES, SPEC_FEATURES, CONTAM_FEATURES)
+                       XCO2_FEATURES, SPEC_FEATURES,
+                       CG_FULLPHYS_FEATURES, CG_INHOM_FEATURES, CG_SCREEN_FEATURES)
 
 from utils import get_storage_dir
 
@@ -187,8 +188,12 @@ def assign_groups(pipeline: FeaturePipeline) -> dict:
             out[f] = 'xco2'
         elif f in SPEC_FEATURES:
             out[f] = 'spec'
-        elif f in CONTAM_FEATURES:
-            out[f] = 'contam'
+        elif f in CG_FULLPHYS_FEATURES:
+            out[f] = 'cg_fpcloud'
+        elif f in CG_INHOM_FEATURES:
+            out[f] = 'cg_inhom'
+        elif f in CG_SCREEN_FEATURES:
+            out[f] = 'cg_screen'
         elif f in GEOMETRY_FEATURES:
             out[f] = 'geometry'
         elif f in profile:
@@ -198,6 +203,11 @@ def assign_groups(pipeline: FeaturePipeline) -> dict:
         else:
             out[f] = 'met_other'
     return out
+
+
+# Group units permuted jointly in addition to their members (union name → member
+# group names).  The contamination group was split by origin on 2026-10-14.
+GROUP_UNIONS = {'contam': ('cg_fpcloud', 'cg_inhom', 'cg_screen')}
 
 
 # ─── Permutation engine ────────────────────────────────────────────────────────
@@ -238,6 +248,12 @@ def permutation_importance(predict_mu, X, y, features: list, groups: dict,
         for gname in sorted(set(groups.values())):
             cols = [col_idx[f] for f in features if groups[f] == gname]
             units.append((gname, 'group', gname, cols))
+        # Joint unions on top of the per-group units: the whole contamination
+        # group, permuted at once, stays comparable with the pre-split runs.
+        for uname, members in GROUP_UNIONS.items():
+            cols = [col_idx[f] for f in features if groups[f] in members]
+            if cols:
+                units.append((uname, 'group', uname, cols))
 
     rows = []
     for sname, mask in strata.items():

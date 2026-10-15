@@ -173,6 +173,32 @@ class LegacyPickleTests(unittest.TestCase):
         np.testing.assert_array_equal(_qt_block(legacy, legacy.transform(dirty)), expected)
 
 
+class ContaminationSubgroupTests(unittest.TestCase):
+    # The 2026-07-25 contamination group, before the 2026-10-14 split by origin.
+    V1_CONTAM = {
+        'aod_water', 'aod_ice', 'aod_dust', 'aod_oc', 'aod_seasalt', 'aod_sulfate',
+        'aod_strataer', 'water_height', 'ice_height', 'dust_height',
+        'h_cont_o2a', 'h_cont_wco2', 'h_cont_sco2', 'csnr_o2a', 'csnr_sco2',
+        'max_declock_wco2', 'dp_abp', 'co2_ratio_bc', 'h2o_ratio_bc',
+    }
+
+    def test_split_keeps_the_v1_membership(self):
+        self.assertEqual(set(P.CONTAM_FEATURES), self.V1_CONTAM)
+
+    def test_subgroups_are_disjoint(self):
+        subs = (P.CG_FULLPHYS_FEATURES, P.CG_INHOM_FEATURES, P.CG_SCREEN_FEATURES)
+        self.assertEqual(sum(len(s) for s in subs), len(P.CONTAM_FEATURES))
+
+    def test_drop_arms_remove_exactly_one_subgroup(self):
+        for name, sub in (("no_fpcloud", P.CG_FULLPHYS_FEATURES),
+                          ("no_inhom", P.CG_INHOM_FEATURES),
+                          ("no_screen", P.CG_SCREEN_FEATURES)):
+            for sfc in (0, LAND):
+                base = P._FEATURE_MAP[sfc]
+                kept = P._resolve_feature_set(base, name, sfc)
+                self.assertEqual(set(base) - set(kept), set(base) & sub, (name, sfc))
+
+
 class RobustClipScalerTests(unittest.TestCase):
     def test_zero_iqr_falls_back_to_a_wider_quantile_range(self):
         rng = np.random.default_rng(1)

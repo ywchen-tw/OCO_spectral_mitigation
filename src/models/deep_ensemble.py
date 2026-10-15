@@ -40,7 +40,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
+from .pipeline import (FeaturePipeline, _FEATURE_SETS, _ensure_derived_features,
+                       filter_target_outliers, resolve_target_col)
 from .splits import split_dataframe, split_date_kfold_train_calib_test
 from . import conformal as cf
 from . import diagnostics as diag
@@ -299,9 +300,7 @@ def main():
     p.add_argument('--n_folds', type=int, default=None)
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--feature_set', type=str, default='full',
-                   choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec',
-                            'no_contam', 'no_contam_and_xco2',
-                            'keep_spec_geom', 'keep_geom', 'keep_xco2_geom'])
+                   choices=sorted(_FEATURE_SETS))
     p.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                    help="Append the vertical-profile EOF block (opt-in; default off). Bare "
                         "--profile-pca or =auto loads results/profile_pca/profile_pca_<sfc>.pkl; "
