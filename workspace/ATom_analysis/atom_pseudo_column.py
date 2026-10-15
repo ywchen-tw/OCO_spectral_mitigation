@@ -37,14 +37,20 @@ from plot_style import XCO2_BC_LABEL, apply_manuscript_style, panel_label  # noq
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CSV_DIR = os.path.join(REPO, "results", "csv_collection")
 TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
-DE_ATOM = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
+# Run version as in the launchers (RUN_VERSION, default v2; empty = v1 tree).
+# plot_atom_comparison.py imports PLOT_BASE from here.
+_RV = os.environ.get("RUN_VERSION", "v2")
+DE_ATOM = os.path.join(REPO, "results", "model_comparison", "deep_ensemble",
+                       TAG + (f"_{_RV}" if _RV else ""), "atom")
 # The following four are DEFAULTS (production DE); --out-base/--plot-base/--merged-dir/
 # --corr-col override them so the SAME pipeline scores the linreg/xgb baselines against
 # the SAME aircraft pseudo-columns.  atom_merged is model-independent, so baselines
 # reuse the DE tree's merged profiles (default MERGED_DIR) rather than re-deriving them.
 OUT_BASE = DE_ATOM                                # where results CSV/plot are written
 PLOT_BASE = DE_ATOM                               # per-case combined_<date>_atom/ dirs
-MERGED_DIR = os.path.join(DE_ATOM, "atom_merged")  # merged profiles (input)
+# Merged ATom profiles are model-independent and live in the v1 tree only.
+MERGED_DIR = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG,
+                          "atom", "atom_merged")
 EPOCH = dt.datetime(1970, 1, 1)
 
 DATES = ["2017-01-26", "2017-02-04", "2017-02-06", "2017-02-10", "2017-10-09",

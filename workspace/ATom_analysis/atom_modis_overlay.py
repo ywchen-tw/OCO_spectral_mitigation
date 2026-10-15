@@ -29,8 +29,13 @@ from plot_style import apply_manuscript_style, CMAPS, XCO2_LABEL, XCO2_DE_LABEL 
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CSV_DIR = os.path.join(REPO, "results", "csv_collection")
 TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
-PLOT_BASE = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG, "atom")
-MERGED_DIR = os.path.join(PLOT_BASE, "atom_merged")     # merged profiles (input)
+# Run version as in the launchers (RUN_VERSION, default v2; empty = v1 tree).
+_RV = os.environ.get("RUN_VERSION", "v2")
+PLOT_BASE = os.path.join(REPO, "results", "model_comparison", "deep_ensemble",
+                         TAG + (f"_{_RV}" if _RV else ""), "atom")
+# Merged ATom profiles are model-independent and live in the v1 tree only.
+MERGED_DIR = os.path.join(REPO, "results", "model_comparison", "deep_ensemble", TAG,
+                          "atom", "atom_merged")
 TILES_DIR = os.path.join(PLOT_BASE, "_modis_tiles")     # cached GIBS tiles
 EPOCH = dt.datetime(1970, 1, 1)
 DATES = ["2017-01-26", "2017-02-04", "2017-02-06", "2017-02-10", "2017-10-09",

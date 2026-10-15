@@ -145,6 +145,8 @@ def _predict_pooled(df, fold_dirs, sfc_type, *, ood_thresh=8.0, max_ood_frac=0.0
 
     _check_required_columns(df, pipe0)
     df = df[df['sfc_type'] == sfc_type].copy()
+    if len(df) == 0:   # e.g. a land-only date given both surfaces' models; sklearn
+        return None, None, None, None, None, df, meta0   # rejects a 0-row transform
     df = _ensure_derived_features(df)
     X0 = pipe0.transform(df)
     valid = np.all(np.isfinite(X0), axis=1)

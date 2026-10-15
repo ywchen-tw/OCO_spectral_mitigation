@@ -72,6 +72,8 @@ def _predict_pooled(df, fold_dirs, sfc_type, kind, *, ood_thresh=8.0, max_ood_fr
 
     _check_required_columns(df, pipe0)
     df = df[df['sfc_type'] == sfc_type].copy()
+    if len(df) == 0:   # no rows of this surface; sklearn rejects a 0-row transform
+        return None, df
     df = _ensure_derived_features(df)
     X0 = pipe0.transform(df)
     valid = np.all(np.isfinite(X0), axis=1)
