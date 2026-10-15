@@ -80,6 +80,57 @@ class FastReferenceEquivalenceTests(unittest.TestCase):
         self.assertTrue(np.isnan(a).all() and np.isnan(m["k1"]).all())
 
 
+class FitTimeNosgStatsTests(unittest.TestCase):
+    """spectral.anomaly.nosg_reference_stats (fit time) == the sidecar rule."""
+
+    def _inputs(self, seed: int = 3):
+        o = _orbit(seed)
+        rng = np.random.default_rng(seed + 100)
+        n = len(o["lat"])
+        bands = ("o2a", "wco2", "sco2")
+        smoothed = {}
+        for b in bands:
+            for k in (1, 2, 3):
+                smoothed[f"{b}_k{k}"] = (o["k1"] * k + rng.normal(0, 0.01, n)).astype(np.float32)
+            smoothed[f"alb_{b}"] = (0.2 + rng.normal(0, 0.02, n)).astype(np.float32)
+            smoothed[f"exp_int_{b}"] = o["gam"]
+        kappa = np.stack([np.stack([smoothed[f"{b}_k{k}"] + rng.normal(0, 0.005, n)
+                                    for k in (1, 2, 3)], axis=1) for b in bands])
+        intercept = np.log(np.stack([o["gam"]] * 3)) + rng.normal(0, 0.01, (3, n))
+        kappa[1, rng.random(n) < 0.02, 0] = np.nan      # a _nosg-only NaN narrows the pool
+        return o, smoothed, kappa.astype(np.float32), intercept.astype(np.float32)
+
+    def test_matches_fast_reference_on_the_union_pool(self):
+        o, smoothed, kappa, intercept = self._inputs()
+        sets = {"ref": anomaly_args(min_cld_dist=10.0), "r05": anomaly_args(min_cld_dist=5.0)}
+        before = dict(smoothed)
+        out = anomaly.nosg_reference_stats(o["lat"], o["cld"], o["xco2"], smoothed,
+                                           kappa, intercept, sets)
+        self.assertEqual(set(smoothed), set(before))     # the caller's dict is not extended
+        nosg = {}
+        for ib, b in enumerate(("o2a", "wco2", "sco2")):
+            for k in (1, 2, 3):
+                nosg[f"{b}_k{k}_nosg"] = kappa[ib, :, k - 1]
+            nosg[f"exp_int_{b}_nosg"] = np.exp(intercept[ib])
+        for prefix, args in sets.items():
+            _, m, s = R.clear_sky_reference(o["lat"], o["cld"], o["xco2"],
+                                            {**smoothed, **nosg}, **args)
+            for key in nosg:
+                got_m, got_s = out[f"{prefix}_{key}_mean"], out[f"{prefix}_{key}_std"]
+                np.testing.assert_array_equal(np.isfinite(got_m), np.isfinite(m[key]))
+                np.testing.assert_allclose(got_m, m[key], rtol=1e-5, equal_nan=True)
+                np.testing.assert_allclose(got_s, s[key], rtol=1e-4, atol=1e-5, equal_nan=True)
+
+    def test_names_are_the_sidecar_statistics(self):
+        o, smoothed, kappa, intercept = self._inputs()
+        sets = {p: anomaly_args(min_cld_dist=d) for p, d in R.REFERENCE_SETS.items()}
+        out = anomaly.nosg_reference_stats(o["lat"][:200], o["cld"][:200], o["xco2"][:200],
+                                           {k: v[:200] for k, v in smoothed.items()},
+                                           kappa[:, :200], intercept[:, :200], sets)
+        stats = [c for c in R.output_columns() if not c.startswith("exp_")]
+        self.assertEqual(sorted(out), sorted(stats))
+
+
 class NamingTests(unittest.TestCase):
     def test_output_columns_follow_the_stored_naming(self):
         cols = set(R.output_columns())

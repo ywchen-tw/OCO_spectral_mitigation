@@ -160,3 +160,41 @@ def compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
         return anomaly, extra_mean_out, extra_std_out
     return anomaly
 
+
+
+def nosg_reference_stats(fp_lat, cld_dist_km, xco2, ref_extra_vars,
+                         kappa_nosg, intercept_nosg, arg_sets):
+    """Clear-sky reference mean and std of the unsmoothed (``_nosg``) fit.
+
+    The extra variables narrow the shared reference pool of
+    compute_xco2_anomaly, so these statistics come from their own calls and the
+    anomaly targets keep their fit-time pool.  The pool is ``ref_extra_vars`` (the
+    smoothed fit-time set) plus the _nosg k1-k3 and gamma, the rule of
+    analysis.nosg_reference, whose sidecar uses the same column names.
+
+    Parameters
+    ----------
+    ref_extra_vars : dict of [N] arrays, the extra_vars of the anomaly calls
+    kappa_nosg     : [3, N, >=3] unsmoothed cumulants (band o2a/wco2/sco2, sounding, k)
+    intercept_nosg : [3, N] unsmoothed fit intercepts (gamma = exp(intercept))
+    arg_sets       : {prefix: compute_xco2_anomaly keyword arguments}
+
+    Returns
+    -------
+    dict {f'{prefix}_{band}_k{1,2,3}_nosg_{mean,std}',
+          f'{prefix}_exp_int_{band}_nosg_{mean,std}'} of [N] arrays
+    """
+    nosg_vars = {}
+    for ib, band in enumerate(("o2a", "wco2", "sco2")):
+        for ik in range(3):
+            nosg_vars[f"{band}_k{ik + 1}_nosg"] = kappa_nosg[ib, :, ik]
+        nosg_vars[f"exp_int_{band}_nosg"] = np.exp(intercept_nosg[ib])
+    pool_vars = {**ref_extra_vars, **nosg_vars}
+    out = {}
+    for prefix, kwargs in arg_sets.items():
+        _, means, stds = compute_xco2_anomaly(fp_lat, cld_dist_km, xco2,
+                                              extra_vars=pool_vars, **kwargs)
+        for key in nosg_vars:
+            out[f"{prefix}_{key}_mean"] = means[key]
+            out[f"{prefix}_{key}_std"] = stds[key]
+    return out

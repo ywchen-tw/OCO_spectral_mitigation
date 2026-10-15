@@ -183,6 +183,19 @@ def compute_ak_columns(combined):
     return cols
 
 
+# Clear-sky reference statistics of the unsmoothed fit, written by
+# spectral.fitting when dual_fit is on: {ref,r05,r15} x {k1,k2,k3,exp_int} x band.
+# Same names as the analysis.nosg_reference sidecar, which read_combined uses as
+# the fallback for parquets built before these were stored.
+NOSG_REF_KEYS = [
+    f'{_p}_{_stem}_nosg_{_s}'
+    for _p in ('ref', 'r05', 'r15')
+    for _b in ('o2a', 'wco2', 'sco2')
+    for _stem in (f'{_b}_k1', f'{_b}_k2', f'{_b}_k3', f'exp_int_{_b}')
+    for _s in ('mean', 'std')
+]
+
+
 def load_output_dict(filepath):
     """Load one orbit's fitting_details.h5 written by process_orbit().
 
@@ -290,7 +303,7 @@ def load_output_dict(filepath):
         'r05_exp_int_o2a_mean', 'r05_exp_int_o2a_std',
         'r05_exp_int_wco2_mean', 'r05_exp_int_wco2_std',
         'r05_exp_int_sco2_mean', 'r05_exp_int_sco2_std',
-    ]
+    ] + NOSG_REF_KEYS   # unsmoothed-fit reference statistics (dual_fit-era files)
     with h5py.File(filepath, 'r') as f:
         out = {key: f[key][()] for key in keys if key in f}
         if 'sounding_id' in f and 'weighted_cloud_dist_km' not in out:
@@ -680,6 +693,17 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
                 _src = f'{_band}_{_k}_fitting_nosg'
                 if _src in combined:
                     final_dict[f'{_band}_{_k}_nosg'] = combined[_src]
+            # gamma of the unsmoothed fit, the observation paired with the
+            # {ref,r05,r15}_exp_int_<band>_nosg statistics (as exp_<band>_intercept
+            # is for the smoothed fit)
+            if f'{_band}_intercept_fitting_nosg' in combined:
+                final_dict[f'exp_{_band}_intercept_nosg'] = np.exp(
+                    combined[f'{_band}_intercept_fitting_nosg'])
+    # Their clear-sky reference statistics (fits written after 2026-10-15); older
+    # files lack them and the analyses fall back to the nosg_reference sidecar.
+    for _key in NOSG_REF_KEYS:
+        if _key in combined:
+            final_dict[_key] = combined[_key]
 
     # Lite 20-level column operator → flat ak_NN/pwf_NN/co2_ap_NN/plev_NN columns.
     final_dict.update(compute_ak_columns(combined))

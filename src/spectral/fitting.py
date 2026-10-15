@@ -54,7 +54,7 @@ from spectral.orbit_data import (  # noqa: F401
     fp_tau_file_is_current, load_orbit_data, load_profile_data,
     load_shared_data, search_oco2_orbit, select_lite_file,
     validate_cloud_distance_file)
-from spectral.anomaly import compute_xco2_anomaly  # noqa: F401
+from spectral.anomaly import compute_xco2_anomaly, nosg_reference_stats  # noqa: F401
 from spectral.fit_plots import (  # noqa: F401
     plot_fitting_example, plot_orbit_fitting_examples)
 
@@ -312,6 +312,17 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
     xco2_raw_anomaly_05 = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args_05)
     xco2_bc_anomaly_05, ref_means_05, ref_stds_05 = compute_xco2_anomaly(
         od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_05)
+
+    # ── 6c'. Reference statistics of the unsmoothed (_nosg) fit ───────────
+    # Own calls (nosg_reference_stats): the extra variables narrow the shared
+    # clear-sky pool, so adding the _nosg set to the calls above could move the
+    # anomaly targets, and _nosg is all NaN when dual_fit is off.
+    nosg_ref = {}
+    if dual_fit:
+        nosg_ref = nosg_reference_stats(
+            od["lat"], fp_cld_dist, lt_xco2_bc, ref_extra_vars,
+            kappa_fitting_nosg, intercept_fitting_nosg,
+            {"ref": anomaly_args, "r15": anomaly_args_15, "r05": anomaly_args_05})
 
     # -- 6c. Calculate fp areas from lite vertex longitudes and latitudes --
     fp_area_km2 = np.full(N, np.nan)
@@ -602,6 +613,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
     
     
     output_dict.update(ak_arrays)   # [N, 20] column-operator datasets
+    output_dict.update(nosg_ref)    # {ref,r05,r15}_*_nosg_{mean,std}; empty unless dual_fit
 
     if not dual_fit:
         # Drop the (all-NaN) _nosg datasets so their absence marks the cache
