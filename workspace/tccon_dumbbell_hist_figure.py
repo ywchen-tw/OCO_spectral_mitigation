@@ -42,13 +42,12 @@ DEFAULT_CSV = ('results/model_comparison/deep_ensemble/'
 
 # Okabe-Ito blue / vermillion differ in hue AND lightness (readable by
 # colour-blind readers and in greyscale); raw is pushed back in light grey.
-# Main text (JQSRT, 2026-10-11) calls the corrected product X_CO2^model and never uses "DE"
-# (Massie audit), so this figure overrides the shared plot_style label.
-XCO2_DE_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{model}}$"
+# The corrected product is X_CO2^ML in the text and every figure (one name per
+# thing, 2026-10-12); the shared plot_style label carries it.
 RAW_COLOR = '0.6'
 BC_COLOR = '#0072B2'
 DE_COLOR = '#D55E00'
-TCCON_BAND_LABEL = '±TCCON σ (per station-day)'
+TCCON_BAND_LABEL = '±TCCON σ'   # per station-day; the caption says so
 # Light blue-grey (author, 2026-10-11; was pale yellow #f5e6a3, which Massie disliked in
 # Fig. S5) so the ±1 ppm band stays distinct from the neutral grey per-row TCCON
 # sigma segments and from the three product colours.
@@ -82,29 +81,50 @@ def _tccon_band(ax, frame):
         labelled = True
 
 
-def _stat_box(ax, frame, cols, header=None):
-    """Top-left stat box: station-day mean |residual| ± sd and mean fp-RMSE,
-    with an optional header line naming the station-day subset."""
-    lines = [header] if header else []
-    for label, bcol, _, rcol, _, _ in cols:
+def _stat_table(ax, frame, cols, header=None, fs=9.0,
+                xs=(0.10, 0.36, 0.60, 0.83)):
+    """Station-day statistics as a small three-column table ABOVE panel (a)
+    (author, 2026-10-11: the in-frame box pushed the data into the lower
+    60 % of the panel). Columns: station-day mean |residual| ± sd, mean
+    fp-RMSE, and station-days within ±1 ppm. The default subset header
+    ('all footprints (N station-days)') is left to the caption."""
+    rows = []
+    for label, bcol, _, rcol, color, _ in cols:
         b = frame[bcol].to_numpy(float)
         b = b[np.isfinite(b)]
         r = frame[rcol].to_numpy(float)
         r = r[np.isfinite(r)]
         if not b.size:
             continue
-        rtxt = f"   mean fp-RMSE {np.mean(r):.2f}" if r.size else ""
-        # KSS review 2026-10-11: station-days within the +/-1 ppm band.
-        rtxt += f"   within ±1 ppm {int(np.sum(np.abs(b) <= 1.0))}/{b.size}"
         # Sample sd (ddof=1) across station-days, as quoted in the text.
-        lines.append(f"{label}:  |residual| {np.mean(np.abs(b)):.2f} ± "
-                     f"{np.std(np.abs(b), ddof=1):.2f}{rtxt}")
-    # Wider pad and line spacing keep the plain-text header clear of the
-    # frame (the mathtext superscripts make the product lines taller).
-    return ax.text(0.015, 0.985, '\n'.join(lines), transform=ax.transAxes,
-                   va='top', ha='left', fontsize=7, zorder=6, linespacing=1.4,
-                   bbox=dict(boxstyle='round,pad=0.5', fc='white', ec='gray',
-                             alpha=0.85))
+        rows.append((label, color,
+                     f"{np.mean(np.abs(b)):.2f} ± {np.std(np.abs(b), ddof=1):.2f}",
+                     f"{np.mean(r):.2f}" if r.size else "–",
+                     f"{int(np.sum(np.abs(b) <= 1.0))}/{b.size}"))
+    # xs: label column, then three value columns (axes fractions).
+    # Row pitch fixed in points (1.8 x font size), converted to axes
+    # fractions, so the table keeps its spacing when the panel height changes.
+    fig = ax.figure
+    ax_h_pt = ax.get_position().height * fig.get_figheight() * 72.0
+    dy = 1.8 * fs / ax_h_pt
+    y = 1.02 + dy * len(rows)                # header line on top, products below
+    heads = ('', '|residual| (ppm)', 'mean fp-RMSE (ppm)', 'within ±1 ppm')
+    out = []
+    if header and not header.startswith('all footprints ('):
+        out.append(ax.text(xs[0], y + dy, header, transform=ax.transAxes,
+                           fontsize=fs, ha='left', va='bottom', color='0.3'))
+    for x, h in zip(xs[1:], heads[1:]):
+        out.append(ax.text(x, y, h, transform=ax.transAxes, fontsize=fs,
+                           ha='center', va='bottom', color='0.3'))
+    for k, (label, color, *vals) in enumerate(rows):
+        yk = y - dy * (k + 1)
+        tc = '0.35' if color == RAW_COLOR else color
+        out.append(ax.text(xs[0], yk, label, transform=ax.transAxes,
+                           fontsize=fs + 0.5, ha='left', va='bottom', color=tc))
+        for x, v in zip(xs[1:], vals):
+            out.append(ax.text(x, yk, v, transform=ax.transAxes, fontsize=fs,
+                               ha='center', va='bottom', color=tc))
+    return out
 
 
 def _draw_dumbbell(ax, frame, cols, band):
@@ -133,12 +153,13 @@ def _draw_dumbbell(ax, frame, cols, band):
                zorder=0, label=f'±{band:g} ppm residual')
     ax.set_yticks([])
     ax.set_ylabel(f'station-day (sorted by {XCO2_BC_LABEL} residual)')
-    # Pad so the first and last rows sit clear of the frame.
-    ax.set_ylim(-3, n + 2)
+    # Rows fill the panel (stat table above the frame, legend in the empty
+    # upper-left corner that the sort leaves free).
+    ax.set_ylim(-1.2, n + 0.2)
     ax.grid(alpha=0.3, axis='x')
 
 
-def _draw_hist(ax, frame, cols, band, bin_ppm):
+def _draw_hist(ax, frame, cols, band, bin_ppm, xlim=None, headroom=1.15):
     """Mirrored residual distributions: the uncorrected products (raw, B11)
     above the zero line, the corrected DE below.
 
@@ -154,7 +175,8 @@ def _draw_hist(ax, frame, cols, band, bin_ppm):
     lo = np.floor(allx.min() / bin_ppm) * bin_ppm
     hi = np.ceil(allx.max() / bin_ppm) * bin_ppm
     bins = np.arange(lo, hi + bin_ppm / 2, bin_ppm)
-    xlim = (np.floor(allx.min()) - 0.5, np.ceil(allx.max()) + 1.5)
+    if xlim is None:
+        xlim = (np.floor(allx.min()) - 0.5, np.ceil(allx.max()) + 1.5)
     xg = np.linspace(*xlim, 600)
     peak = 0.0
     for sign, (label, x, color, is_raw) in zip((1, 1, -1), series):
@@ -176,7 +198,7 @@ def _draw_hist(ax, frame, cols, band, bin_ppm):
                     f'{label} (dotted)\nSD = {sd:.2f} ± {se_sd:.2f} ppm\n'
                     f'mean = {mu:.2f} ± {se_mu:.2f} ppm',
                     transform=ax.transAxes, ha='left', va='top',
-                    color='0.35', fontsize=8, linespacing=1.3, zorder=7)
+                    color='0.35', fontsize=9, linespacing=1.3, zorder=7)
             continue
         ax.plot(xg, sign * g, '-', color=color, lw=2.5, zorder=5)
         # ±1 SD arrow at the height where the Gaussian falls to exp(-1/2).
@@ -190,17 +212,20 @@ def _draw_hist(ax, frame, cols, band, bin_ppm):
                 f'{label}\nSD = {sd:.2f} ± {se_sd:.2f} ppm\n'
                 f'mean = {mu:.2f} ± {se_mu:.2f} ppm',
                 transform=ax.transAxes, ha='right',
-                va='top' if sign > 0 else 'bottom', color=color, fontsize=8,
+                va='top' if sign > 0 else 'bottom', color=color, fontsize=9,
                 linespacing=1.3, zorder=7)
     ax.axhline(0, color='k', lw=0.8, zorder=4)
     ax.axvline(0, color='k', lw=0.8, zorder=4)
     ax.axvspan(-band, band, color=BAND_COLOR, alpha=BAND_ALPHA, lw=0,
                zorder=0)
     ax.set_xlim(*xlim)
-    top = peak * 1.15
+    top = peak * headroom
     ax.set_ylim(-top, top)
     ax.yaxis.set_major_formatter(
         matplotlib.ticker.FuncFormatter(lambda v, _: f'{abs(v):g}'))
+    # Ticks every 5 (or finer for small subsets) on the shorter print panel.
+    ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(
+        nbins=7, steps=[1, 2, 5, 10], integer=True))
     ax.set_ylabel('station-days')
     ax.set_xlabel(f'{XCO2_LABEL} residual to TCCON (ppm)')
     ax.grid(alpha=0.3, axis='x')
@@ -345,6 +370,21 @@ def main():
     parser.add_argument('--band-ppm', type=float, default=1.0)
     parser.add_argument('--bin-ppm', type=float, default=0.25,
                         help='Histogram bin width in ppm (default 0.25).')
+    parser.add_argument('--figsize', type=float, nargs=2,
+                        default=(7.4, 7.5), metavar=('W', 'H'),
+                        help='Canvas size in inches before the tight crop.')
+    parser.add_argument('--height-ratios', type=float, nargs=2,
+                        default=(3.6, 1.9), metavar=('A', 'B'),
+                        help='Height ratio of panel (a) to panel (b).')
+    parser.add_argument('--hspace', type=float, default=0.22)
+    parser.add_argument('--no-hist', action='store_true',
+                        help='Draw the dumbbell panel only (no histogram '
+                             'panel, no panel letter).')
+    parser.add_argument('--row-labels', action='store_true',
+                        help="Label each row with 'site date' on the y axis.")
+    parser.add_argument('--hist-headroom', type=float, default=1.15,
+                        help='Panel (b) y half-range as a multiple of the '
+                             'tallest bar/Gaussian (room for the stat text).')
     args = parser.parse_args()
 
     csv = Path(args.csv)
@@ -360,33 +400,53 @@ def main():
     df = df.sort_values(cols[1][1]).reset_index(drop=True)
 
     apply_manuscript_style()
-    fig = plt.figure(figsize=(7.2, 10.0))
-    # (b) gets a third of the height and its own zoomed x-axis, so the two
-    # distributions are not squeezed by panel (a)'s outlier-driven range.
-    gs = fig.add_gridspec(2, 1, height_ratios=[4.2, 2.1], hspace=0.16)
-    ax_a = fig.add_subplot(gs[0])
-    ax_b = fig.add_subplot(gs[1])
+    # Print-size canvas (2026-10-11): drawn near its printed width (6.5 in
+    # text width) so the 9-10 pt fonts print at size; the 99-row panel (a)
+    # is shorter than the earlier 7.2 x 10 in canvas so figure + caption fit
+    # one page. --figsize / --height-ratios resize it for small subsets.
+    fig = plt.figure(figsize=tuple(args.figsize))
+    if args.no_hist:
+        # Dumbbell only (SI drift figure, 2026-10-11): no panel (b), no letter.
+        ax_a, ax_b = fig.add_subplot(111), None
+    else:
+        gs = fig.add_gridspec(2, 1, height_ratios=list(args.height_ratios),
+                              hspace=args.hspace)
+        ax_a = fig.add_subplot(gs[0])
+        ax_b = fig.add_subplot(gs[1])
 
     _draw_dumbbell(ax_a, df, cols, args.band_ppm)
-    # KSS review 2026-10-11: the -17 ppm whisker wasted half of panel (a);
-    # clip at -10 ppm (whiskers beyond are cut at the axis edge).
-    xa = ax_a.get_xlim()
-    ax_a.set_xlim(max(xa[0], -10.0), xa[1])
+    if args.row_labels:
+        # Station code + date per row, as the pre-2026-09-24 drift figure had.
+        ax_a.set_yticks(np.arange(len(df)))
+        ax_a.set_yticklabels([f'{r.site} {r.date}' for r in df.itertuples()],
+                             fontsize=9)
+        ax_a.tick_params(axis='y', length=0, pad=3)
+    # Both panels share one x range (author, 2026-10-11), so the bar that
+    # marked (b)'s zoom range on (a) is gone. Left edge at -9.5 ppm (KSS
+    # 2026-10-11 clip); the few whiskers beyond are cut at the axis.
+    allb = df[[c[1] for c in cols]].to_numpy(float)
+    allb = allb[np.isfinite(allb)]
+    xlim = (max(np.floor(allb.min()) - 0.5, -10.0), np.ceil(allb.max()) + 2.0)
+    ax_a.set_xlim(*xlim)
     ax_a.set_xlabel(f'{XCO2_LABEL} residual to TCCON (ppm)')
-    txt = _stat_box(ax_a, df, cols, header)
-    xlim_b = _draw_hist(ax_b, df, cols, args.band_ppm, args.bin_ppm)
-    # Bracket on (a)'s x-axis marking the range that (b) zooms into.
-    blend = matplotlib.transforms.blended_transform_factory(
-        ax_a.transData, ax_a.transAxes)
-    # Drawn on the bottom spine itself so it never covers data rows; the
-    # caption explains it.
-    ax_a.plot(xlim_b, [0, 0], '-', color='0.25', lw=3,
-              solid_capstyle='butt', transform=blend, clip_on=False,
-              zorder=7)
-    panel_label(ax_a, '(a)')
-    panel_label(ax_b, '(b)')
-    leg = _legend_below_box(fig, ax_a, txt, args.band_ppm)
-    _clear_dumbbell_annotations(fig, ax_a, df, cols, [txt, leg])
+    # With row labels the axes is narrower: the product-name column moves
+    # over the tick-label strip so the three headers keep their spacing.
+    _stat_table(ax_a, df, cols, header,
+                xs=((-0.22, 0.24, 0.56, 0.86) if args.row_labels
+                    else (0.10, 0.36, 0.60, 0.83)))
+    if ax_b is not None:
+        _draw_hist(ax_b, df, cols, args.band_ppm, args.bin_ppm, xlim=xlim,
+                   headroom=args.hist_headroom)
+        panel_label(ax_a, '(a)')
+        panel_label(ax_b, '(b)')
+    handles, labels = ax_a.get_legend_handles_labels()
+    lookup = dict(zip(labels, handles))
+    order = [f'±{args.band_ppm:g} ppm residual', TCCON_BAND_LABEL,
+             XCO2_RAW_LABEL, XCO2_BC_LABEL, XCO2_DE_LABEL]
+    ax_a.legend([lookup[k] for k in order], order, loc='upper left',
+                fontsize=9, frameon=True, framealpha=0.9, edgecolor='0.8',
+                borderaxespad=0.6, handlelength=1.3, handletextpad=0.5,
+                labelspacing=0.35)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=args.dpi, bbox_inches='tight')

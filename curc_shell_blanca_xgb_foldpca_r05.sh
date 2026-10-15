@@ -24,8 +24,8 @@
 #     prediction = mu; early stopping on the calib block only — NEVER TCCON)
 # Fold-specific ProfilePCA (leakage-safe) — SAME artifacts the foldpca DE uses, so
 # this is a same-protocol comparison partner to
-#   de_ocean_beta_nll_prof_reg_foldpca_r05_f${F}.
-# Suffix: xgb_ocean_full_prof_foldpca_r05_f${F}
+#   de_ocean_beta_nll_prof_reg_foldpca_r05${RV}_f${F}.
+# Suffix: xgb_ocean_full_prof_foldpca_r05${RV}_f${F}
 #
 # THREADS/DETERMINISM: --n_jobs ${SLURM_NTASKS} uses the full CPU allocation so the
 # mean regressor finishes well inside the wall (15M rows × hist). With n_jobs>1 the
@@ -39,7 +39,7 @@
 #
 # After ALL array tasks finish, aggregate:
 #   PYTHONPATH=src python -m models.aggregate_folds \
-#     --dirs 'results/model_gbdt/xgb_ocean_full_prof_foldpca_r05_f*' \
+#     --dirs 'results/model_gbdt/xgb_ocean_full_prof_foldpca_r05_v2_f*' \
 #     --label XGB+foldpca+r05 \
 #     --out results/model_comparison/xgb_ocean_foldpca_r05_kfold_agg.md
 
@@ -64,6 +64,13 @@ export PYTHONPATH=src:${PYTHONPATH:-}
 F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
 
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  The tag sits BEFORE the fold
+# tag, so v1 globs (..._f*) never match v2 dirs and v2 runs never overwrite v1
+# checkpoints.  RUN_VERSION= (empty) reproduces the v1 names.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+
 STORAGE=$(python -c "from utils import get_storage_dir; print(get_storage_dir())")
 PCA_ROOT="${STORAGE}/results/profile_pca_date_kfold_2016_2020"
 PROFILE_PKL="${PCA_ROOT}/fold${F}/profile_pca_ocean.pkl"
@@ -76,7 +83,7 @@ fi
 echo "fold=${F}/${NFOLDS}  profile_pca=${PROFILE_PKL}"
 
 python -m models.gbdt_baselines --model xgboost --objective mean \
-    --sfc_type 0 --suffix xgb_ocean_full_prof_foldpca_r05_f${F} \
+    --sfc_type 0 --suffix xgb_ocean_full_prof_foldpca_r05${RV}_f${F} \
     --profile-pca "${PROFILE_PKL}" \
     --feature_set full --target 5km --calib_frac 0.15 --n_jobs ${SLURM_NTASKS:-16} \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}

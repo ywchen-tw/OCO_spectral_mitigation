@@ -57,8 +57,8 @@ def _needed_columns(schema_names, target_col):
     # Include both the derived column NAMES (precomputed in the parquet → read &
     # skipped by _ensure_derived_features) and their base columns (fallback derive).
     need |= set(_DERIVED_FEATURES.keys())
-    for _col, (_expr, bases) in _DERIVED_FEATURES.items():
-        need |= set(bases)
+    for spec in _DERIVED_FEATURES.values():
+        need |= set(spec.bases)
     need |= {'fp', 'sfc_type', 'snow_flag', target_col}
     need |= {c for c in schema_names
              if any(c.startswith(p) for p in _PROFILE_GROUPS)}

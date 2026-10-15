@@ -34,7 +34,7 @@
 # date_kfold blocks, calib block excluded from the EOF fit) close it.
 # Suffix carries _foldpca so nothing overwrites the current production runs:
 #   de_land_beta_nll_prof_reg_r15_f${F}          (global PCA, production)
-#   de_land_beta_nll_prof_reg_foldpca_r15_f${F}  (this script)
+#   de_land_beta_nll_prof_reg_foldpca_r15${RV}_f${F}  (this script)
 #
 # PREREQUISITES:
 #   - fold-specific ProfilePCA artifacts under
@@ -49,7 +49,7 @@
 #
 # After ALL array tasks finish, aggregate (no GPU needed):
 #   PYTHONPATH=src python -m models.aggregate_folds \
-#     --dirs 'results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15_f*' \
+#     --dirs 'results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15_v2_f*' \
 #     --label DeepEns+foldpca+r15 \
 #     --out results/model_comparison/deep_ensemble_land_profile_foldpca_r15_kfold_agg.md
 
@@ -78,6 +78,13 @@ GPU_MONITOR_PID=$!
 F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
 
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  The tag sits BEFORE the fold
+# tag, so v1 globs (..._f*) never match v2 dirs and v2 runs never overwrite v1
+# checkpoints.  RUN_VERSION= (empty) reproduces the v1 names.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+
 STORAGE=$(python -c "from utils import get_storage_dir; print(get_storage_dir())")
 PCA_ROOT="${STORAGE}/results/profile_pca_date_kfold_2016_2020"
 PROFILE_PKL="${PCA_ROOT}/fold${F}/profile_pca_land.pkl"
@@ -89,78 +96,47 @@ if [[ ! -f "${PROFILE_PKL}" ]]; then
 fi
 echo "fold=${F}/${NFOLDS}  profile_pca=${PROFILE_PKL}"
 
-# python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_foldpca_r15_f${F} \
-#     --profile-pca "${PROFILE_PKL}" \
-#     --feature_set full --target 15km \
-#     --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#     --norm layer --dropout 0.1 \
-#     --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+# ── v2 rerun (2026-10-14): every arm of this fold, one after another ────────────
+# One array task trains, for fold F: production `full`, the five feature-set
+# ablations and the ML(raw) arm (~37 min each, ~4.3 h in all, inside --time).
+# All arms share the production config and differ ONLY in feature set, target
+# and suffix (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md).  An arm whose
+# run_summary.json exists is skipped, so a --requeue restart resumes instead of
+# retraining finished arms with reshuffled seeds.  Narrow the set with e.g.
+#   sbatch --export=ALL,ARMS="full raw" <this script>
+#
+# Regularization note (2026-07-15): without --norm layer --dropout 0.1, LAND fold
+# f2 diverged for every ablation arm (held RMSE 3.8k-43k ppm) and f1/f3
+# under-converged, the beta-NLL land instability that lndo01 fixed for
+# production; so every arm carries the production regularization.  A diverged
+# fold is rerun alone:  sbatch --array=<fold> --export=ALL,ARMS=<arm> after
+# adding --seed 43 to train_arm.
+#
+# ML(raw) differs from production ML(bc) ONLY in the target
+# (xco2_raw_anomaly_r15 instead of xco2_bc_anomaly_r15).  Its TCCON tree
+# is rebuilt with  bash workspace/build_ablation_variant_trees.sh raw_base.
+train_arm() {   # train_arm <suffix> <feature_set> <target>
+    local suffix=$1 fs=$2 target=$3
+    if [[ -f "${STORAGE}/results/model_deep_ensemble/${suffix}/run_summary.json" ]]; then
+        echo "already finished: ${suffix}"
+        return 0
+    fi
+    echo "=== ${suffix}  feature_set=${fs}  target=${target}  $(date)"
+    python -m models.deep_ensemble --sfc_type 1 --suffix "${suffix}" \
+        --profile-pca "${PROFILE_PKL}" --feature_set "${fs}" --target "${target}" \
+        --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
+        --norm layer --dropout 0.1 \
+        --near_cloud_target 0.98 --mondrian_col cld_dist_km \
+        --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+}
 
-# ── 2026-07-15 RERUN NOTE ──────────────────────────────────────────────────────
-# In the first foldpca variant run (non-reg), LAND fold f2 diverged for EVERY
-# variant (held-out RMSE 3.8k-43k ppm) and land f1/f3 under-converged (R2
-# 0.01-0.24) — the known beta-NLL land instability that lndo01 fixed for
-# production.  The loops below now train the variants WITH the production
-# regularization (--norm layer --dropout 0.1) so each variant differs from
-# production `full` ONLY in feature set (and the instability is removed).
-# Minimal alternative (keep non-reg): rerun only the diverged fold with a
-# fresh seed, e.g.  sbatch --array=2 <this script>  after adding --seed 43
-# (precedent: de_ocean_no_xco2_f0, curc_shell_blanca_train_de_ablation_extra.sh).
-# ── Feature-set ablations (+fold-specific profile, 15 km reference) ────────────
-# Same config as the production run above, each with one feature block dropped,
-# land only.  The profile block is ORTHOGONAL to --feature_set; each ablation
-# reuses the same fold-specific ProfilePCA pkl.  Mirrors the ablation loops in
-# curc_shell_blanca_de_profile_r05.sh, adapted to foldpca (fold PCA + _foldpca
-# suffix) and the land/15 km reference.  Suffix: de_land_{FS}_prof_foldpca_r15_f${F}.
-# COMMENTED OUT 2026-07-25 for the CONTAM_FEATURES regrouping rerun
-# (log/CONTAM_REGROUPING_2026-07-25.md): the regrouping changed ONLY
-# CONTAM_FEATURES — XCO2_FEATURES and SPEC_FEATURES are untouched — so these
-# three arms keep the FEATURESET_ABLATION_QF_2026-07-17 checkpoints and must NOT
-# be retrained (retraining would reshuffle member seeds for no scientific gain).
-# Re-enable only if the whole ablation is rebuilt from scratch.
-# for FS in no_xco2 no_spec no_xco2_and_spec; do
-#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_foldpca_r15_f${F} \
-#       --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 15km \
-#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#       --norm layer --dropout 0.1 \
-#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
-
-# ── Contamination arms (regrouped CONTAM_FEATURES) — DONE 2026-07-25 ───────────
-# Ran to completion (all folds healthy; quotable edition
-# FEATURESET_ABLATION_QF_2026-07-25.md; also superseded the §2-7 "land f4 kept
-# the old unreg checkpoint" leftover — f4 was retrained with lndo01).  Do NOT
-# resubmit: suffixes are unchanged, so a re-run would overwrite the 07-25
-# checkpoints with reshuffled seeds.  Old-group checkpoints archived as
-# *_oldcontam.
-# for FS in no_contam no_contam_and_xco2; do
-#   python -m models.deep_ensemble --sfc_type 1 --suffix de_land_${FS}_prof_foldpca_r15_f${F} \
-#       --profile-pca "${PROFILE_PKL}" --feature_set ${FS} --target 15km \
-#       --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-#       --norm layer --dropout 0.1 \
-#       --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-#       --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
-# done
-
-# ── ACTIVE: ML-on-raw arm under fold-PCA (prepared 2026-07-27) ─────────────────
-# The tabC8 / RAW_BC_ML ML(raw) models (de_land_beta_nll_prof_reg_raw_r15_f*)
-# were trained in curc_shell_blanca_de_profile_r15.sh with the GLOBAL ProfilePCA.
-# This retrains the raw-anomaly arm under the production fold-safe PCA so that
-# ML(raw) differs from production ML(bc) ONLY in the regression target
-# (xco2_raw_anomaly_r15 instead of xco2_bc_anomaly_r15).  New _raw_foldpca_
-# suffix — nothing overwrites the old global-PCA raw checkpoints.
-# After download: archive the old tree
-#   mv results/model_comparison/deep_ensemble/de_prof_reg_mix_raw \
-#      results/model_comparison/deep_ensemble/de_prof_reg_mix_raw_globalpca
-# then rebuild with  bash workspace/build_ablation_variant_trees.sh raw_base
-# (raw_base now points at these _raw_foldpca_ dirs).
-python -m models.deep_ensemble --sfc_type 1 --suffix de_land_beta_nll_prof_reg_raw_foldpca_r15_f${F} \
-    --profile-pca "${PROFILE_PKL}" --feature_set full --target xco2_raw_anomaly_r15 \
-    --loss beta_nll --beta 1.0 --n_members 5 --batch_size 8192 \
-    --norm layer --dropout 0.1 \
-    --near_cloud_target 0.98 --mondrian_col cld_dist_km \
-    --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
+ARMS=${ARMS:-"full no_xco2 no_spec no_xco2_and_spec no_contam no_contam_and_xco2 raw"}
+for ARM in ${ARMS}; do
+    case ${ARM} in
+        full) train_arm de_land_beta_nll_prof_reg_foldpca_r15${RV}_f${F} full 15km ;;
+        raw)  train_arm de_land_beta_nll_prof_reg_raw_foldpca_r15${RV}_f${F} full xco2_raw_anomaly_r15 ;;
+        *)    train_arm de_land_${ARM}_prof_foldpca_r15${RV}_f${F} "${ARM}" 15km ;;
+    esac
+done
 
 kill $GPU_MONITOR_PID 2>/dev/null || true

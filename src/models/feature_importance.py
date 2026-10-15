@@ -73,11 +73,13 @@ GEOMETRY_FEATURES = frozenset([
 ])
 
 # Fold-dir name templates (production date_kfold runs; ocean = r05 target,
-# land = r15 target — see curc_shell_blanca_*_foldpca_r{05,15}.sh).
+# land = r15 target — see curc_shell_blanca_*_foldpca_r{05,15}.sh).  {rv} is the
+# run-version tag ('' for the original runs, '_v2' for the 2026-10-14 rerun),
+# placed before the fold tag exactly as in the launchers.
 MODEL_DIRS = {
-    'de':     'model_deep_ensemble/de_{surf}_beta_nll_prof_reg_foldpca_{r}_f{fold}',
-    'xgb':    'model_gbdt/xgb_{surf}_full_prof_foldpca_{r}_f{fold}',
-    'linreg': 'model_linear_baseline/linreg_{surf}_full_prof_foldpca_{r}_f{fold}',
+    'de':     'model_deep_ensemble/de_{surf}_beta_nll_prof_reg_foldpca_{r}{rv}_f{fold}',
+    'xgb':    'model_gbdt/xgb_{surf}_full_prof_foldpca_{r}{rv}_f{fold}',
+    'linreg': 'model_linear_baseline/linreg_{surf}_full_prof_foldpca_{r}{rv}_f{fold}',
 }
 PIPELINE_FILES = {'de': 'deep_ensemble_pipeline.pkl',
                   'xgb': 'gbdt_pipeline.pkl',
@@ -412,14 +414,16 @@ def aggregate(out_dir: Path, surface: str, models: list) -> None:
 
 def run_fold(surface: str, fold: int, models: list, data_path, out_dir: Path,
              n_repeats: int, n_rows: int, rmse_tol: float,
-             exclude_snow: bool, scopes=('feature', 'group')) -> None:
+             exclude_snow: bool, scopes=('feature', 'group'),
+             run_version: str = '') -> None:
     cfg = SURF[surface]
+    rv = f'_{run_version}' if run_version else ''
     storage = get_storage_dir()
 
     loaded = {}
     for mk in models:
         mdir = storage / 'results' / MODEL_DIRS[mk].format(
-            surf=surface, r=cfg['r'], fold=fold)
+            surf=surface, r=cfg['r'], rv=rv, fold=fold)
         if not mdir.is_dir():
             raise SystemExit(f"model dir missing: {mdir}")
         pipeline, predict_mu = _LOADERS[mk](mdir)
@@ -548,6 +552,9 @@ def main():
                              "units and splices them into the existing per-fold CSV — "
                              "the correct/cheap response to a change in the ablation "
                              "GROUPING (per-feature deltas are grouping-invariant).")
+    parser.add_argument('--run-version', default='',
+                        help="Run-version tag of the fold dirs (e.g. 'v2'); empty = the "
+                             "original runs.  Also namespaces the default output dir.")
     parser.add_argument('--aggregate', action='store_true',
                         help='Aggregate existing per-fold CSVs into the '
                              'comparison table instead of computing.')
@@ -562,7 +569,9 @@ def main():
 
     storage = get_storage_dir()
     out_dir = Path(args.out) if args.out else (
-        storage / 'results/model_comparison/feature_importance' / args.surface)
+        storage / 'results/model_comparison'
+        / ('feature_importance' + (f'_{args.run_version}' if args.run_version else ''))
+        / args.surface)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if args.aggregate:
@@ -578,7 +587,7 @@ def main():
     for fold in folds:
         run_fold(args.surface, fold, models, data_path, out_dir,
                  args.n_repeats, args.n_rows, args.rmse_tol, args.exclude_snow,
-                 scopes=scopes)
+                 scopes=scopes, run_version=args.run_version)
 
 
 if __name__ == '__main__':

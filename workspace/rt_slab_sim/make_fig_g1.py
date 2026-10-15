@@ -34,6 +34,7 @@ import sys
 
 import h5py
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -47,8 +48,11 @@ FIG_DIRS = [
     os.path.join(cfg.REPO_ROOT, "manuscript", "AMT_draft", "figures"),
     os.path.join(cfg.REPO_ROOT, "manuscript", "JQSRT_draft", "figures"),
 ]
-# verification escape hatch: send the pair to one scratch directory instead
-if os.environ.get("SLAB_FIG_OUT_DIR"):
+# verification escape hatch: send the pair to one scratch directory instead.
+# With it set, the results/rt_slab_sim side outputs (preview PNG and
+# closure_stats.json) are left untouched, so a scratch run changes nothing else.
+SCRATCH_RUN = bool(os.environ.get("SLAB_FIG_OUT_DIR"))
+if SCRATCH_RUN:
     FIG_DIRS = [os.environ["SLAB_FIG_OUT_DIR"]]
 OUT_BASE = "figG1_mc_3d_vs_ica"
 # opt-in single-surface edition (2026-10-10, main-text figure with the dark surface only;
@@ -62,6 +66,15 @@ if len(SURFACES) < len(cfg.SURFACE_ALBEDOS):
 ROWS = [int(r) for r in os.environ.get("SLAB_FIG_ROWS", "0,1,2,3,4").split(",")]
 if ROWS != [0, 1, 2, 3, 4]:
     OUT_BASE += "_rows" + "".join(str(r) for r in ROWS)
+# opt-in grid layout for the one-surface edition (2026-10-11, author: keep var(l') in the
+# main-text figure): SLAB_FIG_LAYOUT=grid puts the means in the left column and the
+# variances in the right (fitted on top, MC below) and gamma bottom left, with the
+# legend in the free bottom-right cell. Needs one surface and all five rows.
+GRID = os.environ.get("SLAB_FIG_LAYOUT", "") == "grid"
+if GRID:
+    assert len(SURFACES) == 1 and ROWS == [0, 1, 2, 3, 4], "grid layout: one surface, all rows"
+    OUT_BASE += "_grid"
+GRID_POS = {0: (0, 0), 1: (0, 1), 2: (1, 0), 3: (1, 1), 4: (2, 0)}
 
 
 class _NullAx:
@@ -78,6 +91,7 @@ ROW_YLIM = ((0.4, 1.3),      # fitted <l'>
             (0.9, 1.04),     # MC mean
             (0.0, 0.035),    # MC variance
             (0.0, 0.8))      # effective reflectance
+ROW_YTICK = (0.2, 0.2, 0.025, 0.01, 0.2)
 
 
 def continuum_moments(f, surface, solver, mid):
@@ -169,19 +183,36 @@ def main():
             stats[f"ica_null_{name}_{s}"] = float(resid)
             stats[f"ica_null_{name}_frac_{s}"] = float(resid / rng)
 
-    with open(os.path.join(cfg.OUT_DIR, "closure_stats.json"), "w") as fj:
-        json.dump(stats, fj, indent=2)
+    if not SCRATCH_RUN:
+        with open(os.path.join(cfg.OUT_DIR, "closure_stats.json"), "w") as fj:
+            json.dump(stats, fj, indent=2)
     print(json.dumps(stats, indent=2))
 
     # ---------------- figure ----------------
     ncol = len(SURFACES)
     nrow = len(ROWS)
-    fig, axes_real = plt.subplots(nrow, ncol, figsize=(3.9 * ncol if ncol > 1 else 4.2, 10.8 * nrow / 5 + 0.4),
-                                  sharex=True, squeeze=False)
-    axes = np.empty((5, ncol), dtype=object)
-    for jr in range(5):
-        for jc in range(ncol):
-            axes[jr, jc] = axes_real[ROWS.index(jr), jc] if jr in ROWS else _NullAx()
+    # 2026-10-11 print-size redraw: drawn at (about) the printed width so fonts print at
+    # native size (axis labels 10 pt, ticks 9.5 pt, legend 9 pt, annotations 9 pt).
+    # Two columns (SI): 6.2 in wide, 1.5 in per row; one column (main text, rows 0,2,4):
+    # 4.0 in wide, 1.95 in per row.  Was 3.9 in per column x 2.16 in per row.
+    figsize = ((6.2, 1.5 * nrow + 0.1) if ncol > 1 else (4.0, 2.0 * nrow + 0.2))
+    if GRID:
+        # 3 x 2 grid at print width (6.5 in), 1.75 in per row
+        fig, grid = plt.subplots(3, 2, figsize=(6.5, 5.6), sharex=True, squeeze=False)
+        axes = np.empty((5, 1), dtype=object)
+        for jr, (r, c) in GRID_POS.items():
+            axes[jr, 0] = grid[r, c]
+        grid[2, 1].axis("off")
+        axes_real = np.array([[grid[2, 0]]])          # x label goes under gamma only
+        grid[1, 1].tick_params(labelbottom=True)
+        grid[1, 1].set_xlabel("Along-slab distance $x$ (km)")
+    else:
+        fig, axes_real = plt.subplots(nrow, ncol, figsize=figsize,
+                                      sharex=True, squeeze=False)
+        axes = np.empty((5, ncol), dtype=object)
+        for jr in range(5):
+            for jc in range(ncol):
+                axes[jr, jc] = axes_real[ROWS.index(jr), jc] if jr in ROWS else _NullAx()
     tags = "abcdefghij"
 
     for jc, s in enumerate(SURFACES):
@@ -209,9 +240,10 @@ def main():
                              lw=1.3, label=lbl)
 
         alb = cfg.SURFACE_ALBEDOS[s]
-        axes[0, jc].set_title(
-            ("Dark" if s == "dark" else "Bright")
-            + f" surface (albedo {alb:.2f})", fontsize=10)
+        if not GRID:     # grid edition: the surface is named in the caption
+            axes[0, jc].set_title(
+                ("Dark" if s == "dark" else "Bright")
+                + f" surface (albedo {alb:.2f})", fontsize=10)
         axes_real[-1, jc].set_xlabel("Along-slab distance $x$ (km)")
 
     # MC rows reuse the plot_style l' labels with an "MC" prefix so the
@@ -219,16 +251,31 @@ def main():
     row_labels = (MEAN_L_LABEL, VAR_L_LABEL,
                   "MC " + MEAN_L_LABEL,
                   "MC " + VAR_L_LABEL,
-                  "Continuum reflectance $\\gamma$")
+                  # two lines in the 1.5 in rows of the two-column edition
+                  ("Continuum\nreflectance $\\gamma$" if ncol > 1
+                   else "Continuum reflectance $\\gamma$"))
     for kr, jr in enumerate(ROWS):
         for jc in range(ncol):
             ax = axes[jr, jc]
             ax.axvspan(*cfg.CLOUD_X_KM, color="0.88", zorder=0)
             ax.set_ylim(*ROW_YLIM[jr])
-            panel_label(ax, f"({tags[kr * ncol + jc]})")
+            # same tick steps in both editions (fixed, so the SI and main-text
+            # figures read alike at their different panel heights)
+            ax.yaxis.set_major_locator(MultipleLocator(ROW_YTICK[jr]))
+            panel_label(ax, f"({tags[jr if GRID else kr * ncol + jc]})")
             if jc == 0:
                 ax.set_ylabel(row_labels[jr])
-    axes[0, 0].legend(fontsize=8, loc="lower right", frameon=False)
+    # two-column edition: the shorter panel (a) has no room for the legend next to the
+    # "shadow" label, so the legend moves to the empty upper right
+    if GRID:
+        # legend in the free bottom-right cell, solid = mean rows, dashed = variance rows
+        h, l = axes[0, 0].get_legend_handles_labels()
+        grid[2, 1].legend(h, ["3D", "IPA"], loc="center", fontsize=10, frameon=False,
+                          handlelength=2.2)
+    else:
+        axes[0, 0].legend(fontsize=9, loc="upper right" if ncol > 1 else "lower right",
+                          frameon=False,
+                          handlelength=1.6, borderaxespad=0.3)
 
     # sun direction (tilted by the SZA, pointing down-sun toward +x) +
     # shadow annotation on the top-left panel
@@ -238,21 +285,29 @@ def main():
                 xycoords="axes fraction", textcoords="axes fraction",
                 arrowprops=dict(arrowstyle="->", lw=1.0))
     ax.text(0.05 + dx + 0.02, 0.99, f"sun\nSZA {sza:.0f}$^\\circ$",
-            transform=ax.transAxes, fontsize=8, va="top")
-    ax.text(18.5, 0.55, "shadow", fontsize=8, ha="center", color="0.3")
-    ax.text(12.0, 0.88, "cloud", fontsize=8, ha="center", color="0.3")
+            transform=ax.transAxes, fontsize=9, va="top")
+    # two-column edition: panel (a) is too short for "shadow" inside the dip, so it sits
+    # above the shadow at the height of the "cloud" label
+    # grid edition: both labels sit above the far-field line, clear of the steep dip edge
+    ax.text(18.6 if ncol > 1 else 18.5, 0.91 if ncol > 1 else (0.88 if GRID else 0.55), "shadow", fontsize=9,
+            ha="center", color="0.3")
+    ax.text(12.0, 0.91 if ncol > 1 else 0.88, "cloud", fontsize=9, ha="center", color="0.3")
 
     fig.tight_layout()
-    fig.subplots_adjust(hspace=0.14, wspace=0.25)
+    if GRID:
+        fig.subplots_adjust(hspace=0.25, wspace=0.32)
+    else:
+        fig.subplots_adjust(hspace=0.30 if ncol > 1 else 0.22, wspace=0.30)
 
     for fig_dir in FIG_DIRS:
         os.makedirs(fig_dir, exist_ok=True)
         for ext in ("png", "pdf"):
             fig.savefig(os.path.join(fig_dir, f"{OUT_BASE}.{ext}"))
     prev = os.path.join(cfg.OUT_DIR, "figs", f"{OUT_BASE}.png")
-    fig.savefig(prev)
+    if not SCRATCH_RUN:
+        fig.savefig(prev)
     print(f"Wrote {OUT_BASE}.png/.pdf into "
-          + ", ".join(FIG_DIRS) + f" (+ preview {prev})")
+          + ", ".join(FIG_DIRS) + ("" if SCRATCH_RUN else f" (+ preview {prev})"))
 
 
 if __name__ == "__main__":

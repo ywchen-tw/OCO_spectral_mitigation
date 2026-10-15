@@ -84,9 +84,16 @@ export OCO2_DATAROOT="$DATA_ROOT"
 # foldpca (2026-07-15): each fold's ProfilePCA EOF basis is fit on that fold's
 # TRAIN dates only (leakage-safe), replacing the former global-PCA production
 # models (de_*_beta_nll_prof_reg_r{05,15}_f*, tag de_beta_nll_prof_reg_o05l15_m5).
-MODEL_TAG=de_beta_nll_prof_reg_foldpca_o05l15_m5
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15_f*)
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  The tag sits BEFORE the fold
+# tag, so v1 globs (..._f*) never match v2 dirs and v2 runs never overwrite v1
+# checkpoints.  RUN_VERSION= (empty) reproduces the v1 names.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+
+MODEL_TAG=de_beta_nll_prof_reg_foldpca_o05l15_m5${RV}
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05${RV}_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15${RV}_f*)
 
 # ─── cloud classifier (xgb_cloud fold dirs; per-surface) ──────────────────────
 # When set, build_deepens_plot_data.py also emits P(near) and the two extra

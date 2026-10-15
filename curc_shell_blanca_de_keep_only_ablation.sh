@@ -59,11 +59,11 @@
 #   1. Held-out fold aggregation (no GPU):
 #        for V in keep_spec_geom keep_geom keep_xco2_geom full; do
 #          PYTHONPATH=src python -m models.aggregate_folds \
-#            --dirs "results/model_deep_ensemble/de_ocean_${V}_noprof_r05_f*" \
+#            --dirs "results/model_deep_ensemble/de_ocean_${V}_noprof_r05_v2_f*" \
 #            --label "DE ${V} ocean" \
 #            --out results/model_comparison/deep_ensemble_ocean_${V}_noprof_r05_kfold_agg.md
 #          PYTHONPATH=src python -m models.aggregate_folds \
-#            --dirs "results/model_deep_ensemble/de_land_${V}_noprof_r15_f*" \
+#            --dirs "results/model_deep_ensemble/de_land_${V}_noprof_r15_v2_f*" \
 #            --label "DE ${V} land" \
 #            --out results/model_comparison/deep_ensemble_land_${V}_noprof_r15_kfold_agg.md
 #        done
@@ -108,7 +108,14 @@ if (( SFC == 0 )); then
 else
     SURF=land;  TARGET=15km; RTAG=r15
 fi
-SUFFIX=de_${SURF}_${V}_noprof_${RTAG}_f${F}
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  The tag sits BEFORE the fold
+# tag, so v1 globs (..._f*) never match v2 dirs and v2 runs never overwrite v1
+# checkpoints.  RUN_VERSION= (empty) reproduces the v1 names.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+
+SUFFIX=de_${SURF}_${V}_noprof_${RTAG}${RV}_f${F}
 
 STORAGE=$(python -c "from utils import get_storage_dir; print(get_storage_dir())")
 DONE_FILE="${STORAGE}/results/model_deep_ensemble/${SUFFIX}/run_summary.json"

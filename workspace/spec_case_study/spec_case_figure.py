@@ -39,6 +39,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pyarrow.parquet as pq  # noqa: E402
+from matplotlib.ticker import MaxNLocator  # noqa: E402
 
 ROOT_WORKSPACE = Path(__file__).resolve().parents[1]
 if str(ROOT_WORKSPACE) not in sys.path:
@@ -171,11 +172,11 @@ def xco2_bc_ylim(mine_bc: pd.Series, base_bc: float,
     return lo - pad, hi + pad
 
 
-def add_scalebar(ax, lon0, lat0, km, coslat, color="w"):
+def add_scalebar(ax, lon0, lat0, km, coslat, color="w", fontsize=7):
     dlon = km / (111.0 * coslat)
     ax.plot([lon0, lon0 + dlon], [lat0, lat0], color=color, lw=2,
             solid_capstyle="butt")
-    ax.text(lon0 + dlon / 2, lat0, f" {km:.0f} km ", color=color, fontsize=7,
+    ax.text(lon0 + dlon / 2, lat0, f" {km:.0f} km ", color=color, fontsize=fontsize,
             ha="center", va="bottom")
 
 
@@ -203,6 +204,20 @@ def main() -> None:
     ap.add_argument("--with-heatmap", action="store_true",
                     help="Include the fp x track cross-band dk1 z-index "
                          "heatmap (exploration aid, off for journal figures).")
+    ap.add_argument("--journal", action="store_true",
+                    help="Print-size layout (2026-10-11): 6.3 in wide x 7.9 in tall, drawn "
+                         "at the printed width so fonts print at native size (axis labels "
+                         "10 pt, ticks/legends 9 pt, panel letters 10 pt). Writes PNG + PDF. "
+                         "Not combinable with --with-heatmap.")
+    ap.add_argument("--slides", action="store_true",
+                    help="16:9 slide layout (2026-10-12): maps on the left, five trace panels "
+                         "on the right (delta <l'>, delta var(l'), continuum / clear, XCO2 B11, "
+                         "cloud distance), 13-14 pt text. Writes PNG + PDF. Not combinable "
+                         "with --journal or --with-heatmap.")
+    ap.add_argument("--out-stem", default=None,
+                    help="Output file stem (default case_<date>_<frame>_fp<fp>).")
+    ap.add_argument("--rgb-cache", type=Path, default=None,
+                    help="GIBS tile cache (default <output-dir>/rgb_cache).")
     ap.add_argument("--fmt", default="png", choices=["png", "pdf"])
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--parquet-fname", type=Path, default=DEFAULT_PARQUET)
@@ -210,6 +225,22 @@ def main() -> None:
     args = ap.parse_args()
     if args.frame is None and args.frame_time is None:
         ap.error("give --frame or --frame-time")
+    if (args.journal or args.slides) and args.with_heatmap:
+        ap.error("--journal and --slides do not support --with-heatmap")
+    if args.journal and args.slides:
+        ap.error("give only one of --journal and --slides")
+    if args.rgb_cache is None:
+        args.rgb_cache = args.output_dir / "rgb_cache"
+    J, S = args.journal, args.slides
+    # J and S share the compact styling (horizontal y labels, B11 label, PNG + PDF)
+    C = J or S
+    # font sizes: journal layout, slide layout, or the original 9.5 in exploration layout
+    if J:
+        FS = dict(tick=9, label=10, ylab=10, leg=9, letter=10, title=9.5, scale=8.5)
+    elif S:
+        FS = dict(tick=13, label=14, ylab=14, leg=13, letter=14, title=14, scale=12)
+    else:
+        FS = dict(tick=None, label=None, ylab=9, leg=7, letter=9, title=10, scale=7)
     apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
 
     print(f"Loading {args.date} from {args.parquet_fname} ...")
@@ -222,22 +253,61 @@ def main() -> None:
           f"center ({center['lat'].mean():.2f}, {center['lon'].mean():.2f})")
 
     # ── figure ────────────────────────────────────────────────────────────
-    n_tr = 7
+    # trace panels, top to bottom; the slide layout drops the two control panels
+    keys = (["k1", "k2", "cont", "xco2", "dist"] if S
+            else ["k1", "k2", "gam", "cont", "alb", "xco2", "dist"])
+    n_tr = len(keys)
     n_heat = 1 if args.with_heatmap else 0
-    fig = plt.figure(figsize=(9.5, 19.5 + 1.5 * n_heat))
-    gs = fig.add_gridspec(1 + n_heat + n_tr, 1,
-                          height_ratios=[4.2] + [1.1] * n_heat + [1.0] * n_tr,
-                          hspace=0.34)
-    gs_maps = gs[0].subgridspec(1, 2, wspace=0.18)
-    ax_map = fig.add_subplot(gs_maps[0])
-    ax_zoom = fig.add_subplot(gs_maps[1])
-    ax_heat = fig.add_subplot(gs[1]) if args.with_heatmap else None
-    ax0 = ax_heat if ax_heat is not None else fig.add_subplot(gs[1 + n_heat])
-    axes = ([fig.add_subplot(gs[1 + n_heat + i], sharex=ax0)
-             for i in range(1, n_tr)] if ax_heat is None
-            else [fig.add_subplot(gs[2 + i], sharex=ax0) for i in range(n_tr)])
-    if ax_heat is None:
-        axes = [ax0] + axes
+    if S:
+        # maps on the left with a horizontal colorbar below them; traces on the right
+        # with a thin spacer row before the XCO2 panel for its above-the-box legend
+        fig = plt.figure(figsize=(13.33, 7.5))
+        gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.45], wspace=0.32,
+                              left=0.045, right=0.985, top=0.93, bottom=0.09)
+        gs_maps = gs[0].subgridspec(1, 2, wspace=0.75, width_ratios=[0.5, 1.0])
+        ax_map = fig.add_subplot(gs_maps[0])
+        ax_zoom = fig.add_subplot(gs_maps[1])
+        ax_heat = None
+        i_x = keys.index("xco2")
+        gs_tr = gs[1].subgridspec(n_tr + 1, 1, hspace=0.14,
+                                  height_ratios=[1.0] * i_x + [0.25]
+                                  + [1.0] * (n_tr - i_x))
+        ax0 = fig.add_subplot(gs_tr[0])
+        axes = [ax0] + [fig.add_subplot(gs_tr[i if i < i_x else i + 1], sharex=ax0)
+                        for i in range(1, n_tr)]
+    elif J:
+        # maps on top; seven shared-x trace panels, packed, with one thin spacer row
+        # before the XCO2 panel for its above-the-box legend
+        # trace y labels are horizontal in a left column (vertical ones collide at
+        # this panel height), hence the wide left margin
+        fig = plt.figure(figsize=(6.3, 7.9))
+        gs = fig.add_gridspec(2, 1, height_ratios=[2.1, 5.25], hspace=0.2,
+                              left=0.2, right=0.985, top=0.95, bottom=0.07)
+        gs_maps = gs[0].subgridspec(1, 2, wspace=0.45, width_ratios=[0.5, 1.0])
+        ax_map = fig.add_subplot(gs_maps[0])
+        ax_zoom = fig.add_subplot(gs_maps[1])
+        ax_heat = None
+        gs_tr = gs[1].subgridspec(n_tr + 1, 1, hspace=0.13,
+                                  height_ratios=[1.0] * 5 + [0.22] + [1.0] * 2)
+        ax0 = fig.add_subplot(gs_tr[0])
+        axes = [ax0] + [fig.add_subplot(gs_tr[i if i < 5 else i + 1], sharex=ax0)
+                        for i in range(1, n_tr)]
+    else:
+        fig = plt.figure(figsize=(9.5, 19.5 + 1.5 * n_heat))
+        gs = fig.add_gridspec(1 + n_heat + n_tr, 1,
+                              height_ratios=[4.2] + [1.1] * n_heat + [1.0] * n_tr,
+                              hspace=0.34)
+        gs_maps = gs[0].subgridspec(1, 2, wspace=0.18)
+        ax_map = fig.add_subplot(gs_maps[0])
+        ax_zoom = fig.add_subplot(gs_maps[1])
+        ax_heat = fig.add_subplot(gs[1]) if args.with_heatmap else None
+        ax0 = ax_heat if ax_heat is not None else fig.add_subplot(gs[1 + n_heat])
+        axes = ([fig.add_subplot(gs[1 + n_heat + i], sharex=ax0)
+                 for i in range(1, n_tr)] if ax_heat is None
+                else [fig.add_subplot(gs[2 + i], sharex=ax0) for i in range(n_tr)])
+        if ax_heat is None:
+            axes = [ax0] + axes
+    ax_by = dict(zip(keys, axes))
 
     # map + RGB (overview of the segment; zoom around the case frame)
     lat0 = float(seg["lat"].mean())
@@ -252,8 +322,7 @@ def main() -> None:
     def map_panel(ax, box, s_pts, title, scalebar=None, fontsize=10):
         if not args.no_rgb:
             try:
-                img, extent = fetch_rgb(args.date, box,
-                                        args.output_dir / "rgb_cache",
+                img, extent = fetch_rgb(args.date, box, args.rgb_cache,
                                         args.img_width)
                 ax.imshow(img, extent=extent, origin="upper", zorder=0)
             except Exception as exc:  # keep the figure usable offline
@@ -265,24 +334,39 @@ def main() -> None:
         ax.scatter(seg.loc[sel, "lon"], seg.loc[sel, "lat"], facecolors="none",
                    edgecolors="r", s=s_pts * 2.8, linewidths=0.7, zorder=3,
                    label=f"fp {fp_sel}")
-        ax.scatter(clon, clat, marker="*", s=180, color="r", edgecolors="w",
-                   zorder=4, label="case frame")
+        ax.scatter(clon, clat, marker="*", s=90 if J else 180, color="r",
+                   edgecolors="w", zorder=4, label="case frame")
         ax.set_xlim(box[0], box[2]); ax.set_ylim(box[1], box[3])
         ax.set_aspect(1.0 / coslat)
-        ax.set_xlabel("lon"); ax.set_ylabel("lat")
+        ax.set_xlabel("lon", fontsize=FS["label"]); ax.set_ylabel("lat", fontsize=FS["label"])
+        if C:
+            ax.xaxis.set_major_locator(MaxNLocator(3))
+            ax.yaxis.set_major_locator(MaxNLocator(5))
+            ax.tick_params(labelsize=FS["tick"])
         ax.set_title(title, fontsize=fontsize)
         if scalebar:
             add_scalebar(ax, box[0] + 0.12 * (box[2] - box[0]),
-                         box[1] + 0.06 * (box[3] - box[1]), scalebar, coslat)
+                         box[1] + 0.06 * (box[3] - box[1]), scalebar, coslat,
+                         fontsize=FS["scale"])
         return sc
 
     tstr = datetime.fromtimestamp(t0, tz=timezone.utc).strftime("%H:%M:%S")
-    sc = map_panel(ax_map, bbox, 14,
-                   f"{args.date} {tstr} UTC — Aqua true color (GIBS)")
-    map_panel(ax_zoom, zbox, 42, f"zoom ±{args.zoom_km:.0f} km", scalebar=5)
-    ax_zoom.legend(loc="upper right", fontsize=8)
-    fig.colorbar(sc, ax=[ax_map, ax_zoom], shrink=0.8, pad=0.02,
-                 label="MODIS cloud distance (km)")
+    head = f"{args.date} {tstr} UTC — Aqua true color (GIBS)"
+    sc = map_panel(ax_map, bbox, 6 if J else 14,
+                   head.replace(" — ", " —\n") if C else head, fontsize=FS["title"])
+    map_panel(ax_zoom, zbox, 18 if J else 42, f"zoom ±{args.zoom_km:.0f} km", scalebar=5,
+              fontsize=FS["title"])
+    ax_zoom.legend(loc="upper right", fontsize=FS["leg"] if C else 8)
+    if S:
+        cb = fig.colorbar(sc, ax=[ax_map, ax_zoom], orientation="horizontal",
+                          shrink=0.9, pad=0.1, aspect=30)
+    else:
+        cb = fig.colorbar(sc, ax=[ax_map, ax_zoom], shrink=0.8 if not J else 0.9,
+                          pad=0.02 if not J else 0.03, label="MODIS cloud distance (km)")
+    if C:
+        cb.ax.tick_params(labelsize=FS["tick"])
+        cb.set_label("MODIS cloud distance (km)", fontsize=FS["label"])
+        ax_map.xaxis.set_major_locator(MaxNLocator(2))   # narrow overview panel
 
     if ax_heat is not None:
         vmax = max(2.0, float(np.nanpercentile(np.abs(seg["zk1_index"]), 98)))
@@ -304,18 +388,21 @@ def main() -> None:
             ax.plot(mine["x_km"], mine[col], "-o", color=BAND_COLORS[b],
                     ms=3, lw=1.0, label=b.upper())
         ax.axhline(1.0 if ratio else 0.0, color="k", lw=0.5)
-        ax.set_ylabel(ylabel, fontsize=9)
+        ax.set_ylabel(ylabel, fontsize=FS["ylab"])
         if legend:  # above the panel, right-aligned, outside the box
             ax.legend(loc="lower right", bbox_to_anchor=(1.0, 1.0),
-                      fontsize=7, ncol=3, frameon=False, borderaxespad=0.1)
+                      fontsize=FS["leg"], ncol=3, frameon=False, borderaxespad=0.1)
 
-    band_panel(axes[0], "d_{b}_k1", rf"$\Delta${MEAN_L_LABEL}", legend=True)
-    band_panel(axes[1], "d_{b}_k2", rf"$\Delta${VAR_L_LABEL}")
-    band_panel(axes[2], "d_{b}_exp_intercept-alb", r"$\Delta$($\gamma$ $-$ alb)")
-    band_panel(axes[3], "r_h_cont_{b}", "continuum / clear", ratio=True)
-    band_panel(axes[4], "d_alb_{b}", r"$\Delta$ albedo")
+    band_panel(ax_by["k1"], "d_{b}_k1", rf"$\Delta${MEAN_L_LABEL}", legend=True)
+    band_panel(ax_by["k2"], "d_{b}_k2", rf"$\Delta${VAR_L_LABEL}")
+    if "gam" in ax_by:
+        band_panel(ax_by["gam"], "d_{b}_exp_intercept-alb", r"$\Delta$($\gamma$ $-$ alb)")
+    band_panel(ax_by["cont"], "r_h_cont_{b}",
+               "continuum\n/ clear" if C else "continuum / clear", ratio=True)
+    if "alb" in ax_by:
+        band_panel(ax_by["alb"], "d_alb_{b}", r"$\Delta$ albedo")
 
-    ax = axes[5]
+    ax = ax_by["xco2"]
     other = seg[~sel]
     ax.plot(other["x_km"], other["xco2_bc"], ".", color="0.55", ms=2.5,
             alpha=0.35, label="other fps")
@@ -326,11 +413,13 @@ def main() -> None:
     if np.isfinite(base_bc):
         ax.axhline(base_bc, color="0.4", lw=0.7, ls="--", label="clear median")
     ax.set_ylim(*xco2_bc_ylim(mine["xco2_bc"], base_bc))
-    ax.set_ylabel(f"{XCO2_LABEL} BC (ppm)", fontsize=9)
-    ax.legend(loc="lower right", bbox_to_anchor=(1.0, 1.0), fontsize=7,
+    # journal edition: the manuscript names this product B11, not "BC"
+    ax.set_ylabel((r"$X_{\mathrm{CO2}}^{\mathrm{B11}}$" if C else f"{XCO2_LABEL} BC")
+                  + ("\n" if C else " ") + "(ppm)", fontsize=FS["ylab"])
+    ax.legend(loc="lower right", bbox_to_anchor=(1.0, 1.0), fontsize=FS["leg"],
               ncol=3, frameon=False, borderaxespad=0.1)
 
-    ax = axes[6]
+    ax = ax_by["dist"]
     for f, g in seg.groupby("fp"):
         g = g.sort_values("x_km")
         ax.plot(g["x_km"], g["cld_dist_km"].clip(lower=0.05),
@@ -338,8 +427,17 @@ def main() -> None:
                 lw=1.4 if f == fp_sel else 0.6)
     ax.set_yscale("log")
     ax.axhline(args.clear_km, color="g", lw=0.6, ls="--")
-    ax.set_ylabel("cld dist (km)", fontsize=9)
-    ax.set_xlabel("along-track distance from case frame (km)")
+    ax.set_ylabel("cld dist" + ("\n" if C else " ") + "(km)", fontsize=FS["ylab"])
+    ax.set_xlabel("along-track distance from case frame (km)", fontsize=FS["label"])
+    if C:
+        for a in axes:
+            a.tick_params(labelsize=FS["tick"])
+        for a in axes[:-1]:                      # linear panels: about three y ticks
+            a.yaxis.set_major_locator(MaxNLocator(3, steps=[1, 2, 4, 5, 10]))
+        for a in axes:                           # horizontal labels, one aligned column
+            a.set_ylabel(a.get_ylabel(), rotation=0, ha="right", va="center",
+                         labelpad=6, linespacing=1.05, fontsize=FS["ylab"])
+        fig.align_ylabels(axes)
 
     mine = seg[sel].sort_values("x_km")
     spans = contiguous_spans(mine["x_km"].to_numpy(),
@@ -353,15 +451,16 @@ def main() -> None:
     lettered = ([ax_map, ax_zoom] + ([ax_heat] if ax_heat is not None else [])
                 + axes)
     for letter, a in zip("abcdefghij", lettered):
-        panel_label(a, f"({letter})", size=9, inside=True)
+        panel_label(a, f"({letter})", size=FS["letter"], inside=True)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     frame_id = int(center["fp_id"].iloc[0] // 10)
-    out = (args.output_dir
-           / f"case_{args.date}_{frame_id}_fp{fp_sel}.{args.fmt}")
-    fig.savefig(out, dpi=args.dpi, bbox_inches="tight")
+    stem = args.out_stem or f"case_{args.date}_{frame_id}_fp{fp_sel}"
+    for fmt in (("png", "pdf") if C else (args.fmt,)):
+        out = args.output_dir / f"{stem}.{fmt}"
+        fig.savefig(out, dpi=args.dpi, bbox_inches="tight")
+        print(f"Wrote {out}")
     plt.close(fig)
-    print(f"Wrote {out}")
 
 
 if __name__ == "__main__":

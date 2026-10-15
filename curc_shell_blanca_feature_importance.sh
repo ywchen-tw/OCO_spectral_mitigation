@@ -34,8 +34,8 @@
 #
 # After ALL array tasks finish, aggregate into the 3-model comparison table
 # (cheap, run locally or on a login node):
-#   PYTHONPATH=src python -m models.feature_importance --surface ocean --aggregate
-#   PYTHONPATH=src python -m models.feature_importance --surface land  --aggregate
+#   PYTHONPATH=src python -m models.feature_importance --surface ocean --aggregate --run-version v2
+#   PYTHONPATH=src python -m models.feature_importance --surface land  --aggregate --run-version v2
 # → results/model_comparison/feature_importance/<surface>/
 #     importance_{model}_{surface}_agg.csv + FEATURE_IMPORTANCE_TABLE_<surface>.md
 
@@ -66,7 +66,15 @@ fi
 echo "surface=${SURFACE}  fold=${F}"
 
 # Full held fold (--n-rows 0), 5 shuffle repeats for tight fold-level numbers.
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  The tag sits BEFORE the fold
+# tag, so v1 globs (..._f*) never match v2 dirs and v2 runs never overwrite v1
+# checkpoints.  RUN_VERSION= (empty) reproduces the v1 names.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+
 python -m models.feature_importance \
     --surface ${SURFACE} --fold ${F} \
+    --run-version "${RUN_VERSION}" \
     --models de,xgb,linreg \
     --n-rows 0 --n-repeats 5

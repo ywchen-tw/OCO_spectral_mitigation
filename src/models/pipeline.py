@@ -23,7 +23,7 @@ import argparse
 import pickle
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Callable, NamedTuple, Optional
 
 import sys
 
@@ -178,6 +178,81 @@ class RobustStandardScaler:
         return 'RobustStandardScaler()'
 
 
+class RobustClipScaler:
+    """Median/IQR scaling, then standardization on winsorized values, then a clip.
+
+    Replaces RobustStandardScaler for new fits.  That scaler fitted its
+    StandardScaler on the raw RobustScaler output, so a few fills or spikes set
+    the SD and mapped the valid range of a predictor to a near-constant
+    (log/CURC_RERUN_TODO_2026-10-14.md).  Here, per predictor:
+
+      1. center = median; scale = IQR, falling back to the 10-90 and then the
+         1-99 percentile range when the IQR is 0 (zero-inflated predictors), so
+         no predictor stays in raw units;
+      2. mean and SD of the stage-1 output are taken after winsorizing at the
+         0.05/99.95 percentiles, so the tails cannot set the scale;
+      3. the output is clipped to +-clip, a guard against values far outside the
+         training data at inference.  ``clipped_frac_`` records how much
+         training data the clip touches.
+
+    NaN passes through unchanged.  Fully picklable.
+    """
+
+    __module__ = 'pipeline'
+
+    _SCALE_RANGES = ((25.0, 75.0), (10.0, 90.0), (1.0, 99.0))
+    _WINSOR_PCT = (0.05, 99.95)
+
+    def __init__(self, clip: float = 10.0):
+        self.clip = float(clip)
+
+    def fit(self, X: np.ndarray) -> 'RobustClipScaler':
+        X = np.asarray(X, dtype=float)
+        n_feat = X.shape[1]
+        self.center_ = np.ones(n_feat)
+        self.scale_ = np.ones(n_feat)
+        self.mean_ = np.zeros(n_feat)
+        self.sd_ = np.ones(n_feat)
+        self.clipped_frac_ = np.zeros(n_feat)
+        # Column by column: a training block is ~4e6 x 45, and whole-matrix
+        # temporaries would cost several GB.
+        for j in range(n_feat):
+            x = X[:, j]
+            x = x[np.isfinite(x)]
+            if x.size == 0:
+                continue
+            self.center_[j] = np.median(x)
+            for lo, hi in self._SCALE_RANGES:
+                width = np.subtract(*np.percentile(x, [hi, lo]))
+                if width > 0:
+                    self.scale_[j] = width
+                    break
+            z = (x - self.center_[j]) / self.scale_[j]
+            zw = np.clip(z, *np.percentile(z, self._WINSOR_PCT))
+            self.mean_[j] = zw.mean()
+            sd = zw.std()
+            self.sd_[j] = sd if sd > 0 else 1.0
+            self.clipped_frac_[j] = np.mean(
+                np.abs((z - self.mean_[j]) / self.sd_[j]) > self.clip)
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X)
+        if not np.issubdtype(X.dtype, np.floating):
+            X = X.astype(np.float64)
+        # One affine map: ((x - center)/scale - mean)/sd.
+        offset = (self.center_ + self.mean_ * self.scale_).astype(X.dtype)
+        divisor = (self.scale_ * self.sd_).astype(X.dtype)
+        out = (X - offset) / divisor
+        return np.clip(out, -self.clip, self.clip, out=out)
+
+    def fit_transform(self, X: np.ndarray) -> np.ndarray:
+        return self.fit(X).transform(X)
+
+    def __repr__(self) -> str:
+        return f'RobustClipScaler(clip={self.clip:g})'
+
+
 class PCAWhitening:
     """RobustScaler → PCA(n_components, whiten=True).
 
@@ -289,19 +364,23 @@ class PCAScoreAppender:
 # Order matters only for readability — FeaturePipeline stores its own fitted
 # feature list, and each pickle carries the list it was fitted with.
 
-# Spectroscopy k-coefficient source: the Savitzky-Golay-smoothed fit (default,
-# suffix '') vs the parallel no-SG fit (suffix '_nosg', built by
-# build_feature_dataset.py:674-679).  Flip _USE_NOSG_K to run the A/B; the exp-
-# intercept spectroscopy features (exp_*_intercept, *_exp_intercept-alb) have no
-# _nosg twin in the parquet and stay on the SG fit either way.
-_USE_NOSG_K = True
-_S = '_nosg' if _USE_NOSG_K else ''
+# Spectral-fit source for every fitted predictor (k's and gamma): the parallel
+# fit on the raw ln T (suffix '_nosg', the manuscript estimator) vs the
+# Savitzky-Golay-smoothed fit (suffix '').  The parquet stores the _nosg k's
+# directly (build_feature_dataset.py); the _nosg gamma predictors are derived
+# from *_intercept_nosg in _DERIVED_FEATURES.
+_USE_NOSG_FIT = True
+_S = '_nosg' if _USE_NOSG_FIT else ''
 
+# t700 was removed 2026-10-14: the 700 hPa level is underground wherever the
+# surface pressure is below ~700 hPa (1.3 % of soundings, 99 % of high terrain
+# carry a -999999 fill), and the sigma-grid temperature EOFs of the profile block
+# already carry it (R^2 = 0.998 ocean / 0.92 land on valid soundings).
 _FEATURES_SFC0 = [
     'xco2_raw_minus_apriori',
     'fp_area_km2',
-    'exp_o2a_intercept',
-    'o2a_exp_intercept-alb',
+    f'exp_o2a_intercept{_S}',
+    f'o2a_exp_intercept-alb{_S}',
     f'o2a_k1{_S}', f'o2a_k2{_S}',
     f'wco2_k1{_S}', f'wco2_k2{_S}', f'wco2_k3{_S}',
     f'sco2_k1{_S}', f'sco2_k2{_S}',
@@ -321,16 +400,16 @@ _FEATURES_SFC0 = [
     'tcwv',
     # ── forward-selected additions (ocean) — position in this list is history, NOT
     #    group membership: the ablation groups are defined by XCO2_/SPEC_/CONTAM_FEATURES ──
-    'max_declock_wco2', 'aod_water', 'dp_abp', 'h_cont_wco2', 't700',
+    'max_declock_wco2', 'aod_water', 'dp_abp', 'h_cont_wco2',
     'water_height', 'alb_sco2_over_wco2',
 ]
 
 _FEATURES_SFC1 = [
     'xco2_raw_minus_apriori',
     'fp_area_km2',
-    'exp_o2a_intercept',
-    'o2a_exp_intercept-alb',
-    'wco2_exp_intercept-alb',
+    f'exp_o2a_intercept{_S}',
+    f'o2a_exp_intercept-alb{_S}',
+    f'wco2_exp_intercept-alb{_S}',
     f'o2a_k1{_S}', f'o2a_k2{_S}',
     f'wco2_k1{_S}', f'wco2_k2{_S}', f'wco2_k3{_S}',
     f'sco2_k1{_S}', f'sco2_k2{_S}',
@@ -353,7 +432,7 @@ _FEATURES_SFC1 = [
     # ── forward-selected additions (land) — position in this list is history, NOT
     #    group membership: the ablation groups are defined by XCO2_/SPEC_/CONTAM_FEATURES ──
     'dpfrac', 'fs_rel_0', 'dust_height', 'aod_ice', 'ice_height', 'dp_abp',
-    'water_height', 'aod_water', 't700', 'h_cont_wco2', 'alt_std',
+    'water_height', 'aod_water', 'h_cont_wco2', 'alt_std',
     'alb_sco2_over_wco2',
 ]
 
@@ -374,9 +453,9 @@ XCO2_FEATURES = frozenset([
 
 # Set 3 — drop k1/k2/k3 spectroscopic coefficients and exp_intercept / exp_intercept-alb
 SPEC_FEATURES = frozenset([
-    'exp_o2a_intercept',
-    'o2a_exp_intercept-alb',
-    'wco2_exp_intercept-alb',     # sfc_type=1 only
+    f'exp_o2a_intercept{_S}',
+    f'o2a_exp_intercept-alb{_S}',
+    f'wco2_exp_intercept-alb{_S}',     # sfc_type=1 only
     f'o2a_k1{_S}', f'o2a_k2{_S}',
     f'wco2_k1{_S}', f'wco2_k2{_S}', f'wco2_k3{_S}',
     f'sco2_k1{_S}', f'sco2_k2{_S}',
@@ -404,6 +483,7 @@ SPEC_FEATURES = frozenset([
 #   * MOVED OUT (not contamination diagnostics; still active base features, just
 #     attributed to the retrieval-state/surface group):
 #       t700    — GEOS met prior 700 hPa temperature; rho(t700,|lat|) = -0.85 (land)
+#                 (removed from the base lists 2026-10-14, see _FEATURES_SFC0)
 #       alt_std — DEM sub-footprint roughness; static per location, clear or cloudy
 #       fs_rel_0— SIF relative to Band-1 continuum; rho with cloud distance = 0.08
 #       dpfrac  — duplicate of dp_psfc_prior_ratio (rho = 0.965 land / 0.978 ocean),
@@ -495,8 +575,8 @@ GEOM_L1B_FEATURES = frozenset([
     '1_over_cos_sza', '1_over_cos_vza', 'sin_raa',
 ])
 SPEC_GAMMA_FEATURES = (
-    (SPEC_FEATURES - {'o2a_exp_intercept-alb', 'wco2_exp_intercept-alb'})
-    | {'exp_wco2_intercept'}
+    (SPEC_FEATURES - {f'o2a_exp_intercept-alb{_S}', f'wco2_exp_intercept-alb{_S}'})
+    | {f'exp_wco2_intercept{_S}'}
 )
 
 _FEATURE_SETS: dict = {
@@ -506,7 +586,7 @@ _FEATURE_SETS: dict = {
     'no_xco2_and_spec':   {'drop': XCO2_FEATURES | SPEC_FEATURES},
     'no_contam':          {'drop': CONTAM_FEATURES},
     'no_contam_and_xco2': {'drop': CONTAM_FEATURES | XCO2_FEATURES},
-    'keep_spec_geom':     {'add_per_sfc': {1: ['exp_wco2_intercept']},
+    'keep_spec_geom':     {'add_per_sfc': {1: [f'exp_wco2_intercept{_S}']},
                            'keep': SPEC_GAMMA_FEATURES | GEOM_L1B_FEATURES},
     'keep_geom':          {'keep': GEOM_L1B_FEATURES},
     'keep_xco2_geom':     {'keep': XCO2_FEATURES | GEOM_L1B_FEATURES},
@@ -556,6 +636,78 @@ _LOG1P_FEATURES = frozenset([
 ])
 
 
+# Retrieval fill values (-999999 in the Lite files) are invalid in every predictor.
+_FILL_THRESHOLD = -9.9e4
+
+# Non-physical spikes: a value is invalid if <= lo or > hi (None = unbounded).  Each
+# bound sits in an empty gap of the 2016-2020 training distribution; counts and gaps
+# in log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md.
+_VALID_RANGE = {
+    'h_cont_sco2':        (None, 1e4),      # valid <= 3e3; 152 spikes >= 1.4e5
+    'dp_abp':             (None, 1e3),      # valid <= 65 hPa; 3428 at 1.05e4-1.1e4 hPa
+    'dpfrac':             (-100.0, 100.0),  # valid |x| <= 39; 3244 above 100
+    'fp_area_km2':        (None, 100.0),    # valid <= 10 km^2; 988 above 100
+    'alb_sco2_over_wco2': (0.0, None),      # a negative band albedo makes the ratio <= 0
+}
+
+
+def _invalid_mask(X: np.ndarray, features: list, valid_range: dict) -> np.ndarray:
+    """True where a value is a fill, a spike, or infinite.  NaN is never flagged:
+    genuinely missing values keep flowing to the trainers' finite-row filters."""
+    with np.errstate(invalid='ignore'):
+        bad = np.isinf(X) | (X <= _FILL_THRESHOLD)
+        for j, name in enumerate(features):
+            lo, hi = valid_range.get(name, (None, None))
+            if lo is not None:
+                bad[:, j] |= X[:, j] <= lo
+            if hi is not None:
+                bad[:, j] |= X[:, j] > hi
+    return bad
+
+
+def _impute_invalid(X: np.ndarray, features: list, valid_range: dict,
+                    impute_values: np.ndarray) -> tuple:
+    """Replace fills/spikes with the stored training medians.
+
+    Returns (X, n_replaced_per_feature); X is copied only when something changes.
+    """
+    bad = _invalid_mask(X, features, valid_range)
+    counts = bad.sum(axis=0)
+    if counts.any():
+        X = X.copy()
+        rows, cols = np.nonzero(bad)
+        X[rows, cols] = impute_values[cols].astype(X.dtype)
+    return X, counts
+
+
+def _log_imputed(where: str, features: list, counts: np.ndarray, n_rows: int) -> None:
+    hits = {f: int(n) for f, n in zip(features, counts) if n}
+    if hits:
+        logger.info("%s: replaced fills/spikes with training medians (of %d rows): %s",
+                    where, n_rows, hits)
+
+
+# Training data the RobustClipScaler clip may touch before we call it saturation.
+_CLIP_WARN_FRAC = 0.005
+
+
+def _log_clipped(qt: 'RobustClipScaler', features: list) -> None:
+    fracs = {f: round(float(p), 5) for f, p in zip(features, qt.clipped_frac_) if p > 0}
+    logger.info("RobustClipScaler: training fraction beyond +-%g: %s",
+                qt.clip, fracs or 'none')
+    heavy = {f: p for f, p in fracs.items() if p > _CLIP_WARN_FRAC}
+    if heavy:
+        logger.warning("RobustClipScaler: clip touches > %.1f %% of training values: %s",
+                       100 * _CLIP_WARN_FRAC, heavy)
+
+
+_SCALERS = {
+    'robust_clip':     RobustClipScaler,
+    'robust_standard': RobustStandardScaler,
+    'pca_whitening':   PCAWhitening,
+}
+
+
 def _apply_log1p(X: np.ndarray, idx: list) -> np.ndarray:
     """log1p-transform selected column indices in-place (clamps negatives to 0)."""
     if not idx:
@@ -575,77 +727,95 @@ def _ensure_fp_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# Derived features that older CSVs may be missing: maps column name → (formula, base cols).
-# Computed lazily so stale CSVs regenerated from raw base columns still work.
+class _Derived(NamedTuple):
+    expr: str          # formula, for logs and docs
+    bases: list        # base columns the formula reads
+    compute: Callable  # df -> array
+
+
+def _col(df: pd.DataFrame, name: str) -> np.ndarray:
+    return df[name].to_numpy(dtype=float)
+
+
+def _exp_intercept(band: str, suffix: str = '') -> Callable:
+    return lambda df: np.exp(_col(df, f'{band}_intercept{suffix}'))
+
+
+def _exp_intercept_minus_alb(band: str, suffix: str = '') -> Callable:
+    return lambda df: (np.exp(_col(df, f'{band}_intercept{suffix}'))
+                       - _col(df, f'alb_{band}'))
+
+
+# Features computed from base columns when the parquet lacks them.  The *_nosg
+# gamma predictors are never stored, so they are always derived here; their
+# formulas match the smoothed-fit columns of build_feature_dataset.py.
 _DERIVED_FEATURES = {
-    'xco2_raw_minus_apriori': ('xco2_raw - xco2_apriori',  ['xco2_raw', 'xco2_apriori']),
-    'xco2_raw_minus-xco2_strong_idp_minus': ('xco2_raw - xco2_strong_idp_minus', ['xco2_raw', 'xco2_strong_idp_minus']),
-    'airmass_sq':             ('airmass ** 2',              ['airmass']),
-    'alb_o2a_over_cos_sza':   ('alb_o2a / cos(sza)',        ['alb_o2a', 'sza']),
-    'alb_wco2_over_cos_sza':  ('alb_wco2 / cos(sza)',       ['alb_wco2', 'sza']),
-    'alb_sco2_over_cos_sza':  ('alb_sco2 / cos(sza)',       ['alb_sco2', 'sza']),
-    'alb_sco2_over_wco2':     ('alb_sco2 / alb_wco2',       ['alb_sco2', 'alb_wco2']),
+    'xco2_raw_minus_apriori': _Derived(
+        'xco2_raw - xco2_apriori', ['xco2_raw', 'xco2_apriori'],
+        lambda df: _col(df, 'xco2_raw') - _col(df, 'xco2_apriori')),
+    'xco2_raw_minus-xco2_strong_idp_minus': _Derived(
+        'xco2_raw - xco2_strong_idp_minus', ['xco2_raw', 'xco2_strong_idp_minus'],
+        lambda df: _col(df, 'xco2_raw') - _col(df, 'xco2_strong_idp_minus')),
+    'airmass_sq': _Derived(
+        'airmass ** 2', ['airmass'], lambda df: _col(df, 'airmass') ** 2),
+    **{f'alb_{b}_over_cos_sza': _Derived(
+        f'alb_{b} / cos(sza)', [f'alb_{b}', 'sza'],
+        lambda df, b=b: _col(df, f'alb_{b}') / np.cos(np.radians(_col(df, 'sza'))))
+       for b in ('o2a', 'wco2', 'sco2')},
+    'alb_sco2_over_wco2': _Derived(
+        'alb_sco2 / alb_wco2', ['alb_sco2', 'alb_wco2'],
+        lambda df: _col(df, 'alb_sco2') / _col(df, 'alb_wco2')),
+    **{f'exp_{b}_intercept_nosg': _Derived(
+        f'exp({b}_intercept_nosg)', [f'{b}_intercept_nosg'], _exp_intercept(b, '_nosg'))
+       for b in ('o2a', 'wco2', 'sco2')},
+    **{f'{b}_exp_intercept-alb_nosg': _Derived(
+        f'exp({b}_intercept_nosg) - alb_{b}', [f'{b}_intercept_nosg', f'alb_{b}'],
+        _exp_intercept_minus_alb(b, '_nosg'))
+       for b in ('o2a', 'wco2', 'sco2')},
 }
 
 
 def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute any missing derived feature columns from their base columns.
+    """Add every derived feature column that is missing but derivable.
 
-    Handles CSVs generated before these engineered features were added to
-    fitting_data_correction.py.  A copy is made only if at least one column
-    needs to be added.
-
-    Raises
-    ------
-    ValueError
-        If a derived column is missing AND one or more of its required base
-        columns are also absent.  This means the CSV is too old to recover
-        from and must be regenerated via fitting_data_correction.py.
+    A derived column whose base columns are absent is skipped, not an error:
+    callers run this on the whole frame before they know which predictors a
+    pipeline needs, and an old pickle must not fail over a predictor it never
+    uses.  FeaturePipeline.fit / transform raise for absent predictors they do
+    need.  A copy is made only if at least one column is added.
     """
     missing = [c for c in _DERIVED_FEATURES if c not in df.columns]
-    if not missing:
+    derivable = [c for c in missing
+                 if all(b in df.columns for b in _DERIVED_FEATURES[c].bases)]
+    skipped = sorted(set(missing) - set(derivable))
+    if skipped:
+        logger.debug("_ensure_derived_features: base columns absent, skipped %s", skipped)
+    if not derivable:
         return df
 
-    # Check that all base columns exist before touching df.
-    absent_base: dict[str, list[str]] = {}
-    for col in missing:
-        _, base_cols = _DERIVED_FEATURES[col]
-        bad = [b for b in base_cols if b not in df.columns]
-        if bad:
-            absent_base[col] = bad
-    if absent_base:
-        lines = "\n".join(
-            f"  {col!r} needs base column(s): {bases}"
-            for col, bases in absent_base.items()
-        )
-        raise ValueError(
-            f"Cannot derive {len(absent_base)} feature(s) — required base columns are "
-            f"missing from the CSV.\n{lines}\n\n"
-            "The CSV was generated before these columns existed.  "
-            "Re-run fitting_data_correction.py for all dates and rebuild the "
-            "combined CSV (raw_processing_multipe_dates) to fix this."
-        )
-
     df = df.copy()
-    cos_sza = None  # compute once if needed by alb_*_over_cos_sza features
-    for col in missing:
-        if col == 'xco2_raw_minus_apriori':
-            df[col] = df['xco2_raw'] - df['xco2_apriori']
-        elif col == 'airmass_sq':
-            df[col] = df['airmass'] ** 2
-        elif col in ('alb_o2a_over_cos_sza', 'alb_wco2_over_cos_sza', 'alb_sco2_over_cos_sza'):
-            if cos_sza is None:
-                cos_sza = np.cos(np.radians(df['sza'].to_numpy(dtype=float)))
-            band = col.replace('_over_cos_sza', '')   # 'alb_o2a' / 'alb_wco2' / 'alb_sco2'
-            df[col] = df[band].to_numpy(dtype=float) / cos_sza
-        elif col == 'alb_sco2_over_wco2':
-            df[col] = df['alb_sco2'].to_numpy(dtype=float) / df['alb_wco2'].to_numpy(dtype=float)
-        logger.debug("_ensure_derived_features: computed '%s' from base columns", col)
-    logger.info(
-        "_ensure_derived_features: computed %d missing derived column(s): %s",
-        len(missing), missing,
-    )
+    for col in derivable:
+        df[col] = _DERIVED_FEATURES[col].compute(df)
+    logger.info("_ensure_derived_features: computed %d derived column(s): %s",
+                len(derivable), derivable)
     return df
+
+
+def _check_columns(df: pd.DataFrame, cols: list, where: str) -> None:
+    """Raise a legible KeyError for absent predictor columns."""
+    missing = [c for c in cols if c not in df.columns]
+    if not missing:
+        return
+    hints = []
+    for c in missing:
+        if c in _DERIVED_FEATURES:
+            bases = [b for b in _DERIVED_FEATURES[c].bases if b not in df.columns]
+            hints.append(f"{c!r} is derived and needs base column(s) {bases}")
+    if any(c.endswith('_nosg') for c in missing):
+        hints.append("_nosg predictors need a parquet built from the dual fit (spectral "
+                     "fit WITHOUT --single-fit); _USE_NOSG_FIT=False selects the smoothed fit")
+    raise KeyError(f"{where}: predictor column(s) absent from the dataframe: {missing}. "
+                   + "; ".join(hints))
 
 
 # Soundings with |xco2_bc_anomaly| beyond this (ppm) are not physical retrieval
@@ -846,7 +1016,9 @@ class FeaturePipeline:
 
     Encapsulates:
     - Feature selection (sfc_type-specific continuous features)
-    - QuantileTransformer fitting on continuous features
+    - Fill/spike masking with training-median imputation (_FILL_THRESHOLD,
+      _VALID_RANGE); the rules and medians are stored on the fitted pipeline
+    - Scaler fitting on continuous features (RobustClipScaler by default)
     - Optional profile-EOF / tropopause block (ProfilePCA), standardized and
       appended after the scaled features (see ``profile_pca`` in ``fit``)
     - fp_{0..7} one-hot encoding appended raw (not QT-transformed)
@@ -857,12 +1029,14 @@ class FeaturePipeline:
 
     def __init__(self,
                  sfc_type: int,
-                 qt: 'QuantileTransformer | ClipFreeQuantileTransformer | RobustStandardScaler | PCAWhitening',
+                 qt: 'RobustClipScaler | RobustStandardScaler | PCAWhitening | ClipFreeQuantileTransformer',
                  qt_features: list,
                  fp_cols: list,
                  features: list,
                  *,
-                 scaler_type: str = 'robust_standard',
+                 scaler_type: str = 'robust_clip',
+                 impute_values: 'np.ndarray | None' = None,
+                 valid_range: 'dict | None' = None,
                  pca_appender: 'PCAScoreAppender | None' = None,
                  pc1_col_idx: 'int | None' = None,
                  log1p_cols: 'list | None' = None,
@@ -876,6 +1050,11 @@ class FeaturePipeline:
         self.fp_cols     = fp_cols
         self.features    = features      # full model input feature names
         self.scaler_type = scaler_type
+        # Fill/spike masking: training medians aligned with qt_features and the
+        # valid ranges in force at fit time.  None on pickles fitted before
+        # 2026-10-14, whose transform then stays exactly as it was.
+        self.impute_values = impute_values
+        self.valid_range   = valid_range or {}
         self.pca_appender  = pca_appender
         self.pc1_col_idx   = pc1_col_idx
         self.log1p_cols    = log1p_cols or []   # qt_feature names pre-transformed by log1p
@@ -891,17 +1070,23 @@ class FeaturePipeline:
 
     @classmethod
     def fit(cls, df: pd.DataFrame, sfc_type: int = 1,
-            scaler: str = 'robust_standard',
+            scaler: str = 'robust_clip',
             pca_augment: bool = False,
             feature_set: str = 'full',
             profile_pca=None) -> 'FeaturePipeline':
         """Fit a new pipeline on df.
 
+        Before scaling, fill values (<= _FILL_THRESHOLD), infinities and the
+        non-physical spikes of _VALID_RANGE are replaced by the median of the
+        valid training values; NaN is left for the trainers' finite-row filters.
+
         Parameters
         ----------
         df : DataFrame containing all feature columns for sfc_type plus 'fp'.
         sfc_type : 0=ocean, 1=land.
-        scaler : 'robust_standard' (default) or 'pca_whitening'.
+        scaler : 'robust_clip' (default, RobustClipScaler), 'robust_standard'
+            (the pre-2026-10-14 RobustStandardScaler, kept to reproduce old
+            runs) or 'pca_whitening'.
             'pca_whitening' chains RobustScaler → PCA(whiten=True); output
             dimensionality is reduced to explain 90% variance.  Not suitable
             for FT-Transformer (destroys per-feature token identity).
@@ -939,10 +1124,8 @@ class FeaturePipeline:
         """
         if sfc_type not in _FEATURE_MAP:
             raise ValueError(f"sfc_type must be 0 or 1, got {sfc_type}")
-        if scaler not in ('robust_standard', 'pca_whitening'):
-            raise ValueError(
-                f"scaler must be 'robust_standard' or 'pca_whitening', got {scaler!r}"
-            )
+        if scaler not in _SCALERS:
+            raise ValueError(f"scaler must be one of {sorted(_SCALERS)}, got {scaler!r}")
 
         # Continuous features for this sfc_type, with the named ablation applied.
         qt_features = _resolve_feature_set(_FEATURE_MAP[sfc_type], feature_set, sfc_type)
@@ -950,42 +1133,29 @@ class FeaturePipeline:
 
         df = _ensure_derived_features(df)
         df = _ensure_fp_columns(df)
-
-        # Fail early (and legibly) on absent feature columns instead of the raw
-        # KeyError from df[qt_features].  The common case is _USE_NOSG_K=True
-        # against a parquet built with --single-fit (no _nosg columns).
-        missing = [f for f in qt_features if f not in df.columns]
-        if missing:
-            nosg_missing = [f for f in missing if f.endswith('_nosg')]
-            if nosg_missing:
-                raise KeyError(
-                    f"FeaturePipeline.fit: {len(nosg_missing)} no-Savitzky-Golay "
-                    f"feature column(s) absent: {nosg_missing}. _USE_NOSG_K is True "
-                    "but this parquet has no _nosg columns — it was built without "
-                    "the dual fit. Re-run the spectral fit WITHOUT --single-fit "
-                    "(dual_fit=True) and rebuild the feature parquet, or set "
-                    "_USE_NOSG_K=False in pipeline.py to use the smoothed k's."
-                )
-            raise KeyError(
-                f"FeaturePipeline.fit: feature column(s) absent from the dataframe: "
-                f"{missing}. Regenerate the feature parquet via build_feature_dataset.py."
-            )
+        _check_columns(df, qt_features, 'FeaturePipeline.fit')
 
         log1p_cols = [f for f in qt_features if f in _LOG1P_FEATURES]
         log1p_idx  = [qt_features.index(f) for f in log1p_cols]
 
         X_qt_raw = df[qt_features].to_numpy(dtype=float)
+        valid_range = {f: _VALID_RANGE[f] for f in qt_features if f in _VALID_RANGE}
+        bad = _invalid_mask(X_qt_raw, qt_features, valid_range)
+        with np.errstate(all='ignore'):
+            impute_values = np.nanmedian(np.where(bad, np.nan, X_qt_raw), axis=0)
+        X_qt_raw, n_bad = _impute_invalid(X_qt_raw, qt_features, valid_range, impute_values)
+        _log_imputed('FeaturePipeline.fit', qt_features, n_bad, len(X_qt_raw))
         X_qt_raw = _apply_log1p(X_qt_raw, log1p_idx)
 
+        qt = _SCALERS[scaler]()
+        qt.fit(X_qt_raw)
         if scaler == 'pca_whitening':
-            qt = PCAWhitening()
-            qt.fit(X_qt_raw)
             n_pca    = qt.n_components_
             features = [f'pca_pc{i + 1}' for i in range(n_pca)] + fp_cols
         else:
-            qt = RobustStandardScaler()
-            qt.fit(X_qt_raw)
             features = qt_features + fp_cols
+        if isinstance(qt, RobustClipScaler):
+            _log_clipped(qt, qt_features)
 
         # Optionally fit PCAScoreAppender and insert PC score columns between
         # the scaled block and fp_onehot.
@@ -1031,7 +1201,8 @@ class FeaturePipeline:
                         len(profile_names), profile_names)
         return cls(sfc_type=sfc_type, qt=qt,
                    qt_features=qt_features, fp_cols=fp_cols, features=features,
-                   scaler_type=scaler, pca_appender=pca_appender, pc1_col_idx=pc1_col_idx,
+                   scaler_type=scaler, impute_values=impute_values, valid_range=valid_range,
+                   pca_appender=pca_appender, pc1_col_idx=pc1_col_idx,
                    log1p_cols=log1p_cols, feature_set=feature_set,
                    profile_pca=profile_obj, profile_scaler=profile_scaler,
                    profile_names=profile_names)
@@ -1048,8 +1219,16 @@ class FeaturePipeline:
         """
         df = _ensure_derived_features(df)
         df = _ensure_fp_columns(df)
+        _check_columns(df, self.qt_features, 'FeaturePipeline.transform')
         # Extract as float32 — halves memory vs float64 (scalers handle float32 natively)
         X_qt_raw = df[self.qt_features].to_numpy(dtype=np.float32)
+        # Fill/spike imputation with the stored training medians (old pickles lack
+        # impute_values and skip it, so their output is unchanged).
+        impute_values = getattr(self, 'impute_values', None)
+        if impute_values is not None:
+            X_qt_raw, n_bad = _impute_invalid(X_qt_raw, self.qt_features,
+                                              self.valid_range, impute_values)
+            _log_imputed('FeaturePipeline.transform', self.qt_features, n_bad, len(X_qt_raw))
         # log1p pre-transform for skewed AOD / area features (backward compat: old
         # pickles without log1p_cols skip this step transparently)
         log1p_cols = getattr(self, 'log1p_cols', [])
@@ -1131,8 +1310,9 @@ class FeaturePipeline:
         log1p_cols  = getattr(self, 'log1p_cols', [])
         feature_set = getattr(self, 'feature_set', 'full')
         n_profile   = len(getattr(self, 'profile_names', []))
+        imputing    = getattr(self, 'impute_values', None) is not None
         return (f"FeaturePipeline(sfc_type={self.sfc_type}, "
-                f"scaler={scaler_type!r}, pca_augment={pca_augment}, "
+                f"scaler={scaler_type!r}, impute_fills={imputing}, pca_augment={pca_augment}, "
                 f"feature_set={feature_set!r}, profile={n_profile or 'off'}, "
                 f"log1p={log1p_cols or 'none'}, "
                 f"n_qt_features={len(self.qt_features)}, "
@@ -1156,9 +1336,10 @@ def main():
     parser.add_argument('--out',      default=None,
                         help='Output path for pipeline.pkl.  '
                              'Defaults to <storage_dir>/results/feature_pipeline/<suffix>/pipeline.pkl')
-    parser.add_argument('--scaler',   default='robust_standard',
-                        choices=['robust_standard', 'pca_whitening'],
-                        help='Scaler type: robust_standard (default) or pca_whitening '
+    parser.add_argument('--scaler',   default='robust_clip',
+                        choices=sorted(_SCALERS),
+                        help='Scaler type: robust_clip (default), robust_standard (pre-2026-10-14, '
+                             'to reproduce old runs) or pca_whitening '
                              '(RobustScaler → PCA(whiten=True)).  Not for FT-Transformer.')
     parser.add_argument('--pca-augment', action='store_true',
                         help='Append selected PC scores after scaled features '

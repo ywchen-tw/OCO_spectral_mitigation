@@ -70,8 +70,9 @@ def add_smoother_columns(df: pd.DataFrame, *, windows_s=DEFAULT_WINDOWS_S,
     sfc_type (mirrors the per-surface production model).  Row order and index
     of df are preserved.
 
-    Non-physical retrievals (|base_col − xco2_apriori| > clim_max_ppm, the same
-    feature-free criterion as the production climatology input guard) are
+    Non-physical retrievals (base_col − xco2_apriori > clim_max_ppm, the same
+    signed, one-sided criterion as the production input guard
+    `clim_guard` in build_deepens_plot_data.py) are
     EXCLUDED from the running-mean input so a single fill-value footprint does
     not contaminate its neighbors' smoothed values — without this the null
     would be a straw man.  Screened rows still receive a corrected value (the
@@ -94,7 +95,11 @@ def add_smoother_columns(df: pd.DataFrame, *, windows_s=DEFAULT_WINDOWS_S,
     t_all = out[time_col].to_numpy(float)
     y_in = y_raw
     if clim_max_ppm is not None and "xco2_apriori" in out.columns:
-        dev = np.abs(y_raw - out["xco2_apriori"].to_numpy(float))
+        # Signed, like the production clim_guard (2026-10-14; was |dev|).  On
+        # the 99 TCCON cases no sounding with dev < -50 ppm lies within
+        # +-100 s of a co-located footprint, so the reported numbers are
+        # unchanged by this fix.
+        dev = y_raw - out["xco2_apriori"].to_numpy(float)
         y_in = np.where(np.isfinite(dev) & (dev > clim_max_ppm), np.nan, y_raw)
 
     means = {w: np.full(len(out), np.nan) for w in windows_s}

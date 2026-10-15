@@ -46,34 +46,41 @@ fi
 DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  The tag sits BEFORE the fold
+# tag, so v1 globs (..._f*) never match v2 dirs and v2 runs never overwrite v1
+# checkpoints.  RUN_VERSION= (empty) reproduces the v1 names.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+
 EXTRA_BUILD_ARGS=()
 if [[ "$VARIANT" == raw_base ]]; then
-    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_raw_foldpca_r05_f*)
-    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_raw_foldpca_r15_f*)
+    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_raw_foldpca_r05${RV}_f*)
+    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_raw_foldpca_r15${RV}_f*)
     EXTRA_BUILD_ARGS=(--correction-base raw)
-    OUT_BASE_NAME=de_prof_reg_mix_raw
+    OUT_BASE_NAME=de_prof_reg_mix_raw${RV}
 elif [[ "$VARIANT" == keep_* ]]; then
     # 2026-10-09 keep-only arms (KSS E4 / D9), trained WITHOUT the profile EOF
     # block by curc_shell_blanca_de_keep_only_ablation.sh.  The tree keeps the
     # de_prof_mix_ prefix so make_featureset_ablation_doc.py finds it.
-    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_noprof_r05_f*)
-    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_${VARIANT}_noprof_r15_f*)
-    OUT_BASE_NAME=de_prof_mix_${VARIANT}
+    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_noprof_r05${RV}_f*)
+    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_${VARIANT}_noprof_r15${RV}_f*)
+    OUT_BASE_NAME=de_prof_mix_${VARIANT}${RV}
 elif [[ "$VARIANT" == full_noprof ]]; then
     # 2026-10-10 full feature set WITHOUT the profile EOF block (array 30-39 of
     # curc_shell_blanca_de_keep_only_ablation.sh), the model-size check against
     # Mauceri et al. (2023).  The production reference stays the atrain tree.
-    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_full_noprof_r05_f*)
-    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_full_noprof_r15_f*)
-    OUT_BASE_NAME=de_prof_mix_full_noprof
+    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_full_noprof_r05${RV}_f*)
+    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_full_noprof_r15${RV}_f*)
+    OUT_BASE_NAME=de_prof_mix_full_noprof${RV}
 else
-    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_prof_foldpca_r05_f*)
+    OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_${VARIANT}_prof_foldpca_r05${RV}_f*)
     # 2026-07-17: variants RETRAINED with lndo01 (--norm layer --dropout 0.1) —
     # land f2 healthy again, all 5 folds pooled.  (Known leftover: land f4 of
     # no_contam and no_contam_and_xco2 kept the old unreg checkpoint — healthy
     # fold, config mismatch only; see FOLDPCA_RERUN_2026-07-15.md.)
-    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_${VARIANT}_prof_foldpca_r15_f*)
-    OUT_BASE_NAME=de_prof_mix_${VARIANT}
+    LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_${VARIANT}_prof_foldpca_r15${RV}_f*)
+    OUT_BASE_NAME=de_prof_mix_${VARIANT}${RV}
 fi
 [[ -d "${OCEAN_MODEL_DIRS[0]}" && -d "${LAND_MODEL_DIRS[0]}" ]] || {
     echo "variant model dirs not found for '$VARIANT'" >&2; exit 2; }

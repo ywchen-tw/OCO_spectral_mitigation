@@ -52,9 +52,9 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # ============================================================================
 # Single date processing
 # ============================================================================
-target_year=2018
-target_month=3
-target_day=15
+target_year=2015
+target_month=9
+target_day=25
 
 date=$(printf "%04d-%02d-%02d" "$target_year" "$target_month" "$target_day")
 echo "Processing date: $date"

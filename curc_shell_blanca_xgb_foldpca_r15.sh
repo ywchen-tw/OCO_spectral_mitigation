@@ -20,8 +20,8 @@
 # (log/archive/LINREG_XGB_BASELINE_PLAN_2026-07-07.md).
 # Land twin of curc_shell_blanca_xgb_foldpca_r05.sh: --sfc_type 1 --target 15km,
 # fold-specific ProfilePCA profile_pca_land.pkl.  Same-protocol comparison partner to
-#   de_land_beta_nll_prof_reg_foldpca_r15_f${F}.
-# Suffix: xgb_land_full_prof_foldpca_r15_f${F}
+#   de_land_beta_nll_prof_reg_foldpca_r15${RV}_f${F}.
+# Suffix: xgb_land_full_prof_foldpca_r15${RV}_f${F}
 #
 # PREREQUISITES:
 #   - fold-specific ProfilePCA under ${STORAGE}/results/profile_pca_date_kfold_2016_2020/fold{0..4}/ .
@@ -29,7 +29,7 @@
 #
 # After ALL array tasks finish, aggregate:
 #   PYTHONPATH=src python -m models.aggregate_folds \
-#     --dirs 'results/model_gbdt/xgb_land_full_prof_foldpca_r15_f*' \
+#     --dirs 'results/model_gbdt/xgb_land_full_prof_foldpca_r15_v2_f*' \
 #     --label XGB+foldpca+r15 \
 #     --out results/model_comparison/xgb_land_foldpca_r15_kfold_agg.md
 
@@ -54,6 +54,13 @@ export PYTHONPATH=src:${PYTHONPATH:-}
 F=${SLURM_ARRAY_TASK_ID}
 NFOLDS=5
 
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  The tag sits BEFORE the fold
+# tag, so v1 globs (..._f*) never match v2 dirs and v2 runs never overwrite v1
+# checkpoints.  RUN_VERSION= (empty) reproduces the v1 names.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+
 STORAGE=$(python -c "from utils import get_storage_dir; print(get_storage_dir())")
 PCA_ROOT="${STORAGE}/results/profile_pca_date_kfold_2016_2020"
 PROFILE_PKL="${PCA_ROOT}/fold${F}/profile_pca_land.pkl"
@@ -66,7 +73,7 @@ fi
 echo "fold=${F}/${NFOLDS}  profile_pca=${PROFILE_PKL}"
 
 python -m models.gbdt_baselines --model xgboost --objective mean \
-    --sfc_type 1 --suffix xgb_land_full_prof_foldpca_r15_f${F} \
+    --sfc_type 1 --suffix xgb_land_full_prof_foldpca_r15${RV}_f${F} \
     --profile-pca "${PROFILE_PKL}" \
     --feature_set full --target 15km --calib_frac 0.15 --n_jobs ${SLURM_NTASKS:-16} \
     --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}

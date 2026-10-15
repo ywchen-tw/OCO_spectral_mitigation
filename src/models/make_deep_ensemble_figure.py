@@ -47,8 +47,22 @@ BOXSTYLE = "round,pad=0.025,rounding_size=0.055"
 DX = r"\widehat{\Delta\mathrm{X}}"
 
 
-def _box(ax, x, y, w, h, text, facecolor, *, fontsize=5.7, lw=0.8,
-         linestyle="-", fontweight="normal"):
+# 2026-10-11 print-size redraw.  The figure is now drawn at its print width
+# (6.50 in, the JQSRT text width) instead of 8.45 x 3.55 in shrunk to 77 %.
+# Panels (a) and (b) are stacked so every box can carry 9 pt text; all
+# coordinates below are in INCHES on the page (each panel axes spans the
+# full figure width with 1 data unit = 1 in).  Boxes, arrows and wording
+# are unchanged from the side-by-side version.
+FIG_W = 6.44        # + 2 x 0.03 in save padding = 6.50 in
+FS_BOX = 9.0        # text inside boxes
+FS_NOTE = 8.5       # grey explanatory notes
+FS_TITLE = 9.5      # panel titles (bold)
+FS_PANEL = 10.5     # panel letters (bold)
+ARROW_MS = 9.0      # arrow-head size in points
+
+
+def _box(ax, x, y, w, h, text, facecolor, *, fontsize=FS_BOX, lw=0.8,
+         linestyle="-", fontweight="normal", linespacing=1.15):
     patch = FancyBboxPatch(
         (x, y), w, h,
         boxstyle=BOXSTYLE,
@@ -60,7 +74,7 @@ def _box(ax, x, y, w, h, text, facecolor, *, fontsize=5.7, lw=0.8,
         zorder=2,
     )
     ax.add_patch(patch)
-    ax.text(
+    txt = ax.text(
         x + w / 2,
         y + h / 2,
         text,
@@ -68,14 +82,19 @@ def _box(ax, x, y, w, h, text, facecolor, *, fontsize=5.7, lw=0.8,
         va="center",
         fontsize=fontsize,
         fontweight=fontweight,
-        linespacing=1.15,
+        linespacing=linespacing,
         zorder=3,
     )
+    _BOXES.append((patch, txt))
     return patch
 
 
+# (patch, text) pairs drawn so far; build() checks every label fits its box.
+_BOXES: list = []
+
+
 def _arrow(ax, x0, y0, x1, y1, *, lw=0.8, linestyle="-", color=ARROW,
-           mutation_scale=7.5, connectionstyle="arc3"):
+           mutation_scale=ARROW_MS, connectionstyle="arc3"):
     ax.add_patch(FancyArrowPatch(
         (x0, y0),
         (x1, y1),
@@ -91,153 +110,212 @@ def _arrow(ax, x0, y0, x1, y1, *, lw=0.8, linestyle="-", color=ARROW,
     ))
 
 
-def _small_note(ax, x, y, text, *, ha="left", va="top", fontsize=6.2):
-    ax.text(x, y, text, ha=ha, va=va, fontsize=fontsize,
-            color=C_NOTE, linespacing=1.18)
+def _small_note(ax, x, y, text, *, ha="left", va="top", fontsize=FS_NOTE):
+    lines = text.split("\n")
+    if len(lines) == 1:
+        ax.text(x, y, text, ha=ha, va=va, fontsize=fontsize, color=C_NOTE)
+        return
+    # Multi-line notes: one text per line on a fixed baseline grid (data
+    # units are inches), so the spacing does not vary with descenders.
+    step = fontsize * 1.22 / 72
+    if va == "top":
+        base0 = y - fontsize * 0.78 / 72
+    else:                                   # "center"
+        base0 = y + 0.5 * (len(lines) - 1) * step - fontsize * 0.36 / 72
+    for i, line in enumerate(lines):
+        ax.text(x, base0 - i * step, line, ha=ha, va="baseline",
+                fontsize=fontsize, color=C_NOTE)
+
+
+def _heading(ax, top, tag, title):
+    ax.text(0.0, top, tag, fontsize=FS_PANEL, fontweight="bold",
+            ha="left", va="top")
+    ax.text(0.36, top - 0.01, title, fontsize=FS_TITLE, fontweight="bold",
+            ha="left", va="top")
+
+
+# Panel heights (in) for the two variants of panel (a), and for panel (b).
+H_A = {False: 1.36, True: 2.00}
+# 2026-10-14: the JQSRT SI no longer reports the 90 % prediction intervals,
+# so panel (b) shows only the ensemble mixture.  SHOW_INTERVALS = True
+# restores the tuning-block / interval-width row.
+SHOW_INTERVALS = False
+H_B = 2.16 if SHOW_INTERVALS else 1.30
 
 
 def _member_panel(ax, show_cloud_head: bool) -> None:
-    panel_label(ax, "(a)", size=9.0, dx=0.0, dy=1.01)
-    ax.text(0.06, 9.55, "One Gaussian-head MLP member",
-            fontsize=8.6, fontweight="bold", ha="left", va="top")
+    top = H_A[show_cloud_head]
+    _heading(ax, top, "(a)", "One Gaussian-head MLP member")
 
-    _box(ax, 0.15, 5.15, 1.68, 1.25, "input\nfeatures", C_INPUT,
-         fontsize=5.4)
-    _box(ax, 2.32, 5.15, 1.68, 1.25,
-         "Linear 64\nLayerNorm\nReLU\nDropout 0.1", C_BODY,
-         fontsize=4.7)
-    _box(ax, 4.49, 5.15, 1.68, 1.25,
-         "Linear 32\nLayerNorm\nReLU\nDropout 0.1", C_BODY,
-         fontsize=4.7)
-    _arrow(ax, 1.83, 5.78, 2.32, 5.78)
-    _arrow(ax, 4.00, 5.78, 4.49, 5.78)
+    # main chain, centred on yc; hidden blocks carry four 9 pt lines
+    yc = top - 0.63 if not show_cloud_head else top - 0.91
+    bh = 0.70
+    _box(ax, 0.05, yc - bh / 2, 0.86, bh, "input\nfeatures", C_INPUT)
+    _box(ax, 1.28, yc - bh / 2, 0.92, bh,
+         "Linear 64\nLayerNorm\nReLU\nDropout 0.1", C_BODY)
+    _box(ax, 2.57, yc - bh / 2, 0.92, bh,
+         "Linear 32\nLayerNorm\nReLU\nDropout 0.1", C_BODY)
+    _arrow(ax, 0.91, yc, 1.28, yc)
+    _arrow(ax, 2.20, yc, 2.57, yc)
 
-    ax.text(6.48, 6.08, r"$h$", fontsize=7.6, fontstyle="italic",
-            ha="center", va="center")
+    # h sits above the single arrow, or between the two forked arrows
+    ax.text(3.80, yc + (0.0 if show_cloud_head else 0.13), r"$h$",
+            fontsize=10, fontstyle="italic", ha="center", va="center")
 
+    hw, hh = 0.98, 0.48            # head box
+    hx = 4.12
+    ow, oh = 0.92, 0.27            # output boxes
+    ox = FIG_W - 0.04 - ow
     if show_cloud_head:
-        _box(ax, 7.02, 6.55, 1.98, 0.95, "main head\nLinear -> 2",
-             C_HEAD, fontsize=5.1)
-        _box(ax, 7.02, 3.95, 1.98, 0.95, "cloud head\nLinear -> 1",
-             C_HEAD, fontsize=5.1, linestyle=(0, (3, 2)))
-        _arrow(ax, 6.17, 5.78, 7.02, 7.02, lw=0.95)
-        _arrow(ax, 6.17, 5.78, 7.02, 4.43, lw=0.9, linestyle=(0, (3, 2)))
-        _box(ax, 9.88, 6.88, 1.48, 0.47, rf"${DX}_m$", C_OUTPUT,
-             fontsize=5.7)
-        _box(ax, 9.88, 6.24, 1.48, 0.47, r"$\log\hat\sigma_m^2$", C_OUTPUT,
-             fontsize=4.9)
-        _box(ax, 9.88, 4.18, 1.48, 0.47, "near-cloud\nlogit", C_OUTPUT,
-             fontsize=4.2, linestyle=(0, (3, 2)))
-        _arrow(ax, 9.00, 7.03, 9.88, 7.12)
-        _arrow(ax, 9.00, 6.75, 9.88, 6.47)
-        _arrow(ax, 9.00, 4.43, 9.88, 4.43, linestyle=(0, (3, 2)))
-        _small_note(
-            ax,
-            0.15,
-            2.55,
-            "Dashed path: optional auxiliary near-cloud classifier\n"
-            "enabled only when --cloud_aux_weight > 0.",
+        my, cy = yc + 0.42, yc - 0.42          # main / cloud head centres
+        _box(ax, hx, my - hh / 2, hw, hh, "main head\nLinear -> 2", C_HEAD)
+        _box(ax, hx, cy - hh / 2, hw, hh, "cloud head\nLinear -> 1",
+             C_HEAD, linestyle=(0, (3, 2)))
+        _arrow(ax, 3.49, yc, hx, my, lw=0.95)
+        _arrow(ax, 3.49, yc, hx, cy, lw=0.9, linestyle=(0, (3, 2)))
+        _box(ax, ox, my + 0.04, ow, oh, rf"${DX}_m$", C_OUTPUT)
+        _box(ax, ox, my - 0.04 - oh, ow, oh, r"$\log\hat\sigma_m^2$",
+             C_OUTPUT)
+        _box(ax, ox, cy - 0.22, ow, 0.44, "near-cloud\nlogit", C_OUTPUT,
+             linestyle=(0, (3, 2)))
+        _arrow(ax, hx + hw, my + 0.06, ox, my + 0.04 + oh / 2)
+        _arrow(ax, hx + hw, my - 0.06, ox, my - 0.04 - oh / 2)
+        _arrow(ax, hx + hw, cy, ox, cy, linestyle=(0, (3, 2)))
+        note = (
+            "Each hidden block is Linear -> LayerNorm -> ReLU -> Dropout "
+            "(p = 0.1); dropout is active in training only,\n"
+            "so there is no MC-dropout at inference. The second head output "
+            "is clamped to [-10, 10] and interpreted\n"
+            "as the log variance. "
+            "Dashed path: optional auxiliary near-cloud classifier "
+            "enabled only when --cloud_aux_weight > 0."
         )
+        note_y = cy - hh / 2 - 0.10
     else:
-        _box(ax, 7.02, 5.30, 1.98, 0.95, "head\nLinear -> 2",
-             C_HEAD, fontsize=5.1)
-        _arrow(ax, 6.17, 5.78, 7.02, 5.78, lw=0.95)
-        _box(ax, 9.88, 6.03, 1.48, 0.47, rf"${DX}_m$", C_OUTPUT,
-             fontsize=5.7)
-        _box(ax, 9.88, 5.38, 1.48, 0.47, r"$\log\hat\sigma_m^2$", C_OUTPUT,
-             fontsize=4.9)
-        _arrow(ax, 9.00, 5.88, 9.88, 6.17)
-        _arrow(ax, 9.00, 5.66, 9.88, 5.61)
+        _box(ax, hx, yc - hh / 2, hw, hh, "head\nLinear -> 2", C_HEAD)
+        _arrow(ax, 3.49, yc, hx, yc, lw=0.95)
+        _box(ax, ox, yc + 0.04, ow, oh, rf"${DX}_m$", C_OUTPUT)
+        _box(ax, ox, yc - 0.04 - oh, ow, oh, r"$\log\hat\sigma_m^2$",
+             C_OUTPUT)
+        _arrow(ax, hx + hw, yc + 0.06, ox, yc + 0.04 + oh / 2)
+        _arrow(ax, hx + hw, yc - 0.06, ox, yc - 0.04 - oh / 2)
+        note = (
+            "Each hidden block is Linear -> LayerNorm -> ReLU -> Dropout "
+            "(p = 0.1); dropout is active in training only,\n"
+            "so there is no MC-dropout at inference. The second head output "
+            "is clamped to [-10, 10] and interpreted\n"
+            "as the log variance."
+        )
+        note_y = yc - bh / 2 - 0.10
 
-    _small_note(
-        ax,
-        0.15,
-        1.45,
-        "Each hidden block is Linear -> LayerNorm -> ReLU -> Dropout (p = 0.1);\n"
-        "dropout is active in training only, so there is no MC-dropout at inference.\n"
-        "The second head output is clamped to [-10, 10] and interpreted\n"
-        "as the log variance.",
-    )
+    _small_note(ax, 0.05, note_y, note)
 
 
 def _ensemble_panel(ax) -> None:
-    panel_label(ax, "(b)", size=9.0, dx=0.0, dy=1.01)
-    ax.text(0.06, 9.55, "Ensemble mixture and interval widths",
-            fontsize=8.6, fontweight="bold", ha="left", va="top")
+    top = H_B
+    _heading(ax, top, "(b)", "Ensemble mixture and interval widths"
+             if SHOW_INTERVALS else "Ensemble mixture")
 
-    # Member stack.
-    for i, offset in enumerate((0.36, 0.18, 0.0)):
-        _box(ax, 0.35 + offset, 6.85 + offset, 1.66, 0.82,
-             "MLP\nmember" if i == 2 else "", C_BODY, fontsize=5.2)
-    ax.text(1.18, 6.50, r"$m = 1,\ldots,M$", fontsize=6.5,
-            color=C_NOTE, ha="center")
-    _small_note(ax, 0.22, 8.77, "independent seeds",
-                fontsize=5.9)
+    # ---- top row: member stack -> mixture -> mixture moments ------------
+    yt = top - 0.72                       # centre of the top row
+    _small_note(ax, 0.05, top - 0.25, "independent seeds")
+    sw, sh, so = 0.80, 0.46, 0.07         # stacked member boxes
+    for i, offset in enumerate((2 * so, so, 0.0)):
+        _box(ax, 0.05 + offset, yt - sh / 2 - so + offset, sw, sh,
+             "MLP\nmember" if i == 2 else "", C_BODY)
+    ax.text(0.05 + sw / 2, yt - sh / 2 - so - 0.06, r"$m = 1,\ldots,M$",
+            fontsize=9.0, color=C_NOTE, ha="center", va="top")
+    stack_r = 0.05 + sw + 2 * so
 
-    _box(ax, 2.80, 7.00, 1.70, 1.05, "Gaussian\nmixture", C_ENSEMBLE,
-         fontsize=5.3)
-    _arrow(ax, 2.06, 7.48, 2.80, 7.52)
+    mx, mw, mh = stack_r + 0.30, 0.90, 0.50
+    _box(ax, mx, yt - mh / 2, mw, mh, "Gaussian\nmixture", C_ENSEMBLE)
+    _arrow(ax, stack_r, yt, mx, yt)
 
+    fx, fw, fh = mx + mw + 0.30, 2.62, 0.74
     _box(
-        ax,
-        4.88,
-        6.83,
-        4.24,
-        1.38,
+        ax, fx, yt - fh / 2, fw, fh,
         rf"${DX} = M^{{-1}}\sum_m {DX}_m$" "\n"
         rf"$\hat\sigma^{{2}}=M^{{-1}}\sum_m(\hat\sigma_m^2+{DX}_m^2)-{DX}^{{2}}$",
         C_OUTPUT,
-        fontsize=4.4,
+        linespacing=2.1,      # room for the sum subscript and superscripts
     )
-    _arrow(ax, 4.50, 7.53, 4.88, 7.53)
-    _small_note(ax, 6.80, 6.58, rf"point correction ${DX}$",
-                ha="center", fontsize=5.6)
+    _arrow(ax, mx + mw, yt, fx, yt)
+    if not SHOW_INTERVALS:
+        return
 
-    _box(ax, 1.62, 4.23, 2.06, 0.95, "tuning\nblock", C_INPUT,
-         fontsize=5.4)
-    _box(ax, 4.84, 3.95, 2.32, 1.30, "interval-width\nsetting", C_CALIB,
-         fontsize=5.6)
-    _arrow(ax, 6.82, 6.83, 6.82, 5.25)
-    _arrow(ax, 3.68, 4.70, 4.84, 4.70)
+    # ---- bottom row: tuning block -> interval-width setting -> variants -
+    ow, oh, og = 1.18, 0.25, 0.07         # three output boxes, right edge
+    ox = FIG_W - 0.04 - ow
+    oy = [0.05 + 2 * (oh + og), 0.05 + (oh + og), 0.05]   # lower-left y
+    yb = oy[1] + oh / 2                   # centre of the bottom row
+    iw, ih = 1.22, 0.52
+    ix = ox - 0.40 - iw
+    _box(ax, ix, yb - ih / 2, iw, ih, "interval-width\nsetting", C_CALIB)
+    tw, th = 0.86, 0.48
+    tx = ix - 0.42 - tw
+    _box(ax, tx, yb - th / 2, tw, th, "tuning\nblock", C_INPUT)
+    _arrow(ax, tx + tw, yb, ix, yb)
 
-    _box(ax, 8.00, 4.82, 2.42, 0.58, "raw Gaussian", C_OUTPUT,
-         fontsize=5.0)
-    _box(ax, 8.00, 3.96, 2.42, 0.58, "90 % interval", C_OUTPUT,
-         fontsize=5.0)
-    _box(ax, 8.00, 3.10, 2.42, 0.58, "Mondrian bins", C_HEADLINE,
-         fontsize=5.0, fontweight="bold")
-    _arrow(ax, 7.16, 4.78, 8.00, 5.11)
-    _arrow(ax, 7.16, 4.60, 8.00, 4.25)
-    _arrow(ax, 7.16, 4.42, 8.00, 3.39)
+    # point correction flows down from the mixture moments
+    ax_x = ix + iw - 0.30
+    _arrow(ax, ax_x, yt - fh / 2, ax_x, yb + ih / 2)
+    _small_note(ax, ax_x - 0.08, 0.5 * (yt - fh / 2 + yb + ih / 2),
+                rf"point correction ${DX}$", ha="right", va="center")
+
+    _box(ax, ox, oy[0], ow, oh, "raw Gaussian", C_OUTPUT)
+    _box(ax, ox, oy[1], ow, oh, "90 % interval", C_OUTPUT)
+    _box(ax, ox, oy[2], ow, oh, "Mondrian bins", C_HEADLINE,
+         fontweight="bold")
+    for y in oy:
+        _arrow(ax, ix + iw, yb + 0.6 * (y + oh / 2 - yb), ox, y + oh / 2)
 
     _small_note(
         ax,
-        0.22,
-        1.72,
-        "All interval variants share the same ensemble mean.\n"
-        "Widths are set per decile of the predicted anomaly,\n"
-        "so no cloud information is needed at inference.",
-        fontsize=6.2,
+        0.05,
+        0.05 + 0.47 * (3 * oh + 2 * og) + 0.01,
+        "All interval variants share the same\n"
+        "ensemble mean. Widths are set per\n"
+        "decile of the predicted anomaly, so no\n"
+        "cloud information is needed at inference.",
+        va="center",
     )
+
+
+def _check_boxes(fig) -> None:
+    """Fail loudly if any box label overflows its box (render-time check)."""
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    bad = []
+    for patch, txt in _BOXES:
+        if not txt.get_text():
+            continue
+        pb = patch.get_window_extent(r)
+        tb = txt.get_window_extent(r)
+        if (tb.x0 < pb.x0 + 2 or tb.x1 > pb.x1 - 2
+                or tb.y0 < pb.y0 + 1 or tb.y1 > pb.y1 - 1):
+            bad.append(txt.get_text().replace("\n", " | "))
+    if bad:
+        raise RuntimeError("box labels overflow: " + "; ".join(bad))
 
 
 def build(show_cloud_head: bool, basename: str, out_dir: Path, *, dpi: int,
           formats: tuple[str, ...]) -> list[Path]:
-    apply_manuscript_style(base_size=8.0)
-    fig, axes = plt.subplots(
-        1,
-        2,
-        figsize=(8.45, 3.55),
-        gridspec_kw={"width_ratios": [1.18, 1.05], "wspace": 0.10},
-    )
-    axes[0].set_xlim(0, 11.60)
-    axes[1].set_xlim(0, 10.60)
-    for ax in axes:
-        ax.set_ylim(0.8, 9.85)
+    apply_manuscript_style(base_size=9.0)
+    _BOXES.clear()
+    gap = 0.22
+    h_a, h_b = H_A[show_cloud_head], H_B
+    fig_h = h_a + gap + h_b
+    fig = plt.figure(figsize=(FIG_W, fig_h))
+    ax_a = fig.add_axes([0, (h_b + gap) / fig_h, 1, h_a / fig_h])
+    ax_b = fig.add_axes([0, 0, 1, h_b / fig_h])
+    for ax, h in ((ax_a, h_a), (ax_b, h_b)):
+        ax.set_xlim(0, FIG_W)
+        ax.set_ylim(0, h)
         ax.axis("off")
 
-    _member_panel(axes[0], show_cloud_head=show_cloud_head)
-    _ensemble_panel(axes[1])
+    _member_panel(ax_a, show_cloud_head=show_cloud_head)
+    _ensemble_panel(ax_b)
+    _check_boxes(fig)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []

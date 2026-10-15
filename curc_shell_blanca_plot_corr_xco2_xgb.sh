@@ -54,10 +54,17 @@ export OCO2_DATAROOT="$DATA_ROOT"
 # embedded in its pipeline pkl.  Mixed near-cloud anomaly-feature radius: OCEAN r05,
 # LAND r15 (o05l15), matching the production DE tag.  Trained by
 # curc_shell_blanca_xgb_foldpca_r05.sh / _r15.sh (they write under model_gbdt/).
-MODEL_TAG=xgb_prof_foldpca_o05l15
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  The tag sits BEFORE the fold
+# tag, so v1 globs (..._f*) never match v2 dirs and v2 runs never overwrite v1
+# checkpoints.  RUN_VERSION= (empty) reproduces the v1 names.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+
+MODEL_TAG=xgb_prof_foldpca_o05l15${RV}
 MODEL_KIND=xgb
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_gbdt/xgb_ocean_full_prof_foldpca_r05_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_gbdt/xgb_land_full_prof_foldpca_r15_f*)
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_gbdt/xgb_ocean_full_prof_foldpca_r05${RV}_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_gbdt/xgb_land_full_prof_foldpca_r15${RV}_f*)
 CORR_COL=${MODEL_KIND}_corrected_xco2
 
 CSV_DIR="$DATA_ROOT"/results/csv_collection

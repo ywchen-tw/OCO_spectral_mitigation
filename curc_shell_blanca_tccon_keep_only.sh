@@ -57,17 +57,24 @@ export MKL_THREADING_LAYER=GNU
 cd /projects/yuch8913/OCO_spectral_mitigation
 export PYTHONPATH=src:${PYTHONPATH:-}
 
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  The tag sits BEFORE the fold
+# tag, so v1 globs (..._f*) never match v2 dirs and v2 runs never overwrite v1
+# checkpoints.  RUN_VERSION= (empty) reproduces the v1 names.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+
 VARIANTS=(keep_spec_geom keep_geom keep_xco2_geom)
 VARIANT=${VARIANTS[${SLURM_ARRAY_TASK_ID:-0}]}
 
 DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
-TREE="$DATA_ROOT"/results/model_comparison/deep_ensemble/de_prof_mix_${VARIANT}
+TREE="$DATA_ROOT"/results/model_comparison/deep_ensemble/de_prof_mix_${VARIANT}${RV}
 
 # All five folds of both surfaces must exist, or the tree mixes in nothing.
 for SURF_TAG in ocean_${VARIANT}_noprof_r05 land_${VARIANT}_noprof_r15; do
-    N=$(ls -d "$DATA_ROOT"/results/model_deep_ensemble/de_${SURF_TAG}_f* 2>/dev/null | wc -l)
+    N=$(ls -d "$DATA_ROOT"/results/model_deep_ensemble/de_${SURF_TAG}${RV}_f* 2>/dev/null | wc -l)
     if [[ "$N" -ne 5 ]]; then
-        echo "ERROR: found $N of 5 fold dirs for de_${SURF_TAG}_f*" >&2
+        echo "ERROR: found $N of 5 fold dirs for de_${SURF_TAG}${RV}_f*" >&2
         exit 1
     fi
 done
@@ -82,6 +89,6 @@ fi
 python workspace/tccon_comparison_report.py \
     --script curc_shell_blanca_plot_corr_xco2_deepens.sh \
     --out-base "$TREE" --output-dir "$TREE" \
-    --ak-harmonize
+    --ak-harmonize --fname-suffix _r100km
 
 echo "TCCON ${VARIANT} report -> $TREE"

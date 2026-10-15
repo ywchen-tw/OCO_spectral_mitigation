@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import re
 import sys
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -140,6 +142,48 @@ def download_gibs_wms_rgb(date: str, extent: Iterable[float], output: Path, widt
     with urllib.request.urlopen(url, timeout=60) as response:
         output.write_bytes(response.read())
     return output
+
+
+# The GIBS image is one Aqua MODIS swath, which can be far from the OCO-2 overpass in time
+# once Aqua drifted out of the A-Train; note on maps whose nearest Aqua granule is > this far off.
+MODIS_LAG_WARN_MIN = 15.0
+
+
+def aqua_time_lag_min(date: str, lat: float, lon: float, t_utc: datetime, cache_dir: Path) -> float | None:
+    """Minutes from the OCO-2 overpass t_utc to the middle of the nearest daytime Aqua MODIS
+    granule (MYD03, 5 min) over (lat, lon), from NASA CMR (cached as JSON); None if unknown."""
+    cache = Path(cache_dir) / "aqua_granules.json"
+    key = f"{date}_{lat:.3f}_{lon:.3f}"
+    try:
+        store = json.loads(cache.read_text())
+    except (OSError, ValueError):
+        store = {}
+    if key not in store:
+        q = urllib.parse.urlencode({
+            "short_name": "MYD03", "temporal": f"{date}T00:00:00Z,{date}T23:59:59Z",
+            "bounding_box": f"{lon - 0.01},{lat - 0.01},{lon + 0.01},{lat + 0.01}", "page_size": 50})
+        try:
+            with urllib.request.urlopen("https://cmr.earthdata.nasa.gov/search/granules.json?" + q,
+                                        timeout=60) as response:
+                feed = json.load(response)["feed"]["entry"]
+        except Exception as exc:
+            print(f"  Aqua granule times unavailable for {date}: {exc}")
+            return None
+        store[key] = sorted({g["time_start"] for g in feed if g.get("day_night_flag") in ("DAY", "BOTH")})
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(store, indent=1))
+    if t_utc.tzinfo is None:
+        t_utc = t_utc.replace(tzinfo=timezone.utc)
+    lags = [(datetime.fromisoformat(g.replace("Z", "+00:00")) + timedelta(minutes=2.5) - t_utc
+             ).total_seconds() / 60 for g in store[key]]
+    return min(lags, key=abs) if lags else None
+
+
+def modis_lag_note(lag_min: float | None) -> str:
+    """Note for a MODIS image that is not time-matched to OCO-2 ('' if it is)."""
+    if lag_min is None or abs(lag_min) <= MODIS_LAG_WARN_MIN:
+        return ""
+    return f"MODIS image taken {abs(lag_min):.0f} min {'after' if lag_min > 0 else 'before'} the OCO-2 overpass"
 
 
 def finite_percentile(values: pd.Series, q: float) -> float:
@@ -508,8 +552,12 @@ def plot_pair(
     n25 = int((view["source_dist_km"] <= 25.0).sum())
     n50 = int((view["source_dist_km"] <= 50.0).sum())
     nclear25 = int(((view["source_dist_km"] <= 25.0) & (view.get("cld_dist_km", np.nan) >= 20.0)).sum())
+    t_close = datetime.fromtimestamp(float(df.loc[df["source_dist_km"].idxmin(), "time"]), tz=timezone.utc)
+    note = "" if bg_img is None else modis_lag_note(
+        aqua_time_lag_min(date, source_lat, source_lon, t_close, modis_dir))
     fig.suptitle(
-        f"{plant['source_name']}  {date}  |  n<=25 km: {n25} ({nclear25} clear), n<=50 km: {n50}",
+        f"{plant['source_name']}  {date}  |  n<=25 km: {n25} ({nclear25} clear), n<=50 km: {n50}"
+        + (f"\nNote: {note}" if note else ""),
         fontsize=14,
         weight="bold",
     )

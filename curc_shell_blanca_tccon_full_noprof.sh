@@ -44,7 +44,14 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 export PYTHONPATH=src:${PYTHONPATH:-}
 
 DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
-TREE="$DATA_ROOT"/results/model_comparison/deep_ensemble/de_prof_mix_full_noprof
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  The tag sits BEFORE the fold
+# tag, so v1 globs (..._f*) never match v2 dirs and v2 runs never overwrite v1
+# checkpoints.  RUN_VERSION= (empty) reproduces the v1 names.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+
+TREE="$DATA_ROOT"/results/model_comparison/deep_ensemble/de_prof_mix_full_noprof${RV}
 
 # 1. Build the variant tree (replays the active run_case lines of
 #    curc_shell_blanca_plot_corr_xco2_deepens.sh, TCCON-available cases only).

@@ -62,6 +62,8 @@ def main():
     ap.add_argument("--windows", default="10,30,100")
     ap.add_argument("--fmt", default="png", choices=["png", "pdf"])
     ap.add_argument("--dpi", type=int, default=300)
+    ap.add_argument("--out", type=Path, default=None,
+                    help="Output file (default <report-dir>/smoother_null_<tag>.<fmt>).")
     args = ap.parse_args()
 
     rd, tag = args.report_dir, args.radius_tag
@@ -96,7 +98,9 @@ def main():
         print(f"smoother w{w:<3g}: sd {A['sd_b']:.2f}→{A['sd_a']:.2f}  |bias| "
               f"{A['ab_b']:.2f}→{A['ab_a']:.2f}  fp-RMSE {A['rm_b']:.2f}→{A['rm_a']:.2f} ppm")
 
-    fig, axes = plt.subplots(1, 2, figsize=(6.9, 3.2))
+    # Print size (2026-10-11): drawn near its printed width so the 9-10 pt
+    # fonts print at size; the corrected product is "correction", as in the caption.
+    fig, axes = plt.subplots(1, 2, figsize=(6.4, 3.05))
 
     # (a) footprint scatter sd, after vs before
     ax = axes[0]
@@ -104,7 +108,7 @@ def main():
               smP["corr_sd"].max()) * 1.06
     ax.plot([0, lim], [0, lim], color="0.6", lw=0.7, zorder=1)
     ax.scatter(de["orig_sd"], de["corr_sd"], s=14, facecolors="none",
-               edgecolors=C_DE, linewidths=0.8, label="deep ensemble", zorder=3)
+               edgecolors=C_DE, linewidths=0.8, label="correction", zorder=3)
     ax.scatter(smP["orig_sd"], smP["corr_sd"], s=12, marker="^",
                facecolors="none", edgecolors=C_SM, linewidths=0.8,
                label=f"running mean (±{wP:g} s)", zorder=2)
@@ -112,13 +116,16 @@ def main():
     ax.set_xlabel(f"footprint {XCO2_LABEL} scatter before (ppm)")
     ax.set_ylabel(f"footprint {XCO2_LABEL} scatter after (ppm)")
     ax.text(0.03, 0.92,
-            f"mean {A_de['sd_b']:.2f} → {A_de['sd_a']:.2f} (DE)\n"
+            f"mean {A_de['sd_b']:.2f} → {A_de['sd_a']:.2f} (correction)\n"
             f"mean {A_sm['sd_b']:.2f} → {A_sm['sd_a']:.2f} (smoother)",
-            transform=ax.transAxes, fontsize=7, va="top")
+            transform=ax.transAxes, fontsize=9, va="top")
     # upper-left triangle (above the 1:1 line, below the mean annotation)
     # is empty by construction — both arms only reduce scatter
-    ax.legend(loc="upper left", bbox_to_anchor=(0.02, 0.80), fontsize=7,
-              frameon=False)
+    # White, edgeless frame: at print size the label runs up to the 1:1 line.
+    ax.legend(loc="upper left", bbox_to_anchor=(0.0, 0.76), fontsize=9,
+              frameon=True, facecolor="white", edgecolor="none",
+              framealpha=1.0, handlelength=1.0, handletextpad=0.3,
+              borderaxespad=0.2, borderpad=0.2)
     panel_label(ax, "(a)")
 
     # (b) |station-day residual to TCCON|, after vs before
@@ -133,16 +140,16 @@ def main():
                linewidths=0.8, zorder=2)
     ax.set_xlim(0, lim); ax.set_ylim(0, lim)
     ax.set_xlabel("|station-day residual to TCCON| before (ppm)")
-    ax.set_ylabel("|station-day residual to TCCON| after (ppm)")
+    ax.set_ylabel("|station-day residual to TCCON|\nafter (ppm)")
     ax.text(0.03, 0.92,
-            f"mean {A_de['ab_b']:.2f} → {A_de['ab_a']:.2f} (DE)\n"
+            f"mean {A_de['ab_b']:.2f} → {A_de['ab_a']:.2f} (correction)\n"
             f"mean {A_sm['ab_b']:.2f} → {A_sm['ab_a']:.2f} (smoother)",
-            transform=ax.transAxes, fontsize=7, va="top")
+            transform=ax.transAxes, fontsize=9, va="top")
     panel_label(ax, "(b)")
 
     fig.tight_layout()
-    out = rd / f"smoother_null_{tag}.{args.fmt}"
-    fig.savefig(out, dpi=args.dpi, bbox_inches="tight")
+    out = args.out or rd / f"smoother_null_{tag}.{args.fmt}"
+    fig.savefig(out, dpi=args.dpi, bbox_inches="tight", pad_inches=0.15)
     print(f"Wrote {out}")
 
 
