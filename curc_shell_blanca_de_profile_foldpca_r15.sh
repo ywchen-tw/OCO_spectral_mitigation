@@ -3,7 +3,7 @@
 ###SBATCH --nodes=1
 ###SBATCH --ntasks=4
 ###SBATCH --ntasks-per-node=4
-#SBATCH --mem=80G
+#SBATCH --mem=128G
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
 #SBATCH --ntasks-per-node=8
