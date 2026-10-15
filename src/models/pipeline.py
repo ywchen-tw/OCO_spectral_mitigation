@@ -797,6 +797,34 @@ _DERIVED_FEATURES = {
 }
 
 
+def read_surface_rows(path, sfc_type: int) -> pd.DataFrame:
+    """Read the footprints of one surface type from a parquet or CSV file.
+
+    A parquet is filtered one row group at a time, so neither the other surface
+    nor the whole file is ever held in memory.  Reading the whole 2016-2020
+    parquet and masking afterwards peaked at ~80 GiB on CURC (OOM at
+    --mem=80G); land is ~41% of the rows.  Measured on an 81-column subset of
+    that file (land): 12.1 GiB masked read, 9.9 GiB pd.read_parquet(filters=),
+    5.4 GiB this loop (read_parquet's dataset scan reads ahead many groups).
+    Rows keep file order, the same frame as the masked read up to its
+    RangeIndex (callers select rows by boolean mask, never by label).
+    """
+    if str(path).endswith('.parquet'):
+        import pyarrow as pa
+        import pyarrow.compute as pc
+        import pyarrow.parquet as pq
+
+        pf = pq.ParquetFile(path)
+        parts = []
+        for i in range(pf.num_row_groups):
+            group = pf.read_row_group(i)
+            parts.append(group.filter(pc.equal(group['sfc_type'], sfc_type)))
+            del group
+        return pa.concat_tables(parts).to_pandas()
+    df = pd.read_csv(path)
+    return df[df['sfc_type'] == sfc_type]
+
+
 def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     """Add every derived feature column that is missing but derivable.
 

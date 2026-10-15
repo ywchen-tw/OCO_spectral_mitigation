@@ -242,5 +242,25 @@ class RobustClipScalerTests(unittest.TestCase):
         self.assertTrue(np.isnan(out[0, 0]))
 
 
+class ReadSurfaceRowsTests(unittest.TestCase):
+    """The pyarrow row filter must give the same frame as read-then-mask."""
+
+    def test_filtered_read_matches_masked_read(self):
+        import tempfile
+        rng = np.random.default_rng(0)
+        # Float sfc_type and interleaved surfaces, as in the combined parquet;
+        # small row groups so the filter crosses group boundaries.
+        df = pd.DataFrame({"sfc_type": rng.integers(0, 2, 500).astype(np.float32),
+                           "x": rng.normal(size=500),
+                           "date": np.repeat(["2016-01-01", "2016-01-02"], 250)})
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mixed.parquet"
+            df.to_parquet(path, index=False, row_group_size=64)
+            for sfc in (0, 1):
+                expected = df[df["sfc_type"] == sfc].reset_index(drop=True)
+                got = P.read_surface_rows(path, sfc)
+                pd.testing.assert_frame_equal(got.reset_index(drop=True), expected)
+
+
 if __name__ == "__main__":
     unittest.main()

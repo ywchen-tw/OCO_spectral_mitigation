@@ -41,7 +41,7 @@ import torch
 import torch.nn as nn
 
 from .pipeline import (FeaturePipeline, _FEATURE_SETS, _ensure_derived_features,
-                       filter_target_outliers, resolve_target_col)
+                       filter_target_outliers, read_surface_rows, resolve_target_col)
 from .splits import split_dataframe, split_date_kfold_train_calib_test
 from . import conformal as cf
 from . import diagnostics as diag
@@ -425,8 +425,7 @@ def main():
     commit = get_git_commit_hash()
 
     _dp = args.data if args.data else os.path.join(fdir, data_name)
-    df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
-    df = df[df['sfc_type'] == args.sfc_type]
+    df = read_surface_rows(_dp, args.sfc_type)
     if args.exclude_snow:
         df = df[df['snow_flag'] == 0]
         logger.info("--exclude_snow: filtered to snow_flag==0 (%d rows)", len(df))
