@@ -354,7 +354,10 @@ def aggregate(out_dir: Path, surface: str, models: list) -> None:
             tot = g.loc[m, 'delta_rmse'].clip(lower=0).sum()
             g.loc[m, 'share'] = g.loc[m, 'delta_rmse'].clip(lower=0) / tot if tot > 0 else np.nan
             mg = (g['stratum'] == st) & (g['scope'] == 'group')
-            totg = g.loc[mg, 'delta_rmse'].clip(lower=0).sum()
+            # Union rows (GROUP_UNIONS) overlap their member groups: keep them out
+            # of the total so the shares sum over a partition; a union's share is
+            # still reported against that same total.
+            totg = g.loc[mg & ~g['name'].isin(GROUP_UNIONS), 'delta_rmse'].clip(lower=0).sum()
             g.loc[mg, 'share'] = g.loc[mg, 'delta_rmse'].clip(lower=0) / totg if totg > 0 else np.nan
         g.to_csv(out_dir / f'importance_{mk}_{surface}_agg.csv', index=False)
         agg[mk] = g
@@ -370,7 +373,10 @@ def aggregate(out_dir: Path, surface: str, models: list) -> None:
              "folds). share = fraction of the model's summed positive per-"
              "feature (or per-group) ΔRMSE. Groups are permuted jointly — the "
              "honest number under collinearity; per-feature rows give relative "
-             "individual contributions.",
+             "individual contributions. "
+             + "; ".join(f"`{u}` is {', '.join(m)} permuted together, so it is "
+                         "left out of the group-share total"
+                         for u, m in GROUP_UNIONS.items()) + ".",
              "",
              "> Caveat (per the QF ablation, log/SPEC_EMPHASIS_STATUS_2026-07-08.md): "
              "held-out CV importance over-credits blocks that are TCCON-neutral "

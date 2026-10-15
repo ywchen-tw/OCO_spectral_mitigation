@@ -59,18 +59,23 @@ export OCO2_DATAROOT="$DATA_ROOT"
 # ─── model kind + dirs ────────────────────────────────────────────────────────
 # Each kind sets: MODEL_TAG, OUT_SUBDIR (model_comparison/<sub>/), CORR_COL,
 # BUILDER (the build_*_plot_data.py that emits <corr_col>), OCEAN_MODEL_DIRS (r05).
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  RUN_VERSION= (empty)
+# reproduces the v1 model dirs and output tree.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
 MODEL_KIND="${1:-linreg}"
 case "$MODEL_KIND" in
     linreg)
-        MODEL_TAG=linreg_prof_foldpca_o05l15; OUT_SUBDIR=linreg
+        MODEL_TAG=linreg_prof_foldpca_o05l15${RV}; OUT_SUBDIR=linreg
         CORR_COL=linreg_corrected_xco2
         BUILDER=(workspace/build_baseline_plot_data.py --model-kind linreg)
-        OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_linear_baseline/linreg_ocean_full_prof_foldpca_r05_f*) ;;
+        OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_linear_baseline/linreg_ocean_full_prof_foldpca_r05${RV}_f*) ;;
     xgb)
-        MODEL_TAG=xgb_prof_foldpca_o05l15; OUT_SUBDIR=xgb
+        MODEL_TAG=xgb_prof_foldpca_o05l15${RV}; OUT_SUBDIR=xgb
         CORR_COL=xgb_corrected_xco2
         BUILDER=(workspace/build_baseline_plot_data.py --model-kind xgb)
-        OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_gbdt/xgb_ocean_full_prof_foldpca_r05_f*) ;;
+        OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_gbdt/xgb_ocean_full_prof_foldpca_r05${RV}_f*) ;;
     tabm)
         MODEL_TAG=tabm_prof_o05l15; OUT_SUBDIR=tabm
         CORR_COL=tabm_corrected_xco2
@@ -92,6 +97,8 @@ esac
 CSV_DIR="$DATA_ROOT"/results/csv_collection
 OUT_BASE="$DATA_ROOT"/results/model_comparison/${OUT_SUBDIR}/${MODEL_TAG}/atom
 # atom_merged/ is model-independent → reuse the DE tree's already-built profiles.
+# Deliberately the v1 DE tree (no ${RV}): atom_merged/ holds model-independent ATom
+# profiles, already built there, so v2 baselines reuse it.
 DE_ATOM="$DATA_ROOT"/results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_foldpca_o05l15_m5/atom
 MERGED_DIR="$DE_ATOM/atom_merged"
 

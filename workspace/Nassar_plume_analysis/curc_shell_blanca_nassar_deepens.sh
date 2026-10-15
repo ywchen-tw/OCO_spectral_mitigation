@@ -49,9 +49,14 @@ export PYTHONPATH=src:${PYTHONPATH:-}
 DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 
-MODEL_TAG=de_beta_nll_prof_reg_foldpca_o05l15_m5
-OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05_f*)
-LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15_f*)
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  RUN_VERSION= (empty)
+# reproduces the v1 model dirs and output tree.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
+MODEL_TAG=de_beta_nll_prof_reg_foldpca_o05l15_m5${RV}
+OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05${RV}_f*)
+LAND_MODEL_DIRS=("$DATA_ROOT"/results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15${RV}_f*)
 OCEAN_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_ocean_f*)
 LAND_CLOUD_DIRS=("$DATA_ROOT"/results/model_xgb_cloud/xgbcloud_final_land_f*)
 # The xgb_cloud classifier only exists on CURC; locally, drop the (diagnostic-only)

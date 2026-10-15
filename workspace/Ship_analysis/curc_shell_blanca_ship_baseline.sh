@@ -56,18 +56,23 @@ DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-.}}"; DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 
 # ─── model kind + dirs ────────────────────────────────────────────────────────
+# Run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md): v2 = unsmoothed gamma,
+# fill/spike imputation, RobustClipScaler, no t700.  RUN_VERSION= (empty)
+# reproduces the v1 model dirs and output tree.
+export RUN_VERSION=${RUN_VERSION-v2}
+RV=${RUN_VERSION:+_${RUN_VERSION}}
 MODEL_KIND="${1:-linreg}"
 case "$MODEL_KIND" in
     linreg)
-        MODEL_TAG=linreg_prof_foldpca_o05l15; OUT_SUBDIR=linreg
+        MODEL_TAG=linreg_prof_foldpca_o05l15${RV}; OUT_SUBDIR=linreg
         CORR_COL=linreg_corrected_xco2
         BUILDER=(workspace/build_baseline_plot_data.py --model-kind linreg)
-        OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_linear_baseline/linreg_ocean_full_prof_foldpca_r05_f*) ;;
+        OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_linear_baseline/linreg_ocean_full_prof_foldpca_r05${RV}_f*) ;;
     xgb)
-        MODEL_TAG=xgb_prof_foldpca_o05l15; OUT_SUBDIR=xgb
+        MODEL_TAG=xgb_prof_foldpca_o05l15${RV}; OUT_SUBDIR=xgb
         CORR_COL=xgb_corrected_xco2
         BUILDER=(workspace/build_baseline_plot_data.py --model-kind xgb)
-        OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_gbdt/xgb_ocean_full_prof_foldpca_r05_f*) ;;
+        OCEAN_MODEL_DIRS=("$DATA_ROOT"/results/model_gbdt/xgb_ocean_full_prof_foldpca_r05${RV}_f*) ;;
     tabm)
         MODEL_TAG=tabm_prof_o05l15; OUT_SUBDIR=tabm
         CORR_COL=tabm_corrected_xco2
