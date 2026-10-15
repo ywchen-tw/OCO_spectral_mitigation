@@ -100,6 +100,21 @@ class GammaNosgDerivationTests(unittest.TestCase):
         with self.assertRaisesRegex(KeyError, "o2a_intercept_nosg"):
             P.FeaturePipeline.fit(df, sfc_type=LAND)
 
+    def test_apply_precheck_accepts_derivable_gamma(self):
+        # The plot-data builders run _check_required_columns on the raw parquet,
+        # BEFORE _ensure_derived_features; the stored parquet never holds the
+        # *_nosg gamma columns, only *_intercept_nosg.
+        try:
+            from apply.apply_deep_ensemble import _check_required_columns
+        except ImportError as e:                      # torch absent
+            self.skipTest(f"apply.apply_deep_ensemble not importable: {e}")
+        raw = _land_frame()
+        pipe = P.FeaturePipeline.fit(P._ensure_derived_features(raw), sfc_type=LAND)
+        self.assertNotIn("exp_o2a_intercept_nosg", raw.columns)
+        _check_required_columns(raw, pipe)            # must not raise
+        with self.assertRaises(SystemExit):
+            _check_required_columns(raw.drop(columns=["o2a_intercept_nosg"]), pipe)
+
 
 class MaskingAndImputationTests(unittest.TestCase):
     @classmethod

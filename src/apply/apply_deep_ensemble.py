@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from models.pipeline import FeaturePipeline, _ensure_derived_features
+from models.pipeline import _DERIVED_FEATURES, FeaturePipeline, _ensure_derived_features
 from models.deep_ensemble import GaussianMLP, ensemble_predict, Z90
 from models import conformal as cf
 from models import diagnostics as diag
@@ -73,10 +73,16 @@ def _check_required_columns(df, pipeline):
     """Friendly pre-check: the pipeline derives fp_0..fp_7 from `fp` and other
     columns via _ensure_derived_features, so only the *source* inputs must exist.
     Raises with a clear message instead of a bare KeyError inside transform.
+
+    Callers run this BEFORE _ensure_derived_features, so a derived predictor
+    counts as present when its base columns are (the v2 *_nosg gamma predictors
+    are never stored in the parquet, only derived from *_intercept_nosg).
     """
     fp_cols = set(getattr(pipeline, 'fp_cols', []))
     needed = [c for c in pipeline.qt_features if c not in fp_cols]
-    missing = [c for c in needed if c not in df.columns]
+    missing = [c for c in needed if c not in df.columns
+               and not (c in _DERIVED_FEATURES
+                        and all(b in df.columns for b in _DERIVED_FEATURES[c].bases))]
     if 'fp' not in df.columns and fp_cols and not fp_cols.issubset(df.columns):
         missing.append('fp (for fp_0..fp_7 one-hots)')
     if missing:
