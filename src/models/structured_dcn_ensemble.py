@@ -610,7 +610,7 @@ def main() -> None:
         run_id=run_id,
         script_name=os.path.basename(__file__),
         model_family=f"experimental_{args.backbone}",
-        commit=get_git_commit_hash(storage_dir),
+        commit=get_git_commit_hash(),
         status="success",
         primary_metric_name="held_rmse",
         primary_metric_value=headline["rmse"],

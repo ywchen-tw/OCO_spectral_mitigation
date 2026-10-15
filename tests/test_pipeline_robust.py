@@ -189,14 +189,26 @@ class ContaminationSubgroupTests(unittest.TestCase):
         subs = (P.CG_FULLPHYS_FEATURES, P.CG_INHOM_FEATURES, P.CG_SCREEN_FEATURES)
         self.assertEqual(sum(len(s) for s in subs), len(P.CONTAM_FEATURES))
 
+    SUBGROUP_ARMS = (("no_fpcloud", P.CG_FULLPHYS_FEATURES),
+                     ("no_inhom", P.CG_INHOM_FEATURES),
+                     ("no_screen", P.CG_SCREEN_FEATURES))
+
+    def _dropped(self, name, sfc):
+        base = P._FEATURE_MAP[sfc]
+        return set(base), set(base) - set(P._resolve_feature_set(base, name, sfc))
+
     def test_drop_arms_remove_exactly_one_subgroup(self):
-        for name, sub in (("no_fpcloud", P.CG_FULLPHYS_FEATURES),
-                          ("no_inhom", P.CG_INHOM_FEATURES),
-                          ("no_screen", P.CG_SCREEN_FEATURES)):
+        for name, sub in self.SUBGROUP_ARMS:
             for sfc in (0, LAND):
-                base = P._FEATURE_MAP[sfc]
-                kept = P._resolve_feature_set(base, name, sfc)
-                self.assertEqual(set(base) - set(kept), set(base) & sub, (name, sfc))
+                base, dropped = self._dropped(name, sfc)
+                self.assertEqual(dropped, base & sub, (name, sfc))
+
+    def test_and_xco2_arms_also_remove_dxco2(self):
+        for name, sub in self.SUBGROUP_ARMS:
+            for sfc in (0, LAND):
+                base, dropped = self._dropped(f"{name}_and_xco2", sfc)
+                self.assertEqual(dropped, base & (sub | P.XCO2_FEATURES), (name, sfc))
+                self.assertTrue(base & P.XCO2_FEATURES <= dropped, (name, sfc))
 
 
 class RobustClipScalerTests(unittest.TestCase):

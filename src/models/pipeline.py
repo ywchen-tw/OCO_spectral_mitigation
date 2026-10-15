@@ -603,6 +603,11 @@ _FEATURE_SETS: dict = {
     'no_fpcloud':         {'drop': CG_FULLPHYS_FEATURES},
     'no_inhom':           {'drop': CG_INHOM_FEATURES},
     'no_screen':          {'drop': CG_SCREEN_FEATURES},
+    # The group stands in for dXCO2 only once dXCO2 is gone (TCCON, v1), so each
+    # subgroup is also dropped together with it.
+    'no_fpcloud_and_xco2': {'drop': CG_FULLPHYS_FEATURES | XCO2_FEATURES},
+    'no_inhom_and_xco2':   {'drop': CG_INHOM_FEATURES | XCO2_FEATURES},
+    'no_screen_and_xco2':  {'drop': CG_SCREEN_FEATURES | XCO2_FEATURES},
     'keep_spec_geom':     {'add_per_sfc': {1: [f'exp_wco2_intercept{_S}']},
                            'keep': SPEC_GAMMA_FEATURES | GEOM_L1B_FEATURES},
     'keep_geom':          {'keep': GEOM_L1B_FEATURES},

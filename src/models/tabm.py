@@ -639,7 +639,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     run_start = time.monotonic()
     run_id = args.suffix if args.suffix else datetime.now().strftime('%Y%m%d-%H%M%S')
-    commit = get_git_commit_hash(storage_dir)
+    commit = get_git_commit_hash()
 
     run_cfg_path = output_dir / 'tabm_run_config.json'
     with open(run_cfg_path, 'w', encoding='utf-8') as f:

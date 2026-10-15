@@ -92,10 +92,11 @@ fi
 echo "fold=${F}/${NFOLDS}  profile_pca=${PROFILE_PKL}"
 
 # ── v2 rerun (2026-10-14): every arm of this fold, one after another ────────────
-# One array task trains, for fold F: production `full`, the eight feature-set
-# ablations and the ML(raw) arm (~37 min each, ~6.2 h in all, inside --time).
+# One array task trains, for fold F: production `full`, the eleven feature-set
+# ablations and the ML(raw) arm (v2: 5-30 min each, ~2.5 h in all, inside --time).
 # no_fpcloud / no_inhom / no_screen drop one contamination subgroup each
-# (split by origin 2026-10-14; see CG_* in src/models/pipeline.py).
+# (split by origin 2026-10-14; see CG_* in src/models/pipeline.py), and the
+# *_and_xco2 arms (2026-10-15) drop the same subgroup together with dXCO2.
 # All arms share the production config and differ ONLY in feature set, target
 # and suffix (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md).  An arm whose
 # run_summary.json exists is skipped, so a --requeue restart resumes instead of
@@ -127,7 +128,7 @@ train_arm() {   # train_arm <suffix> <feature_set> <target>
         --val_split date_kfold --n_folds ${NFOLDS} --fold ${F}
 }
 
-ARMS=${ARMS:-"full no_xco2 no_spec no_xco2_and_spec no_contam no_contam_and_xco2 no_fpcloud no_inhom no_screen raw"}
+ARMS=${ARMS:-"full no_xco2 no_spec no_xco2_and_spec no_contam no_contam_and_xco2 no_fpcloud no_inhom no_screen no_fpcloud_and_xco2 no_inhom_and_xco2 no_screen_and_xco2 raw"}
 for ARM in ${ARMS}; do
     case ${ARM} in
         full) train_arm de_ocean_beta_nll_prof_reg_foldpca_r05${RV}_f${F} full 5km ;;

@@ -36,20 +36,29 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def get_git_commit_hash(repo_path: str | Path | None = None) -> str:
-    cwd = str(repo_path) if repo_path is not None else None
+# The repository that holds this code.  The trainers used to pass their storage
+# dir, which on CURC is /scratch (not a git checkout), so every run_summary.json
+# recorded commit = "unknown".
+CODE_REPO = Path(__file__).resolve().parents[2]
+
+
+def _git(args: list[str], cwd: Path) -> str | None:
     try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=cwd,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except Exception:
+        proc = subprocess.run(["git", *args], cwd=cwd, check=False,
+                              capture_output=True, text=True)
+    except OSError:
+        return None
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def get_git_commit_hash(repo_path: str | Path | None = None) -> str:
+    """Short HEAD hash of the code repository, '-dirty' if tracked files differ."""
+    cwd = Path(repo_path) if repo_path is not None else CODE_REPO
+    commit = _git(["rev-parse", "--short", "HEAD"], cwd)
+    if not commit:
         return "unknown"
-    commit = (proc.stdout or "").strip()
-    return commit or "unknown"
+    status = _git(["status", "--porcelain", "--untracked-files=no"], cwd)
+    return f"{commit}-dirty" if status else commit
 
 
 def _json_default(obj: Any):

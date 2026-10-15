@@ -2,7 +2,9 @@
 # Build the feature-set-ablation variant plot_data trees (build-only replay).
 #
 # For ONE variant (arg 1: no_spec | no_xco2 | no_contam | no_xco2_and_spec |
-# no_contam_and_xco2 | keep_spec_geom | keep_geom | keep_xco2_geom | full_noprof) this replays the ACTIVE run_case lines of the production
+# no_contam_and_xco2 | no_fpcloud | no_inhom | no_screen | no_fpcloud_and_xco2 |
+# no_inhom_and_xco2 | no_screen_and_xco2 | keep_spec_geom | keep_geom |
+# keep_xco2_geom | full_noprof) this replays the ACTIVE run_case lines of the production
 # TCCON launcher and rebuilds every case's plot_data.parquet with the variant's
 # fold-PCA deep-ensemble models (ocean r05 / land r15), writing to the
 # de_prof_mix_<variant> tree that tccon_comparison_report.py is then pointed at:
