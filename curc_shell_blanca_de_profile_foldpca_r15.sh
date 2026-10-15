@@ -55,14 +55,9 @@
 
 set -euo pipefail
 
-module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8 cuda/12.1.1
-conda activate data
-
-if [[ "$(uname -s)" == "Linux" ]]; then
-    export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:${LD_LIBRARY_PATH:-}
-else
-    export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}
-fi
+# Modules one by one, data-env python as the fallback (see curc_env.sh).
+source /projects/yuch8913/OCO_spectral_mitigation/curc_env.sh
+curc_env --torch cuda/12.1.1 || exit 1
 export HDF5_USE_FILE_LOCKING=FALSE
 export OMP_NUM_THREADS=${SLURM_NTASKS:-4}
 export MKL_NUM_THREADS=${SLURM_NTASKS:-4}

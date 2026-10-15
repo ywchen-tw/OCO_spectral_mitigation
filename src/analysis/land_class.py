@@ -44,6 +44,7 @@ if str(WORKSPACE) not in sys.path:
 from plot_style import (apply_manuscript_style, panel_label, CMAPS,  # noqa: E402
                         XCO2_LABEL, MEAN_L_LABEL, VAR_L_LABEL)
 
+from constants import PATH_LENGTH_FIT_SUFFIX as _FIT
 from .utils import _save, bin_by_cld_dist
 from .land_cover import GROUP_ORDER, GROUP_COLORS
 
@@ -51,15 +52,15 @@ logger = logging.getLogger(__name__)
 
 # (column, short label) — profiles/effects computed for those present.
 LAND_CLASS_VARS = [
-    ('o2a_k1',              f'O$_2$A {MEAN_L_LABEL}'),
-    ('o2a_k2',              f'O$_2$A {VAR_L_LABEL}'),
-    ('wco2_k1',             f'WCO$_2$ {MEAN_L_LABEL}'),
-    ('wco2_k2',             f'WCO$_2$ {VAR_L_LABEL}'),
-    ('sco2_k1',             f'SCO$_2$ {MEAN_L_LABEL}'),
-    ('sco2_k2',             f'SCO$_2$ {VAR_L_LABEL}'),
-    ('exp_o2a_intercept',   'O$_2$A $\\gamma$'),
-    ('exp_wco2_intercept',  'WCO$_2$ $\\gamma$'),
-    ('exp_sco2_intercept',  'SCO$_2$ $\\gamma$'),
+    (f'o2a_k1{_FIT}',              f'O$_2$A {MEAN_L_LABEL}'),
+    (f'o2a_k2{_FIT}',              f'O$_2$A {VAR_L_LABEL}'),
+    (f'wco2_k1{_FIT}',             f'WCO$_2$ {MEAN_L_LABEL}'),
+    (f'wco2_k2{_FIT}',             f'WCO$_2$ {VAR_L_LABEL}'),
+    (f'sco2_k1{_FIT}',             f'SCO$_2$ {MEAN_L_LABEL}'),
+    (f'sco2_k2{_FIT}',             f'SCO$_2$ {VAR_L_LABEL}'),
+    (f'exp_o2a_intercept{_FIT}',   'O$_2$A $\\gamma$'),
+    (f'exp_wco2_intercept{_FIT}',  'WCO$_2$ $\\gamma$'),
+    (f'exp_sco2_intercept{_FIT}',  'SCO$_2$ $\\gamma$'),
     ('xco2_bc_anomaly',     f'{XCO2_LABEL} BC anomaly'),
     ('xco2_raw_minus_apriori', f'{XCO2_LABEL} raw - apriori'),
 ]
@@ -199,12 +200,7 @@ def plot_k_overview_z(df: pd.DataFrame, bins, labels, outdir: str,
                       groups: list[str], n_min: int, group_col: str,
                       colors: dict, prefix: str, title_tag: str) -> None:
     """3 bands × (k1, k2) z-profiles — the single cross-group mechanism figure."""
-    panel_vars = [('o2a_k1', f'O$_2$A {MEAN_L_LABEL}'),
-                  ('o2a_k2', f'O$_2$A {VAR_L_LABEL}'),
-                  ('wco2_k1', f'WCO$_2$ {MEAN_L_LABEL}'),
-                  ('wco2_k2', f'WCO$_2$ {VAR_L_LABEL}'),
-                  ('sco2_k1', f'SCO$_2$ {MEAN_L_LABEL}'),
-                  ('sco2_k2', f'SCO$_2$ {VAR_L_LABEL}')]
+    panel_vars = LAND_CLASS_VARS[:6]                 # k1, k2 of the three bands
     panel_vars = [(v, l) for v, l in panel_vars if v in df.columns]
     if not panel_vars:
         return
@@ -361,7 +357,7 @@ def run_land_class_analysis(df: pd.DataFrame, bins, labels, outdir: str,
     logger.info(f"{title_tag} analysis over groups: {groups}")
 
     # Ref-corrected deltas (per-sounding baseline removal) where ref_* exist.
-    if 'dk1_o2a' not in df.columns and 'ref_o2a_k1_mean' in df.columns:
+    if 'dk1_o2a' not in df.columns and f'ref_o2a_k1{_FIT}_mean' in df.columns:
         from .ref_corrected import add_ref_anomalies
         logger.info("  computing ref-corrected delta columns …")
         df = add_ref_anomalies(df)

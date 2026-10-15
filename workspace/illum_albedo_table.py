@@ -22,7 +22,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bias_sign_conditions import OUT_DIR, SURFACES, _REPO, load  # noqa: E402
+from bias_sign_conditions import (GAMMA, OUT_DIR, SURFACES, _REPO,  # noqa: E402
+                                  gamma_ref, load)
 
 TEX = _REPO / 'manuscript/JQSRT_draft/tables/tabB3_illum_albedo.tex'
 NEAR_KM = 5.0
@@ -33,8 +34,8 @@ CLASSES = ['shadowed', 'neutral', 'brightened']
 def cells(df, spec):
     d = df[df.sfc_type == spec['sfc']]
     y = d[spec['target']]
-    z = (d.exp_o2a_intercept - d[f"{spec['ref']}_exp_int_o2a_mean"]) / \
-        d[f"{spec['ref']}_exp_int_o2a_std"].replace(0, np.nan)
+    z = (d[GAMMA] - d[gamma_ref(spec['ref'], 'mean')]) / \
+        d[gamma_ref(spec['ref'], 'std')].replace(0, np.nan)
     ok = (np.isfinite(y) & d.cld_dist_km.between(0, NEAR_KM) & (d.snow_flag == 0)
           & np.isfinite(d.alb_wco2) & np.isfinite(z))
     y, z, alb = y[ok], z[ok], d.alb_wco2[ok]

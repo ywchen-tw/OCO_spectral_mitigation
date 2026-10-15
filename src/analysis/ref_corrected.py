@@ -31,6 +31,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from scipy import stats
+from constants import PATH_LENGTH_FIT_SUFFIX
 from .utils import (_save, rolling_median_iqr, bin_by_cld_dist,
                     CMAPS, XCO2_LABEL, MEAN_L_LABEL, VAR_L_LABEL, panel_label)
 
@@ -42,45 +43,36 @@ logger = logging.getLogger(__name__)
 # consistent module-wide and never touch parquet column names.
 _O2A, _WCO2, _SCO2 = 'O$_2$A', 'WCO$_2$', 'SCO$_2$'
 _K3 = '$k_3$'
+_BANDS = (('o2a', _O2A, 'C0'), ('wco2', _WCO2, 'C1'), ('sco2', _SCO2, 'C2'))
+_FIT = PATH_LENGTH_FIT_SUFFIX
+
+
+def _pairs(prefix: str, tag: str) -> list[tuple]:
+    """Registry rows (obs, ref_mean, ref_std, diff_col, band, term, color) of one
+    reference set.  k1-k3 and gamma follow PATH_LENGTH_FIT_SUFFIX (observation
+    and its reference statistics alike); albedo is not a fit product.  The
+    diff/z column names carry no suffix, so consumers are variant-agnostic."""
+    rows = []
+    for band, label, color in _BANDS:
+        for k, term in ((1, MEAN_L_LABEL), (2, VAR_L_LABEL), (3, _K3)):
+            stem = f'{band}_k{k}{_FIT}'
+            rows.append((stem, f'{prefix}_{stem}_mean', f'{prefix}_{stem}_std',
+                         f'd{tag}k{k}_{band}', label, term, color))
+    for band, label, color in _BANDS:
+        rows.append((f'alb_{band}', f'{prefix}_alb_{band}_mean', f'{prefix}_alb_{band}_std',
+                     f'd{tag}alb_{band}', label, 'albedo', color))
+    for band, label, color in _BANDS:
+        stem = f'exp_int_{band}{_FIT}'
+        rows.append((f'exp_{band}_intercept{_FIT}', f'{prefix}_{stem}_mean',
+                     f'{prefix}_{stem}_std', f'd{tag}exp_{band}', label, 'exp_int', color))
+    return rows
 
 
 # Registry: (obs_col, ref_mean_col, ref_std_col, diff_col, band_label, term_label, band_color)
-_REF_PAIRS: list[tuple] = [
-    ('o2a_k1',             'ref_o2a_k1_mean',       'ref_o2a_k1_std',       'dk1_o2a',   _O2A,  MEAN_L_LABEL,   'C0'),
-    ('o2a_k2',             'ref_o2a_k2_mean',       'ref_o2a_k2_std',       'dk2_o2a',   _O2A,  VAR_L_LABEL,   'C0'),
-    ('o2a_k3',             'ref_o2a_k3_mean',       'ref_o2a_k3_std',       'dk3_o2a',   _O2A,  _K3,   'C0'),
-    ('wco2_k1',            'ref_wco2_k1_mean',      'ref_wco2_k1_std',      'dk1_wco2',  _WCO2, MEAN_L_LABEL,   'C1'),
-    ('wco2_k2',            'ref_wco2_k2_mean',      'ref_wco2_k2_std',      'dk2_wco2',  _WCO2, VAR_L_LABEL,   'C1'),
-    ('wco2_k3',            'ref_wco2_k3_mean',      'ref_wco2_k3_std',      'dk3_wco2',  _WCO2, _K3,   'C1'),
-    ('sco2_k1',            'ref_sco2_k1_mean',      'ref_sco2_k1_std',      'dk1_sco2',  _SCO2, MEAN_L_LABEL,   'C2'),
-    ('sco2_k2',            'ref_sco2_k2_mean',      'ref_sco2_k2_std',      'dk2_sco2',  _SCO2, VAR_L_LABEL,   'C2'),
-    ('sco2_k3',            'ref_sco2_k3_mean',      'ref_sco2_k3_std',      'dk3_sco2',  _SCO2, _K3,   'C2'),
-    ('alb_o2a',            'ref_alb_o2a_mean',      'ref_alb_o2a_std',      'dalb_o2a',  _O2A,  'albedo',    'C0'),
-    ('alb_wco2',           'ref_alb_wco2_mean',     'ref_alb_wco2_std',     'dalb_wco2', _WCO2, 'albedo',    'C1'),
-    ('alb_sco2',           'ref_alb_sco2_mean',     'ref_alb_sco2_std',     'dalb_sco2', _SCO2, 'albedo',    'C2'),
-    ('exp_o2a_intercept',  'ref_exp_int_o2a_mean',  'ref_exp_int_o2a_std',  'dexp_o2a',  _O2A,  'exp_int',   'C0'),
-    ('exp_wco2_intercept', 'ref_exp_int_wco2_mean', 'ref_exp_int_wco2_std', 'dexp_wco2', _WCO2, 'exp_int',   'C1'),
-    ('exp_sco2_intercept', 'ref_exp_int_sco2_mean', 'ref_exp_int_sco2_std', 'dexp_sco2', _SCO2, 'exp_int',   'C2'),
-]
+_REF_PAIRS: list[tuple] = _pairs('ref', '')
 
 # r15 reference set (min_cld_dist=15 km) — mirrors _REF_PAIRS with r15_ prefix columns
-_R15_PAIRS: list[tuple] = [
-    ('o2a_k1',             'r15_o2a_k1_mean',       'r15_o2a_k1_std',       'dr15k1_o2a',   _O2A,  MEAN_L_LABEL,   'C0'),
-    ('o2a_k2',             'r15_o2a_k2_mean',       'r15_o2a_k2_std',       'dr15k2_o2a',   _O2A,  VAR_L_LABEL,   'C0'),
-    ('o2a_k3',             'r15_o2a_k3_mean',       'r15_o2a_k3_std',       'dr15k3_o2a',   _O2A,  _K3,   'C0'),
-    ('wco2_k1',            'r15_wco2_k1_mean',      'r15_wco2_k1_std',      'dr15k1_wco2',  _WCO2, MEAN_L_LABEL,   'C1'),
-    ('wco2_k2',            'r15_wco2_k2_mean',      'r15_wco2_k2_std',      'dr15k2_wco2',  _WCO2, VAR_L_LABEL,   'C1'),
-    ('wco2_k3',            'r15_wco2_k3_mean',      'r15_wco2_k3_std',      'dr15k3_wco2',  _WCO2, _K3,   'C1'),
-    ('sco2_k1',            'r15_sco2_k1_mean',      'r15_sco2_k1_std',      'dr15k1_sco2',  _SCO2, MEAN_L_LABEL,   'C2'),
-    ('sco2_k2',            'r15_sco2_k2_mean',      'r15_sco2_k2_std',      'dr15k2_sco2',  _SCO2, VAR_L_LABEL,   'C2'),
-    ('sco2_k3',            'r15_sco2_k3_mean',      'r15_sco2_k3_std',      'dr15k3_sco2',  _SCO2, _K3,   'C2'),
-    ('alb_o2a',            'r15_alb_o2a_mean',      'r15_alb_o2a_std',      'dr15alb_o2a',  _O2A,  'albedo',    'C0'),
-    ('alb_wco2',           'r15_alb_wco2_mean',     'r15_alb_wco2_std',     'dr15alb_wco2', _WCO2, 'albedo',    'C1'),
-    ('alb_sco2',           'r15_alb_sco2_mean',     'r15_alb_sco2_std',     'dr15alb_sco2', _SCO2, 'albedo',    'C2'),
-    ('exp_o2a_intercept',  'r15_exp_int_o2a_mean',  'r15_exp_int_o2a_std',  'dr15exp_o2a',  _O2A,  'exp_int',   'C0'),
-    ('exp_wco2_intercept', 'r15_exp_int_wco2_mean', 'r15_exp_int_wco2_std', 'dr15exp_wco2', _WCO2, 'exp_int',   'C1'),
-    ('exp_sco2_intercept', 'r15_exp_int_sco2_mean', 'r15_exp_int_sco2_std', 'dr15exp_sco2', _SCO2, 'exp_int',   'C2'),
-]
+_R15_PAIRS: list[tuple] = _pairs('r15', 'r15')
 
 
 def add_ref_anomalies(df: pd.DataFrame) -> pd.DataFrame:
@@ -180,23 +172,7 @@ def _has_r15_data(df: pd.DataFrame) -> bool:
 
 
 # r05 reference set (min_cld_dist=5 km) — mirrors _REF_PAIRS with r05_ prefix columns
-_R05_PAIRS: list[tuple] = [
-    ('o2a_k1',             'r05_o2a_k1_mean',       'r05_o2a_k1_std',       'dr05k1_o2a',   _O2A,  MEAN_L_LABEL,   'C0'),
-    ('o2a_k2',             'r05_o2a_k2_mean',       'r05_o2a_k2_std',       'dr05k2_o2a',   _O2A,  VAR_L_LABEL,   'C0'),
-    ('o2a_k3',             'r05_o2a_k3_mean',       'r05_o2a_k3_std',       'dr05k3_o2a',   _O2A,  _K3,   'C0'),
-    ('wco2_k1',            'r05_wco2_k1_mean',      'r05_wco2_k1_std',      'dr05k1_wco2',  _WCO2, MEAN_L_LABEL,   'C1'),
-    ('wco2_k2',            'r05_wco2_k2_mean',      'r05_wco2_k2_std',      'dr05k2_wco2',  _WCO2, VAR_L_LABEL,   'C1'),
-    ('wco2_k3',            'r05_wco2_k3_mean',      'r05_wco2_k3_std',      'dr05k3_wco2',  _WCO2, _K3,   'C1'),
-    ('sco2_k1',            'r05_sco2_k1_mean',      'r05_sco2_k1_std',      'dr05k1_sco2',  _SCO2, MEAN_L_LABEL,   'C2'),
-    ('sco2_k2',            'r05_sco2_k2_mean',      'r05_sco2_k2_std',      'dr05k2_sco2',  _SCO2, VAR_L_LABEL,   'C2'),
-    ('sco2_k3',            'r05_sco2_k3_mean',      'r05_sco2_k3_std',      'dr05k3_sco2',  _SCO2, _K3,   'C2'),
-    ('alb_o2a',            'r05_alb_o2a_mean',      'r05_alb_o2a_std',      'dr05alb_o2a',  _O2A,  'albedo',    'C0'),
-    ('alb_wco2',           'r05_alb_wco2_mean',     'r05_alb_wco2_std',     'dr05alb_wco2', _WCO2, 'albedo',    'C1'),
-    ('alb_sco2',           'r05_alb_sco2_mean',     'r05_alb_sco2_std',     'dr05alb_sco2', _SCO2, 'albedo',    'C2'),
-    ('exp_o2a_intercept',  'r05_exp_int_o2a_mean',  'r05_exp_int_o2a_std',  'dr05exp_o2a',  _O2A,  'exp_int',   'C0'),
-    ('exp_wco2_intercept', 'r05_exp_int_wco2_mean', 'r05_exp_int_wco2_std', 'dr05exp_wco2', _WCO2, 'exp_int',   'C1'),
-    ('exp_sco2_intercept', 'r05_exp_int_sco2_mean', 'r05_exp_int_sco2_std', 'dr05exp_sco2', _SCO2, 'exp_int',   'C2'),
-]
+_R05_PAIRS: list[tuple] = _pairs('r05', 'r05')
 
 
 def add_r05_anomalies(df: pd.DataFrame) -> pd.DataFrame:

@@ -47,8 +47,14 @@ from analyze_nassar_plume_preservation import (  # noqa: E402
 )
 from nassar_control_null import DEFAULT_PAIRS, SEGMENT_GAP_S  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+from constants import PATH_LENGTH_FIT_SUFFIX as FIT  # noqa: E402
+
 DEFAULT_OUTPUT_DIR = DEFAULT_PLOT_BASE / "plume_preservation"
+# Output names stay d_{band}_k1 for either fit variant (figF3 reads them);
+# the input column follows PATH_LENGTH_FIT_SUFFIX ('_nosg' = unsmoothed fit).
 K_BANDS = ("o2a_k1", "wco2_k1", "sco2_k1")
+K_COLUMN = {k: f"{k}{FIT}" for k in K_BANDS}
 
 
 def mean_se(s: pd.Series) -> tuple[float, float, int]:
@@ -77,7 +83,7 @@ def contrast_case(pair, plants, plot_base, csv_dir,
     src = plants[plant_id]
     df = pd.read_parquet(path)
     df = add_feature_columns(df, csv_dir, date)
-    if not all(c in df.columns for c in K_BANDS):
+    if not all(K_COLUMN[k] in df.columns for k in K_BANDS):
         print(f"  SKIP {plant_id}:{date} — spectral columns unavailable")
         return None
     df = df[np.isfinite(df["xco2_bc"])].sort_values("time").reset_index(drop=True)
@@ -120,8 +126,8 @@ def contrast_case(pair, plants, plot_base, csv_dir,
 
     xco2_bg = bc_b if np.isfinite(bc_b) else 415.0
     for band in K_BANDS:
-        k_p, k_pse, _ = mean_se(plume[band])
-        k_b, k_bse, _ = mean_se(bg[band])
+        k_p, k_pse, _ = mean_se(plume[K_COLUMN[band]])
+        k_b, k_bse, _ = mean_se(bg[K_COLUMN[band]])
         dk = k_p - k_b
         row[f"d_{band}"] = dk
         row[f"d_{band}_se"] = float(np.hypot(k_pse, k_bse))
@@ -129,7 +135,7 @@ def contrast_case(pair, plants, plot_base, csv_dir,
             row[f"d_{band}_expected"] = float(k_b * d_xco2 / xco2_bg)
 
     # empirical mu-vs-k1 association in the background (clear scene)
-    slope = ols_slope(bg["wco2_k1"], bg["pred_anomaly"])
+    slope = ols_slope(bg[K_COLUMN["wco2_k1"]], bg["pred_anomaly"])
     row["dmu_dk1_wco2_bg_slope"] = slope
     exp_dk = row.get("d_wco2_k1_expected", np.nan)
     row["mu_from_plume_k1_bound_ppm"] = (abs(slope * exp_dk)

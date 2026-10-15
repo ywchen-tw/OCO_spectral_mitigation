@@ -216,6 +216,9 @@ def add_feature_columns(df: pd.DataFrame, csv_dir: Path, date: str) -> pd.DataFr
         "wco2_k2",
         "sco2_k1",
         "sco2_k2",
+        "o2a_k1_nosg",
+        "wco2_k1_nosg",
+        "sco2_k1_nosg",
         "ws",
         "ws_apriori",
         "xco2_qf",
@@ -226,7 +229,8 @@ def add_feature_columns(df: pd.DataFrame, csv_dir: Path, date: str) -> pd.DataFr
         return df
 
     feature_path = csv_dir / f"combined_{date}_all_orbits.parquet"
-    features = read_feature_columns(feature_path, key_cols, wanted)
+    # only the missing ones: re-merging a present column would split it into _x/_y
+    features = read_feature_columns(feature_path, key_cols, missing)
     if features is None:
         print(f"  Warning: feature columns unavailable for {date}: {feature_path}", flush=True)
         return df

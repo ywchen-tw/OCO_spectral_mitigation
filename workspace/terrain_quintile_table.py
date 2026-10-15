@@ -20,12 +20,16 @@ Run:  python workspace/terrain_quintile_table.py              (parquet -> CSV ->
       [--tex PATH]  write the table elsewhere, e.g. for a verification diff
 """
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 REPO = Path("/Volumes/YWC_SSD/programming/oco_fp_analysis")
+sys.path.insert(0, str(REPO / "src"))
+from analysis.nosg_reference import read_combined  # noqa: E402
+from constants import PATH_LENGTH_FIT_SUFFIX as FIT  # noqa: E402  '_nosg' = unsmoothed fit
 PARQUET = REPO / "results/csv_collection/combined_2016_2020_dates.parquet"
 OUT = REPO / "results/figures/cld_dist_analysis/alt_std_terrain/farfield_dk1_by_altstd_quintile_qf01.csv"
 TEX = REPO / "manuscript/JQSRT_draft/tables/tabA2_terrain_quintiles.tex"
@@ -43,17 +47,18 @@ TEX_ROWS = [
 
 def compute():
     cols = (["date", "sfc_type", "cld_dist_km", "xco2_qf", "snow_flag", "alt_std",
-             "exp_o2a_intercept", "r15_exp_int_o2a_mean"]
-            + [f"{b}_k{m}" for b in BANDS for m in (1, 2)]
-            + [f"r15_{b}_k{m}_mean" for b in BANDS for m in (1, 2)])
-    df = pd.read_parquet(PARQUET, columns=cols)
+             f"exp_o2a_intercept{FIT}", f"r15_exp_int_o2a{FIT}_mean"]
+            + [f"{b}_k{m}{FIT}" for b in BANDS for m in (1, 2)]
+            + [f"r15_{b}_k{m}{FIT}_mean" for b in BANDS for m in (1, 2)])
+    df = read_combined(PARQUET, cols)
     df = df[(df.sfc_type == 1) & (df.snow_flag == 0) & (df.cld_dist_km >= FAR_KM)]
 
     stats = {}
     for b in BANDS:
         for m in (1, 2):
-            stats[f"d_k{m}_{b}"] = df[f"{b}_k{m}"] - df[f"r15_{b}_k{m}_mean"]
-    stats["d_gamma_rel_o2a"] = df.exp_o2a_intercept / df.r15_exp_int_o2a_mean - 1.0
+            stats[f"d_k{m}_{b}"] = df[f"{b}_k{m}{FIT}"] - df[f"r15_{b}_k{m}{FIT}_mean"]
+    stats["d_gamma_rel_o2a"] = (df[f"exp_o2a_intercept{FIT}"]
+                                / df[f"r15_exp_int_o2a{FIT}_mean"] - 1.0)
     s = pd.DataFrame(stats)
     s["date"] = df["date"].values
     s["qf"] = df["xco2_qf"].values

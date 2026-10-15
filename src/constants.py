@@ -45,6 +45,13 @@ CLOUD_DIST_BAND_OVERLAP_DEG = 0.5
 # bands (see memory note fitting-order-per-band).
 FIT_ORDER = (7, 3, 7)
 
+# Fit variant the phenomenology analyses read: '_nosg' = the fit to the
+# unsmoothed spectrum (Sect. 2.2, Fig. 2, the model predictors), '' = the
+# SG(51, 3)-smoothed production fit.  Applies to k1-k3 and gamma; their _nosg
+# clear-sky reference statistics come from analysis.nosg_reference (sidecar).
+# models.pipeline keeps its own switch (_USE_NOSG_FIT) for the predictors.
+PATH_LENGTH_FIT_SUFFIX = '_nosg'
+
 # ---------------------------------------------------------------------------
 # XCO2 clear-sky anomaly (the ML training target)
 # ---------------------------------------------------------------------------

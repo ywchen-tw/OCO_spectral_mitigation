@@ -33,6 +33,15 @@ from scipy import stats as sps
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / 'src'))
 from models.pipeline import MAX_ABS_ANOMALY_PPM  # noqa: E402
+from analysis.nosg_reference import read_combined  # noqa: E402
+from constants import PATH_LENGTH_FIT_SUFFIX as FIT  # noqa: E402  '_nosg' = unsmoothed fit
+
+GAMMA = f'exp_o2a_intercept{FIT}'          # O2A continuum reflectance of the fit
+
+
+def gamma_ref(ref: str, stat: str) -> str:
+    """Clear-sky reference column of GAMMA, e.g. r15_exp_int_o2a_nosg_mean."""
+    return f'{ref}_exp_int_o2a{FIT}_{stat}'
 
 PARQUET = _REPO / 'results/csv_collection/combined_2016_2020_dates.parquet'
 OUT_DIR = _REPO / 'results/figures/cld_dist_analysis/bias_sign_conditions'
@@ -47,13 +56,12 @@ NUMERIC = ['alb_o2a', 'alb_wco2', 'alb_sco2', 'sza', 'aod_total', 'ws',
 
 def load():
     cols = (['sfc_type', 'cld_dist_km', 'xco2_qf', 'snow_flag',
-             'exp_o2a_intercept', 'alb_o2a', 'alb_wco2', 'alb_sco2',
+             GAMMA, 'alb_o2a', 'alb_wco2', 'alb_sco2',
              'sza', 'aod_total', 'ws', 'tcwv', 'fp_area_km2', 'alt_std'] +
             [s['target'] for s in SURFACES.values()] +
-            [f'{r}_exp_int_o2a_mean' for r in ('r05', 'r15')] +
-            [f'{r}_exp_int_o2a_std' for r in ('r05', 'r15')] +
+            [gamma_ref(r, st) for r in ('r05', 'r15') for st in ('mean', 'std')] +
             [f'{r}_alb_wco2_mean' for r in ('r05', 'r15')])
-    df = pd.read_parquet(PARQUET, columns=sorted(set(cols)))
+    df = read_combined(PARQUET, sorted(set(cols)))
     for s in SURFACES.values():
         y = df[s['target']]
         df.loc[y.abs() > MAX_ABS_ANOMALY_PPM, s['target']] = np.nan
@@ -72,11 +80,11 @@ def main():
     for name, spec in SURFACES.items():
         d = df[df.sfc_type == spec['sfc']].copy()
         # per-surface reference departures (shadow/brightening + albedo delta)
-        d['dexp_o2a'] = d.exp_o2a_intercept - d[f"{spec['ref']}_exp_int_o2a_mean"]
+        d['dexp_o2a'] = d[GAMMA] - d[gamma_ref(spec['ref'], 'mean')]
         # standardized departure, the Fig. 5 classification variable:
         # brightened z > +0.5 / neutral |z| <= 0.5 / shadowed z < -0.5
         # (spec_sensitivity.run_shadow_brightening, z_thresh = 0.5)
-        d['zexp_o2a'] = d['dexp_o2a'] / d[f"{spec['ref']}_exp_int_o2a_std"].replace(0, np.nan)
+        d['zexp_o2a'] = d['dexp_o2a'] / d[gamma_ref(spec['ref'], 'std')].replace(0, np.nan)
         d['dalb_wco2'] = d.alb_wco2 - d[f"{spec['ref']}_alb_wco2_mean"]
         y_all = d[spec['target']]
         for win, dmax in [('near5', 5.0)] + ([('near15', 15.0)] if name == 'land' else []):

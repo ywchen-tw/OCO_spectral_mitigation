@@ -487,24 +487,21 @@ def main():
         Path(outdir).mkdir(parents=True, exist_ok=True)
 
     import pyarrow.parquet as pq
+    from analysis.nosg_reference import read_combined, sidecar_path
+    # The _nosg reference statistics live in the row-aligned sidecar; a needed
+    # column in neither file is dropped (as before) but now logged.
     avail = set(pq.read_schema(path).names)
-    cols = [c for c in _needed_columns(args.analyses, args.reference,
-                                       need_fp_id=bool(args.exclude_mixed_ref))
-            if c in avail]
+    if sidecar_path(path).exists():
+        avail |= set(pq.read_schema(sidecar_path(path)).names)
+    needed = _needed_columns(args.analyses, args.reference,
+                             need_fp_id=bool(args.exclude_mixed_ref))
+    cols = [c for c in needed if c in avail]
+    if len(cols) < len(needed):
+        logger.warning("columns not found, skipped: %s", sorted(set(needed) - avail))
     logger.info(f"Loading {len(cols)} columns from {path.name} …")
+    df = read_combined(path, cols)
     if args.max_rows:
-        pf = pq.ParquetFile(path)
-        batches = []
-        n = 0
-        for b in pf.iter_batches(columns=cols, batch_size=1 << 20):
-            batches.append(b)
-            n += b.num_rows
-            if n >= args.max_rows:
-                break
-        import pyarrow as pa
-        df = pa.Table.from_batches(batches).to_pandas()
-    else:
-        df = pd.read_parquet(path, columns=cols)
+        df = df.iloc[:args.max_rows]
     logger.info(f"Loaded {len(df):,} rows")
 
     df = apply_quality_filter(
