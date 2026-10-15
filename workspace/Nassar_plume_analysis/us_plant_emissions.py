@@ -851,6 +851,7 @@ def main() -> None:
     for p_id, p in plants.items():
         p["plant_id"] = p_id
     cache.mkdir(parents=True, exist_ok=True)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     for case in CASES:
         print(f"{case[0]} {case[1]}")

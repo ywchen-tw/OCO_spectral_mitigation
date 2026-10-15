@@ -53,7 +53,7 @@ for p in (REPO / "src", REPO / "workspace"):
 
 import torch  # noqa: E402
 
-from models.pipeline import (_ensure_derived_features,                 # noqa: E402
+from models.pipeline import (_DERIVED_FEATURES, _ensure_derived_features,  # noqa: E402
                              compute_xco2_anomaly_date_id,
                              MAX_ABS_ANOMALY_PPM)
 from models.leakage_guard import check_training_overlap, load_training_dates  # noqa: E402
@@ -61,15 +61,17 @@ from models.deep_ensemble import _member_predict                       # noqa: E
 from apply.apply_deep_ensemble import (_check_required_columns,        # noqa: E402
                                        _domain_report)
 from build_deepens_plot_data import _load_fold                         # noqa: E402
+# v2 folds and a v2 cache dir by default; RUN_VERSION= (empty) selects v1.
+from constants import RUN_SUFFIX                                       # noqa: E402
 
 MODEL_ROOT = REPO / "results" / "model_deep_ensemble"
-OCEAN_FOLDS = [MODEL_ROOT / f"de_ocean_beta_nll_prof_reg_foldpca_r05_f{i}"
+OCEAN_FOLDS = [MODEL_ROOT / f"de_ocean_beta_nll_prof_reg_foldpca_r05{RUN_SUFFIX}_f{i}"
                for i in range(5)]
-LAND_FOLDS = [MODEL_ROOT / f"de_land_beta_nll_prof_reg_foldpca_r15_f{i}"
+LAND_FOLDS = [MODEL_ROOT / f"de_land_beta_nll_prof_reg_foldpca_r15{RUN_SUFFIX}_f{i}"
               for i in range(5)]
 
 CSV_DIR = REPO / "results" / "csv_collection"
-OUT_DIR = REPO / "results" / "figures" / "cld_dist_analysis" / "test_set_anomaly_decay"
+OUT_DIR = REPO / "results" / "figures" / "cld_dist_analysis" / f"test_set_anomaly_decay{RUN_SUFFIX}"
 CACHE_DIR = OUT_DIR / "cache"
 
 TEST_DATE_MIN, TEST_DATE_MAX = "2014-01-01", "2021-12-31"
@@ -291,8 +293,12 @@ def run_compute(args) -> None:
         import pyarrow.parquet as pq
         cols = set(pq.ParquetFile(dates[d]).schema_arrow.names)
         need = [c for c in AUX_COLS if c not in cols]
+        # a derived predictor counts as present when its base columns are (the
+        # v2 *_nosg gamma predictors are derived, never stored; cf. f4bb90c)
         need += [c for c in pipe0.qt_features
-                 if c not in cols and c not in set(getattr(pipe0, "fp_cols", []))]
+                 if c not in cols and c not in set(getattr(pipe0, "fp_cols", []))
+                 and not (c in _DERIVED_FEATURES
+                          and all(b in cols for b in _DERIVED_FEATURES[c].bases))]
         if need:
             print(f"  ✗ SKIP {d}: parquet lacks {need[:6]}"
                   f"{' …' if len(need) > 6 else ''} (old-format build)")

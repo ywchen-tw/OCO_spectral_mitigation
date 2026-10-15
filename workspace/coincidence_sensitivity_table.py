@@ -11,18 +11,22 @@ Wilcoxon p.  Writes coincidence_sensitivity.{csv,md}.
 
 Usage:
   python workspace/coincidence_sensitivity_table.py \
-      [--dir results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atrain/coincidence_sensitivity]
+      [--dir results/model_comparison/deep_ensemble/<DE_PRODUCTION_TAG>/atrain/coincidence_sensitivity]
 """
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-DEFAULT_DIR = Path("results/model_comparison/deep_ensemble/"
-                   "de_beta_nll_prof_reg_o05l15_m5/atrain/coincidence_sensitivity")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# v2 trees by default; RUN_VERSION= (empty) selects the v1 trees.
+from constants import DE_PRODUCTION_TAG  # noqa: E402
+DEFAULT_DIR = Path("results/model_comparison/deep_ensemble", DE_PRODUCTION_TAG,
+                   "atrain/coincidence_sensitivity")
 
 
 def main():

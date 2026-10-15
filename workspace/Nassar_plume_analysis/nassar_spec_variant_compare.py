@@ -42,7 +42,9 @@ from plot_style import apply_manuscript_style, panel_label, XCO2_LABEL  # noqa: 
 from analyze_nassar_plume_preservation import DEFAULT_PLANTS, read_plants, parse_pair  # noqa: E402
 from nassar_plume_transects import load_transect_segment, rolling  # noqa: E402
 
-DE_TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+# v2 trees by default; RUN_VERSION= (empty) selects the v1 trees.
+from constants import DE_PRODUCTION_TAG as DE_TAG  # noqa: E402
 DEFAULT_FULL_BASE = Path(f"results/model_comparison/deep_ensemble/{DE_TAG}/nassar_plumes")
 DEFAULT_VARIANT_BASE = Path(
     f"results/model_comparison/deep_ensemble/{DE_TAG}/nassar_plumes_variants/no_spec")

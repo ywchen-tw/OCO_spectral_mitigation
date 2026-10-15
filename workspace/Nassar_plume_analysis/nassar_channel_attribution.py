@@ -23,13 +23,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-DEFAULT_BASE = Path("results/model_comparison/deep_ensemble/"
-                    "de_beta_nll_prof_reg_foldpca_o05l15_m5")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+# v2 trees by default; RUN_VERSION= (empty) selects the v1 trees.
+from constants import DE_PRODUCTION_TAG  # noqa: E402
+DEFAULT_BASE = Path("results/model_comparison/deep_ensemble", DE_PRODUCTION_TAG)
 
 
 def load(csv: Path, tag: str) -> pd.DataFrame:

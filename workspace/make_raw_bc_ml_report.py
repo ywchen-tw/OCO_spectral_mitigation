@@ -33,15 +33,18 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# v2 trees by default; RUN_VERSION= (empty) selects the v1 trees.
+from constants import DE_PRODUCTION_TAG as TAG, RUN_SUFFIX  # noqa: E402
 BASE = Path("results/model_comparison/deep_ensemble")
 TREE_BC = BASE / TAG / "atrain"
-TREE_RAW = BASE / "de_prof_reg_mix_raw"
+TREE_RAW = BASE / f"de_prof_reg_mix_raw{RUN_SUFFIX}"
 
 SLICES = [
     ("pooled, QF 0+1", "all", "all", "all"),

@@ -14,7 +14,7 @@ So the TCCON residual improvement cannot be an artifact of variance removal.
 
 Usage:
   python workspace/smoother_null_figure.py \
-      [--report-dir results/model_comparison/deep_ensemble/de_beta_nll_prof_reg_o05l15_m5/atrain/smoother_null] \
+      [--report-dir results/model_comparison/deep_ensemble/<DE_PRODUCTION_TAG>/atrain/smoother_null] \
       [--primary-window 30] [--fmt png]
 """
 from __future__ import annotations
@@ -32,11 +32,14 @@ import pandas as pd  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
 from plot_style import apply_manuscript_style, panel_label, XCO2_LABEL  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# v2 trees by default; RUN_VERSION= (empty) selects the v1 trees.
+from constants import DE_PRODUCTION_TAG  # noqa: E402
 
 C_DE = "#0072B2"        # Okabe-Ito blue
 C_SM = "#D55E00"        # Okabe-Ito vermillion
-DEFAULT_DIR = Path("results/model_comparison/deep_ensemble/"
-                   "de_beta_nll_prof_reg_o05l15_m5/atrain/smoother_null")
+DEFAULT_DIR = Path("results/model_comparison/deep_ensemble",
+                   DE_PRODUCTION_TAG, "atrain/smoother_null")
 
 
 def load_cases(csv_path: Path) -> pd.DataFrame:

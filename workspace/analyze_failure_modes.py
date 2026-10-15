@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import re
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -48,7 +49,9 @@ import pyarrow.parquet as apq
 from plot_style import apply_manuscript_style
 from tccon_collocate import collocate, find_plotdata, get_storage_dir, load_tccon
 
-TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# v2 trees by default; RUN_VERSION= (empty) selects the v1 trees.
+from constants import DE_PRODUCTION_TAG as TAG, RUN_SUFFIX  # noqa: E402
 BASE = Path("results/model_comparison/deep_ensemble")
 CORR = "deep_ensemble_corrected_xco2"
 TREES = {  # tree label -> (out_base subdir, launcher with run_case lines)
@@ -345,7 +348,7 @@ def stage3_figure(bins: pd.DataFrame, out: Path):
 # ── stage 4 ──────────────────────────────────────────────────────────────────
 
 CV_FOLD_TMPL = ("results/model_deep_ensemble/"
-                "de_land_beta_nll_prof_reg_foldpca_r15_f{f}/"
+                "de_land_beta_nll_prof_reg_foldpca_r15" + RUN_SUFFIX + "_f{f}/"
                 "held_out_predictions.parquet")
 COMBINED_PARQUET = Path("results/csv_collection/combined_2016_2020_dates.parquet")
 

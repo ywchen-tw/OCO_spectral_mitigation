@@ -7,6 +7,7 @@ sites; see log/PROJECT_REVIEW.md §7.4. Import from this module
 instead of re-declaring literals, and have docstrings reference the
 constant name rather than repeating the number.
 """
+import os
 
 # ---------------------------------------------------------------------------
 # Phases 2-3: OCO-2 <-> MODIS temporal matching
@@ -51,6 +52,17 @@ FIT_ORDER = (7, 3, 7)
 # clear-sky reference statistics come from analysis.nosg_reference (sidecar).
 # models.pipeline keeps its own switch (_USE_NOSG_FIT) for the predictors.
 PATH_LENGTH_FIT_SUFFIX = '_nosg'
+
+# ---------------------------------------------------------------------------
+# Model run version (log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md)
+# ---------------------------------------------------------------------------
+# Same convention as the launchers' RUN_VERSION: default 'v2' (fill masking,
+# RobustClipScaler, unsmoothed gamma, no t700); an empty value selects the v1
+# names.  The suffix sits before the fold tag (..._r05_v2_f0) and at the end of
+# every evaluation-tree name (..._o05l15_m5_v2, de_prof_mix_<arm>_v2).
+RUN_VERSION = os.environ.get('RUN_VERSION', 'v2')
+RUN_SUFFIX = f'_{RUN_VERSION}' if RUN_VERSION else ''
+DE_PRODUCTION_TAG = 'de_beta_nll_prof_reg_foldpca_o05l15_m5' + RUN_SUFFIX
 
 # ---------------------------------------------------------------------------
 # XCO2 clear-sky anomaly (the ML training target)

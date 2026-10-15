@@ -36,9 +36,11 @@ from plot_style import (  # noqa: E402
     panel_label,
 )
 
-DEFAULT_CSV = ('results/model_comparison/deep_ensemble/'
-               'de_beta_nll_prof_reg_foldpca_o05l15_m5/atrain/'
-               'tccon_comparison_r100km.csv')
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# v2 trees by default; RUN_VERSION= (empty) selects the v1 trees.
+from constants import DE_PRODUCTION_TAG  # noqa: E402
+DEFAULT_CSV = str(Path('results/model_comparison/deep_ensemble', DE_PRODUCTION_TAG,
+                       'atrain/tccon_comparison_r100km.csv'))
 
 # Okabe-Ito blue / vermillion differ in hue AND lightness (readable by
 # colour-blind readers and in greyscale); raw is pushed back in light grey.

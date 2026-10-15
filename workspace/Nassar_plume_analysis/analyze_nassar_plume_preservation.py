@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import sys
 from pathlib import Path
 from typing import Iterable
 
@@ -20,10 +21,11 @@ import pandas as pd
 
 
 DEFAULT_PLANTS = Path(__file__).with_name("nassar_power_plants.csv")
-DEFAULT_PLOT_BASE = Path(
-    "results/model_comparison/deep_ensemble/"
-    "de_beta_nll_prof_reg_foldpca_o05l15_m5/nassar_plumes"
-)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+# v2 trees by default; RUN_VERSION= (empty) selects the v1 trees.
+from constants import DE_PRODUCTION_TAG  # noqa: E402
+DEFAULT_PLOT_BASE = Path("results/model_comparison/deep_ensemble",
+                         DE_PRODUCTION_TAG, "nassar_plumes")
 DEFAULT_CSV_DIR = Path("results/csv_collection")
 DEFAULT_OUTPUT_DIR = DEFAULT_PLOT_BASE / "plume_preservation"
 DEFAULT_PAIRS = (

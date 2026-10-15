@@ -19,13 +19,16 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import sys
 from glob import glob
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-TAG = "de_beta_nll_prof_reg_foldpca_o05l15_m5"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# v2 trees by default; RUN_VERSION= (empty) selects the v1 trees.
+from constants import DE_PRODUCTION_TAG as TAG, RUN_SUFFIX  # noqa: E402
 BASE = Path("results/model_comparison/deep_ensemble")
 FULL_DIR = BASE / TAG / "atrain"
 VARIANTS = ["no_spec", "no_contam", "no_xco2", "no_xco2_and_spec",
@@ -35,10 +38,10 @@ VARIANTS = ["no_spec", "no_contam", "no_xco2", "no_xco2_and_spec",
 # edition still regenerates without them.
 KEEP_VARIANTS = ["keep_spec_geom", "keep_geom", "keep_xco2_geom"]
 VARIANTS += [v for v in KEEP_VARIANTS
-             if (BASE / f"de_prof_mix_{v}" / "tccon_metrics_ak_r100km.csv").exists()]
+             if (BASE / f"de_prof_mix_{v}{RUN_SUFFIX}" / "tccon_metrics_ak_r100km.csv").exists()]
 # 2026-10-10 full feature set without the profile EOF block (same launcher,
 # array 30-39), included once its TCCON tree has been reported.
-if (BASE / "de_prof_mix_full_noprof" / "tccon_metrics_ak_r100km.csv").exists():
+if (BASE / f"de_prof_mix_full_noprof{RUN_SUFFIX}" / "tccon_metrics_ak_r100km.csv").exists():
     VARIANTS.append("full_noprof")
 MODELS = ["full"] + VARIANTS
 
@@ -58,21 +61,21 @@ NEARCLOUD_SLICES = [
 ]
 
 FOLD_STEM = {
-    "ocean": "results/model_deep_ensemble/de_ocean_{v}_prof_foldpca_r05_f*",
-    "land": "results/model_deep_ensemble/de_land_{v}_prof_foldpca_r15_f*",
+    "ocean": "results/model_deep_ensemble/de_ocean_{v}_prof_foldpca_r05" + RUN_SUFFIX + "_f*",
+    "land": "results/model_deep_ensemble/de_land_{v}_prof_foldpca_r15" + RUN_SUFFIX + "_f*",
 }
 FOLD_STEM_KEEP = {   # keep-only arms are trained without the profile EOF block
-    "ocean": "results/model_deep_ensemble/de_ocean_{v}_noprof_r05_f*",
-    "land": "results/model_deep_ensemble/de_land_{v}_noprof_r15_f*",
+    "ocean": "results/model_deep_ensemble/de_ocean_{v}_noprof_r05" + RUN_SUFFIX + "_f*",
+    "land": "results/model_deep_ensemble/de_land_{v}_noprof_r15" + RUN_SUFFIX + "_f*",
 }
 FOLD_STEM_FULL = {
-    "ocean": "results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05_f*",
-    "land": "results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15_f*",
+    "ocean": "results/model_deep_ensemble/de_ocean_beta_nll_prof_reg_foldpca_r05" + RUN_SUFFIX + "_f*",
+    "land": "results/model_deep_ensemble/de_land_beta_nll_prof_reg_foldpca_r15" + RUN_SUFFIX + "_f*",
 }
 
 
 def tree_dir(model: str) -> Path:
-    return FULL_DIR if model == "full" else BASE / f"de_prof_mix_{model}"
+    return FULL_DIR if model == "full" else BASE / f"de_prof_mix_{model}{RUN_SUFFIX}"
 
 
 def load_metrics(model: str, ref: str) -> pd.DataFrame:
