@@ -145,12 +145,12 @@ H_B = 2.16 if SHOW_INTERVALS else 1.30
 
 def _member_panel(ax, show_cloud_head: bool) -> None:
     top = H_A[show_cloud_head]
-    _heading(ax, top, "(a)", "One Gaussian-head MLP member")
+    _heading(ax, top, "(a)", "One network")
 
     # main chain, centred on yc; hidden blocks carry four 9 pt lines
     yc = top - 0.63 if not show_cloud_head else top - 0.91
     bh = 0.70
-    _box(ax, 0.05, yc - bh / 2, 0.86, bh, "input\nfeatures", C_INPUT)
+    _box(ax, 0.05, yc - bh / 2, 0.86, bh, "input\npredictors", C_INPUT)
     _box(ax, 1.28, yc - bh / 2, 0.92, bh,
          "Linear 64\nLayerNorm\nReLU\nDropout 0.1", C_BODY)
     _box(ax, 2.57, yc - bh / 2, 0.92, bh,
@@ -183,9 +183,8 @@ def _member_panel(ax, show_cloud_head: bool) -> None:
         _arrow(ax, hx + hw, cy, ox, cy, linestyle=(0, (3, 2)))
         note = (
             "Each hidden block is Linear -> LayerNorm -> ReLU -> Dropout "
-            "(p = 0.1); dropout is active in training only,\n"
-            "so there is no MC-dropout at inference. The second head output "
-            "is clamped to [-10, 10] and interpreted\n"
+            "(p = 0.1). Dropout is used in training only.\n"
+            "The second output is limited to [-10, 10] and read "
             "as the log variance. "
             "Dashed path: optional auxiliary near-cloud classifier "
             "enabled only when --cloud_aux_weight > 0."
@@ -201,9 +200,8 @@ def _member_panel(ax, show_cloud_head: bool) -> None:
         _arrow(ax, hx + hw, yc - 0.06, ox, yc - 0.04 - oh / 2)
         note = (
             "Each hidden block is Linear -> LayerNorm -> ReLU -> Dropout "
-            "(p = 0.1); dropout is active in training only,\n"
-            "so there is no MC-dropout at inference. The second head output "
-            "is clamped to [-10, 10] and interpreted\n"
+            "(p = 0.1). Dropout is used in training only.\n"
+            "The second output is limited to [-10, 10] and read "
             "as the log variance."
         )
         note_y = yc - bh / 2 - 0.10
@@ -222,7 +220,7 @@ def _ensemble_panel(ax) -> None:
     sw, sh, so = 0.80, 0.46, 0.07         # stacked member boxes
     for i, offset in enumerate((2 * so, so, 0.0)):
         _box(ax, 0.05 + offset, yt - sh / 2 - so + offset, sw, sh,
-             "MLP\nmember" if i == 2 else "", C_BODY)
+             "network" if i == 2 else "", C_BODY)
     ax.text(0.05 + sw / 2, yt - sh / 2 - so - 0.06, r"$m = 1,\ldots,M$",
             fontsize=9.0, color=C_NOTE, ha="center", va="top")
     stack_r = 0.05 + sw + 2 * so
@@ -231,7 +229,7 @@ def _ensemble_panel(ax) -> None:
     _box(ax, mx, yt - mh / 2, mw, mh, "Gaussian\nmixture", C_ENSEMBLE)
     _arrow(ax, stack_r, yt, mx, yt)
 
-    fx, fw, fh = mx + mw + 0.30, 2.62, 0.74
+    fx, fw, fh = mx + mw + 0.30, 2.62, 0.78   # 0.74 overflowed the sum subscripts
     _box(
         ax, fx, yt - fh / 2, fw, fh,
         rf"${DX} = M^{{-1}}\sum_m {DX}_m$" "\n"

@@ -7,6 +7,11 @@ case reproduces the figure's comparison logic:
 Then computes mean ± std of the ORIGINAL (xco2_bc), CORRECTED, and TCCON XCO2, and
 the residual to TCCON before/after correction.
 
+A station-day enters a subset (surface × quality flag × cloud-distance bin) only
+when it has at least --min-fp co-located footprints in that subset (default 10).
+The rule applies to the per-case rows and to the pooled footprint metrics alike,
+so a handful of footprints cannot carry a full station-day weight.
+
 Every metric variable and figure is emitted THREE times, split by OCO-2 quality
 flag: 'all' (xco2_qf 0+1, the headline — original behaviour), plus 'qf0' (good)
 and 'qf1'.  CSVs gain a ``qf_group`` column; figures gain a '_qf0'/'_qf1' filename
@@ -60,7 +65,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from plot_style import (XCO2_BC_LABEL, XCO2_DE_LABEL, XCO2_LABEL,
                         XCO2_RAW_LABEL, apply_manuscript_style, panel_label)
 from plot_corrected_xco2 import load_tccon, get_storage_dir
-from tccon_collocate import collocate, find_plotdata
+from tccon_collocate import collocate, find_plotdata, physical_site
 from ak_harmonize import (find_lite_file, ak_adjusted_ref,
                           operator_from_dataframe, ak_adjusted_ref_from_operator)
 from tccon_uncertainty_stats import (load_inflation, side_a_case, side_b_case,
@@ -208,8 +213,9 @@ def _significance(cmp, n_boot=10000, seed=20260703):
     Two complementary tests on the per-case (station-day) metrics:
       * paired Wilcoxon signed-rank on |residual| and on per-footprint RMSE
         (treats station-days as exchangeable pairs), and
-      * a SITE-CLUSTERED bootstrap (sites resampled with replacement, each
-        bringing all its station-days) for the after−before deltas of
+      * a SITE-CLUSTERED bootstrap (physical sites resampled with replacement,
+        each bringing all its station-days; records of one site are merged by
+        tccon_collocate.physical_site) for the after−before deltas of
         mean |residual|, RMS residual, and mean RMSE — this respects the strong
         within-site clustering (e.g. Réunion 14 days) that the Wilcoxon
         ignores.  p_boot = 2·min(P(Δ≥0), P(Δ≤0)), floored at 2/(B+1).
@@ -219,7 +225,7 @@ def _significance(cmp, n_boot=10000, seed=20260703):
     out = {}
     bb = cmp['bias_before'].to_numpy(float); ba = cmp['bias_after'].to_numpy(float)
     rb = cmp['rmse_before'].to_numpy(float); ra = cmp['rmse_after'].to_numpy(float)
-    sites = cmp['site'].to_numpy()
+    sites = cmp['site'].map(physical_site).to_numpy()
 
     def _wilcoxon(x_after, x_before):
         m = np.isfinite(x_after) & np.isfinite(x_before)
@@ -307,7 +313,7 @@ def _metrics_agg(g, n_boot=2000, seed=20260707):
     residuals, robust stats and the OCO-vs-TCCON OLS (reusing _ols_fit); footprint-
     weighted for pooled RMSE/MAE and reduced-χ²."""
     out = dict(n_station_days=int(len(g)), n_footprints=int(g['n_oco'].sum()))
-    sites = g['site'].to_numpy() if 'site' in g.columns else np.array([])
+    sites = g['site'].map(physical_site).to_numpy() if 'site' in g.columns else np.array([])
     n = g['n_oco'].to_numpy(float)
     out['cld_dist_mu'] = _safe_nanmean(g['cld_dist_mu'])
     out['cld_dist_sd'] = _safe_nanstd(g['cld_dist_mu'])       # spread across station-days
@@ -676,6 +682,10 @@ def main():
                          "have no 'xco2'; use 'xco2_x2007' or 'xco2_x2019'.")
     ap.add_argument('--radius-km', type=float, default=100.0)
     ap.add_argument('--window-min', type=float, default=60.0)
+    ap.add_argument('--min-fp', type=int, default=10,
+                    help="Minimum co-located footprints for a station-day to enter a "
+                         "subset (surface × QF × cloud bin); default 10, 1 keeps every "
+                         "non-empty subset (behaviour before 2026-10-15).")
     ap.add_argument('--fname-suffix', default='',
                     help="Appended before the extension of every output filename "
                          "(e.g. '_r100km') so a parameter sweep's reports coexist.")
@@ -999,11 +1009,11 @@ def main():
         for sname, sframe in (('all', near),
                               ('ocean', near[near['sfc_type'] == 0]),
                               ('land',  near[near['sfc_type'] == 1])):
-            if not len(sframe):
+            if len(sframe) < args.min_fp:
                 continue
             for qflab, qfval in QF_GROUPS:
                 frame = _qf_frame(sframe, qfval)
-                if not len(frame):
+                if len(frame) < args.min_fp:
                     continue
                 _mrows(sname, qflab, 'all', -np.inf, np.inf, frame)   # ungrouped
                 row = dict(site=site, date=c['date'], surface=sname, qf_group=qflab,
@@ -1043,7 +1053,7 @@ def main():
                     cd = frame['cld_dist_km'].to_numpy(float)
                     for glab, glo, ghi in cld_bins:
                         gframe = frame[np.isfinite(cd) & (cd >= glo) & (cd < ghi)]
-                        if not len(gframe):
+                        if len(gframe) < args.min_fp:
                             continue
                         rows_cld.append(dict(
                             site=site, date=c['date'], surface=sname, qf_group=qflab,

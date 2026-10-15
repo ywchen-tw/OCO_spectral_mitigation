@@ -443,6 +443,15 @@ run_case  2016-03-03   tk20140328_20210331.public.qc.nc     139.84   140.45    3
 run_case  2017-01-17   tk20140328_20210331.public.qc.nc     139.29   139.78    35.19    36.48   403.5  411.0  both  poster tk  yes   # n=371 dmin=57km
 run_case  2018-04-10   tk20140328_20210331.public.qc.nc     140.06   140.66    35.26    36.95   408.5  413.5  both  poster tk  yes   # n=269 dmin=22km
 
+# ── 2026-10-15: three station-days on the test-pool dates that the 2026-09-15 scan
+#    did not cover (their per-date parquets lacked the _nosg fit until the v2 rerun).
+#    Same derivation and criterion as workspace/newsites_cases.py (>= 20 footprints
+#    within 100 km, >= 1 TCCON observation within +-60 min); scan in
+#    log/PIPELINE_FIX_RERUN_PLAN_2026-10-14.md (step 4).
+run_case  2014-10-23   js20110728_20231213.public.qc.nc     129.62   129.88    32.61    33.32   394.5  400.5  land  poster js  yes   # n=147 dmin=52km
+run_case  2015-08-13   ny20050316_20250524.public.qc.nc       9.56    15.67    79.01    79.66   386.5  400.0  both  poster ny  yes   # n=40 dmin=26km
+run_case  2015-12-04   ll20100202_20180930.public.qc.nc     168.63   168.87   -45.01   -44.53   391.5  404.0  land  poster ll  yes   # n=62 dmin=64km
+
 # ═══════════════════════ aggregate reports (run once, after all cases) ════════════
 # Both parse the active run_case lines above and summarize across cases.
 

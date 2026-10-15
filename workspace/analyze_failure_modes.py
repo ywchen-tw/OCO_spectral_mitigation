@@ -59,6 +59,10 @@ TREES = {  # tree label -> (out_base subdir, launcher with run_case lines)
     "drift": (BASE / TAG / "drift", "curc_shell_blanca_plot_corr_xco2_deepens_drift.sh"),
 }
 
+# Minimum co-located footprints for a station-day to enter a surface subset,
+# the rule of tccon_comparison_report.py --min-fp (default 10).
+MIN_FP = 10
+
 # Driver columns taken from the source parquet (merged on time/lon/lat).
 SRC_DRIVERS = ["xco2_qf", "snow_flag", "alb_o2a", "alb_wco2", "alb_sco2",
                "aod_dust", "aod_seasalt", "aod_sulfate", "aod_bc", "aod_oc",
@@ -202,6 +206,8 @@ def stage2_footprints(radius_km: float, window_min: float) -> pd.DataFrame:
             f["resid_after_direct"] = f[CORR] - ref_dir
             frames.append(f)
     d = pd.concat(frames, ignore_index=True)
+    n_sfc = d.groupby(["tree", "site", "date", "sfc_type"]).time.transform("size")
+    d = d[n_sfc >= MIN_FP].reset_index(drop=True)
     d["abs_lat"] = d.lat.abs()
     d["imp"] = d.resid_after.abs() - d.resid_before.abs()   # <0 ⇒ improved
     # cloud distance is only reliable pre-drift (Aqua free-drift ≥2023)

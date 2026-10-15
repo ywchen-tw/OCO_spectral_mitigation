@@ -65,6 +65,15 @@ SITE_COORDS = {
     'tk': (140.1200, 36.0500),   # Tsukuba 125HR (tsukuba02)
 }
 
+# Data records that share one physical site.  Statistics that cluster by site
+# (the site bootstrap) count them as one site.
+SAME_SITE = {'lr': 'll'}   # Lauder: lauder03 (lr) continues lauder02 (ll)
+
+
+def physical_site(code):
+    """Site code of the physical site a data record belongs to."""
+    return SAME_SITE.get(code, code)
+
 
 def find_plotdata(base, date, site):
     """Locate the build_deepens_plot_data.py output for one case under *base*

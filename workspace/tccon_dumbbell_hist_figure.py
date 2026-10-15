@@ -104,11 +104,14 @@ def _stat_table(ax, frame, cols, header=None, fs=9.0,
                      f"{np.mean(r):.2f}" if r.size else "–",
                      f"{int(np.sum(np.abs(b) <= 1.0))}/{b.size}"))
     # xs: label column, then three value columns (axes fractions).
-    # Row pitch fixed in points (1.8 x font size), converted to axes
+    # Row pitch fixed in points (2.3 x font size), converted to axes
     # fractions, so the table keeps its spacing when the panel height changes.
+    # The product labels carry both a sub- and a superscript (about 2.2 x font
+    # size tall); a smaller pitch lets one row's subscript hit the next row's
+    # superscript.
     fig = ax.figure
     ax_h_pt = ax.get_position().height * fig.get_figheight() * 72.0
-    dy = 1.8 * fs / ax_h_pt
+    dy = 2.3 * fs / ax_h_pt
     y = 1.02 + dy * len(rows)                # header line on top, products below
     heads = ('', '|residual| (ppm)', 'mean fp-RMSE (ppm)', 'within ±1 ppm')
     out = []
