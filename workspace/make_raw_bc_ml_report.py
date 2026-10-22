@@ -44,7 +44,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from constants import DE_PRODUCTION_TAG as TAG, RUN_SUFFIX  # noqa: E402
 BASE = Path("results/model_comparison/deep_ensemble")
 TREE_BC = BASE / TAG / "atrain"
+TREE_BC_CASES = TREE_BC   # case dirs for the increment attribution (plot_data)
 TREE_RAW = BASE / f"de_prof_reg_mix_raw{RUN_SUFFIX}"
+# Fifth series (optional): ML-on-raw + TCCON-anchor LR (workspace/anchor_lr/),
+# written by the report run with --corr-col anchor_lr_corrected_xco2 into
+# TREE_RAW/anchor_lr.  Land only (ocean rows are NaN in that column), so it
+# is shown on land slices and omitted (—) elsewhere.
+TREE_ANCHOR = TREE_RAW / "anchor_lr"
+ANCHOR_SFX = "_anchor_lr_r100km"
 
 SLICES = [
     ("pooled, QF 0+1", "all", "all", "all"),
@@ -69,16 +76,26 @@ def srow(d: pd.DataFrame, qf: str, surface: str, cld: str) -> pd.Series:
     return m.iloc[0]
 
 
+def _anchor_metrics(ref: str) -> pd.DataFrame | None:
+    p = TREE_ANCHOR / f"tccon_metrics_{ref}{ANCHOR_SFX}.csv"
+    return pd.read_csv(p) if p.exists() else None
+
+
 def three_and_four_series(ref: str) -> list[str]:
     a = pd.read_csv(TREE_BC / f"tccon_metrics_{ref}_r100km.csv")
     b = pd.read_csv(TREE_RAW / f"tccon_metrics_{ref}_r100km.csv")
+    c = _anchor_metrics(ref)
+    anchor_hdr = (" RMSE ML-on-raw+anchor |", " bias ML-on-raw+anchor |", "---|") \
+        if c is not None else ("", "", "")
     lines = [
         "| slice | n_fp | RMSE raw | RMSE bc | RMSE ML-on-bc | RMSE ML-on-raw |"
-        " bias raw | bias bc | bias ML-on-bc | bias ML-on-raw |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        + anchor_hdr[0] +
+        " bias raw | bias bc | bias ML-on-bc | bias ML-on-raw |" + anchor_hdr[1],
+        "|---|---|---|---|---|---|" + anchor_hdr[2] + "---|---|---|---|" + anchor_hdr[2],
     ]
     for label, qf, surface, cld in SLICES:
         ra, rb = srow(a, qf, surface, cld), srow(b, qf, surface, cld)
+        rc = srow(c, qf, surface, cld) if (c is not None and surface == "land") else None
         if int(ra.n_footprints) != int(rb.n_footprints):
             raise SystemExit(f"footprint mismatch on '{label}': "
                              f"{ra.n_footprints} vs {rb.n_footprints}")
@@ -87,35 +104,51 @@ def three_and_four_series(ref: str) -> list[str]:
                 raise SystemExit(f"shared column {shared} differs on '{label}'")
         afters = {"bc": ra.rmse_before, "mlbc": ra.rmse_after,
                   "mlraw": rb.rmse_after}
+        if rc is not None and np.isfinite(rc.rmse_after):
+            afters["anchor"] = rc.rmse_after
         best = min(afters, key=afters.get)
 
         def fmt(key, v):
             return f"**{v:.3f}**" if key == best else f"{v:.3f}"
 
+        anc_rmse = anc_bias = ""
+        if c is not None:
+            anc_rmse = (f"{fmt('anchor', rc.rmse_after)} | " if rc is not None else "— | ")
+            anc_bias = (f"{rc.bias_after:+.3f} |" if rc is not None else "— |")
         lines.append(
             f"| {label} | {int(ra.n_footprints):,} | {ra.rmse_raw:.3f} | "
             f"{fmt('bc', ra.rmse_before)} | {fmt('mlbc', ra.rmse_after)} | "
-            f"{fmt('mlraw', rb.rmse_after)} | "
+            f"{fmt('mlraw', rb.rmse_after)} | " + anc_rmse +
             f"{ra.bias_raw:+.3f} | {ra.bias_before:+.3f} | "
-            f"{ra.bias_after:+.3f} | {rb.bias_after:+.3f} |")
+            f"{ra.bias_after:+.3f} | {rb.bias_after:+.3f} |" + anc_bias)
     return lines
 
 
-def station_equal() -> list[str]:
-    """Station-equal mean |bias| — four series × (direct, ak) × QF."""
+def station_equal(surface: str = "all") -> list[str]:
+    """Station-equal mean |bias| — four series × (direct, ak) × QF, over the
+    report rows of one surface ('all' = pooled footprints, the headline).  On
+    'land' the anchored fifth series is appended when its report exists."""
     da = pd.read_csv(TREE_BC / "tccon_comparison_r100km.csv")
     db = pd.read_csv(TREE_RAW / "tccon_comparison_r100km.csv")
+    p_anchor = TREE_ANCHOR / f"tccon_comparison{ANCHOR_SFX}.csv"
+    dc = pd.read_csv(p_anchor) if (surface == "land" and p_anchor.exists()) else None
     cols = {"ak": ("bias_raw", "bias_before", "bias_after"),
             "direct": ("bias_raw_direct", "bias_before_direct",
                        "bias_after_direct")}
-    lines = ["| ref | QF | raw | bc | ML-on-bc | ML-on-raw |",
-             "|---|---|---|---|---|---|"]
+    series = ["bc", "mlbc", "mlraw"] + (["anchor"] if dc is not None else [])
+    hdr = {"bc": "bc", "mlbc": "ML-on-bc", "mlraw": "ML-on-raw",
+           "anchor": "ML-on-raw+anchor"}
+    lines = ["| ref | QF | raw | " + " | ".join(hdr[k] for k in series) + " |",
+             "|---|---|---|" + "---|" * len(series)]
     for ref, (c_raw, c_bc, c_ml) in cols.items():
         for qf in ("all", "qf0", "qf1"):
             vals = {}
-            for name, d, col in (("raw", da, c_raw), ("bc", da, c_bc),
-                                 ("mlbc", da, c_ml), ("mlraw", db, c_ml)):
-                g = d[(d.surface == "all") & (d.qf_group == qf)]
+            sources = [("raw", da, c_raw), ("bc", da, c_bc),
+                       ("mlbc", da, c_ml), ("mlraw", db, c_ml)]
+            if dc is not None:
+                sources.append(("anchor", dc, c_ml))
+            for name, d, col in sources:
+                g = d[(d.surface == surface) & (d.qf_group == qf)]
                 per_site = []
                 for _, s in g.groupby("site"):
                     w = s["n_oco"].to_numpy(float)
@@ -124,10 +157,10 @@ def station_equal() -> list[str]:
                         continue
                     per_site.append(abs(np.average(s[col][m], weights=w[m])))
                 vals[name] = float(np.mean(per_site))
-            best = min(("bc", "mlbc", "mlraw"), key=lambda k: vals[k])
+            best = min(series, key=lambda k: vals[k])
             cells = [f"{vals['raw']:.3f}"] + [
                 f"**{vals[k]:.3f}**" if k == best else f"{vals[k]:.3f}"
-                for k in ("bc", "mlbc", "mlraw")]
+                for k in series]
             lines.append(f"| {ref} | {qf} | " + " | ".join(cells) + " |")
     return lines
 
@@ -135,7 +168,7 @@ def station_equal() -> list[str]:
 def _load_pairs() -> pd.DataFrame:
     """Per-footprint (inc, mu_bc, mu_raw) over the unique-date union."""
     seen_dates, frames = set(), []
-    for case in sorted(p.name for p in TREE_BC.glob("combined_*")
+    for case in sorted(p.name for p in TREE_BC_CASES.glob("combined_*")
                        if (p / "plot_data.parquet").exists()):
         date = case.split("_")[1]
         if date in seen_dates:
@@ -145,7 +178,7 @@ def _load_pairs() -> pd.DataFrame:
             print(f"  [skip] {case}: no raw-tree plot_data")
             continue
         seen_dates.add(date)
-        a = pd.read_parquet(TREE_BC / case / "plot_data.parquet",
+        a = pd.read_parquet(TREE_BC_CASES / case / "plot_data.parquet",
                             columns=PLOT_COLS)
         b = pd.read_parquet(pb, columns=PLOT_COLS)
         if len(a) == len(b) and np.allclose(a.xco2_raw, b.xco2_raw,
@@ -224,11 +257,33 @@ def main():
     ap = argparse.ArgumentParser()
     today = dt.date.today().isoformat()
     ap.add_argument("--out", default=str(BASE / f"RAW_BC_ML_TCCON_{today}.md"))
+    ap.add_argument("--bc-tree", default=None,
+                    help="Override the ML-on-bc REPORT dir (default: production "
+                         "atrain tree). Use a report of the SAME cases as the raw "
+                         "tree when the two trees have diverged in case count. The "
+                         "increment attribution keeps reading the production case dirs.")
+    ap.add_argument("--raw-tree", default=None,
+                    help="Override the ML-on-raw tree dir (default de_prof_reg_mix_raw<RUN_SUFFIX>).")
+    ap.add_argument("--anchor-dir", default=None,
+                    help="Report dir of the anchored fifth series (default <raw tree>/anchor_lr).")
+    ap.add_argument("--anchor-sfx", default=None,
+                    help="Filename suffix of that report (default '_anchor_lr_r100km').")
     args = ap.parse_args()
+    global TREE_BC, TREE_RAW, TREE_ANCHOR, ANCHOR_SFX
+    if args.bc_tree:
+        TREE_BC = Path(args.bc_tree)
+    if args.raw_tree:
+        TREE_RAW = Path(args.raw_tree)
+        TREE_ANCHOR = TREE_RAW / "anchor_lr"
+    if args.anchor_dir:
+        TREE_ANCHOR = Path(args.anchor_dir)
+    if args.anchor_sfx:
+        ANCHOR_SFX = args.anchor_sfx
 
     ak = three_and_four_series("ak")
     direct = three_and_four_series("direct")
     st = station_equal()
+    st_land = station_equal("land") if (TREE_ANCHOR / f"tccon_comparison{ANCHOR_SFX}.csv").exists() else []
     inc_lines, k = increment_attribution()
 
     g = k["all"]
@@ -263,6 +318,14 @@ def main():
         "Each station's footprint-weighted mean bias → |·| → averaged over "
         "stations (surface=all rows).", "",
         *st, "",
+        *(["### 3b. Land rows only, with the TCCON-anchored ML(raw) series", "",
+           "`ML-on-raw+anchor` = (xco2_raw − μ_raw) − LR(f), LR = B11-style land "
+           "regression fit once to AK-harmonized TCCON on the training-date pool "
+           "(workspace/anchor_lr/). Land report rows (surface = land); the anchored "
+           "column is NaN over ocean. Caveat: the LR intercept absorbs the "
+           "direct-vs-AK anchoring offset, so its mean-bias advantage is partly "
+           "re-calibration; read fp-RMSE and the near-cloud/QF=1 slices.", "",
+           *st_land, ""] if st_land else []),
         "## 4. Does the ML correction explain part of the operational bias "
         "correction?", "",
         "Per-footprint over the unique-date union of the TCCON-case plot_data "
