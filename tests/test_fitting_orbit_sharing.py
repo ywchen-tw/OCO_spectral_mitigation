@@ -126,3 +126,17 @@ def test_ensure_fp_tau_computes_when_free(tmp_path, monkeypatch):
     assert fitting._ensure_fp_tau(sat0, "o1", 3600, 30) is True
     assert computed == ["o1"]
     assert not orbit_lock.is_locked(sat0["o1"]["fp_tau_file"])
+
+
+def test_select_orbits_filters_and_validates():
+    orbits = ["33111a_GL", "33124a_GL", "33124a_TG", "33125a_GL"]
+    assert fitting._select_orbits(orbits) == orbits
+    assert fitting._select_orbits(orbits, ["33124a_TG"]) == ["33124a_TG"]
+    assert fitting._select_orbits(orbits, ["33125a_GL", "33111a_GL"]) == ["33111a_GL", "33125a_GL"]
+    assert fitting._select_orbits(orbits, None, 2) == orbits[:2]
+    try:
+        fitting._select_orbits(orbits, ["99999a_GL"])
+    except FileNotFoundError as e:
+        assert "99999a_GL" in str(e)
+    else:
+        raise AssertionError("missing orbit must raise")

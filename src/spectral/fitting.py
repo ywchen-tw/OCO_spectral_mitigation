@@ -651,6 +651,22 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
 
 # ─── Pipeline ──────────────────────────────────────────────────────────────────
 
+def _select_orbits(orbit_list, orbits=None, limit_granules=-1):
+    """Restrict the discovered orbit list to ``orbits`` (if given), then to
+    the first ``limit_granules`` entries.  Unknown orbit ids raise."""
+    if orbits:
+        missing = [o for o in orbits if o not in orbit_list]
+        if missing:
+            raise FileNotFoundError(
+                f"Requested orbit(s) not found for this date: {missing}; "
+                f"available: {orbit_list}"
+            )
+        orbit_list = [o for o in orbit_list if o in set(orbits)]
+    if limit_granules > 0:
+        orbit_list = orbit_list[:limit_granules]
+    return orbit_list
+
+
 def _fp_tau_path(result_dir, date, orbit_id):
     date_str = date.strftime("%Y-%m-%d")
     return os.path.abspath(f"{result_dir}/{date_str}/{orbit_id}/fp_tau_combined.h5")
@@ -702,7 +718,7 @@ def _ensure_fp_tau(sat0, orbit_id, lock_stale_seconds, wait_seconds):
 
 @timing
 def preprocess(target_date, data_dir="data", result_dir="results", limit_granules=-1,
-               lock_stale_seconds=orbit_lock.DEFAULT_STALE_SECONDS):
+               lock_stale_seconds=orbit_lock.DEFAULT_STALE_SECONDS, orbits=None):
     """Discover orbit files and compute per-footprint optical depths.
 
     Returns sat0 dict consumed by run_simulation and load_shared_data.
@@ -711,9 +727,8 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
     year = date.year
     doy  = date.timetuple().tm_yday
 
-    oco2_orbit_list = search_oco2_orbit(date, data_dir=data_dir)
-    if limit_granules > 0:
-        oco2_orbit_list = oco2_orbit_list[:limit_granules]
+    oco2_orbit_list = _select_orbits(search_oco2_orbit(date, data_dir=data_dir),
+                                     orbits, limit_granules)
 
     if not oco2_orbit_list:
         raise FileNotFoundError(
@@ -778,7 +793,9 @@ def run_simulation(target_date, data_dir, result_dir,
                    dual_fit=True,
                    fit_workers=1,
                    lock_stale_hours=4.0,
-                   tau_wait_minutes=180.0):
+                   tau_wait_minutes=180.0,
+                   orbits=None,
+                   overwrite=False):
     """Top-level pipeline: preprocess → fit → analyse.
 
     Several jobs may run this for the same date: each orbit's optical-depth
@@ -792,7 +809,7 @@ def run_simulation(target_date, data_dir, result_dir,
     stale_seconds = float(lock_stale_hours) * 3600.0
     wait_seconds  = float(tau_wait_minutes) * 60.0
     sat0 = preprocess(target_date, data_dir, result_dir, limit_granules,
-                      lock_stale_seconds=stale_seconds)
+                      lock_stale_seconds=stale_seconds, orbits=orbits)
 
     fit_order = FIT_ORDER  # (o2a_order, wco2_order, sco2_order); see constants.py
 
@@ -814,8 +831,8 @@ def run_simulation(target_date, data_dir, result_dir,
             if not got:
                 logger.info(f"[{orbit_id}] Fit in progress in another job; deferring")
                 return False
-            process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order, overwrite=False,
-                          dual_fit=dual_fit, fit_workers=fit_workers)
+            process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order,
+                          overwrite=overwrite, dual_fit=dual_fit, fit_workers=fit_workers)
 
         if delete_ocofiles:
             for key in ("oco_l1b", "oco_met", "oco_co2prior"):
@@ -883,6 +900,11 @@ def main():
                         help='Processes for the per-sounding fit stage; '
                              '0 = auto (cores - 1), 1 = serial. Results are '
                              'identical regardless of worker count.')
+    parser.add_argument('--orbit', action='append', default=None, metavar='ORBIT_ID',
+                        help='Process only this orbit directory (e.g. 33124a_TG); '
+                             'repeat the flag for several orbits')
+    parser.add_argument('--overwrite', action='store_true',
+                        help='Refit even when a complete fitting_details file exists')
     parser.add_argument('--lock-stale-hours', type=float, default=4.0,
                         help='Per-orbit lock files older than this are treated as '
                              'left behind by a dead job and taken over')
@@ -916,6 +938,8 @@ def main():
         fit_workers=fit_workers,
         lock_stale_hours=args.lock_stale_hours,
         tau_wait_minutes=args.tau_wait_minutes,
+        orbits=args.orbit,
+        overwrite=args.overwrite,
     )
     return 0
 
