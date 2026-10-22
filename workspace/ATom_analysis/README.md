@@ -126,6 +126,12 @@ Output `$OUT/atom_pseudo_column_results.csv` + `atom_pseudo_column_summary.png`
 per-leg bc→corrected and bias-vs-cloud-distance — same σ-errorbar style as
 `tccon_comparison_report`; the corrected σ is visibly tighter than bc on high-bias legs).
 
+> **2026-10-21 — 10-footprint guard.** `--min-n` now defaults to 10 (was 3), the same
+> subset guard the TCCON report applies (`tccon_comparison_report.py --min-fp`). This
+> drops 2017-10-20 leg 11 (5 footprints), leaving **16 legs, 11 within 5 km of cloud**.
+> Near-cloud leg means (manuscript grouping, ≤5 km): |residual| 0.42 → 0.38 ppm,
+> fp-RMSE 0.76 → 0.50 ppm. The paragraph below predates the guard.
+
 **Result (8 dates, 17 collocated legs):** the DE correction reduces |residual| vs the
 ATom pseudo-column — **near-cloud legs (n=14): 0.532 → 0.460 ppm** (~14%); all 17 legs
 0.493 → 0.443. Biases are signed and partly cancel across dates (2017-10-20/27 positive,

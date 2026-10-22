@@ -4,7 +4,7 @@ Reads plot_data.csv produced by apply_models.py and a TCCON NetCDF4 file.
 
 Two manuscript figures per run (Arial, plasma XCO2 maps, panel letters):
   corrected_xco2_vs_tccon.png       2×3 compact —
-      (a) Lite XCO2 | (b) ML-corrected XCO2 | (c) predicted sigma
+      (a) B11 XCO2 | (b) ML-corrected XCO2 | (c) predicted sigma
       (d) predicted correction mu | (e) histogram | (f) TCCON time series
   corrected_xco2_vs_tccon_full.png  3×3 — adds ideal-corrected and
       nearest-cloud-distance maps in a middle row.
@@ -476,6 +476,29 @@ def render_modis_granule_rgb(myd021km_path, myd03_path, output_png,
 
 # ── Plot helpers ───────────────────────────────────────────────────────────────
 
+def _draw_radius_circle(ax, lon0, lat0, radius_km, lw=1.2, zorder=4, label=None):
+    """Dashed white-on-black circle of great-circle *radius_km* around a station.
+
+    Small-circle approximation on a lon/lat grid (exact in latitude, scaled by
+    cos(lat) in longitude); fine for the ±100 km collocation radius.
+    """
+    import matplotlib.patheffects as _pe
+    th = np.linspace(0.0, 2.0 * np.pi, 361)
+    clat = lat0 + radius_km / 111.195 * np.sin(th)
+    clon = (lon0 + radius_km
+            / (111.195 * max(np.cos(np.radians(lat0)), 0.05)) * np.cos(th))
+    ax.plot(clon, clat, ls='--', lw=lw, color='white', zorder=zorder,
+            path_effects=[_pe.Stroke(linewidth=2.0 * lw, foreground='black'),
+                          _pe.Normal()],
+            label=label if label is not None else f'{radius_km:g} km radius')
+
+
+def _set_geographic_aspect(ax, view_extent):
+    """Equal km in x and y at the mid-latitude so radius circles stay round."""
+    mid_lat = 0.5 * (view_extent[2] + view_extent[3])
+    ax.set_aspect(1.0 / max(np.cos(np.radians(mid_lat)), 0.05))
+
+
 def _scatter_map(ax, lon, lat, values, title, norm, cmap,
                  tccon_lon=None, tccon_lat=None,
                  bg_img=None, bg_extent=None,
@@ -509,16 +532,7 @@ def _scatter_map(ax, lon, lat, values, title, norm, cmap,
                    edgecolors='white', linewidths=0.6,
                    zorder=5, label='TCCON station')
         if circle_km is not None and circle_km > 0:
-            import matplotlib.patheffects as _pe
-            _th = np.linspace(0.0, 2.0 * np.pi, 361)
-            _clat = tccon_lat + circle_km / 111.195 * np.sin(_th)
-            _clon = (tccon_lon + circle_km
-                     / (111.195 * max(np.cos(np.radians(tccon_lat)), 0.05))
-                     * np.cos(_th))
-            ax.plot(_clon, _clat, ls='--', lw=1.2, color='white', zorder=4,
-                    path_effects=[_pe.Stroke(linewidth=2.4, foreground='black'),
-                                  _pe.Normal()],
-                    label=f'{circle_km:g} km radius')
+            _draw_radius_circle(ax, tccon_lon, tccon_lat, circle_km)
         if show_station_legend:
             ax.legend(loc='lower left', markerscale=1.3)
     ax.set_title(title)
@@ -528,10 +542,7 @@ def _scatter_map(ax, lon, lat, values, title, norm, cmap,
     if view_extent is not None:
         ax.set_xlim(view_extent[0], view_extent[1])
         ax.set_ylim(view_extent[2], view_extent[3])
-        # geographic aspect (equal km in x and y) — keeps the collocation
-        # circle round regardless of the grid-cell shape
-        _mid_lat = 0.5 * (view_extent[2] + view_extent[3])
-        ax.set_aspect(1.0 / max(np.cos(np.radians(_mid_lat)), 0.05))
+        _set_geographic_aspect(ax, view_extent)
 
 
 def _tccon_panel(ax, tccon_df: pd.DataFrame, vmin: float, vmax: float, title: str,
@@ -665,11 +676,14 @@ def _save_poster_comparison_figure(
         view_extent=None,
         dpi: int = 300,
         hist_df=None,
+        circle_km=None,
         ):
     """Save a compact poster figure for one corrected XCO₂ model.
 
     hist_df : DataFrame for the histogram panel (e.g. footprints near TCCON).
         Defaults to oco_df.  Maps always use oco_df (full lon/lat box).
+    circle_km : collocation radius drawn as a dashed circle around the station
+        on both maps (same style as the manuscript figure); None → no circle.
     """
     if hist_df is None:
         hist_df = oco_df
@@ -733,6 +747,10 @@ def _save_poster_comparison_figure(
                 zorder=5,
                 label='TCCON',
             )
+            if circle_km is not None and circle_km > 0:
+                # short label keeps the legend box clear of the swath
+                _draw_radius_circle(ax, tccon_lon, tccon_lat, circle_km, lw=1.8,
+                                    label=f'{circle_km:g} km')
             ax.legend(
                 loc='upper right',
                 fontsize=18,
@@ -746,6 +764,7 @@ def _save_poster_comparison_figure(
         if view_extent is not None:
             ax.set_xlim(view_extent[0], view_extent[1])
             ax.set_ylim(view_extent[2], view_extent[3])
+            _set_geographic_aspect(ax, view_extent)
         ax.grid(alpha=0.18, linewidth=0.6)
 
     fig = plt.figure(figsize=(23.5, 6.2))
@@ -760,7 +779,7 @@ def _save_poster_comparison_figure(
     cbar_ax = fig.add_subplot(gs[0, 2])
     ax_hist = fig.add_subplot(gs[0, 4])
 
-    _draw_map(ax_orig, oco_df['xco2_bc'].values, 'OCO-2 Lite $X_{\mathrm{CO2}}$')
+    _draw_map(ax_orig, oco_df['xco2_bc'].values, 'OCO-2 B11 $X_{\mathrm{CO2}}$')
     _draw_map(
         ax_corr,
         oco_df[model_col].values,
@@ -775,6 +794,10 @@ def _save_poster_comparison_figure(
     cbar.ax.tick_params(labelsize=16)
 
     bins = np.linspace(vmin, vmax, 80)
+    # Legend is built as two columns — (handle, name) | (blank, "μ ± σ ppm") —
+    # so the numbers line up in their own column instead of trailing names of
+    # different length.  Entries are collected here in draw order.
+    legend_names, legend_stats = [], []
 
     def _draw_hist(values, label, color, linestyle='-'):
         values = np.asarray(values, dtype=float)
@@ -792,12 +815,14 @@ def _save_poster_comparison_figure(
             color=color,
             alpha=0.6,
             linestyle=linestyle,
-            label=f'{label}: {mu:.2f} $\\pm$ {sigma:.2f} ppm',
+            label=label,
         )
         ax_hist.axvline(mu, color=color, linewidth=3.0, alpha=0.95)
+        legend_names.append(label)
+        legend_stats.append(f'{mu:.1f} $\\pm$ {sigma:.1f} ppm')
 
-    _draw_hist(hist_df['xco2_bc'].values, 'OCO-2 Lite $X_{\mathrm{CO2}}$', 'black')
-    _draw_hist(hist_df[model_col].values, 'Corrected $X_{\mathrm{CO2}}$', 'green')
+    _draw_hist(hist_df['xco2_bc'].values, 'OCO-2 B11 $X_{\mathrm{CO2}}$', 'black')
+    _draw_hist(hist_df[model_col].values, 'ML-corrected $X_{\mathrm{CO2}}$', 'green')
     if len(tccon_df) > 0:
         _draw_hist(tccon_df['xco2'].values, _tc_label('TCCON $X_{\mathrm{CO2}}$'),
                    'coral', linestyle='--')
@@ -807,7 +832,17 @@ def _save_poster_comparison_figure(
     ax_hist.set_ylabel('Density', fontsize=18)
     ax_hist.tick_params(labelsize=16)
     ax_hist.grid(alpha=0.22, linewidth=0.7)
+    # Column-major fill: the first ceil(n/2) entries form column 1 (handles +
+    # names), the rest column 2 (invisible handles + statistics).
+    from matplotlib.lines import Line2D
+    hist_handles, _ = ax_hist.get_legend_handles_labels()
+    blank = Line2D([], [], linestyle='none')
     ax_hist.legend(
+        hist_handles + [blank] * len(legend_stats),
+        legend_names + legend_stats,
+        ncol=2,
+        columnspacing=-1.0,   # pulls the stats column into the blank-handle gap
+        handlelength=1.6,
         fontsize=17,
         loc='center left',
         bbox_to_anchor=(1.02, 0.5),
@@ -837,7 +872,7 @@ def _compose_case_figure(*, full, oco, oco_hist, tccon, active,
     """Manuscript case figure.
 
     Compact (full=False):
-        (a) OCO-2 Lite XCO2 | (b) ML-corrected XCO2 | (c) predicted sigma
+        (a) OCO-2 B11 XCO2 | (b) ML-corrected XCO2 | (c) predicted sigma
         (d) predicted correction mu | (e) histogram | (f) TCCON time series
     Full (full=True) adds a middle map row:
         (d) mu | (e) ideal-corrected | (f) nearest-cloud distance
@@ -886,14 +921,14 @@ def _compose_case_figure(*, full, oco, oco_hist, tccon, active,
 
     xco2_ppm = f'{XCO2_LABEL} (ppm)'
 
-    # ── Row 0: Lite | ML-corrected | predicted σ (all bars horizontal) ───────
+    # ── Row 0: B11 | ML-corrected | predicted σ (all bars horizontal) ────────
     if 'xco2_bc' in oco.columns:
         _map_panel(gs[0, 0], gs[1, 0], oco['xco2_bc'].values,
-                   f'OCO-2 Lite {XCO2_LABEL}', norm, _CMAP, xco2_ppm,
+                   f'OCO-2 B11 {XCO2_LABEL}', norm, _CMAP, xco2_ppm,
                    legend=True)
     else:
         _text_panel(gs[0, 0], 'xco2_bc not in plot_data',
-                    f'OCO-2 Lite {XCO2_LABEL}')
+                    f'OCO-2 B11 {XCO2_LABEL}')
     if primary is not None:
         _map_panel(gs[0, 1], gs[1, 1], oco[primary[1]].values,
                    f'ML-corrected {XCO2_LABEL}', norm, _CMAP, xco2_ppm)
@@ -1408,12 +1443,21 @@ def main():
                 print(f"  --modis-auto: GIBS {args.modis_which.upper()} composite "
                       f"for {modis_date.date()} (from {date_source}) …", flush=True)
                 try:
-                    rgb_path  = download_modis_rgb(
-                        modis_date, gibs_extent,
-                        which=args.modis_which,
-                        fdir=str(out_dir_pre),
-                        coastline=True,
-                    )
+                    # The PNG name encodes date, extent and platform, so an
+                    # existing file is the same composite — reuse it instead of
+                    # re-downloading (offline re-plots, no GIBS dependency).
+                    rgb_path = download_modis_rgb(
+                        modis_date, gibs_extent, which=args.modis_which,
+                        fdir=str(out_dir_pre), run=False)
+                    if Path(rgb_path).exists():
+                        print(f"  Reusing cached MODIS RGB → {rgb_path}", flush=True)
+                    else:
+                        rgb_path = download_modis_rgb(
+                            modis_date, gibs_extent,
+                            which=args.modis_which,
+                            fdir=str(out_dir_pre),
+                            coastline=True,
+                        )
                     bg_img    = plt.imread(rgb_path)
                     bg_extent = gibs_extent
                 except Exception as exc:
@@ -1558,6 +1602,7 @@ def main():
             view_extent=map_extent,
             dpi=args.poster_dpi,
             hist_df=oco_hist,
+            circle_km=args.hist_radius_km,
         )
         print(f"Poster figure saved → {poster_path}", flush=True)
 

@@ -22,7 +22,7 @@ Inputs (all local):
 
 Output: $OUT/atom_pseudo_column_results.csv  (one row per collocated leg)
 
-Usage: python atom_pseudo_column.py [--radius-km 100] [--window-min 120] [--min-n 3]
+Usage: python atom_pseudo_column.py [--radius-km 100] [--window-min 120] [--min-n 10]
 """
 from __future__ import annotations
 import argparse, datetime as dt, os, sys
@@ -299,7 +299,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--radius-km", type=float, default=100)
     ap.add_argument("--window-min", type=float, default=120)
-    ap.add_argument("--min-n", type=int, default=3)
+    ap.add_argument("--min-n", type=int, default=10,
+                    help="minimum co-located footprints per leg; 10 matches the TCCON "
+                         "subset guard of tccon_comparison_report.py (--min-fp)")
     ap.add_argument("--strat-prior-sd", type=float, default=1.0,
                     help="nominal stratospheric CO2 prior σ (ppm) for the pseudo-column "
                          "uncertainty's prior-fill term above the aircraft ceiling")

@@ -231,7 +231,7 @@ run_case  2020-07-11   ny20050316_20250524.public.qc.nc       8.23    13.24    7
 run_case  2020-07-26   ny20050316_20250524.public.qc.nc      10.55    16.59    78.00    79.30   404.0  409.0  both  poster  ny  yes
 # 2021-06-21: nearest OCO sounding 165 km from station (overpass orbit not in parquet) — no ≤100km comparison
 # run_case  2021-06-21   ny20050316_20250524.public.qc.nc      10.92    12.92    77.92    79.92   413.0  419.0  both  poster  ny
-run_case  2021-07-03   ny20050316_20250524.public.qc.nc       9.77    16.72    78.57    80.17   412.0  418.5  both  poster  ny  yes
+run_case  2021-07-03   ny20050316_20250524.public.qc.nc       9.77    16.72    78.57    80.17   410.0  418.5  both  poster  ny  yes
 run_case  2021-09-08   ny20050316_20250524.public.qc.nc      10.21    13.80    78.03    79.27   405.5  412.0  both  poster  ny  yes
 
 # ── Wollongong, Australia (wg; lat -34.41, lon 150.88) ──

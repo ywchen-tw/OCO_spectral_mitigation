@@ -260,7 +260,7 @@ run_case  2020-07-11   ny20050316_20250524.public.qc.nc       8.23    13.24    7
 run_case  2020-07-26   ny20050316_20250524.public.qc.nc      10.55    16.59    78.00    79.30   404.0  409.0  both  poster  ny  yes
 # 2021-06-21: nearest OCO sounding 165 km from station (overpass orbit not in parquet) — no ≤100km comparison
 # run_case  2021-06-21   ny20050316_20250524.public.qc.nc      10.92    12.92    77.92    79.92   413.0  419.0  both  poster  ny
-run_case  2021-07-03   ny20050316_20250524.public.qc.nc       9.77    16.72    78.57    80.17   412.0  418.5  both  poster  ny  yes
+run_case  2021-07-03   ny20050316_20250524.public.qc.nc       9.77    16.72    78.57    80.17   410.0  418.5  both  poster  ny  yes
 run_case  2021-09-08   ny20050316_20250524.public.qc.nc      10.21    13.80    78.03    79.27   405.5  412.0  both  poster  ny  yes
 
 # ── Wollongong, Australia (wg; lat -34.41, lon 150.88) ──
@@ -451,6 +451,29 @@ run_case  2018-04-10   tk20140328_20210331.public.qc.nc     140.06   140.66    3
 run_case  2014-10-23   js20110728_20231213.public.qc.nc     129.62   129.88    32.61    33.32   394.5  400.5  land  poster js  yes   # n=147 dmin=52km
 run_case  2015-08-13   ny20050316_20250524.public.qc.nc       9.56    15.67    79.01    79.66   386.5  400.0  both  poster ny  yes   # n=40 dmin=26km
 run_case  2015-12-04   ll20100202_20180930.public.qc.nc     168.63   168.87   -45.01   -44.53   391.5  404.0  land  poster ll  yes   # n=62 dmin=64km
+
+
+# ═══════════════════════ added 2026-10-21: already-processed test-pool dates with no case ════════════════
+# Lattice scan log/JQSRT_plan/tccon_overpass_candidates_2026-10-21.md, section 2: these
+# station-days had >= 20 footprints within 100 km and >= 1 TCCON observation within
+# +-60 min but no run_case line, because the A-Train list was picked by hand one
+# station per date.  Boxes derived with workspace/newsites_cases.py.
+#         DATE         TCCON                              LON_MIN  LON_MAX  LAT_MIN  LAT_MAX   VMIN   VMAX  SURF  POSTER SITE  AVAIL
+# -- burgos01 (bu) --
+run_case  2018-02-21   bu20170303_20250409.public.qc.nc     120.25   120.72    17.63    19.36   402.5  409.0  both  poster bu  yes   # n=547 dmin=17km
+# -- pasadena01 (ci) --
+# run_case  2019-07-10   ci20120920_20260125.public.qc.nc    -117.99  -117.74    34.80    35.04   409.0  411.5  land  poster ci  yes   # n=5264 dmin=77km   # Edwards target pass, 77 km from Caltech; same footprints as df 2019-07-10 — not run
+# -- lamont01 (oc) --
+run_case  2015-07-13   oc20110416_20260122.public.qc.nc     -97.38   -96.84    35.86    37.50   398.5  402.0  land  poster oc  yes   # n=382 dmin=35km
+run_case  2018-03-13   oc20110416_20260122.public.qc.nc     -97.61   -97.36    36.45    36.74   408.5  411.0  land  poster oc  yes   # n=6194 dmin=0km
+run_case  2020-10-05   oc20110416_20260122.public.qc.nc     -97.05   -96.61    36.03    37.43   408.0  410.5  land  poster oc  yes   # n=529 dmin=60km
+# -- orleans01 (or) --
+run_case  2016-09-10   or20090906_20250411.public.qc.nc       1.63     1.70    47.11    47.29   398.0  401.0  land  poster or  yes   # n=40 dmin=83km
+# -- parkfalls01 (pa) --
+run_case  2018-10-24   pa20040602_20260123.public.qc.nc     -90.43   -90.10    45.79    46.07   405.0  408.5  land  poster pa  yes   # n=5653 dmin=0km
+run_case  2019-07-30   pa20040602_20260123.public.qc.nc     -89.46   -89.05    45.61    46.64   401.5  406.0  land  poster pa  yes   # n=207 dmin=80km
+# -- reunion01 (ra) --
+run_case  2017-06-26   ra20150301_20200718.public.qc.nc      55.19    55.67   -21.80   -20.02   402.0  406.0  both  poster ra  yes   # n=430 dmin=18km
 
 # ═══════════════════════ aggregate reports (run once, after all cases) ════════════
 # Both parse the active run_case lines above and summarize across cases.

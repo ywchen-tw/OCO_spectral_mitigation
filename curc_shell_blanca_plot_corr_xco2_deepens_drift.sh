@@ -295,6 +295,23 @@ run_case  2024-05-10   hf20151102_20251230.public.qc.nc     116.21   116.39    3
 # -- lauder03 (lr) --
 run_case  2023-03-13   lr20181002_20250629.public.qc.nc     169.04   169.38   -45.38   -44.39   410.5  419.0  land  poster lr  yes   # n=63 dmin=26km
 
+
+# ═══════════════════════ added 2026-10-21: runner-up stations on already-processed dates ════════════════
+# gen_drift_cases.py assigned each date to the single station with the most footprints;
+# these are the runner-up stations on the same dates (>= 20 footprints within 100 km,
+# >= 1 TCCON observation within +-60 min).  Scan: log/JQSRT_plan/tccon_overpass_candidates_2026-10-21.md.
+#         DATE         TCCON                              LON_MIN  LON_MAX  LAT_MIN  LAT_MAX   VMIN   VMAX  SURF  POSTER SITE  AVAIL
+# -- karlsruhe01 (ka) --
+run_case  2023-10-13   ka20140115_20241227.public.qc.nc       8.43     9.03    48.27    49.65   413.0  419.0  land  poster ka  yes   # n=257 dmin=14km
+# -- orleans01 (or) --
+run_case  2023-10-11   or20090906_20250411.public.qc.nc       1.68     1.82    47.08    47.28   416.0  419.0  land  poster or  yes   # n=78 dmin=82km
+# -- paris01 (pr) --
+run_case  2024-08-26   pr20140923_20251120.public.qc.nc       2.18     2.95    48.03    49.49   408.0  419.5  land  poster pr  yes   # n=403 dmin=11km
+# -- wollongong01 (wg) --
+run_case  2023-03-19   wg20130104_20260224.public.qc.nc     150.73   150.94   -34.59   -34.29   414.5  420.5  land  poster wg  yes   # n=4092 dmin=0km
+run_case  2023-04-04   wg20130104_20260224.public.qc.nc     150.65   151.14   -35.28   -33.63   413.0  417.0  both  poster wg  yes   # n=302 dmin=1km
+run_case  2024-03-10   wg20130104_20260224.public.qc.nc     150.72   150.93   -34.61   -34.32   413.0  422.5  land  poster wg  yes   # n=3660 dmin=0km
+
 # ═══════════════════════ aggregate reports (run once, after all cases) ════════════
 # Both parse the active run_case lines above and summarize across the DRIFT cases.
 

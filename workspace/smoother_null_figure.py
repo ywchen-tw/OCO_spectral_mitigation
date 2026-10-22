@@ -142,8 +142,8 @@ def main():
                marker="^", facecolors="none", edgecolors=C_SM,
                linewidths=0.8, zorder=2)
     ax.set_xlim(0, lim); ax.set_ylim(0, lim)
-    ax.set_xlabel("|station-day residual to TCCON| before (ppm)")
-    ax.set_ylabel("|station-day residual to TCCON|\nafter (ppm)")
+    ax.set_xlabel("|overpass residual to TCCON| before (ppm)")
+    ax.set_ylabel("|overpass residual to TCCON|\nafter (ppm)")
     ax.text(0.03, 0.92,
             f"mean {A_de['ab_b']:.2f} → {A_de['ab_a']:.2f} (correction)\n"
             f"mean {A_sm['ab_b']:.2f} → {A_sm['ab_a']:.2f} (smoother)",

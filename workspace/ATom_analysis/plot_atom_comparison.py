@@ -37,7 +37,7 @@ from plot_style import apply_manuscript_style, panel_label, CMAPS, XCO2_LABEL, X
 TILES_DIR = os.path.join(PLOT_BASE, "_modis_tiles")
 
 
-def collocate_date(date, radius_km, twin_s, min_n=3):
+def collocate_date(date, radius_km, twin_s, min_n=10):
     """Return (oco, atom, legs, pooled) — legs is a list of per-leg dicts with the
     collocated footprint subset, AK pseudo-column, operator and leg frame."""
     oco, atom = load_oco(date), load_atom(date)

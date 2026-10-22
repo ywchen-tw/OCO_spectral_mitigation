@@ -157,7 +157,7 @@ def _draw_dumbbell(ax, frame, cols, band):
     ax.axvspan(-band, band, color=BAND_COLOR, alpha=BAND_ALPHA, lw=0,
                zorder=0, label=f'±{band:g} ppm residual')
     ax.set_yticks([])
-    ax.set_ylabel(f'station-day (sorted by {XCO2_BC_LABEL} residual)')
+    ax.set_ylabel(f'overpass (sorted by {XCO2_BC_LABEL} residual)')
     # Rows fill the panel (stat table above the frame, legend in the empty
     # upper-left corner that the sort leaves free).
     ax.set_ylim(-1.2, n + 0.2)
@@ -231,7 +231,7 @@ def _draw_hist(ax, frame, cols, band, bin_ppm, xlim=None, headroom=1.15):
     # Ticks every 5 (or finer for small subsets) on the shorter print panel.
     ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(
         nbins=7, steps=[1, 2, 5, 10], integer=True))
-    ax.set_ylabel('station-days')
+    ax.set_ylabel('overpasses')
     ax.set_xlabel(f'{XCO2_LABEL} residual to TCCON (ppm)')
     ax.grid(alpha=0.3, axis='x')
     return xlim
