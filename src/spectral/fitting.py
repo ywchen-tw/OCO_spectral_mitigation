@@ -40,6 +40,7 @@ from constants import FIT_ORDER, anomaly_args as production_anomaly_args
 from config import Config
 from abs_util.fp_atm import oco_fp_atm_abs
 from abs_util.oco_util import timing
+from spectral import orbit_lock
 
 # Re-exports (backward compat: this module was a single file until 2026-07).
 from spectral.cumulant_fit import (  # noqa: F401
@@ -626,24 +627,82 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
     # downstream build_feature_dataset reads.  Integer / string datasets are
     # stored as-is.
     keep_float64 = {"time"}   # seconds since epoch: float32 would lose ~minutes
-    with h5py.File(output_file, "w") as f_out:
-        for key, value in output_dict.items():
-            arr = np.asarray(value)
-            if arr.dtype == np.float64 and key not in keep_float64:
-                arr = arr.astype(np.float32)
-            if arr.ndim > 0 and arr.size > 0:
-                f_out.create_dataset(key, data=arr, compression="gzip",
-                                     compression_opts=4, shuffle=True)
-            else:
-                f_out.create_dataset(key, data=arr)
+    # Write to a temporary name and rename into place, so another job's cache
+    # check never opens a half-written file.
+    tmp_output = f"{output_file}.{os.getpid()}.tmp"
+    try:
+        with h5py.File(tmp_output, "w") as f_out:
+            for key, value in output_dict.items():
+                arr = np.asarray(value)
+                if arr.dtype == np.float64 and key not in keep_float64:
+                    arr = arr.astype(np.float32)
+                if arr.ndim > 0 and arr.size > 0:
+                    f_out.create_dataset(key, data=arr, compression="gzip",
+                                         compression_opts=4, shuffle=True)
+                else:
+                    f_out.create_dataset(key, data=arr)
+        os.replace(tmp_output, output_file)
+    finally:
+        if os.path.exists(tmp_output):
+            os.remove(tmp_output)
 
     logger.info(f"[{orbit_id}] Done.")
 
 
 # ─── Pipeline ──────────────────────────────────────────────────────────────────
 
+def _fp_tau_path(result_dir, date, orbit_id):
+    date_str = date.strftime("%Y-%m-%d")
+    return os.path.abspath(f"{result_dir}/{date_str}/{orbit_id}/fp_tau_combined.h5")
+
+
+def _compute_fp_tau(sat0, orbit_id, fp_tau_file):
+    print(f"Computing footprint optical depths for orbit {orbit_id}...")
+    oco_fp_atm_abs(
+        sat=sat0,
+        o2mix=0.20935,
+        output=fp_tau_file,
+        oco_files_dict=sat0[orbit_id],
+        oco_nc_file=sat0["oco_lite"],
+        overwrite=True,
+    )
+
+
+def _ensure_fp_tau(sat0, orbit_id, lock_stale_seconds, wait_seconds):
+    """Make sure the orbit's optical-depth file is current.
+
+    Computes it under the orbit lock when the lock is free; otherwise waits
+    for the job that holds the lock.  Returns True when the file is current
+    afterwards.
+    """
+    fp_tau_file = sat0[orbit_id]["fp_tau_file"]
+
+    def ready():
+        return fp_tau_file_is_current(fp_tau_file)
+
+    if ready():
+        return True
+    for _attempt in range(2):
+        with orbit_lock.held(fp_tau_file, lock_stale_seconds) as got:
+            if got:
+                if not ready():
+                    _compute_fp_tau(sat0, orbit_id, fp_tau_file)
+                return ready()
+        logger.info(
+            f"[{orbit_id}] Optical depths are being computed by another job; "
+            f"waiting up to {wait_seconds / 60:.0f} min"
+        )
+        if orbit_lock.wait_for(fp_tau_file, ready, wait_seconds,
+                               stale_seconds=lock_stale_seconds):
+            return True
+        # The lock is gone but the file is not current (the other job died or
+        # failed): loop once more and try to claim the orbit ourselves.
+    return ready()
+
+
 @timing
-def preprocess(target_date, data_dir="data", result_dir="results", limit_granules=-1):
+def preprocess(target_date, data_dir="data", result_dir="results", limit_granules=-1,
+               lock_stale_seconds=orbit_lock.DEFAULT_STALE_SECONDS):
     """Discover orbit files and compute per-footprint optical depths.
 
     Returns sat0 dict consumed by run_simulation and load_shared_data.
@@ -681,28 +740,31 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
         "oco_lite":   lite_nc_file,
     }
 
-    # randomize oco2_orbit_list for multiple runs to avoid always processing orbits in the same order (which may bias results if some orbits are more likely to fail or have issues)
-    oco2_orbit_list = np.random.RandomState().permutation(oco2_orbit_list)
+    # Shuffle so that several jobs started on the same date work on different
+    # orbits.  The shuffled order is stored back into sat0, so the fitting loop
+    # in run_simulation follows it too (it used to iterate the sorted list).
+    oco2_orbit_list = [str(o) for o in np.random.RandomState().permutation(oco2_orbit_list)]
+    sat0["orbit_list"] = oco2_orbit_list
     for orbit_id in oco2_orbit_list:
         orbit_dir = f"{OCO2_data_dir}/{orbit_id}"
         sat0[orbit_id] = _discover_orbit_files(orbit_dir)
         for product_key, product_path in sat0[orbit_id].items():
             _validate_readable_hdf5(product_path, product_key, date)
-        
-        date_str = date.strftime("%Y-%m-%d")
-        fp_tau_file = os.path.abspath(f"{result_dir}/{date_str}/{orbit_id}/fp_tau_combined.h5")
-        os.makedirs(os.path.abspath(f"{result_dir}/{date_str}/{orbit_id}"), exist_ok=True)
-        if not fp_tau_file_is_current(fp_tau_file):
-            print(f"Computing footprint optical depths for orbit {orbit_id}...")
-            oco_fp_atm_abs(
-                sat=sat0,
-                o2mix=0.20935,
-                output=fp_tau_file,
-                oco_files_dict=sat0[orbit_id],
-                oco_nc_file=lite_nc_file,
-                overwrite=True,
-            )
+
+        fp_tau_file = _fp_tau_path(result_dir, date, orbit_id)
+        os.makedirs(os.path.dirname(fp_tau_file), exist_ok=True)
         sat0[orbit_id]["fp_tau_file"] = fp_tau_file
+        if fp_tau_file_is_current(fp_tau_file):
+            continue
+        # Claim the orbit.  A lock held by another job means that job is
+        # already computing it; move on, run_simulation waits for it later.
+        with orbit_lock.held(fp_tau_file, lock_stale_seconds) as got:
+            if got:
+                if not fp_tau_file_is_current(fp_tau_file):
+                    _compute_fp_tau(sat0, orbit_id, fp_tau_file)
+            else:
+                print(f"Optical depths for orbit {orbit_id} are being computed "
+                      f"by another job; skipping for now")
 
     return sat0
 
@@ -714,30 +776,46 @@ def run_simulation(target_date, data_dir, result_dir,
                    visualize=True,
                    delete_ocofiles=False,
                    dual_fit=True,
-                   fit_workers=1):
-    """Top-level pipeline: preprocess → fit → analyse."""
+                   fit_workers=1,
+                   lock_stale_hours=4.0,
+                   tau_wait_minutes=180.0):
+    """Top-level pipeline: preprocess → fit → analyse.
+
+    Several jobs may run this for the same date: each orbit's optical-depth
+    precompute and fit are claimed through ``orbit_lock`` files, so the jobs
+    split the orbits instead of repeating each other's work.
+    """
     validate_cloud_distance_file(
         cloud_distance_file_path(result_dir, target_date),
         target_date,
     )
-    sat0 = preprocess(target_date, data_dir, result_dir, limit_granules)
+    stale_seconds = float(lock_stale_hours) * 3600.0
+    wait_seconds  = float(tau_wait_minutes) * 60.0
+    sat0 = preprocess(target_date, data_dir, result_dir, limit_granules,
+                      lock_stale_seconds=stale_seconds)
 
     fit_order = FIT_ORDER  # (o2a_order, wco2_order, sco2_order); see constants.py
 
     # Load Lite file and cloud distances once, shared across all orbits
     shared_data = load_shared_data(sat0)
 
-    for orbit_id in sat0["orbit_list"]:
-        date       = sat0['date'].strftime("%Y-%m-%d")
-        h5_output_dir = f"{sat0['result_dir']}/fitting_details"
-        output_file = f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
-        
-        # if os.path.isfile(output_file):
-        #     logger.info(f"[{orbit_id}] Output already exists. Skipping orbit.")
-        #     continue
-        
-        process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order, overwrite=False,
-                      dual_fit=dual_fit, fit_workers=fit_workers)
+    date          = sat0['date'].strftime("%Y-%m-%d")
+    h5_output_dir = f"{sat0['result_dir']}/fitting_details"
+
+    def _output_file(orbit_id):
+        return f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
+
+    def _fit_one(orbit_id):
+        """Fit one orbit under its lock; False when another job holds it."""
+        if not _ensure_fp_tau(sat0, orbit_id, stale_seconds, wait_seconds):
+            logger.warning(f"[{orbit_id}] Optical-depth file still not current; skipping orbit")
+            return True   # nothing more this job can do for it
+        with orbit_lock.held(_output_file(orbit_id), stale_seconds) as got:
+            if not got:
+                logger.info(f"[{orbit_id}] Fit in progress in another job; deferring")
+                return False
+            process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order, overwrite=False,
+                          dual_fit=dual_fit, fit_workers=fit_workers)
 
         if delete_ocofiles:
             for key in ("oco_l1b", "oco_met", "oco_co2prior"):
@@ -745,6 +823,21 @@ def run_simulation(target_date, data_dir, result_dir,
                 if fpath and os.path.isfile(fpath):
                     os.remove(fpath)
                     logger.info(f"Deleted input file: {fpath}")
+        return True
+
+    deferred = [orbit_id for orbit_id in sat0["orbit_list"] if not _fit_one(orbit_id)]
+
+    # Second pass over orbits another job was fitting during the first pass.
+    # If that job finished, process_orbit reuses its output; if it died, the
+    # lock is gone (or stale) and the fit is done here.
+    for orbit_id in deferred:
+        target = _output_file(orbit_id)
+        orbit_lock.wait_for(
+            target, lambda: not orbit_lock.is_locked(target, stale_seconds),
+            wait_seconds, stale_seconds=stale_seconds,
+        )
+        if not _fit_one(orbit_id):
+            logger.warning(f"[{orbit_id}] Still locked by another job after waiting; left to that job")
 
 
 # ─── CLI ───────────────────────────────────────────────────────────────────────
@@ -790,6 +883,12 @@ def main():
                         help='Processes for the per-sounding fit stage; '
                              '0 = auto (cores - 1), 1 = serial. Results are '
                              'identical regardless of worker count.')
+    parser.add_argument('--lock-stale-hours', type=float, default=4.0,
+                        help='Per-orbit lock files older than this are treated as '
+                             'left behind by a dead job and taken over')
+    parser.add_argument('--tau-wait-minutes', type=float, default=180.0,
+                        help='How long to wait for another job that is computing '
+                             "an orbit's optical depths or fit before giving up on it")
     args = parser.parse_args()
 
     try:
@@ -815,6 +914,8 @@ def main():
         delete_ocofiles=args.delete_ocofiles,
         dual_fit=not args.single_fit,
         fit_workers=fit_workers,
+        lock_stale_hours=args.lock_stale_hours,
+        tau_wait_minutes=args.tau_wait_minutes,
     )
     return 0
 
