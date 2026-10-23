@@ -37,12 +37,12 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 # Option 1: Loop with year, month, day (ACTIVE)
 # ============================================================================
 # Specify year, month, and day ranges
-start_year=2025
-end_year=2025
-start_month=3
-end_month=3
-start_day=5
-end_day=5
+start_year=2022
+end_year=2022
+start_month=6
+end_month=6
+start_day=23
+end_day=23
 
 # Loop through year, month, day
 for year in $(seq $start_year $end_year); do
