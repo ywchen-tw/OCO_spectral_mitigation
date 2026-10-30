@@ -63,7 +63,39 @@ SITE_COORDS = {
     'ni': (33.3800, 35.1400),    # Nicosia
     'so': (26.6300, 67.3700),    # Sodankylä
     'tk': (140.1200, 36.0500),   # Tsukuba 125HR (tsukuba02)
+    'jf': (-118.1800, 34.2000),  # JPL (jpl02)
 }
+
+# Site-specific collocation radii (km), keyed by scheme name.  'uniform' applies
+# --radius-km everywhere.  'das2025' carries over the physical rationale of the
+# Das et al. (2025, ESS, Table 3) site-specific coincidence boxes as isotropic
+# radii: Caltech 0.5°×0.5° (polluted urban site) → 25 km; Edwards ±0.5° lat
+# (excludes the San Gabriel Mts / LA basin to the south, terrain bias) → 50 km;
+# JPL (7 km from Caltech, same basin; not in Das, record ends 2018) → 25 km.
+# Das' Orléans/Paris/Tsukuba boxes are not ported: they avoid site overlap, apply
+# to target mode only, or carry no stated rationale.  'das2025_tk50' adds Tsukuba
+# at 50 km (Das' ±0.5° lon) as a sensitivity test; 'das2025_tk25' tightens it to
+# 25 km, inside the Greater Tokyo suburbs (Kashiwa 24 km, 23-ward edge 39 km).
+# 'site25' puts every overridden site (incl. Edwards) at 25 km, so the scheme
+# reduces to two radii: 25 km at ci/jf/df/tk and the global radius elsewhere.
+SITE_RADIUS_SCHEMES = {
+    'uniform': {},
+    'das2025': {'ci': 25.0, 'jf': 25.0, 'df': 50.0},
+    'das2025_tk50': {'ci': 25.0, 'jf': 25.0, 'df': 50.0, 'tk': 50.0},
+    'das2025_tk25': {'ci': 25.0, 'jf': 25.0, 'df': 50.0, 'tk': 25.0},
+    'site25': {'ci': 25.0, 'jf': 25.0, 'df': 25.0, 'tk': 25.0},
+}
+# Production scheme (author decision 2026-10-23): every collocate() call and the
+# report / policy CLIs default to it.  The former uniform-radius results are
+# regenerated with --site-radii uniform (file suffix _r100km_uniform).
+PRODUCTION_SITE_RADII = 'das2025_tk25'
+
+
+def site_radius_km(site, radius_km, scheme='uniform'):
+    """Collocation radius for *site* under *scheme*.  A site override only ever
+    tightens the radius (min with *radius_km*), so a 50 km sweep stays ≤50 km."""
+    override = SITE_RADIUS_SCHEMES[scheme].get(str(site).lower()[:2])
+    return radius_km if override is None else min(radius_km, override)
 
 # Data records that share one physical site.  Statistics that cluster by site
 # (the site bootstrap) count them as one site.
@@ -88,7 +120,7 @@ def find_plotdata(base, date, site):
 
 
 def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0,
-              site=None):
+              site=None, site_radii=PRODUCTION_SITE_RADII):
     """Collocate one case's OCO-2 footprints to its TCCON station.
 
     Parameters
@@ -102,13 +134,18 @@ def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0,
     site : 2-letter TCCON site code; when it resolves in SITE_COORDS the
            published station coordinate is used (median-observation lat/lon
            remains the fallback, with a warning if the two disagree > 5 km).
+    site_radii : SITE_RADIUS_SCHEMES key; the site's override (if any) caps
+                 radius_km.  'uniform' applies radius_km at every site.
 
     Returns dict:
       near       : footprints in box AND ≤radius of station (guarded KEPT),
                    with an added bool ``is_guarded`` column.
       tccon_ref, tccon_sd, n_tccon : TCCON window-mean / std / count.
       st_lon, st_lat : station location used.
+      radius_km  : collocation radius actually applied (after site_radii).
     """
+    if site:
+        radius_km = site_radius_km(site, radius_km, site_radii)
     lonmin, lonmax, latmin, latmax = box
     sel = ((oco['lon'] >= lonmin) & (oco['lon'] <= lonmax) &
            (oco['lat'] >= latmin) & (oco['lat'] <= latmax))
@@ -131,7 +168,8 @@ def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0,
                   f"back to median-observation lat/lon")
         st_lon, st_lat = med_lon, med_lat
     out = dict(near=oco.iloc[0:0].copy(), tccon_ref=np.nan, tccon_sd=np.nan,
-               n_tccon=0, tccon_err_mean=np.nan, st_lon=st_lon, st_lat=st_lat)
+               n_tccon=0, tccon_err_mean=np.nan, st_lon=st_lon, st_lat=st_lat,
+               radius_km=radius_km)
     if not len(oco) or not np.isfinite(st_lon):
         return out
     d = _haversine_km(oco['lon'].values, oco['lat'].values, st_lon, st_lat)
@@ -165,7 +203,8 @@ def collocate(oco, tccon, *, box, radius_km, window_min, sanity_ppm=50.0,
             g |= near[gc].to_numpy(bool)
     near['is_guarded'] = g
     return dict(near=near, tccon_ref=tref, tccon_sd=tsd, n_tccon=n_tc,
-                tccon_err_mean=terr, st_lon=st_lon, st_lat=st_lat)
+                tccon_err_mean=terr, st_lon=st_lon, st_lat=st_lat,
+                radius_km=radius_km)
 
 
 def series_stats(oco_vals, tccon_ref):

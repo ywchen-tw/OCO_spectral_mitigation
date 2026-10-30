@@ -89,7 +89,7 @@ def _stat_table(ax, frame, cols, header=None, fs=9.0,
     (author, 2026-10-11: the in-frame box pushed the data into the lower
     60 % of the panel). Columns: station-day mean |residual| ± sd, mean
     fp-RMSE, and station-days within ±1 ppm. The default subset header
-    ('all footprints (N station-days)') is left to the caption."""
+    ('all footprints (N overpasses)') is left to the caption."""
     rows = []
     for label, bcol, _, rcol, color, _ in cols:
         b = frame[bcol].to_numpy(float)
@@ -164,7 +164,8 @@ def _draw_dumbbell(ax, frame, cols, band):
     ax.grid(alpha=0.3, axis='x')
 
 
-def _draw_hist(ax, frame, cols, band, bin_ppm, xlim=None, headroom=1.15):
+def _draw_hist(ax, frame, cols, band, bin_ppm, xlim=None, headroom=1.15,
+               ymax=None):
     """Mirrored residual distributions: the uncorrected products (raw, B11)
     above the zero line, the corrected DE below.
 
@@ -224,7 +225,7 @@ def _draw_hist(ax, frame, cols, band, bin_ppm, xlim=None, headroom=1.15):
     ax.axvspan(-band, band, color=BAND_COLOR, alpha=BAND_ALPHA, lw=0,
                zorder=0)
     ax.set_xlim(*xlim)
-    top = peak * headroom
+    top = peak * headroom if ymax is None else ymax
     ax.set_ylim(-top, top)
     ax.yaxis.set_major_formatter(
         matplotlib.ticker.FuncFormatter(lambda v, _: f'{abs(v):g}'))
@@ -325,12 +326,20 @@ def _legend_below_box(fig, ax, txt, band):
                      borderaxespad=0.0, fontsize=7, framealpha=0.85)
 
 
-def _select_subset(df, qf, cld_min, cld_max):
+def _select_subset(df, qf, cld_min, cld_max, date_min=None, date_max=None):
     """Rows of one QF group, optionally windowed on the station-day mean
-    nearest-cloud distance (cld_min <= cld_dist_mu < cld_max, km).
+    nearest-cloud distance (cld_min <= cld_dist_mu < cld_max, km) and on the
+    overpass date (date_min <= date < date_max, ISO strings).
 
     Returns (frame, filename suffix, stat-box header)."""
     df = df[(df['surface'] == 'all') & (df['qf_group'] == qf)]
+    dates = pd.to_datetime(df['date'].astype(str).str[:10])
+    keep = np.ones(len(df), bool)
+    if date_min is not None:
+        keep &= (dates >= date_min).to_numpy()
+    if date_max is not None:
+        keep &= (dates < date_max).to_numpy()
+    df = df[keep]
     sfx, parts = '', []
     if qf != 'all':
         sfx += f'_{qf}'
@@ -354,7 +363,13 @@ def _select_subset(df, qf, cld_min, cld_max):
         else:
             sfx += f'_cldge{cld_min:g}'
             parts.append(f'mean cloud distance ≥ {cld_min:g} km')
-    header = ', '.join(parts) + f' ({len(df)} station-days)'
+    if date_min is not None:
+        sfx += f'_from{date_min.replace("-", "")}'
+        parts.append(f'from {date_min}')
+    if date_max is not None:
+        sfx += f'_before{date_max.replace("-", "")}'
+        parts.append(f'before {date_max}')
+    header = ', '.join(parts) + f' ({len(df)} overpasses)'
     return df, sfx, header
 
 
@@ -370,6 +385,12 @@ def main():
     parser.add_argument('--cld-max', type=float, default=None,
                         help='Keep station-days with mean nearest-cloud '
                              'distance < this (km).')
+    # Drift split at the OCO-2 L2 GEOS-FPIT -> GEOS-IT switch (2024-04-01):
+    # --date-max 2024-04-01 and --date-min 2024-04-01.
+    parser.add_argument('--date-min', default=None, metavar='YYYY-MM-DD',
+                        help='Keep overpasses on or after this date.')
+    parser.add_argument('--date-max', default=None, metavar='YYYY-MM-DD',
+                        help='Keep overpasses before this date.')
     parser.add_argument('--out', default=None)
     parser.add_argument('--dpi', type=int, default=300)
     parser.add_argument('--band-ppm', type=float, default=1.0)
@@ -390,11 +411,19 @@ def main():
     parser.add_argument('--hist-headroom', type=float, default=1.15,
                         help='Panel (b) y half-range as a multiple of the '
                              'tallest bar/Gaussian (room for the stat text).')
+    # Shared axes for a figure pair (e.g. the two drift periods).
+    parser.add_argument('--xlim', type=float, nargs=2, default=None,
+                        metavar=('LO', 'HI'),
+                        help='Residual axis range (ppm); default from data.')
+    parser.add_argument('--hist-ymax', type=float, default=None,
+                        help='Panel (b) y half-range in overpasses; overrides '
+                             '--hist-headroom.')
     args = parser.parse_args()
 
     csv = Path(args.csv)
     df, sub_sfx, header = _select_subset(pd.read_csv(csv), args.qf,
-                                         args.cld_min, args.cld_max)
+                                         args.cld_min, args.cld_max,
+                                         args.date_min, args.date_max)
     if not len(df):
         sys.exit('no station-days match the requested subset')
     sfx = csv.stem.split('tccon_comparison', 1)[-1]
@@ -431,7 +460,8 @@ def main():
     # 2026-10-11 clip); the few whiskers beyond are cut at the axis.
     allb = df[[c[1] for c in cols]].to_numpy(float)
     allb = allb[np.isfinite(allb)]
-    xlim = (max(np.floor(allb.min()) - 0.5, -10.0), np.ceil(allb.max()) + 2.0)
+    xlim = (tuple(args.xlim) if args.xlim else
+            (max(np.floor(allb.min()) - 0.5, -10.0), np.ceil(allb.max()) + 2.0))
     ax_a.set_xlim(*xlim)
     ax_a.set_xlabel(f'{XCO2_LABEL} residual to TCCON (ppm)')
     # With row labels the axes is narrower: the product-name column moves
@@ -441,7 +471,7 @@ def main():
                     else (0.10, 0.36, 0.60, 0.83)))
     if ax_b is not None:
         _draw_hist(ax_b, df, cols, args.band_ppm, args.bin_ppm, xlim=xlim,
-                   headroom=args.hist_headroom)
+                   headroom=args.hist_headroom, ymax=args.hist_ymax)
         panel_label(ax_a, '(a)')
         panel_label(ax_b, '(b)')
     handles, labels = ax_a.get_legend_handles_labels()

@@ -69,7 +69,9 @@ KEEP_COLS = ('time', 'lon', 'lat', 'cld_dist_km', 'sfc_type', 'fp',
              'xco2_raw', 'xco2_raw_anomaly', 'xco2_uncertainty',
              # scene diagnostics for uncertainty-relationship stratification (§4.1);
              # all optional (kept only if present in the input parquet).
-             'aod_total', 'sza', 'snr_o2a', 'snr_wco2', 'snr_sco2')
+             'aod_total', 'sza', 'snr_o2a', 'snr_wco2', 'snr_sco2',
+             # 0 nadir / 1 glint / 2 target — drives the poster zoom panel
+             'operation_mode')
 
 
 def _load_cloud_fold(model_dir):

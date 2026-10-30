@@ -9,8 +9,8 @@ import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
 import bisect as bs
-from abs_util.fp_abs_coeff import oco_fp_abs_all_bands
-from abs_util.ils_tau import TAU_CONVOLUTION_VERSION
+from abs_util.fp_abs_coeff import COMPONENT_NAMES, oco_fp_abs_all_bands
+from abs_util.ils_tau import TAU_CONVOLUTION_VERSION, tau_convolution_version
 from netCDF4 import Dataset
 
 
@@ -29,18 +29,27 @@ _TAU_DATASETS = (
     "sco2_mean_ext_output",
     "sco2_toa_sol_output",
 )
+# Written in addition to _TAU_DATASETS by the telluric-Doppler variant
+# (fp_abs_coeff.COMPONENT_NAMES per band): per-channel attribution of tau.
+_COMPONENT_DATASETS = tuple(
+    f"{band}_{name}" for band in ("o2a", "wco2", "sco2") for name in COMPONENT_NAMES
+)
 
 
-def _tau_file_is_current(path, use_ring=False, expected_rows=None):
+def _dataset_names(telluric_doppler=False):
+    return _TAU_DATASETS + (_COMPONENT_DATASETS if telluric_doppler else ())
+
+
+def _tau_file_is_current(path, use_ring=False, expected_rows=None, telluric_doppler=False):
     if not os.path.isfile(path):
         return False
     try:
         with h5py.File(path, "r") as h5f:
-            if h5f.attrs.get("tau_convolution") != TAU_CONVOLUTION_VERSION:
+            if h5f.attrs.get("tau_convolution") != tau_convolution_version(telluric_doppler):
                 return False
             if bool(h5f.attrs.get("use_ring", False)) != bool(use_ring):
                 return False
-            for dataset in _TAU_DATASETS:
+            for dataset in _dataset_names(telluric_doppler):
                 if dataset not in h5f:
                     return False
                 if expected_rows is not None and h5f[dataset].shape[0] != expected_rows:
@@ -50,8 +59,8 @@ def _tau_file_is_current(path, use_ring=False, expected_rows=None):
         return False
 
 
-def _cleanup_tau_temp_files(output, use_ring=False):
-    if not _tau_file_is_current(output, use_ring=use_ring):
+def _cleanup_tau_temp_files(output, use_ring=False, telluric_doppler=False):
+    if not _tau_file_is_current(output, use_ring=use_ring, telluric_doppler=telluric_doppler):
         return
 
     output_stem = os.path.splitext(output)[0]
@@ -63,7 +72,7 @@ def _cleanup_tau_temp_files(output, use_ring=False):
             print(f'[Warning] Could not remove temporary file {output_tmp}: {exc}')
 
 
-def _write_tau_file_atomic(path, datasets, use_ring=False):
+def _write_tau_file_atomic(path, datasets, use_ring=False, telluric_doppler=False):
     output_dir = os.path.dirname(os.path.abspath(path)) or "."
     output_name = os.path.basename(path)
     fd, tmp_path = tempfile.mkstemp(
@@ -75,8 +84,9 @@ def _write_tau_file_atomic(path, datasets, use_ring=False):
 
     try:
         with h5py.File(tmp_path, "w") as h5f:
-            h5f.attrs["tau_convolution"] = TAU_CONVOLUTION_VERSION
+            h5f.attrs["tau_convolution"] = tau_convolution_version(telluric_doppler)
             h5f.attrs["use_ring"] = bool(use_ring)
+            h5f.attrs["telluric_doppler"] = bool(telluric_doppler)
             for name, data in datasets.items():
                 h5f.create_dataset(name, data=data)
             h5f.flush()
@@ -86,8 +96,9 @@ def _write_tau_file_atomic(path, datasets, use_ring=False):
             os.remove(tmp_path)
 
 
-def _read_tau_file(path, expected_rows, use_ring=False):
-    if not _tau_file_is_current(path, use_ring=use_ring, expected_rows=expected_rows):
+def _read_tau_file(path, expected_rows, use_ring=False, telluric_doppler=False):
+    if not _tau_file_is_current(path, use_ring=use_ring, expected_rows=expected_rows,
+                                telluric_doppler=telluric_doppler):
         raise RuntimeError(
             f"Temporary tau file is incomplete, corrupt, or outdated: {path}. "
             "Delete the matching fp_tau_combined_tmp_*.h5 files and rerun."
@@ -95,7 +106,8 @@ def _read_tau_file(path, expected_rows, use_ring=False):
 
     try:
         with h5py.File(path, "r") as h5f:
-            return {dataset: np.asarray(h5f[dataset]) for dataset in _TAU_DATASETS}
+            return {dataset: np.asarray(h5f[dataset])
+                    for dataset in _dataset_names(telluric_doppler)}
     except (OSError, KeyError, RuntimeError, ValueError) as exc:
         raise RuntimeError(
             f"Could not read temporary tau file {path}. "
@@ -106,12 +118,20 @@ def _read_tau_file(path, expected_rows, use_ring=False):
 def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                    oco_files_dict=None,
                     oco_nc_file=None,
-                   overwrite=False):
-    """
+                   overwrite=False,
+                   telluric_doppler=False):
+    """Compute per-footprint slant optical depths for one orbit.
 
+    telluric_doppler : bool
+        Apply the telluric Doppler shift of the ABSCO grid (test variant, see
+        fp_abs_coeff._process_track_all_bands) and store the per-channel tau
+        attribution datasets (_COMPONENT_DATASETS).  The output file carries a
+        separate tau_convolution version so it is never mistaken for a
+        production tau file, and vice versa.
     """
     
-    abs_skip = _tau_file_is_current(output, use_ring=False) and not overwrite
+    abs_skip = _tau_file_is_current(output, use_ring=False,
+                                    telluric_doppler=telluric_doppler) and not overwrite
     
     
     # --------- Constants ------------
@@ -126,7 +146,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
     elif sat != None:
         if abs_skip:
             print(f'[Warning] Output file {output} exists - skipping!')
-            _cleanup_tau_temp_files(output, use_ring=False)
+            _cleanup_tau_temp_files(output, use_ring=False, telluric_doppler=telluric_doppler)
             return None
 
         print("oco_files_dict: ", oco_files_dict)
@@ -319,6 +339,8 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
         sco2_tau_output_all = np.empty((final_length, 1016))
         sco2_mean_ext_output_all = np.empty((final_length, 1016))
         sco2_toa_sol_output_all = np.empty((final_length, 1016))
+        comp_all = ({name: np.full((final_length, 1016), np.nan, dtype=np.float32)
+                     for name in _COMPONENT_DATASETS} if telluric_doppler else {})
 
         tmp_files = []
         all_tmp_exist = True
@@ -334,7 +356,8 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
             snd_id_select_all[i:end] = sounding_id[id_select]
             fp_number_select_all[i:end] = fp_number[id_select]
 
-            need = (overwrite or not _tau_file_is_current(output_tmp, use_ring=False)) and not abs_skip
+            need = (overwrite or not _tau_file_is_current(
+                output_tmp, use_ring=False, telluric_doppler=telluric_doppler)) and not abs_skip
             if need:
                 atm_dict = {'p_edge': P_edge[id_select, :], 'lat': lat_l1b_select[id_select],
                             'p_lay': pprf_l[id_select, :z_last_layer_ind], 't_lay': tprf_l[id_select, :z_last_layer_ind], 'h_lay': (h_edge[id_select, :z_last_layer_ind] + h_edge[id_select, 1:])/2,
@@ -343,16 +366,20 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                             'h2o_vmr': h2o_vmr[id_select, :z_last_layer_ind], 'dz': dz_hydrostatic[id_select, :z_last_layer_ind],
                             'v_solar': v_solar[id_select], 'v_inst': v_inst[id_select], 'dist_au': dist_au[id_select],
                             'wvl_coef': wvl_coef, 'del_lambda_all': del_lambda_all, 'rel_lresponse_all': rel_lresponse_all,
-                            'sza': sza_id[id_select], 'vza': vza_id[id_select], 'fp_number': fp_number[id_select], 'doy': doy}
+                            'sza': sza_id[id_select], 'vza': vza_id[id_select], 'fp_number': fp_number[id_select], 'doy': doy,
+                            'telluric_doppler': telluric_doppler, 'store_components': telluric_doppler}
 
+                band_out = oco_fp_abs_all_bands(atm_dict)
                 (tau_o2a,  me_o2a,  sol_o2a), \
                 (tau_wco2, me_wco2, sol_wco2), \
-                (tau_sco2, me_sco2, sol_sco2) = oco_fp_abs_all_bands(atm_dict)
+                (tau_sco2, me_sco2, sol_sco2) = band_out[:3]
+                comp_chunk = band_out[3] if telluric_doppler else {}
 
                 print('Saving to file ' + output_tmp)
                 _write_tau_file_atomic(
                     output_tmp,
                     {
+                        **comp_chunk,
                         "sza": sza_id[id_select],
                         "vza": vza_id[id_select],
                         "sounding_id": sounding_id[id_select],
@@ -368,6 +395,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                         "sco2_toa_sol_output": sol_sco2,
                     },
                     use_ring=False,
+                    telluric_doppler=telluric_doppler,
                 )
             elif os.path.isfile(output_tmp):
                 print(f'[Info] Reusing temporary file {output_tmp}')
@@ -384,6 +412,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                         output_tmp,
                         expected_rows=end - i,
                         use_ring=False,
+                        telluric_doppler=telluric_doppler,
                     )
                     o2a_tau_output_all[i:end] = tau_chunk['o2a_tau_output']
                     o2a_mean_ext_output_all[i:end] = tau_chunk['o2a_mean_ext_output']
@@ -394,6 +423,8 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                     sco2_tau_output_all[i:end] = tau_chunk['sco2_tau_output']
                     sco2_mean_ext_output_all[i:end] = tau_chunk['sco2_mean_ext_output']
                     sco2_toa_sol_output_all[i:end] = tau_chunk['sco2_toa_sol_output']
+                    for name in comp_all:
+                        comp_all[name][i:end] = tau_chunk[name]
                 else:
                     all_tmp_exist = False
 
@@ -402,6 +433,7 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
             _write_tau_file_atomic(
                 output,
                 {
+                    **comp_all,
                     "sza": sza_select_all,
                     "vza": vza_select_all,
                     "sounding_id": snd_id_select_all,
@@ -417,7 +449,8 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
                     "sco2_toa_sol_output": sco2_toa_sol_output_all,
                 },
                 use_ring=False,
+                telluric_doppler=telluric_doppler,
             )
-            _cleanup_tau_temp_files(output, use_ring=False)
+            _cleanup_tau_temp_files(output, use_ring=False, telluric_doppler=telluric_doppler)
         
     return None

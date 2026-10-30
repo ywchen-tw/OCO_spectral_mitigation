@@ -45,7 +45,8 @@ from spectral import orbit_lock
 # Re-exports (backward compat: this module was a single file until 2026-07).
 from spectral.cumulant_fit import (  # noqa: F401
     LOG_TRANSMITTANCE_MODELS, MAX_KAPPAS, SAVGOL_ORDER, SAVGOL_WINDOW,
-    _fit_chunk, _solve_cumulant, compute_transmittance, fit_spectral_model,
+    EXTRA_FIT_FIELDS, _extra_fit_chunk, _fit_chunk, _solve_cumulant, compute_transmittance,
+    fit_spectral_model,
     get_design_matrix, log_transmittance_model_1, log_transmittance_model_2,
     log_transmittance_model_3, log_transmittance_model_4,
     log_transmittance_model_5, log_transmittance_model_7,
@@ -66,7 +67,7 @@ logger = logging.getLogger(__name__)
 # ─── Orbit orchestration ───────────────────────────────────────────────────────
 
 def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=True,
-                  dual_fit=True, fit_workers=1):
+                  dual_fit=True, fit_workers=1, extra_fits=False):
     """Fit the spectral cumulant model for all soundings in one orbit.
 
     Workflow
@@ -91,6 +92,9 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
                   so the smoothed-vs-raw comparison (M9a) needs no second run.
     fit_workers : int  number of processes for the fit stage; 1 = in-process
                   (results are identical regardless of worker count).
+    extra_fits  : bool also store the unconstrained order-2/3 fits of the raw
+                  ln_T with residual-based standard errors and residual rms
+                  (cumulant_fit.EXTRA_FIT_FIELDS, datasets <band>_<field>_nosg).
     """
     date        = sat['date'].strftime("%Y-%m-%d")
     output_dir  = f"{sat['result_dir']}/{date}/{orbit_id}"
@@ -112,6 +116,7 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
     # Parallel no-Savitzky-Golay fit (raw ln_T), for the smoothing-bias A/B.
     kappa_fitting_nosg     = np.full((3, N, MAX_KAPPAS), np.nan)
     intercept_fitting_nosg = np.full((3, N), np.nan)
+    extra_fitting = np.full((3, N, len(EXTRA_FIT_FIELDS)), np.nan)
 
     # A cached file from before κ was added (or from before the positivity
     # bounds) lacks the gamma-shape datasets; refit rather than reuse it.
@@ -134,7 +139,17 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
             cached_has_kappa = False
             cached_has_nosg = False
 
-    cache_ok = cached_has_kappa and (cached_has_nosg or not dual_fit)
+    cached_has_extra = False
+    if os.path.isfile(output_file):
+        try:
+            with h5py.File(output_file, "r") as f:
+                cached_has_extra = all(
+                    f"{tag}_{EXTRA_FIT_FIELDS[0]}_nosg" in f for tag in tags
+                )
+        except OSError:
+            cached_has_extra = False
+    cache_ok = (cached_has_kappa and (cached_has_nosg or not dual_fit)
+                and (cached_has_extra or not extra_fits))
     if not os.path.isfile(output_file) or overwrite or not cache_ok:
         if os.path.isfile(output_file) and not overwrite and not cache_ok:
             missing = ("κ" if not cached_has_kappa else "_nosg")
@@ -177,6 +192,22 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
             plot_cands.update(cands)
             if n_done % 10 == 0 or n_done == len(results):
                 logger.info(f"  [{orbit_id}] chunk {n_done}/{len(results)} merged")
+
+        if extra_fits:
+            logger.info(f"[{orbit_id}] Extra order-2/3 fit statistics (raw ln_T)...")
+
+            def _extra_args(chunk):
+                return (chunk, od["tau"][:, chunk, 1:-1], ln_T_all[:, chunk, 1:-1],
+                        tuple(fit_orders))
+
+            if fit_workers > 1 and len(chunks) > 1:
+                with ProcessPoolExecutor(max_workers=fit_workers) as pool:
+                    xfutures = [pool.submit(_extra_fit_chunk, *_extra_args(c)) for c in chunks]
+                    xresults = [f.result() for f in xfutures]
+            else:
+                xresults = [_extra_fit_chunk(*_extra_args(c)) for c in chunks]
+            for j_idx, ex in xresults:
+                extra_fitting[:, j_idx, :] = ex
 
         # Example plots, outside the (possibly multi-process) numeric loop.
         # Replays the sequential selection rule: first successful fit per band,
@@ -229,6 +260,12 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
                     _ikey = f"{_tag}_intercept_fitting_nosg"
                     if _ikey in f:
                         intercept_fitting_nosg[_ib] = f[_ikey][...]
+            if extra_fits:
+                for _ib, _tag in enumerate(tags):
+                    for _ik, _name in enumerate(EXTRA_FIT_FIELDS):
+                        _key = f"{_tag}_{_name}_nosg"
+                        if _key in f:
+                            extra_fitting[_ib, :, _ik] = f[_key][...]
             logger.info(f"Loaded existing fitting results from {output_file}. Skipping fitting step.")
         logger.info(f"[{orbit_id}] Writing example fitting plots from cached fitting input.")
         plot_orbit_fitting_examples(od, fit_orders, output_dir)
@@ -615,6 +652,11 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
     
     output_dict.update(ak_arrays)   # [N, 20] column-operator datasets
     output_dict.update(nosg_ref)    # {ref,r05,r15}_*_nosg_{mean,std}; empty unless dual_fit
+    if extra_fits:
+        output_dict.update({
+            f"{tag}_{name}_nosg": extra_fitting[ib, :, ik]
+            for ib, tag in enumerate(tags) for ik, name in enumerate(EXTRA_FIT_FIELDS)
+        })
 
     if not dual_fit:
         # Drop the (all-NaN) _nosg datasets so their absence marks the cache
@@ -681,6 +723,7 @@ def _compute_fp_tau(sat0, orbit_id, fp_tau_file):
         oco_files_dict=sat0[orbit_id],
         oco_nc_file=sat0["oco_lite"],
         overwrite=True,
+        telluric_doppler=bool(sat0.get("telluric_doppler", False)),
     )
 
 
@@ -694,7 +737,7 @@ def _ensure_fp_tau(sat0, orbit_id, lock_stale_seconds, wait_seconds):
     fp_tau_file = sat0[orbit_id]["fp_tau_file"]
 
     def ready():
-        return fp_tau_file_is_current(fp_tau_file)
+        return fp_tau_file_is_current(fp_tau_file, telluric_doppler=bool(sat0.get("telluric_doppler", False)))
 
     if ready():
         return True
@@ -718,10 +761,17 @@ def _ensure_fp_tau(sat0, orbit_id, lock_stale_seconds, wait_seconds):
 
 @timing
 def preprocess(target_date, data_dir="data", result_dir="results", limit_granules=-1,
-               lock_stale_seconds=orbit_lock.DEFAULT_STALE_SECONDS, orbits=None):
+               lock_stale_seconds=orbit_lock.DEFAULT_STALE_SECONDS, orbits=None,
+               telluric_doppler=False, cloud_dist_dir=None):
     """Discover orbit files and compute per-footprint optical depths.
 
     Returns sat0 dict consumed by run_simulation and load_shared_data.
+
+    telluric_doppler : compute the test-variant tau (telluric Doppler shift of
+        the ABSCO grid plus per-channel attribution datasets); the tau files
+        carry their own version stamp, so result_dir should be a separate tree.
+    cloud_dist_dir   : directory holding results_<date>.h5 (cloud distances)
+        when it differs from result_dir (a test tree reusing production inputs).
     """
     date = target_date
     year = date.year
@@ -753,6 +803,8 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
         "result_dir": result_dir,
         "orbit_list": oco2_orbit_list,
         "oco_lite":   lite_nc_file,
+        "telluric_doppler": bool(telluric_doppler),
+        "cloud_dist_dir": str(cloud_dist_dir) if cloud_dist_dir else None,
     }
 
     # Shuffle so that several jobs started on the same date work on different
@@ -769,13 +821,13 @@ def preprocess(target_date, data_dir="data", result_dir="results", limit_granule
         fp_tau_file = _fp_tau_path(result_dir, date, orbit_id)
         os.makedirs(os.path.dirname(fp_tau_file), exist_ok=True)
         sat0[orbit_id]["fp_tau_file"] = fp_tau_file
-        if fp_tau_file_is_current(fp_tau_file):
+        if fp_tau_file_is_current(fp_tau_file, telluric_doppler=telluric_doppler):
             continue
         # Claim the orbit.  A lock held by another job means that job is
         # already computing it; move on, run_simulation waits for it later.
         with orbit_lock.held(fp_tau_file, lock_stale_seconds) as got:
             if got:
-                if not fp_tau_file_is_current(fp_tau_file):
+                if not fp_tau_file_is_current(fp_tau_file, telluric_doppler=telluric_doppler):
                     _compute_fp_tau(sat0, orbit_id, fp_tau_file)
             else:
                 print(f"Optical depths for orbit {orbit_id} are being computed "
@@ -795,21 +847,29 @@ def run_simulation(target_date, data_dir, result_dir,
                    lock_stale_hours=4.0,
                    tau_wait_minutes=180.0,
                    orbits=None,
-                   overwrite=False):
+                   overwrite=False,
+                   telluric_doppler=False,
+                   cloud_dist_dir=None,
+                   extra_fits=False):
     """Top-level pipeline: preprocess → fit → analyse.
+
+    telluric_doppler / cloud_dist_dir / extra_fits: see preprocess() and
+    process_orbit(); together they form the test variant of the pipeline
+    (fitting.py --telluric-doppler) that writes to its own result tree.
 
     Several jobs may run this for the same date: each orbit's optical-depth
     precompute and fit are claimed through ``orbit_lock`` files, so the jobs
     split the orbits instead of repeating each other's work.
     """
     validate_cloud_distance_file(
-        cloud_distance_file_path(result_dir, target_date),
+        cloud_distance_file_path(cloud_dist_dir or result_dir, target_date),
         target_date,
     )
     stale_seconds = float(lock_stale_hours) * 3600.0
     wait_seconds  = float(tau_wait_minutes) * 60.0
     sat0 = preprocess(target_date, data_dir, result_dir, limit_granules,
-                      lock_stale_seconds=stale_seconds, orbits=orbits)
+                      lock_stale_seconds=stale_seconds, orbits=orbits,
+                      telluric_doppler=telluric_doppler, cloud_dist_dir=cloud_dist_dir)
 
     fit_order = FIT_ORDER  # (o2a_order, wco2_order, sco2_order); see constants.py
 
@@ -832,7 +892,8 @@ def run_simulation(target_date, data_dir, result_dir,
                 logger.info(f"[{orbit_id}] Fit in progress in another job; deferring")
                 return False
             process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order,
-                          overwrite=overwrite, dual_fit=dual_fit, fit_workers=fit_workers)
+                          overwrite=overwrite, dual_fit=dual_fit, fit_workers=fit_workers,
+                          extra_fits=extra_fits)
 
         if delete_ocofiles:
             for key in ("oco_l1b", "oco_met", "oco_co2prior"):
@@ -911,6 +972,19 @@ def main():
     parser.add_argument('--tau-wait-minutes', type=float, default=180.0,
                         help='How long to wait for another job that is computing '
                              "an orbit's optical depths or fit before giving up on it")
+    parser.add_argument('--telluric-doppler', action='store_true',
+                        help='Test variant: apply the telluric Doppler shift of the ABSCO '
+                             'grid in the optical-depth step, store the per-channel tau '
+                             'attribution, enable --extra-fits, and write to its own '
+                             'result tree (default <storage>/results_doppler) while '
+                             'reading cloud distances from --cloud-dist-dir')
+    parser.add_argument('--cloud-dist-dir', type=str, default=None,
+                        help='Directory with results_<date>.h5 cloud distances when it '
+                             'differs from the output dir (default: the production '
+                             'results tree when --telluric-doppler is set)')
+    parser.add_argument('--extra-fits', action='store_true',
+                        help='Also store unconstrained order-2/3 fits of the raw ln_T '
+                             'with residual-based standard errors and residual rms')
     args = parser.parse_args()
 
     try:
@@ -921,7 +995,22 @@ def main():
 
     storage_dir = get_storage_dir()
     data_dir    = storage_dir / "data" if args.data_dir == "./data" else Path(args.data_dir)
-    output_dir  = Path(args.output_dir) if args.output_dir else storage_dir / "results"
+    production_results = storage_dir / "results"
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    elif args.telluric_doppler:
+        output_dir = storage_dir / "results_doppler"
+    else:
+        output_dir = production_results
+    cloud_dist_dir = None
+    if args.cloud_dist_dir:
+        cloud_dist_dir = Path(args.cloud_dist_dir)
+    elif args.telluric_doppler and output_dir != production_results:
+        cloud_dist_dir = production_results
+    extra_fits = args.extra_fits or args.telluric_doppler
+    if args.telluric_doppler:
+        logger.info(f"Telluric-Doppler test variant: results -> {output_dir}, "
+                    f"cloud distances <- {cloud_dist_dir or output_dir}")
     viz_dir     = Path(args.viz_dir) if args.visualize else storage_dir / "visualizations_combined"
 
     fit_workers = args.fit_workers
@@ -940,6 +1029,9 @@ def main():
         tau_wait_minutes=args.tau_wait_minutes,
         orbits=args.orbit,
         overwrite=args.overwrite,
+        telluric_doppler=args.telluric_doppler,
+        cloud_dist_dir=cloud_dist_dir,
+        extra_fits=extra_fits,
     )
     return 0
 

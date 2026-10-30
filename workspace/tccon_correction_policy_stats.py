@@ -32,7 +32,8 @@ import pandas as pd
 
 # Shared collocation + TCCON reader so this report and tccon_comparison_report.py
 # select the IDENTICAL footprints from the SAME build_deepens_plot_data output.
-from tccon_collocate import collocate, find_plotdata, load_tccon, _haversine_km
+from tccon_collocate import (PRODUCTION_SITE_RADII, SITE_RADIUS_SCHEMES, collocate,
+                             find_plotdata, load_tccon, site_radius_km, _haversine_km)
 
 ROOT = Path(__file__).resolve().parent.parent
 # On CURC the results/ tree and data/ (TCCON) live under scratch, not the repo
@@ -98,7 +99,8 @@ def precheck(case, radius_km=100.0, window_min=60.0):
     return bool(np.any(d <= radius_km))
 
 
-def match_case(case, plotdata, radius_km=100.0, window_min=60.0):
+def match_case(case, plotdata, radius_km=100.0, window_min=60.0,
+               site_radii=PRODUCTION_SITE_RADII):
     """Return per-footprint frame near the TCCON station (guarded footprints KEPT
     and flagged ``is_guarded``) with tccon_ref/site/date/near-cloud columns, or None
     if no coincident TCCON.  Uses the SHARED collocator, so the footprint set matches
@@ -108,7 +110,7 @@ def match_case(case, plotdata, radius_km=100.0, window_min=60.0):
     col = collocate(oco, tcc,
                     box=(case['lon'][0], case['lon'][1], case['lat'][0], case['lat'][1]),
                     radius_km=radius_km, window_min=window_min,
-                    site=str(case['tccon'])[:2])
+                    site=str(case['tccon'])[:2], site_radii=site_radii)
     near = col['near']
     if not len(near) or not np.isfinite(col['tccon_ref']):
         return None
@@ -143,6 +145,11 @@ def _stats(frame):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--radius-km', type=float, default=100.0)
+    ap.add_argument('--site-radii', default=PRODUCTION_SITE_RADII,
+                    choices=sorted(SITE_RADIUS_SCHEMES),
+                    help="Per-site radius overrides (tccon_collocate.SITE_RADIUS_SCHEMES); "
+                         "an override only tightens --radius-km.  Default: the production "
+                         f"scheme '{PRODUCTION_SITE_RADII}'; 'uniform' disables overrides.")
     ap.add_argument('--window-min', type=float, default=60.0)
     ap.add_argument('--limit', type=int, default=None, help="first N runnable cases")
     ap.add_argument('--plotdata-base', required=True,
@@ -183,19 +190,20 @@ def main():
     per_case, pooled, case_means, surf_means = [], [], [], []
     for i, c in enumerate(runnable, 1):
         print(f"\n[{i}/{len(runnable)}] {c['date']} {c['tccon'][:2]} ({c['surf']})")
-        if not precheck(c, args.radius_km, args.window_min):
+        radius = site_radius_km(c['tccon'][:2], args.radius_km, args.site_radii)
+        if not precheck(c, radius, args.window_min):
             print("  no coincident TCCON in window/radius — skip")
             continue
         pd_path = find_plotdata(plotdata_base, c['date'], Path(c['tccon']).name[:2])
         if pd_path is None:
             print("  no plot_data.parquet under --plotdata-base — skip")
             continue
-        near = match_case(c, pd_path, args.radius_km, args.window_min)
+        near = match_case(c, pd_path, radius, args.window_min, args.site_radii)
         if near is None:
             print("  no coincident TCCON / no footprints in radius — skipped")
             continue
         st = _stats(near)
-        print(f"  {len(near):,} footprints ≤{args.radius_km:g}km, "
+        print(f"  {len(near):,} footprints ≤{radius:g}km, "
               f"TCCON_ref={near['tccon_ref'].iloc[0]:.2f}ppm  | bias: "
               + "  ".join(f"{k}={st[k]['bias']:+.2f}" for k in
                           ('uncorrected', 'full_mu') if k in st))

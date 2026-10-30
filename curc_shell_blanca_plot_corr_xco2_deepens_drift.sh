@@ -130,6 +130,11 @@ OUT_BASE="$DATA_ROOT"/results/model_comparison/deep_ensemble/${MODEL_TAG}/drift
 RADIUS_KM="${RADIUS_KM:-100}"
 WINDOW_MIN="${WINDOW_MIN:-60}"
 RADIUS_TAG="r${RADIUS_KM}km"
+# SITE_RADII: per-site radius overrides for the aggregate reports (see the
+# non-drift script).  Production = das2025_tk25 (plain r<R>km tag); any other
+# scheme, e.g. SITE_RADII=uniform, is stamped into RADIUS_TAG.
+SITE_RADII="${SITE_RADII:-das2025_tk25}"
+[[ "$SITE_RADII" != das2025_tk25 ]] && RADIUS_TAG+="_${SITE_RADII}"
 
 # REQUIRE_TCCON=1 → SKIP cases whose 12th run_case column (TCCON_AVAIL) is not "yes".
 # Recompute flags: PYTHONPATH=src python workspace/check_tccon_availability.py --emit-flags
@@ -189,6 +194,7 @@ run_case() {
         --date-plot  "$date" \
         --vmin "$vmin" --vmax "$vmax" \
         --hist-radius-km "$RADIUS_KM" \
+        --mode-source "$input" \
         "${poster_arg[@]}"
 
     # (6) per-band spectral-fit parameter maps (k1/k2/exp_intercept-alb × o2a/wco2/sco2)
@@ -423,6 +429,60 @@ run_case  2025-07-15   so20090516_20251025.public.qc.nc        26.23    27.01   
 run_case  2025-04-07   wg20130104_20260224.public.qc.nc       150.74   150.93   -34.61   -34.31   415.5  424.0  land  poster wg  yes   # n=4176 dmin=0km tccon_obs=40
 run_case  2025-09-14   wg20130104_20260224.public.qc.nc       150.74   150.93   -34.61   -34.31   416.5  424.0  land  poster wg  yes   # n=4174 dmin=0km tccon_obs=48
 
+# ═══════════════════════ moved 2026-10-23 from curc_shell_blanca_plot_corr_xco2_deepens.sh: 2022 cases ════════════════
+# Aqua left the A-Train in January 2022, so the MODIS cloud collocation is not valid
+# for these dates; they belong to the post-A-Train evaluation (author decision
+# 2026-10-23).  Lines unchanged from the 2026-10-22 (evening) block of the A-Train
+# script (workspace/gen_tccon_cases.py output; trailing comments as described there).
+#         DATE         TCCON                                LON_MIN  LON_MAX  LAT_MIN  LAT_MAX   VMIN   VMAX  SURF  POSTER SITE  AVAIL
+# -- pasadena01 (ci; lat 34.14, lon -118.13) --
+run_case  2022-01-30   ci20120920_20260125.public.qc.nc      -117.92  -117.43    33.43    35.02   416.0  420.5  land  poster ci  yes   # n=486 dmin=41km tccon_obs=22
+run_case  2022-03-01   ci20120920_20260125.public.qc.nc      -118.00  -117.76    34.80    35.04   417.5  420.0  land  poster ci  yes   # n=4900 dmin=76km tccon_obs=7
+run_case  2022-06-16   ci20120920_20260125.public.qc.nc      -118.14  -117.59    33.35    35.04   416.0  423.0  land  poster ci  yes   # n=694 dmin=24km tccon_obs=20
+run_case  2022-06-23   ci20120920_20260125.public.qc.nc      -117.98  -117.77    34.82    35.03   417.0  421.0  land  poster ci  yes   # n=5053 dmin=78km tccon_obs=21
+run_case  2022-08-10   ci20120920_20260125.public.qc.nc      -118.10  -117.64    33.44    35.04   415.5  419.5  land  poster ci  yes   # n=512 dmin=26km tccon_obs=68
+run_case  2022-10-13   ci20120920_20260125.public.qc.nc      -117.99  -117.76    34.80    35.04   414.0  416.5  land  poster ci  yes   # n=5359 dmin=77km tccon_obs=10
+# -- edwards01 (df; lat 34.96, lon -117.88) --
+run_case  2022-01-30   df20130720_20260121.public.qc.nc      -118.16  -117.61    34.08    35.83   416.0  420.5  land  poster df  yes   # n=508 dmin=1km tccon_obs=50
+run_case  2022-03-01   df20130720_20260121.public.qc.nc      -118.02  -117.76    34.80    35.08   417.5  420.0  land  poster df  yes   # n=5712 dmin=0km tccon_obs=52
+run_case  2022-06-16   df20130720_20260121.public.qc.nc      -118.36  -117.81    34.06    35.77   417.5  423.0  land  poster df  yes   # n=721 dmin=18km tccon_obs=51
+run_case  2022-06-23   df20130720_20260121.public.qc.nc      -117.99  -117.77    34.82    35.10   417.0  421.0  land  poster df  yes   # n=5900 dmin=1km tccon_obs=52
+run_case  2022-08-10   df20130720_20260121.public.qc.nc      -118.32  -117.81    34.06    35.79   415.0  419.5  land  poster df  yes   # n=548 dmin=16km tccon_obs=48
+run_case  2022-10-13   df20130720_20260121.public.qc.nc      -118.00  -117.76    34.80    35.11   414.5  416.5  land  poster df  yes   # n=6271 dmin=1km tccon_obs=52
+# -- easttroutlake01 (et; lat 54.35, lon -104.99) --
+run_case  2022-06-21   et20161003_20260422.public.qc.nc      -105.14  -104.80    54.20    54.48   408.0  418.0  land  poster et  yes   # n=4350 dmin=0km tccon_obs=59
+run_case  2022-08-10   et20161003_20260422.public.qc.nc      -104.18  -103.50    54.07    55.12   405.0  412.5  land  poster et  yes   # n=382 dmin=79km tccon_obs=41
+# -- izana01 (iz; lat 28.31, lon -16.50) --
+run_case  2022-01-30   iz20140102_20230830.public.qc.nc       -16.62   -16.42    28.15    28.41   395.5  419.0  land  poster iz  yes   # n=3132 dmin=0km tccon_obs=3
+run_case  2022-06-23   iz20140102_20230830.public.qc.nc       -16.61   -16.44    28.18    28.41   402.0  421.5  land  poster iz  yes   # n=4095 dmin=0km tccon_obs=62
+# -- saga01 (js; lat 33.24, lon 130.29) --
+run_case  2022-06-16   js20110728_20231213.public.qc.nc       129.45   129.68    33.14    33.82   415.0  421.0  both  poster js  yes   # n=211 dmin=58km tccon_obs=31
+run_case  2022-07-09   js20110728_20231213.public.qc.nc       129.62   129.84    32.60    33.37   415.5  420.5  land  poster js  yes   # n=121 dmin=56km tccon_obs=64
+run_case  2022-10-13   js20110728_20231213.public.qc.nc       130.17   130.40    33.11    33.38   414.0  418.0  land  poster js  yes   # n=5210 dmin=1km tccon_obs=68
+# -- karlsruhe01 (ka; lat 49.10, lon 8.44) --
+run_case  2022-07-22   ka20140115_20241227.public.qc.nc         8.11     8.87    48.24    49.98   414.0  418.5  land  poster ka  yes   # n=654 dmin=3km tccon_obs=31
+# -- lauder03 (lr; lat -45.04, lon 169.68) --
+run_case  2022-01-14   lr20181002_20250629.public.qc.nc       169.53   169.87   -45.14   -44.84   411.0  415.5  land  poster lr  yes   # n=6147 dmin=0km tccon_obs=92
+run_case  2022-10-13   lr20181002_20250629.public.qc.nc       169.73   170.14   -45.16   -44.14   411.0  419.0  land  poster lr  yes   # n=209 dmin=22km tccon_obs=90
+# -- nicosia01 (ni; lat 35.14, lon 33.38) --
+run_case  2022-12-27   ni20190901_20250525.public.qc.nc        33.26    33.53    34.99    35.30   418.5  421.5  land  poster ni  yes   # n=6188 dmin=0km tccon_obs=49
+# -- nyalesund01 (ny; lat 78.92, lon 11.92) --
+run_case  2022-08-21   ny20050316_20250524.public.qc.nc         7.39    15.80    78.73    79.03   405.0  417.0  both  poster ny  yes   # n=63 dmin=3km tccon_obs=64
+# -- lamont01 (oc; lat 36.60, lon -97.49) --
+run_case  2022-01-30   oc20110416_20260122.public.qc.nc       -97.21   -96.61    36.00    37.47   417.0  420.0  land  poster oc  yes   # n=604 dmin=53km tccon_obs=23
+run_case  2022-03-01   oc20110416_20260122.public.qc.nc       -97.05   -96.60    36.03    37.42   418.0  420.5  land  poster oc  yes   # n=518 dmin=60km tccon_obs=22
+run_case  2022-10-13   oc20110416_20260122.public.qc.nc       -97.60   -96.93    35.80    37.50   414.0  416.0  land  poster oc  yes   # n=745 dmin=20km tccon_obs=22
+# -- parkfalls01 (pa; lat 45.94, lon -90.27) --
+run_case  2022-07-22   pa20040602_20260123.public.qc.nc       -89.43   -89.03    45.63    46.63   407.5  412.0  land  poster pa  yes   # n=250 dmin=82km tccon_obs=43
+# -- paris01 (pr; lat 48.85, lon 2.36) --
+run_case  2022-01-14   pr20140923_20251120.public.qc.nc         2.22     2.52    48.70    48.96   417.5  422.0  land  poster pr  yes   # n=984 dmin=1km tccon_obs=168
+run_case  2022-06-16   pr20140923_20251120.public.qc.nc         2.21     2.51    48.69    48.98   415.5  420.0  land  poster pr  yes   # n=6027 dmin=0km tccon_obs=170
+# -- wollongong01 (wg; lat -34.41, lon 150.88) --
+run_case  2022-08-21   wg20130104_20260224.public.qc.nc       150.75   150.92   -34.61   -34.33   407.0  417.5  land  poster wg  yes   # n=3732 dmin=0km tccon_obs=42
+run_case  2022-12-27   wg20130104_20260224.public.qc.nc       149.92   150.35   -35.19   -33.90   413.5  418.5  land  poster wg  yes   # n=484 dmin=67km tccon_obs=52
+# -- xianghe01 (xh; lat 39.80, lon 116.96) --
+run_case  2022-06-24   xh20180614_20241231.public.qc.nc       116.70   117.25    38.97    40.68   412.5  417.0  land  poster xh  yes   # n=437 dmin=2km tccon_obs=20
+
 # ═══════════════════════ aggregate reports (run once, after all cases) ════════════
 # Both parse the active run_case lines above and summarize across the DRIFT cases.
 
@@ -434,7 +494,7 @@ python workspace/tccon_comparison_report.py \
     --out-base "$OUT_BASE" \
     --output-dir "$OUT_BASE" \
     --fname-suffix "_${RADIUS_TAG}" --exclude-sites ny \
-    --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN" \
+    --radius-km "$RADIUS_KM" --site-radii "$SITE_RADII" --window-min "$WINDOW_MIN" \
     --ak-harmonize
 
 # (8) correction-policy stats — reads step-4 plot_data via --plotdata-base.
@@ -442,5 +502,5 @@ echo ""
 echo "############ AGGREGATE (drift): tccon_correction_policy_stats ############"
 python workspace/tccon_correction_policy_stats.py \
     --script   "$SCRIPT_NAME" \
-    --radius-km "$RADIUS_KM" --window-min "$WINDOW_MIN" \
+    --radius-km "$RADIUS_KM" --site-radii "$SITE_RADII" --window-min "$WINDOW_MIN" \
     --plotdata-base "$OUT_BASE" --output-dir "$OUT_BASE" --fname-suffix "_${RADIUS_TAG}"

@@ -101,7 +101,10 @@ def _model_key(name: str) -> str:
 def _select_model_cfg(df: pd.DataFrame, requested: str):
     """Return (name, column, color) for a requested model name or column."""
     if requested in df.columns:
-        return requested, requested, 'crimson'
+        # an explicit column keeps its configured colour (e.g. DeepEns limegreen)
+        color = next((clr for _, col, clr in _resolve_model_cfgs(df)
+                      if col == requested), 'crimson')
+        return requested, requested, color
 
     requested_key = _model_key(requested)
     aliases = {
@@ -204,6 +207,55 @@ def load_plot_data(path: str) -> pd.DataFrame:
     if 'xco2_bc' in df.columns and 'xco2_bc_anomaly' in df.columns:
         df['ideal_corrected_xco2'] = df['xco2_bc'] - df['xco2_bc_anomaly']
     return df
+
+
+TARGET_MODE = 2   # OCO-2 Sounding/operation_mode: 0 nadir, 1 glint, 2 target
+
+
+def backfill_operation_mode(oco: pd.DataFrame, source_path) -> pd.DataFrame:
+    """Attach operation_mode from the feature parquet plot_data was built from.
+
+    plot_data built before operation_mode joined KEEP_COLS lacks the column;
+    (time, fp) identifies a sounding, and both files carry the same values for
+    it, so an exact join recovers the mode without rebuilding plot_data.
+    """
+    src = pd.read_parquet(source_path, columns=['time', 'fp', 'operation_mode'])
+    src = src.drop_duplicates(['time', 'fp'])
+    return oco.merge(src, on=['time', 'fp'], how='left', validate='many_to_one')
+
+
+def target_zoom_extent(df: pd.DataFrame, lon0: float, lat0: float, *,
+                       near_km: float = 50.0, min_frac: float = 0.5,
+                       pad_frac: float = 0.15, min_span_km: float = 20.0):
+    """Square-in-km view around the station's target-mode footprints, or None.
+
+    Only footprints within *near_km* of the station count: a neighbouring
+    site's target pass (e.g. Edwards seen from Caltech) must not trigger a
+    zoom.  The pass counts as target mode when at least *min_frac* of those
+    footprints have operation_mode == TARGET_MODE.  The view covers them plus
+    the station, padded by *pad_frac*.
+    """
+    if 'operation_mode' not in df.columns or len(df) == 0:
+        return None
+    near = _haversine_km(df['lon'].to_numpy(dtype=float),
+                         df['lat'].to_numpy(dtype=float), lon0, lat0) <= near_km
+    if not near.any():
+        return None
+    df = df[near]
+    is_target = df['operation_mode'].to_numpy(dtype=float) == TARGET_MODE
+    if is_target.mean() < min_frac:
+        return None
+    lon = np.append(df['lon'].to_numpy(dtype=float)[is_target], lon0)
+    lat = np.append(df['lat'].to_numpy(dtype=float)[is_target], lat0)
+    lon_c = 0.5 * (np.nanmin(lon) + np.nanmax(lon))
+    lat_c = 0.5 * (np.nanmin(lat) + np.nanmax(lat))
+    km_per_deg_lat = 111.195
+    km_per_deg_lon = km_per_deg_lat * max(np.cos(np.radians(lat_c)), 0.05)
+    span_km = max((np.nanmax(lon) - np.nanmin(lon)) * km_per_deg_lon,
+                  (np.nanmax(lat) - np.nanmin(lat)) * km_per_deg_lat)
+    half_km = 0.5 * max(span_km * (1.0 + 2.0 * pad_frac), min_span_km)
+    return [lon_c - half_km / km_per_deg_lon, lon_c + half_km / km_per_deg_lon,
+            lat_c - half_km / km_per_deg_lat, lat_c + half_km / km_per_deg_lat]
 
 
 # ── MODIS RGB background ────────────────────────────────────────────────────────
@@ -612,6 +664,27 @@ def _tccon_panel(ax, tccon_df: pd.DataFrame, vmin: float, vmax: float, title: st
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
 
+def _density_hist(ax, vals, bins, label: str, color: str, lw: float = 1.2,
+                  stats_in_label: bool = True):
+    """Filled density histogram with mean (solid) and ±1σ (dotted) lines.
+
+    Shared by the case-figure histogram and the poster so both use one style.
+    Returns (mu, sigma), or None when *vals* has no finite values.
+    """
+    v = np.asarray(vals, dtype=float)
+    v = v[np.isfinite(v)]
+    if len(v) == 0:
+        return None
+    mu, sigma = float(v.mean()), float(v.std())
+    if stats_in_label:
+        label = f'{label}  μ={mu:.2f} σ={sigma:.2f} ppm'
+    ax.hist(v, bins=bins, density=True, color=color, alpha=0.35, label=label)
+    ax.axvline(mu,          color=color, linewidth=lw)
+    ax.axvline(mu - sigma,  color=color, linewidth=lw * 0.7, linestyle=':')
+    ax.axvline(mu + sigma,  color=color, linewidth=lw * 0.7, linestyle=':')
+    return mu, sigma
+
+
 def _histogram_panel(ax, oco_df: pd.DataFrame, tccon_df: pd.DataFrame,
                      vmin: float, vmax: float):
     """Overlapping density histograms: original, each model correction, TCCON.
@@ -622,16 +695,7 @@ def _histogram_panel(ax, oco_df: pd.DataFrame, tccon_df: pd.DataFrame,
     bins = np.linspace(vmin, vmax, 120)
 
     def _draw(a, vals, label: str, color: str, lw: float = 1.2):
-        v = np.asarray(vals, dtype=float)
-        v = v[np.isfinite(v)]
-        if len(v) == 0:
-            return
-        mu, sigma = v.mean(), v.std()
-        a.hist(v, bins=bins, density=True, color=color, alpha=0.35,
-               label=f'{label}  μ={mu:.2f} σ={sigma:.2f} ppm')
-        a.axvline(mu,          color=color, linewidth=lw)
-        a.axvline(mu - sigma,  color=color, linewidth=lw * 0.7, linestyle=':')
-        a.axvline(mu + sigma,  color=color, linewidth=lw * 0.7, linestyle=':')
+        _density_hist(a, vals, bins, label, color, lw=lw)
 
     if 'xco2_bc' in oco_df.columns:
         _draw(ax, oco_df['xco2_bc'], 'OCO-2 original', 'steelblue')
@@ -677,6 +741,8 @@ def _save_poster_comparison_figure(
         dpi: int = 300,
         hist_df=None,
         circle_km=None,
+        marker_s=14,
+        legend_loc='upper right',
         ):
     """Save a compact poster figure for one corrected XCO₂ model.
 
@@ -684,6 +750,10 @@ def _save_poster_comparison_figure(
         Defaults to oco_df.  Maps always use oco_df (full lon/lat box).
     circle_km : collocation radius drawn as a dashed circle around the station
         on both maps (same style as the manuscript figure); None → no circle.
+    marker_s : footprint marker area (pt²); raised for zoomed views so the
+        markers keep roughly their on-ground footprint size.
+    legend_loc : map legend location; zoomed views pass 'best' because the
+        station can sit at the edge of the view, under a fixed legend.
     """
     if hist_df is None:
         hist_df = oco_df
@@ -730,7 +800,7 @@ def _save_poster_comparison_figure(
             c=values[valid],
             cmap=_CMAP,
             norm=norm,
-            s=14,
+            s=marker_s,
             alpha=0.68,
             linewidths=0,
             rasterized=True,
@@ -752,7 +822,7 @@ def _save_poster_comparison_figure(
                 _draw_radius_circle(ax, tccon_lon, tccon_lat, circle_km, lw=1.8,
                                     label=f'{circle_km:g} km')
             ax.legend(
-                loc='upper right',
+                loc=legend_loc,
                 fontsize=18,
                 frameon=True,
             )
@@ -793,51 +863,45 @@ def _save_poster_comparison_figure(
     cbar.set_label('$X_{\mathrm{CO2}}$ (ppm)', fontsize=20, labelpad=16)
     cbar.ax.tick_params(labelsize=16)
 
-    bins = np.linspace(vmin, vmax, 80)
+    # Same style as the case-figure histogram (_histogram_panel): filled bars,
+    # solid mean and dotted ±1σ lines, TCCON on its own right-hand density axis.
+    bins = np.linspace(vmin, vmax, 120)
+    ax_twin = ax_hist.twinx()
     # Legend is built as two columns — (handle, name) | (blank, "μ ± σ ppm") —
     # so the numbers line up in their own column instead of trailing names of
     # different length.  Entries are collected here in draw order.
     legend_names, legend_stats = [], []
 
-    def _draw_hist(values, label, color, linestyle='-'):
-        values = np.asarray(values, dtype=float)
-        values = values[np.isfinite(values)]
-        if len(values) == 0:
-            return
-        mu = float(values.mean())
-        sigma = float(values.std())
-        ax_hist.hist(
-            values,
-            bins=bins,
-            density=True,
-            histtype='step',
-            linewidth=2.6,
-            color=color,
-            alpha=0.6,
-            linestyle=linestyle,
-            label=label,
-        )
-        ax_hist.axvline(mu, color=color, linewidth=3.0, alpha=0.95)
-        legend_names.append(label)
-        legend_stats.append(f'{mu:.1f} $\\pm$ {sigma:.1f} ppm')
+    def _draw_hist(ax, values, label, color):
+        stats = _density_hist(ax, values, bins, label, color, lw=2.6,
+                              stats_in_label=False)
+        if stats is not None:
+            legend_names.append(label)
+            legend_stats.append(f'{stats[0]:.1f} $\\pm$ {stats[1]:.1f} ppm')
 
-    _draw_hist(hist_df['xco2_bc'].values, 'OCO-2 B11 $X_{\mathrm{CO2}}$', 'black')
-    _draw_hist(hist_df[model_col].values, 'ML-corrected $X_{\mathrm{CO2}}$', 'green')
+    _draw_hist(ax_hist, hist_df['xco2_bc'].values,
+               'OCO-2 B11 $X_{\mathrm{CO2}}$', 'steelblue')
+    _draw_hist(ax_hist, hist_df[model_col].values,
+               'ML-corrected $X_{\mathrm{CO2}}$', model_color)
     if len(tccon_df) > 0:
-        _draw_hist(tccon_df['xco2'].values, _tc_label('TCCON $X_{\mathrm{CO2}}$'),
-                   'coral', linestyle='--')
+        _draw_hist(ax_twin, tccon_df['xco2'].values,
+                   _tc_label('TCCON $X_{\mathrm{CO2}}$'), 'red')
 
     ax_hist.set_title('$X_{\mathrm{CO2}}$ distributions', fontsize=23, weight='bold', pad=14)
     ax_hist.set_xlabel('$X_{\mathrm{CO2}}$ (ppm)', fontsize=18)
     ax_hist.set_ylabel('Density', fontsize=18)
     ax_hist.tick_params(labelsize=16)
     ax_hist.grid(alpha=0.22, linewidth=0.7)
+    ax_twin.set_ylabel('Density (TCCON)', fontsize=18, color='dimgray')
+    ax_twin.tick_params(axis='y', labelsize=16, labelcolor='dimgray')
+    ax_twin.set_ylim(bottom=0.0)   # TCCON outside [vmin, vmax] → empty, not ±
     # Column-major fill: the first ceil(n/2) entries form column 1 (handles +
     # names), the rest column 2 (invisible handles + statistics).
     from matplotlib.lines import Line2D
-    hist_handles, _ = ax_hist.get_legend_handles_labels()
+    hist_handles = (ax_hist.get_legend_handles_labels()[0]
+                    + ax_twin.get_legend_handles_labels()[0])
     blank = Line2D([], [], linestyle='none')
-    ax_hist.legend(
+    ax_twin.legend(
         hist_handles + [blank] * len(legend_stats),
         legend_names + legend_stats,
         ncol=2,
@@ -845,11 +909,25 @@ def _save_poster_comparison_figure(
         handlelength=1.6,
         fontsize=17,
         loc='center left',
-        bbox_to_anchor=(1.02, 0.5),
+        bbox_to_anchor=(1.16, 0.5),   # clears the TCCON density axis
         borderaxespad=0.0,
         frameon=False,
     )
     ax_hist.set_xlim(vmin, vmax)
+
+    # The aspect-locked maps shrink inside their grid cells, which leaves a wide
+    # gap before the colorbar.  Resolve the layout, then snap the colorbar to
+    # the right edge (and height) of panel (b) and pull the histogram left by
+    # the same amount.
+    fig.canvas.draw()
+    p_corr = ax_corr.get_position()
+    p_cbar = cbar_ax.get_position()
+    cbar_x0 = p_corr.x1 + 0.010
+    shift = p_cbar.x0 - cbar_x0
+    cbar_ax.set_position([cbar_x0, p_corr.y0, p_cbar.width, p_corr.height])
+    p_hist = ax_hist.get_position()
+    # set_position propagates to twinned axes, so ax_twin follows automatically
+    ax_hist.set_position([p_hist.x0 - shift, p_hist.y0, p_hist.width, p_hist.height])
 
     if bg_img is None:
         fig.text(
@@ -1129,6 +1207,14 @@ def main():
                              '(default: poster_xco2_<model>.png in --output-dir).')
     parser.add_argument('--poster-dpi', type=int, default=300,
                         help='DPI for --poster-model figure (default: 300).')
+    parser.add_argument('--poster-only', action='store_true',
+                        help='Skip the compact/full case figures; save only the '
+                             '--poster-model figure(s) (quick poster re-plots).')
+    parser.add_argument('--mode-source', default=None,
+                        help='Feature parquet plot_data was built from; supplies '
+                             'operation_mode (joined on time+fp) when plot_data '
+                             'lacks it.  A target-mode pass then also gets a '
+                             'zoomed poster (poster_xco2_<model>_zoom.png).')
     parser.add_argument('--hist-radius-km', type=float, default=None,
                         help='Restrict the histogram comparison to footprints within this '
                              'great-circle distance (km) of the TCCON station. Maps and the '
@@ -1173,6 +1259,10 @@ def main():
     print(f"Loading plot data: {plot_data_path}", flush=True)
     oco = load_plot_data(plot_data_path)
     print(f"  OCO-2: {len(oco):,} rows", flush=True)
+    if 'operation_mode' not in oco.columns and args.mode_source:
+        oco = backfill_operation_mode(oco, _abs(args.mode_source))
+        print(f"  operation_mode backfilled from {args.mode_source} "
+              f"({int(oco['operation_mode'].isna().sum()):,} unmatched)", flush=True)
 
     # Drop guarded footprints (non-physical retrievals / model blow-ups the
     # correction was withheld from) — keeping them pollutes the maps and inflates
@@ -1567,11 +1657,13 @@ def main():
                    bg_img=bg_img, bg_extent=bg_extent, map_extent=map_extent,
                    fp_times=fp_times, radius_km=args.hist_radius_km,
                    dpi=args.dpi)
-    _compose_case_figure(full=False, out_path=out_dir / 'corrected_xco2_vs_tccon.png',
-                         **_fig_kw)
-    _compose_case_figure(full=True,
-                         out_path=out_dir / 'corrected_xco2_vs_tccon_full.png',
-                         **_fig_kw)
+    if not args.poster_only:
+        _compose_case_figure(full=False,
+                             out_path=out_dir / 'corrected_xco2_vs_tccon.png',
+                             **_fig_kw)
+        _compose_case_figure(full=True,
+                             out_path=out_dir / 'corrected_xco2_vs_tccon_full.png',
+                             **_fig_kw)
 
     if args.poster_model:
         model_name, model_col, model_color = _select_model_cfg(oco, args.poster_model)
@@ -1583,28 +1675,38 @@ def main():
 
         print(f"Saving poster figure for {model_name} ({model_col}) → {poster_path}",
               flush=True)
-        _save_poster_comparison_figure(
-            oco,
-            tccon,
-            model_name,
-            model_col,
-            model_color,
-            lon_arr,
-            lat_arr,
-            norm,
-            vmin,
-            vmax,
-            poster_path,
-            tccon_lon=tccon_lon,
-            tccon_lat=tccon_lat,
-            bg_img=bg_img,
-            bg_extent=bg_extent,
-            view_extent=map_extent,
-            dpi=args.poster_dpi,
-            hist_df=oco_hist,
-            circle_km=args.hist_radius_km,
+        _poster_kw = dict(
+            oco_df=oco, tccon_df=tccon, model_name=model_name,
+            model_col=model_col, model_color=model_color,
+            lon_arr=lon_arr, lat_arr=lat_arr, norm=norm, vmin=vmin, vmax=vmax,
+            tccon_lon=tccon_lon, tccon_lat=tccon_lat,
+            bg_img=bg_img, bg_extent=bg_extent,
+            dpi=args.poster_dpi, hist_df=oco_hist,
         )
+        _save_poster_comparison_figure(
+            out_path=poster_path, view_extent=map_extent,
+            circle_km=args.hist_radius_km, **_poster_kw)
         print(f"Poster figure saved → {poster_path}", flush=True)
+
+        # Target-mode passes cover only a few tens of km around the station, so
+        # the ±radius view shows a small blob; add a zoom onto those footprints.
+        zoom_ext = (target_zoom_extent(oco_hist, tccon_lon, tccon_lat)
+                    if tccon_lon is not None else None)
+        if zoom_ext is None:
+            print("  poster zoom: skipped (not a target-mode pass, or no "
+                  "operation_mode — see --mode-source)", flush=True)
+        else:
+            zoom_path = poster_path.with_name(f'{poster_path.stem}_zoom'
+                                              f'{poster_path.suffix}')
+            zoom_km = (zoom_ext[3] - zoom_ext[2]) * 111.195
+            # Marker diameter ≈ one footprint cross-track width (~1.3 km) on a
+            # ~4.4 in (≈320 pt) map panel; never smaller than the full view.
+            marker_s = max(14.0, (1.0 / zoom_km * 320.0) ** 2)
+            print(f"  poster zoom: target-mode pass, {zoom_km:.0f} km view → "
+                  f"{zoom_path}", flush=True)
+            _save_poster_comparison_figure(
+                out_path=zoom_path, view_extent=zoom_ext, circle_km=None,
+                marker_s=marker_s, legend_loc='best', **_poster_kw)
 
 
 if __name__ == '__main__':

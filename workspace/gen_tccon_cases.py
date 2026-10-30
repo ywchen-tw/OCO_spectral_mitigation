@@ -6,9 +6,9 @@ least --min-footprints OCO-2 footprints within --radius-km gets one run_case
 line: lon/lat box of those footprints, vmin/vmax from xco2_bc percentiles, the
 dominant surface, and TCCON_AVAIL = any station observation within
 +/- --window-min of the overpass.  Lines are grouped by station and tagged
-with the script era (A-Train: date < 2023 -> deepens.sh; drift: >= 2023 ->
-deepens_drift.sh).  Generalises workspace/gen_drift_cases.py (one best station
-per date, hard-coded local paths).
+with the script era (A-Train: date < 2022 -> deepens.sh; drift: >= 2022, after
+Aqua left the A-Train in January 2022 -> deepens_drift.sh).  Generalises
+workspace/gen_drift_cases.py (one best station per date, hard-coded local paths).
 
     CURC_DATA_ROOT=/scratch/alpine/<user>/oco/spec_anal \\
         python workspace/gen_tccon_cases.py 2020-07-03 2023-09-04 ...
@@ -120,7 +120,7 @@ def main():
                              vmin=vmin, vmax=vmax, surf=surf,
                              avail="yes" if n_tccon > 0 else "no", n_tccon=n_tccon,
                              n=n, dmin=float(dist[m].min()),
-                             era="drift" if int(raw[:4]) >= 2023 else "atrain"))
+                             era="drift" if int(raw[:4]) >= 2022 else "atrain"))
         if not hit:
             unmatched.append(date)
 

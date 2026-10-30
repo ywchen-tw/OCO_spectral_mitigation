@@ -65,7 +65,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from plot_style import (XCO2_BC_LABEL, XCO2_DE_LABEL, XCO2_LABEL,
                         XCO2_RAW_LABEL, apply_manuscript_style, panel_label)
 from plot_corrected_xco2 import load_tccon, get_storage_dir
-from tccon_collocate import collocate, find_plotdata, physical_site
+from tccon_collocate import (PRODUCTION_SITE_RADII, SITE_RADIUS_SCHEMES, collocate,
+                             find_plotdata, physical_site, site_radius_km)
 from ak_harmonize import (find_lite_file, ak_adjusted_ref,
                           operator_from_dataframe, ak_adjusted_ref_from_operator)
 from tccon_uncertainty_stats import (load_inflation, side_a_case, side_b_case,
@@ -681,6 +682,11 @@ def main():
                          "'xco2' = GGG2020 X2007-scale column).  GGG2020.1 files "
                          "have no 'xco2'; use 'xco2_x2007' or 'xco2_x2019'.")
     ap.add_argument('--radius-km', type=float, default=100.0)
+    ap.add_argument('--site-radii', default=PRODUCTION_SITE_RADII,
+                    choices=sorted(SITE_RADIUS_SCHEMES),
+                    help="Per-site radius overrides (tccon_collocate.SITE_RADIUS_SCHEMES); "
+                         "an override only tightens --radius-km.  Default: the production "
+                         f"scheme '{PRODUCTION_SITE_RADII}'; 'uniform' disables overrides.")
     ap.add_argument('--window-min', type=float, default=60.0)
     ap.add_argument('--min-fp', type=int, default=10,
                     help="Minimum co-located footprints for a station-day to enter a "
@@ -920,10 +926,11 @@ def main():
                      .drop_duplicates(['time', 'lon', 'lat']))
             oco = oco.merge(src, on=['time', 'lon', 'lat'], how='left')
         # SHARED collocation (box → ≤radius → ±50 ppm sanity; guarded KEPT + flagged)
+        radius = site_radius_km(c['tccon'][:2], args.radius_km, args.site_radii)
         col = collocate(oco, tccon_df(c['tccon']),
                         box=(c['lonmin'], c['lonmax'], c['latmin'], c['latmax']),
-                        radius_km=args.radius_km, window_min=args.window_min,
-                        site=c['tccon'][:2])
+                        radius_km=radius, window_min=args.window_min,
+                        site=c['tccon'][:2], site_radii=args.site_radii)
         near = col['near']; tmu = col['tccon_ref']; tsd = col['tccon_sd']; n_tc = col['n_tccon']
         if not len(near):
             continue
@@ -953,7 +960,7 @@ def main():
                         if lite is not None:
                             adj = ak_adjusted_ref(
                                 lite, tpath, col['st_lon'], col['st_lat'],
-                                args.radius_km, t0, t1, window_min=args.window_min,
+                                radius, t0, t1, window_min=args.window_min,
                                 xco2_var=args.tccon_xco2_var)
                             if adj is not None:
                                 ak_source = 'lite'
@@ -1017,7 +1024,8 @@ def main():
                     continue
                 _mrows(sname, qflab, 'all', -np.inf, np.inf, frame)   # ungrouped
                 row = dict(site=site, date=c['date'], surface=sname, qf_group=qflab,
-                           n_tccon=n_tc, tccon_mu=tmu, tccon_sd=tsd, tccon_mu_raw=tmu_raw,
+                           radius_km=radius, n_tccon=n_tc, tccon_mu=tmu, tccon_sd=tsd,
+                           tccon_mu_raw=tmu_raw,
                            tccon_err_mean=col.get('tccon_err_mean', np.nan),
                            ak_delta=ak_delta, ak_n_lite=ak_n_lite, ak_source=ak_source,
                            **_case_metrics(frame, tmu, n_tc))
@@ -1088,8 +1096,13 @@ def main():
     # Everything below is emitted once per quality-flag group (all/qf0/qf1); the
     # per-group tables accumulate a qf_group column into the shared CSVs, written
     # after the loop.
+    overrides = {s: site_radius_km(s, args.radius_km, args.site_radii)
+                 for s in SITE_RADIUS_SCHEMES[args.site_radii]}
+    radius_note = ('' if not overrides else ' (site overrides, scheme '
+                   f'`{args.site_radii}`: '
+                   + ', '.join(f'{s} {r:g} km' for s, r in overrides.items()) + ')')
     lines = ['# OCO-2 corrected vs TCCON — combined comparison', '',
-             f'TCCON within ±{args.window_min:g} min, ≤{args.radius_km:g} km.  '
+             f'TCCON within ±{args.window_min:g} min, ≤{args.radius_km:g} km{radius_note}.  '
              f'XCO2 in ppm (mean ± std).  Split into quality-flag groups: '
              f'all (QF 0+1), QF=0 (good), QF=1.', '',
              f'TCCON directory: `{args.tccon_dir}`.  '

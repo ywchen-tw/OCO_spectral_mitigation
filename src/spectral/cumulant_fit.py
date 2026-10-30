@@ -201,6 +201,75 @@ def fit_spectral_model(tau, ln_T, fit_order, smooth=True):
     return _solve_cumulant(A, y, fit_order)
 
 
+# Extra per-sounding fit statistics (fitting.py --extra-fits): unconstrained
+# order-2 and order-3 coefficients on the raw ln_T, their residual-based
+# standard errors, residual rms per order, and the channel count.  Produced by
+# _extra_fit_chunk and stored as <band>_<field>_nosg in fitting_details.
+EXTRA_FIT_FIELDS = (
+    "k1_o2", "k2_o2", "sig_k1_o2", "sig_k2_o2", "rms_o2",
+    "k1_o3", "k2_o3", "k3_o3", "sig_k1_o3", "sig_k2_o3", "rms_o3",
+    "rms_prod", "nchan",
+)
+_EXTRA_INDEX = {name: i for i, name in enumerate(EXTRA_FIT_FIELDS)}
+
+
+def _unconstrained_fit_stats(A, y):
+    """lstsq coefficients [intercept, k1, ...], their residual-based standard
+    errors (iid-residual assumption; photon noise is not modelled here) and the
+    residual rms."""
+    coef = np.linalg.lstsq(A, y, rcond=None)[0]
+    resid = y - A @ coef
+    dof = max(len(y) - A.shape[1], 1)
+    cov = np.linalg.pinv(A.T @ A) * float(resid @ resid) / dof
+    sig = np.sqrt(np.clip(np.diag(cov), 0.0, None))
+    rms = float(np.sqrt(np.mean(resid**2)))
+    return coef, sig, rms
+
+
+def _extra_fit_chunk(j_indices, tau_slab, lnT_slab, fit_orders):
+    """Extra statistics on the raw ln_T for a chunk of soundings (worker-safe).
+
+    Independent of _fit_chunk so that the production path is untouched; the
+    production-order fit is repeated here only to record its residual rms.
+
+    Returns (j_indices, extras [3, m, len(EXTRA_FIT_FIELDS)]), NaN on failure.
+    """
+    m = len(j_indices)
+    extras = np.full((3, m, len(EXTRA_FIT_FIELDS)), np.nan)
+    for jl in range(m):
+        for i_band, band_order in enumerate(fit_orders):
+            tau_j = np.asarray(tau_slab[i_band, jl], dtype=np.float64)
+            ln_j  = np.asarray(lnT_slab[i_band, jl], dtype=np.float64)
+            mask = ~np.isnan(ln_j) & ~np.isnan(tau_j)
+            n = int(mask.sum())
+            row = extras[i_band, jl]
+            row[_EXTRA_INDEX["nchan"]] = n
+            if n < 5:
+                continue
+            tau_m = tau_j[mask]
+            sort_idx = np.argsort(tau_m)
+            tau_s = tau_m[sort_idx]
+            y_raw = ln_j[mask][sort_idx]
+            try:
+                if n >= band_order + 2:
+                    A_prod = get_design_matrix(tau_s, band_order)
+                    popt = _solve_cumulant(A_prod, y_raw, band_order)
+                    coef = np.concatenate([popt[-1:], popt[:-1]])
+                    row[_EXTRA_INDEX["rms_prod"]] = float(np.sqrt(np.mean((y_raw - A_prod @ coef)**2)))
+                for order, tag in ((2, "o2"), (3, "o3")):
+                    coef, sig, rms = _unconstrained_fit_stats(get_design_matrix(tau_s, order), y_raw)
+                    row[_EXTRA_INDEX[f"k1_{tag}"]] = coef[1]
+                    row[_EXTRA_INDEX[f"k2_{tag}"]] = coef[2]
+                    if order == 3:
+                        row[_EXTRA_INDEX["k3_o3"]] = coef[3]
+                    row[_EXTRA_INDEX[f"sig_k1_{tag}"]] = sig[1]
+                    row[_EXTRA_INDEX[f"sig_k2_{tag}"]] = sig[2]
+                    row[_EXTRA_INDEX[f"rms_{tag}"]] = rms
+            except (np.linalg.LinAlgError, ValueError):
+                continue
+    return j_indices, extras
+
+
 def _fit_chunk(j_indices, tau_slab, lnT_slab, fit_orders, dual_fit):
     """Fit all bands for a contiguous chunk of soundings (worker-safe).
 

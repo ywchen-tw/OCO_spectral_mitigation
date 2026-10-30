@@ -50,12 +50,15 @@ from abs_util.abs.oco_convolve_absco import oco_conv_absco # reads OCO line shap
 from abs_util.abs.oco_wl_absco import oco_wv_absco  # reads OCO wavelengths
 from abs_util.abs.rdabs_gas_absco import rdabs_species_absco
 from abs_util.abs.rdabsco_gas_absco import rdabsco_species_absco  # read absorption coefficients O2 or CO2 for a given pressure, temperature, and H2O mixing ratio
-from abs_util.ils_tau import convolve_optical_depth_in_transmission
+from abs_util.ils_tau import attribute_optical_depth, convolve_optical_depth_in_transmission
 from abs_util.oco_util import timing
 from scipy.interpolate import interp1d
 
 # Constants
 C_LIGHT = 299792458.0  # Speed of light in m/s
+# Per-channel tau attribution written next to tau when fitting.py runs with
+# --telluric-doppler (see ils_tau.attribute_optical_depth).
+COMPONENT_NAMES = ("frac_h2o", "frac_ray", "p_abs_hpa")
 
 # Edit from EaR3T code (See Chen et al., 2023, AMT, https://doi.org/10.5194/amt-16-1971-2023)
 def cal_sol_fac(doy):
@@ -244,6 +247,8 @@ def _init_worker(state):
             'pdmax': state['pdmax'],
             'tdmax': state['tdmax'],
             'solar_h5_path': state['solar_h5_path'],
+            'telluric_doppler': bool(state.get('telluric_doppler', False)),
+            'store_components': bool(state.get('store_components', False)),
         }
     
         # print(f"Worker {os.getpid()} successfully attached to SharedMemory.", flush=True)
@@ -268,6 +273,8 @@ def _process_track_all_bands(track_data):
     broadh2o, hpah2o = s['broadh2o'], s['hpah2o']
     trilinear_matrix = s['trilinear_matrix']
     pdmax, tdmax     = s['pdmax'], s['tdmax']
+    telluric_doppler = bool(s.get('telluric_doppler', False))
+    store_components = bool(s.get('store_components', False))
 
     convr    = np.pi / 180.0
     musolzen = 1.0 / np.cos(solzen * convr)
@@ -298,6 +305,7 @@ def _process_track_all_bands(track_data):
         h2o_needs_padding = (nwav != nwavh2o)
         ext1 = np.zeros(nwav)
         ext = np.empty((nwav, nlay))
+        ext_h2o = np.empty((nwav, nlay)) if store_components else None
         P_inds = get_P_index(pprf, hpa_gas, trilinear=True)
         P_inds_h2o = get_P_index(pprf, hpah2o, trilinear=True)
         for iz in range(nlay)[::-1]:
@@ -333,10 +341,21 @@ def _process_track_all_bands(track_data):
             else:
                 ext1 = ext1_
             ext[:, iz] = ext0 + ext1
+            if store_components:
+                ext_h2o[:, iz] = ext1
         
-        # Doppler-shift ABSCO wavenumbers from atmosphere rest frame to instrument frame.
-        # nu_inst = nu_atm / (1 + v_inst/c) — consistent with solar shift sign convention.
-        wvldat_obs = wvldat# * (1.0 + v_inst / C_LIGHT)  # already accounted for Doppler and thermo-mechanical shifts observed 
+        # Telluric Doppler shift of the ABSCO grid from the atmosphere rest frame to
+        # the instrument frame.  With v_inst = L1B sounding_relative_velocity the
+        # observed wavelength of a telluric line is lambda_rest * (1 - v_inst/c):
+        # established empirically on orbits 29252a_GL, 22845a_GL and 48443a_TG
+        # (per-sounding best shift = -0.174 px per km/s in all three bands, the
+        # physical value; idea_test/fit_order_study/PLAN.md, 2026-10-29).  Off by
+        # default so the production tau stays reproducible; enabled through
+        # fitting.py --telluric-doppler, which also stamps a separate tau version.
+        if telluric_doppler:
+            wvldat_obs = wvldat * (1.0 - v_inst / C_LIGHT)
+        else:
+            wvldat_obs = wvldat
         indlr   = oco_conv_absco(wloco, xx, yy, wvldat_obs, nwav)
         nx      = len(wloco)
         wvlabsco = wvldat_obs
@@ -359,6 +378,10 @@ def _process_track_all_bands(track_data):
         tau         = np.empty(nx)
         toa_sol     = np.empty(nx)
         airmass     = musolzen + muobszen
+        if store_components:
+            frac_h2o = np.empty(nx)
+            frac_ray = np.empty(nx)
+            p_abs    = np.empty(nx)
 
         for ind in range(nx):
             start, end = indlr[ind, 1], indlr[ind, 0] + 1
@@ -370,6 +393,11 @@ def _process_track_all_bands(track_data):
                 airmass,
                 rayleigh_tau_window=rayleigh_tau_hr[start:end],
             )
+            if store_components:
+                frac_h2o[ind], frac_ray[ind], p_abs[ind] = attribute_optical_depth(
+                    ext[start:end, :], ext_h2o[start:end, :], dzf, ilg0, airmass,
+                    rayleigh_tau_hr[start:end], pprf,
+                )
             start_sol, end_sol = indlr_sol[ind, 1], indlr_sol[ind, 0] + 1
             ilg0_sol     = np.interp(wvlsol_obs[start_sol:end_sol], xx_wloco[ind], yy[ind])
             ilg0_sol_sum = np.sum(ilg0_sol)
@@ -390,7 +418,10 @@ def _process_track_all_bands(track_data):
                 
 
         mean_ext = tau / (np.sum(dzf) * airmass)
-        band_results.append((tau, mean_ext, toa_sol))
+        if store_components:
+            band_results.append((tau, mean_ext, toa_sol, (frac_h2o, frac_ray, p_abs)))
+        else:
+            band_results.append((tau, mean_ext, toa_sol))
        
     # --- HEALTH LOGGING ---
     # Log memory for roughly 5% of tasks to verify stability in SLURM .out file
@@ -566,6 +597,8 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
                                       [-1,  1,  1, -1,  1, -1, -1,  1]], dtype=np.float64),
         'pdmax': pdmax, 'tdmax': tdmax,
         'solar_h5_path': solar_h5_path,
+        'telluric_doppler': bool(atm_dict.get('telluric_doppler', False)),
+        'store_components': bool(atm_dict.get('store_components', False)),
     }
 
     n_tracks = len(atm_dict["fp_number"])
@@ -666,14 +699,28 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
     wco2_tau = np.zeros((n_tracks, 1016));  wco2_me = np.zeros((n_tracks, 1016));  wco2_sol = np.zeros((n_tracks, 1016))
     sco2_tau = np.zeros((n_tracks, 1016));  sco2_me = np.zeros((n_tracks, 1016));  sco2_sol = np.zeros((n_tracks, 1016))
 
-    for i, ((t0, me0, s0), (t1, me1, s1), (t2, me2, s2)) in enumerate(results):
-        o2a_tau[i],  o2a_me[i],  o2a_sol[i]  = t0, me0, s0
-        wco2_tau[i], wco2_me[i], wco2_sol[i] = t1, me1, s1
-        sco2_tau[i], sco2_me[i], sco2_sol[i] = t2, me2, s2
+    store_components = bool(atm_dict.get('store_components', False))
+    components = {}
+    if store_components:
+        for label in ("o2a", "wco2", "sco2"):
+            for name in COMPONENT_NAMES:
+                components[f"{label}_{name}"] = np.full((n_tracks, 1016), np.nan, dtype=np.float32)
 
-    return (o2a_tau,  o2a_me,  o2a_sol), \
-           (wco2_tau, wco2_me, wco2_sol), \
-           (sco2_tau, sco2_me, sco2_sol)
+    for i, (b0, b1, b2) in enumerate(results):
+        o2a_tau[i],  o2a_me[i],  o2a_sol[i]  = b0[:3]
+        wco2_tau[i], wco2_me[i], wco2_sol[i] = b1[:3]
+        sco2_tau[i], sco2_me[i], sco2_sol[i] = b2[:3]
+        if store_components:
+            for label, band in (("o2a", b0), ("wco2", b1), ("sco2", b2)):
+                for name, arr in zip(COMPONENT_NAMES, band[3]):
+                    components[f"{label}_{name}"][i] = arr
+
+    out = [(o2a_tau,  o2a_me,  o2a_sol),
+           (wco2_tau, wco2_me, wco2_sol),
+           (sco2_tau, sco2_me, sco2_sol)]
+    if store_components:
+        out.append(components)
+    return tuple(out)
 
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ import numpy as np
 from netCDF4 import Dataset as dataset
 
 from utils import oco2_rad_nadir
-from abs_util.ils_tau import TAU_CONVOLUTION_VERSION
+from abs_util.ils_tau import TAU_CONVOLUTION_VERSION, tau_convolution_version  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,9 @@ def load_shared_data(sat):
     date = sat['date'].strftime("%Y-%m-%d")
 
     # --- Cloud distances (output of oco_modis_cloud_distance.py) ---
-    cld_dist_file = cloud_distance_file_path(sat["result_dir"], date)
+    # A test run (fitting.py --telluric-doppler) writes to its own result tree
+    # but reuses the production cloud distances through sat["cloud_dist_dir"].
+    cld_dist_file = cloud_distance_file_path(sat.get("cloud_dist_dir") or sat["result_dir"], date)
     validate_cloud_distance_file(cld_dist_file, date)
     logger.info(f"Loading cloud distances from {cld_dist_file}")
     with h5py.File(cld_dist_file, "r") as f:
@@ -558,14 +560,19 @@ def select_lite_file(nc4_matches, date):
     return selected
 
 
-def fp_tau_file_is_current(fp_tau_file):
-    """Return True when cached tau uses the current ILS convolution physics."""
+def fp_tau_file_is_current(fp_tau_file, telluric_doppler=False):
+    """Return True when cached tau uses the current ILS convolution physics.
+
+    ``telluric_doppler`` selects the test variant's version stamp (see
+    abs_util.ils_tau.tau_convolution_version), so a production tau file is
+    never accepted by a --telluric-doppler run and vice versa.
+    """
     if not os.path.isfile(fp_tau_file):
         return False
     try:
         with h5py.File(fp_tau_file, "r") as f:
             return (
-                f.attrs.get("tau_convolution") == TAU_CONVOLUTION_VERSION
+                f.attrs.get("tau_convolution") == tau_convolution_version(telluric_doppler)
                 and not bool(f.attrs.get("use_ring", False))
             )
     except OSError:
