@@ -72,7 +72,15 @@ def _cleanup_tau_temp_files(output, use_ring=False, telluric_doppler=False):
             print(f'[Warning] Could not remove temporary file {output_tmp}: {exc}')
 
 
-def _write_tau_file_atomic(path, datasets, use_ring=False, telluric_doppler=False):
+def _write_tau_file_atomic(path, datasets, use_ring=False, telluric_doppler=False,
+                           stamp=None, extra_attrs=None, dataset_attrs=None):
+    """Write ``datasets`` to ``path`` via a temp file + os.replace.
+
+    stamp         : tau_convolution attr; default tau_convolution_version(telluric_doppler)
+    extra_attrs   : further file attrs (e.g. provenance kept by
+                    abs_util.toa_solar.recompute_toa_sol)
+    dataset_attrs : {dataset name: {attr: value}}
+    """
     output_dir = os.path.dirname(os.path.abspath(path)) or "."
     output_name = os.path.basename(path)
     fd, tmp_path = tempfile.mkstemp(
@@ -84,11 +92,16 @@ def _write_tau_file_atomic(path, datasets, use_ring=False, telluric_doppler=Fals
 
     try:
         with h5py.File(tmp_path, "w") as h5f:
-            h5f.attrs["tau_convolution"] = tau_convolution_version(telluric_doppler)
+            h5f.attrs["tau_convolution"] = (tau_convolution_version(telluric_doppler)
+                                            if stamp is None else stamp)
             h5f.attrs["use_ring"] = bool(use_ring)
             h5f.attrs["telluric_doppler"] = bool(telluric_doppler)
+            for key, value in (extra_attrs or {}).items():
+                h5f.attrs[key] = value
             for name, data in datasets.items():
-                h5f.create_dataset(name, data=data)
+                dset = h5f.create_dataset(name, data=data)
+                for key, value in (dataset_attrs or {}).get(name, {}).items():
+                    dset.attrs[key] = value
             h5f.flush()
         os.replace(tmp_path, path)
     finally:
@@ -123,8 +136,10 @@ def oco_fp_atm_abs(sat=None, o2mix=0.20935, output='fp_tau_combined.h5',
     """Compute per-footprint slant optical depths for one orbit.
 
     telluric_doppler : bool
-        Apply the telluric Doppler shift of the ABSCO grid (test variant, see
-        fp_abs_coeff._process_track_all_bands) and store the per-channel tau
+        Apply the telluric Doppler shift of the ABSCO grid and the spacecraft
+        term of the solar-grid shift (test variant, see
+        fp_abs_coeff._process_track_all_bands / solar_doppler_beta; files at the
+        older v3 stamp can be upgraded with abs_util.toa_solar) and store the per-channel tau
         attribution datasets (_COMPONENT_DATASETS).  The output file carries a
         separate tau_convolution version so it is never mistaken for a
         production tau file, and vice versa.

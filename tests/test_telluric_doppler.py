@@ -23,6 +23,7 @@ from abs_util.ils_tau import (  # noqa: E402
 from spectral.cumulant_fit import (  # noqa: E402
     EXTRA_FIT_FIELDS, _extra_fit_chunk, get_design_matrix,
 )
+from spectral.orbit_data import land_mask_from_fraction  # noqa: E402
 
 
 def test_version_stamp_distinguishes_variants():
@@ -148,6 +149,174 @@ def test_design_matrix_sign_convention():
     assert np.allclose(A[:, 1], -tau)
     assert np.allclose(A[:, 2], 0.5 * tau**2)
     assert np.allclose(A[:, 3], -tau**3 / 3)
+
+
+# ─── two-tau (T2) and agreed-model (AM) extra fits ───────────────────────────
+
+IDX = {n: i for i, n in enumerate(EXTRA_FIT_FIELDS)}
+N_SLAB = 1014                                     # channels 1..1014 (slab already sliced [1:-1])
+X_SLAB = (np.arange(N_SLAB) + 1 - 507.5) / 507.5  # x on the original channel index
+
+
+def _synthetic_am(m=3, seed=2):
+    """τ [3, m, n] (unsorted channel order), frac_h2o with NaN at tiny τ, and the split."""
+    rng = np.random.default_rng(seed)
+    tau = rng.uniform(0.0, 6.0, size=(3, m, N_SLAB)) ** 1.3 / 3.0
+    frac = rng.uniform(0.1, 0.4, size=(3, m, N_SLAB))
+    frac[tau < 0.02] = np.nan
+    tw = np.where(np.isfinite(frac), frac, 0.0) * tau
+    return tau, frac, tw, tau - tw
+
+
+def _o2a_lnt(tau, c, a1, k1, f):
+    return c + a1 * X_SLAB + np.log((1 - f) * np.exp(-k1 * tau) + f)
+
+
+def test_t2_exact_recovery():
+    tau, frac, tw, td = _synthetic_am()
+    c, k1d, k1w, k2 = -1.2, 0.98, 1.07, 0.03
+    ln_t = c - k1d * td - k1w * tw + 0.5 * k2 * tau**2
+    _, ex = _extra_fit_chunk(np.arange(3), tau, ln_t, (7, 3, 7), frac_slab=frac)
+    assert np.allclose(ex[:, :, IDX["k1_dry_t2"]], k1d, atol=1e-8)
+    assert np.allclose(ex[:, :, IDX["k1w_t2"]], k1w, atol=1e-8)
+    assert np.allclose(ex[:, :, IDX["k2_t2"]], k2, atol=1e-8)
+    assert np.all(ex[:, :, IDX["rms_t2"]] < 1e-10)
+
+
+def test_am_o2a_exact_recovery_with_floor():
+    tau, frac, _, _ = _synthetic_am()
+    c, a1, k1, f = -0.8, 0.05, 0.99, 0.012
+    ln_t = np.stack([_o2a_lnt(tau[0], c, a1, k1, f)] * 3)
+    ln_t[0, 0, :7] = np.nan
+    _, ex = _extra_fit_chunk(np.arange(3), tau, ln_t, (7, 3, 7), frac_slab=frac)
+    o = ex[0]
+    assert np.all(o[:, IDX["ok_am"]] == 1.0)
+    assert np.allclose(o[:, IDX["k1_am"]], k1, atol=1e-6)
+    assert np.allclose(o[:, IDX["f_am"]], f, atol=1e-6)
+    assert np.allclose(o[:, IDX["a1_am"]], a1, atol=1e-6)
+    assert np.allclose(o[:, IDX["c_am"]], c, atol=1e-6)
+    assert np.allclose(o[:, IDX["k2diag_am"]], 0.0, atol=1e-5)
+    assert np.all(o[:, IDX["k2_am"]] == 0.0)
+    for name in ("k1w_am", "a2_am", "sig_k1w_am", "sig_k2_am", "sig_a2_am"):
+        assert np.all(np.isnan(o[:, IDX[name]])), name
+
+
+def test_am_o2a_without_floor_matches_linear():
+    tau, frac, _, _ = _synthetic_am()
+    c, a1, k1 = -0.5, -0.03, 1.01
+    ln_t = np.stack([_o2a_lnt(tau[0], c, a1, k1, 0.0)] * 3)
+    _, ex = _extra_fit_chunk(np.arange(3), tau, ln_t, (7, 3, 7), frac_slab=frac)
+    o = ex[0]
+    assert np.all(o[:, IDX["f_am"]] <= 1e-6)
+    for jl in range(3):
+        a = np.column_stack([np.ones(N_SLAB), X_SLAB, -tau[0, jl]])
+        k1_lin = np.linalg.lstsq(a, ln_t[0, jl], rcond=None)[0][2]
+        assert abs(o[jl, IDX["k1_am"]] - k1_lin) < 1e-6
+
+
+def test_am_wco2_exact_recovery():
+    tau, frac, tw, td = _synthetic_am()
+    c, a1, k1d, k1w = -1.0, 0.02, 0.985, 1.1
+    ln_t = c + a1 * X_SLAB - k1d * td - k1w * tw
+    _, ex = _extra_fit_chunk(np.arange(3), tau, ln_t, (7, 3, 7), frac_slab=frac)
+    w = ex[1]
+    assert np.allclose(w[:, IDX["k1_am"]], k1d, atol=1e-8)
+    assert np.allclose(w[:, IDX["k1w_am"]], k1w, atol=1e-8)
+    assert np.allclose(w[:, IDX["a1_am"]], a1, atol=1e-8)
+    assert np.allclose(w[:, IDX["c_am"]], c, atol=1e-8)
+    assert np.allclose(w[:, IDX["k2diag_am"]], 0.0, atol=1e-8)
+    assert np.all(w[:, IDX["k2_am"]] == 0.0) and np.all(w[:, IDX["ok_am"]] == 1.0)
+    assert np.all(np.isnan(w[:, IDX["f_am"]])) and np.all(np.isnan(w[:, IDX["a2_am"]]))
+
+
+def test_am_sco2_land_and_water():
+    tau, frac, tw, td = _synthetic_am()
+    c, a1, a2, k1d, k1w, k2 = -1.5, 0.04, -0.06, 0.97, 1.05, 0.012
+    ln_t = c + a1 * X_SLAB + a2 * X_SLAB**2 - k1d * td - k1w * tw + 0.5 * k2 * tau**2
+    land = np.array([True, True, False])
+    _, ex = _extra_fit_chunk(np.arange(3), tau, ln_t, (7, 3, 7), frac_slab=frac, land_chunk=land)
+    s = ex[2]
+    for name, val in (("k1_am", k1d), ("k1w_am", k1w), ("k2_am", k2), ("a1_am", a1), ("a2_am", a2),
+                      ("c_am", c), ("k2diag_am", k2)):
+        assert np.allclose(s[:2, IDX[name]], val, atol=1e-8), name
+    assert np.isnan(s[2, IDX["a2_am"]]) and np.isnan(s[2, IDX["sig_a2_am"]])
+    assert np.all(np.isnan(s[:, IDX["f_am"]]))
+    # water sounding without the x² term: a water truth is recovered exactly
+    ln_w = ln_t - a2 * X_SLAB**2
+    _, exw = _extra_fit_chunk(np.arange(3), tau, ln_w, (7, 3, 7), frac_slab=frac)  # land None -> water
+    assert np.allclose(exw[2, :, IDX["k2_am"]], k2, atol=1e-8)
+    assert np.all(np.isnan(exw[2, :, IDX["a2_am"]]))
+
+
+def test_am_x_follows_tau_sort():
+    """The τ-sort permutes channels; x must follow (a1 recovered on a shuffled τ)."""
+    tau, frac, tw, td = _synthetic_am(m=1, seed=5)
+    ln_t = -0.7 + 0.3 * X_SLAB - 1.0 * td - 1.0 * tw
+    _, ex = _extra_fit_chunk(np.arange(1), tau, ln_t, (7, 3, 7), frac_slab=frac)
+    assert np.allclose(ex[1:, 0, IDX["a1_am"]], 0.3, atol=1e-8)
+
+
+def test_frac_none_leaves_new_fields_nan_and_old_unchanged():
+    tau, frac, tw, td = _synthetic_am()
+    rng = np.random.default_rng(3)
+    ln_t = -1.0 - 0.99 * tau + 0.5 * 0.02 * tau**2 + rng.normal(0, 0.01, tau.shape)
+    _, ex_old = _extra_fit_chunk(np.arange(3), tau, ln_t, (7, 3, 7))
+    _, ex_none = _extra_fit_chunk(np.arange(3), tau, ln_t, (7, 3, 7), frac_slab=None,
+                                  land_chunk=np.ones(3, bool))
+    _, ex_new = _extra_fit_chunk(np.arange(3), tau, ln_t, (7, 3, 7), frac_slab=frac,
+                                 land_chunk=np.ones(3, bool))
+    new = [n for n in EXTRA_FIT_FIELDS if n.endswith(("_t2", "_am"))]
+    old = [n for n in EXTRA_FIT_FIELDS if n not in new]
+    assert EXTRA_FIT_FIELDS[:13] == ("k1_o2", "k2_o2", "sig_k1_o2", "sig_k2_o2", "rms_o2",
+                                     "k1_o3", "k2_o3", "k3_o3", "sig_k1_o3", "sig_k2_o3", "rms_o3",
+                                     "rms_prod", "nchan")
+    for name in new:
+        assert np.all(np.isnan(ex_old[:, :, IDX[name]])), name
+        assert np.all(np.isnan(ex_none[:, :, IDX[name]])), name
+    for name in old:
+        np.testing.assert_array_equal(ex_old[:, :, IDX[name]], ex_none[:, :, IDX[name]])
+        np.testing.assert_array_equal(ex_old[:, :, IDX[name]], ex_new[:, :, IDX[name]])
+
+
+def test_too_few_channels_gives_nan():
+    tau, frac, tw, td = _synthetic_am(m=1)
+    ln_t = -1.0 - tau
+    ln_t[:, :, 7:] = np.nan                       # 7 valid channels < 8
+    _, ex = _extra_fit_chunk(np.arange(1), tau, ln_t, (7, 3, 7), frac_slab=frac)
+    for name in ("k1_am", "ok_am", "k1_dry_t2"):
+        assert np.all(np.isnan(ex[:, :, IDX[name]])), name
+    assert np.all(np.isfinite(ex[:, :, IDX["k1_o2"]]))   # old fields need only 5
+
+
+def test_am_sigmas_with_noise():
+    tau, frac, tw, td = _synthetic_am()
+    rng = np.random.default_rng(4)
+    ln_t = np.empty_like(tau)
+    ln_t[0] = _o2a_lnt(tau[0], -0.8, 0.05, 0.99, 0.012)
+    ln_t[1] = -1.0 + 0.02 * X_SLAB - 0.985 * td[1] - 1.1 * tw[1]
+    ln_t[2] = -1.5 + 0.04 * X_SLAB - 0.06 * X_SLAB**2 - 0.97 * td[2] - 1.05 * tw[2] + 0.006 * tau[2]**2
+    ln_t += rng.normal(0, 0.005, ln_t.shape)
+    _, ex = _extra_fit_chunk(np.arange(3), tau, ln_t, (7, 3, 7), frac_slab=frac,
+                             land_chunk=np.array([True, False, True]))
+    for ib, names in ((0, ("sig_k1_am", "sig_a1_am", "sig_f_am", "sig_c_am", "sig_k2diag_am")),
+                      (1, ("sig_k1_am", "sig_k1w_am", "sig_a1_am", "sig_c_am", "sig_k2diag_am")),
+                      (2, ("sig_k1_am", "sig_k1w_am", "sig_k2_am", "sig_a1_am", "sig_c_am", "sig_k2diag_am"))):
+        for name in names:
+            assert np.all(ex[ib, :, IDX[name]] > 0), (ib, name)
+    assert np.all(np.isnan(ex[:2, :, IDX["sig_k2_am"]]))
+    assert np.all(ex[2, [0, 2], IDX["sig_a2_am"]] > 0) and np.isnan(ex[2, 1, IDX["sig_a2_am"]])
+    for name in ("sig_k1_dry_t2", "sig_k1w_t2", "sig_k2_t2"):
+        assert np.all(ex[1:, :, IDX[name]] > 0), name
+    assert np.all(ex[:, :, IDX["ok_am"]] == 1.0)
+    # the agreed-model estimates stay close to the truth under the noise
+    assert np.allclose(ex[:, :, IDX["k1_am"]], [[0.99], [0.985], [0.97]], atol=5e-3)
+    assert np.allclose(ex[0, :, IDX["f_am"]], 0.012, atol=2e-3)
+
+
+def test_land_mask_from_fraction():
+    got = land_mask_from_fraction(np.array([95.0, 50.0, -999999.0, np.nan, 90.0, 100.0]))
+    np.testing.assert_array_equal(got, [True, False, False, False, False, True])
+    assert got.dtype == bool
 
 
 if __name__ == "__main__":

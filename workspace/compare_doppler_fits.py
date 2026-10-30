@@ -11,7 +11,11 @@ production tree with the same file in the test tree (written by
 * order-3 k2 zero fraction, production vs corrected;
 * near-cloud (< 1 km, < 3 km) k1 contrast against latitude-local far
   references, with its signal-to-noise ratio, production vs corrected;
-* correlation of the near-cloud k1 contrast with ``xco2_bc_anomaly``.
+* correlation of the near-cloud k1 contrast with ``xco2_bc_anomaly``;
+* when present, the agreed-model (``_am``) and two-tau (``_t2``) fits: k1
+  (relative contrast; SCO2/O2A and WCO2/SCO2 ratios), k1_w, and absolute
+  contrasts (value − latitude-local reference) of f (O2A), a1 and k2 (SCO2);
+  far-clear rms_am / k2diag_am medians and the negative-k2diag fraction.
 
 Usage
 -----
@@ -43,6 +47,9 @@ REF_KM = 10.0
 LAT_HALF_WIDTH = 1.0
 NEAR_BINS = ((0.0, 1.0), (1.0, 3.0))
 META_KEYS = ("cld_dist_km", "xco2_qf", "lat", "fp_number", "xco2_bc_anomaly", "fp_id")
+# agreed-model / two-tau extras (absent from older fitting_details → None)
+AM_T2_NAMES = ("k1_am", "k1w_am", "k2_am", "a1_am", "f_am", "rms_am", "k2diag_am", "ok_am",
+               "k1_dry_t2", "k1w_t2")
 
 
 def robust_sd(x):
@@ -60,8 +67,15 @@ def spread_pct(x, fp):
     return 100.0 * robust_sd(rel.values)
 
 
-def local_contrast(v, lat, fp, cld, qf):
-    """value / latitude-local far reference − 1 (same footprint, ±1° lat, cld > 10 km, QF0)."""
+def spread_abs(x, fp):
+    """Robust SD after removing per-footprint-index means (absolute units)."""
+    s = pd.Series(np.asarray(x, float))
+    return robust_sd((s - s.groupby(np.asarray(fp)).transform("mean")).values)
+
+
+def local_contrast(v, lat, fp, cld, qf, relative=True):
+    """Contrast against the latitude-local far reference (same footprint, ±1° lat, cld > 10 km, QF0):
+    value / ref − 1 when ``relative``, value − ref otherwise (for quantities near zero: f, a1, k2)."""
     n = len(v)
     ref_ok = (cld > REF_KM) & (qf == 0) & np.isfinite(v)
     ref = np.full(n, np.nan)
@@ -77,7 +91,7 @@ def local_contrast(v, lat, fp, cld, qf):
             hi = np.searchsorted(rl, lat[j] + LAT_HALF_WIDTH, side="right")
             if hi - lo >= 5:
                 ref[j] = np.nanmedian(rv[lo:hi])
-    return v / ref - 1.0
+    return v / ref - 1.0 if relative else v - ref
 
 
 def load_details(path, extra=False):
@@ -89,7 +103,7 @@ def load_details(path, extra=False):
             out[f"{b}_k1"] = f[f"{b}_k1_fitting_nosg"][...]
             out[f"{b}_k2"] = f[f"{b}_k2_fitting_nosg"][...]
             if extra:
-                for name in ("k1_o2", "k2_o2", "k1_o3", "k2_o3", "rms_prod", "rms_o2", "rms_o3", "nchan"):
+                for name in ("k1_o2", "k2_o2", "k1_o3", "k2_o3", "rms_prod", "rms_o2", "rms_o3", "nchan") + AM_T2_NAMES:
                     key = f"{b}_{name}_nosg"
                     out[f"{b}_{name}"] = f[key][...] if key in f else None
     return out
@@ -104,20 +118,28 @@ def orbit_rows(date, orbit, prod, dop):
     far = (cld > FAR_KM) & (qf == 0)
     rows = []
 
-    def add(src, band, quantity, v):
+    def add(src, band, quantity, v, relative=True):
+        """Relative quantities: spread in % and contrast value/ref − 1 (in %, *_pct columns).
+        Absolute (relative=False): spread and contrast value − ref in the quantity's units
+        (far_spread_abs, contrast_*_abs); the *_pct columns stay NaN."""
         v = np.asarray(v, float)
         ok = np.isfinite(v)
         rec = {"date": date, "orbit": orbit, "src": src, "band": band, "quantity": quantity,
+               "contrast_type": "rel" if relative else "abs",
                "n_far": int((far & ok).sum()), "far_median": np.nanmedian(v[far & ok]) if (far & ok).any() else np.nan}
-        rec["far_spread_pct"] = spread_pct(v[far & ok], fp[far & ok]) if (far & ok).sum() >= 10 else np.nan
-        con = local_contrast(v, lat, fp, cld, qf)
+        enough = (far & ok).sum() >= 10
+        rec["far_spread_pct"] = spread_pct(v[far & ok], fp[far & ok]) if (enough and relative) else np.nan
+        rec["far_spread_abs"] = spread_abs(v[far & ok], fp[far & ok]) if (enough and not relative) else np.nan
+        con = local_contrast(v, lat, fp, cld, qf, relative=relative)
         far_sd = robust_sd(con[far])
         for lo, hi in NEAR_BINS:
             m = (cld >= lo) & (cld < hi) & np.isfinite(con)
             lab = f"{lo:g}-{hi:g}km"
             rec[f"n_{lab}"] = int(m.sum())
-            rec[f"contrast_{lab}_pct"] = 100 * np.nanmedian(con[m]) if m.sum() > 20 else np.nan
-            rec[f"snr_{lab}"] = (np.nanmedian(con[m]) / far_sd) if (m.sum() > 20 and far_sd > 0) else np.nan
+            med = np.nanmedian(con[m]) if m.sum() > 20 else np.nan
+            rec[f"contrast_{lab}_pct"] = 100 * med if relative else np.nan
+            rec[f"contrast_{lab}_abs"] = med if not relative else np.nan
+            rec[f"snr_{lab}"] = (med / far_sd) if (m.sum() > 20 and far_sd > 0) else np.nan
         mn = (cld < 3) & np.isfinite(con) & (anom is not None) & (np.isfinite(anom) if anom is not None else False)
         rec["corr_anom_lt3km"] = float(np.corrcoef(con[mn], anom[mn])[0, 1]) if mn.sum() > 30 else np.nan
         rows.append(rec)
@@ -133,6 +155,32 @@ def orbit_rows(date, orbit, prod, dop):
             add("dop", b, name, dop[f"{b}_{name}"])
         add("dop", "ratio", name, dop[f"sco2_{name}"] / dop[f"o2a_{name}"])
 
+    # agreed model (_am) and two-tau (_t2) fits, when stored
+    def have(name, bands=BANDS):
+        return all(dop.get(f"{b}_{name}") is not None for b in bands)
+
+    if have("k1_am"):
+        for b in BANDS:
+            add("dop", b, "k1_am", dop[f"{b}_k1_am"])
+        add("dop", "ratio", "k1_am", dop["sco2_k1_am"] / dop["o2a_k1_am"])
+        add("dop", "ratio_wco2/sco2", "k1_am", dop["wco2_k1_am"] / dop["sco2_k1_am"])
+    for b in ("sco2", "wco2"):
+        if have("k1w_am", (b,)):
+            add("dop", b, "k1w_am", dop[f"{b}_k1w_am"])
+    if have("f_am", ("o2a",)):
+        add("dop", "o2a", "f_am", dop["o2a_f_am"], relative=False)
+    for b in BANDS:
+        if have("a1_am", (b,)):
+            add("dop", b, "a1_am", dop[f"{b}_a1_am"], relative=False)
+    if have("k2_am", ("sco2",)):
+        add("dop", "sco2", "k2_am", dop["sco2_k2_am"], relative=False)
+    if have("k1_dry_t2"):
+        for b in BANDS:
+            add("dop", b, "k1_dry_t2", dop[f"{b}_k1_dry_t2"])
+    for b in ("sco2", "wco2"):
+        if have("k1w_t2", (b,)):
+            add("dop", b, "k1w_t2", dop[f"{b}_k1w_t2"])
+
     # k2 zero fraction (production order, bounded) and variant rms, far-clear
     extra = []
     for src, d in (("prod", prod), ("dop", dop)):
@@ -147,6 +195,17 @@ def orbit_rows(date, orbit, prod, dop):
                     rec[f"{name}_far_median"] = float(np.nanmedian(v[far])) if v is not None else np.nan
                 k2o3 = d.get(f"{b}_k2_o3")
                 rec["k2_o3_neg_frac_far"] = float(np.nanmean(k2o3[far] < 0)) if k2o3 is not None else np.nan
+                for name in ("rms_am", "k2diag_am"):
+                    v = d.get(f"{b}_{name}")
+                    rec[f"{name}_far_median"] = float(np.nanmedian(v[far])) if v is not None else np.nan
+                k2d = d.get(f"{b}_k2diag_am")
+                if k2d is not None:
+                    m = far & np.isfinite(k2d)
+                    rec["k2diag_am_neg_frac_far"] = float(np.mean(k2d[m] < 0)) if m.any() else np.nan
+                else:
+                    rec["k2diag_am_neg_frac_far"] = np.nan
+                okam = d.get(f"{b}_ok_am")
+                rec["ok_am_frac_far"] = float(np.nanmean(okam[far])) if okam is not None else np.nan
             extra.append(rec)
     return rows, extra
 
@@ -195,7 +254,7 @@ def main():
     dx.to_csv(os.path.join(out_dir, f"compare_doppler_k2rms_{tag}.csv"), index=False)
 
     # summary over orbits: median of each metric per (src, band, quantity)
-    num = [c for c in df.columns if c not in ("date", "orbit", "src", "band", "quantity")]
+    num = [c for c in df.columns if c not in ("date", "orbit", "src", "band", "quantity", "contrast_type")]
     summ = df.groupby(["quantity", "band", "src"])[num].median().reset_index()
     summ_x = dx.groupby(["band", "src"])[[c for c in dx.columns if c not in ("date", "orbit", "src", "band")]].median().reset_index()
     lines = [f"# Production vs telluric-Doppler fits — {len(df.orbit.unique())} orbits, dates {', '.join(args.dates)}", "",
@@ -206,7 +265,15 @@ def main():
         lines += ["Missing in the test tree: " + ", ".join(f"{d} {o}" for d, o in missing), ""]
     cols = ["quantity", "band", "src", "n_far", "far_median", "far_spread_pct", "contrast_0-1km_pct", "snr_0-1km",
             "contrast_1-3km_pct", "snr_1-3km", "corr_anom_lt3km"]
-    lines += ["## k1 scatter and near-cloud contrast", "", md_table(summ, cols), ""]
+    absq = set(df.loc[df.contrast_type == "abs", "quantity"])
+    summ_rel = summ[~summ.quantity.isin(absq)]
+    lines += ["## k1 scatter and near-cloud contrast (relative)", "", md_table(summ_rel, cols), ""]
+    if absq:
+        summ_abs = summ[summ.quantity.isin(absq)]
+        cols_abs = ["quantity", "band", "src", "n_far", "far_median", "far_spread_abs", "contrast_0-1km_abs",
+                    "snr_0-1km", "contrast_1-3km_abs", "snr_1-3km", "corr_anom_lt3km"]
+        lines += ["## Agreed-model terms: absolute contrast (value − latitude-local reference)", "",
+                  md_table(summ_abs, cols_abs, fmt="{:.4g}"), ""]
     lines += ["## k2 zero fraction and variant residual rms (far-clear medians)", "",
               md_table(summ_x, list(summ_x.columns)), ""]
     with open(os.path.join(out_dir, "compare_doppler_summary.md"), "w") as fh:

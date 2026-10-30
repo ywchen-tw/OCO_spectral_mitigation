@@ -52,7 +52,7 @@ from spectral.cumulant_fit import (  # noqa: F401
     log_transmittance_model_5, log_transmittance_model_7,
     log_transmittance_model_9, transmittance_model)
 from spectral.orbit_data import (  # noqa: F401
-    _discover_orbit_files, _validate_readable_hdf5, cloud_distance_file_path,
+    _decode_hdf5_attr, _discover_orbit_files, _validate_readable_hdf5, cloud_distance_file_path,
     fp_tau_file_is_current, load_orbit_data, load_profile_data,
     load_shared_data, search_oco2_orbit, select_lite_file,
     validate_cloud_distance_file)
@@ -94,7 +94,10 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
                   (results are identical regardless of worker count).
     extra_fits  : bool also store the unconstrained order-2/3 fits of the raw
                   ln_T with residual-based standard errors and residual rms
-                  (cumulant_fit.EXTRA_FIT_FIELDS, datasets <band>_<field>_nosg).
+                  (cumulant_fit.EXTRA_FIT_FIELDS, datasets <band>_<field>_nosg);
+                  with a variant tau file (<band>_frac_h2o present) also the
+                  two-tau (_t2) and agreed-model (_am) fits, else those are NaN.
+    The fitting_details file records the tau file's tau_convolution attr.
     """
     date        = sat['date'].strftime("%Y-%m-%d")
     output_dir  = f"{sat['result_dir']}/{date}/{orbit_id}"
@@ -139,23 +142,45 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
             cached_has_kappa = False
             cached_has_nosg = False
 
+    # Extra fits: every <band>_<field>_nosg must be present (fields are appended
+    # over time, so a file with only the older ones is refitted).  The cached
+    # file must also come from the same tau convolution as the current tau file
+    # (attr tau_convolution).  Files written before the attr existed carry none;
+    # they are accepted (logged) so legacy production caches are not all refitted.
     cached_has_extra = False
+    missing_extra = []
+    cached_tau_conv = None
     if os.path.isfile(output_file):
         try:
             with h5py.File(output_file, "r") as f:
-                cached_has_extra = all(
-                    f"{tag}_{EXTRA_FIT_FIELDS[0]}_nosg" in f for tag in tags
-                )
+                missing_extra = sorted({name for tag in tags for name in EXTRA_FIT_FIELDS
+                                        if f"{tag}_{name}_nosg" not in f},
+                                       key=EXTRA_FIT_FIELDS.index)
+                cached_has_extra = not missing_extra
+                _tc = f.attrs.get("tau_convolution")
+                cached_tau_conv = _decode_hdf5_attr(_tc) if _tc is not None else None
         except OSError:
             cached_has_extra = False
+    tau_conv_ok = (cached_tau_conv is None or od["tau_convolution"] is None
+                   or cached_tau_conv == od["tau_convolution"])
+    if os.path.isfile(output_file) and not overwrite and cached_tau_conv is None:
+        logger.info(f"[{orbit_id}] Cached {output_file} has no tau_convolution attr "
+                    f"(written before it was recorded); not checked against the tau file.")
     cache_ok = (cached_has_kappa and (cached_has_nosg or not dual_fit)
-                and (cached_has_extra or not extra_fits))
+                and (cached_has_extra or not extra_fits) and tau_conv_ok)
     if not os.path.isfile(output_file) or overwrite or not cache_ok:
         if os.path.isfile(output_file) and not overwrite and not cache_ok:
-            missing = ("κ" if not cached_has_kappa else "_nosg")
-            logger.info(
-                f"[{orbit_id}] Cached {output_file} has no {missing} datasets; refitting."
-            )
+            if not cached_has_kappa or (dual_fit and not cached_has_nosg):
+                missing = ("κ" if not cached_has_kappa else "_nosg")
+                logger.info(
+                    f"[{orbit_id}] Cached {output_file} has no {missing} datasets; refitting."
+                )
+            if extra_fits and not cached_has_extra:
+                logger.info(f"[{orbit_id}] refitting: cached file lacks extra fields: "
+                            f"{', '.join(missing_extra) or '(unreadable)'}")
+            if not tau_conv_ok:
+                logger.info(f"[{orbit_id}] refitting: cached tau_convolution "
+                            f"{cached_tau_conv!r} != tau file {od['tau_convolution']!r}")
         # ── 2. Transmittance for all soundings and bands at once ───────────────
         logger.info(f"[{orbit_id}] Computing transmittances for {N} soundings...")
         T_all    = compute_transmittance(od["radiances"], od["toa_sol"])  # [3, N, 1016]
@@ -194,11 +219,15 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
                 logger.info(f"  [{orbit_id}] chunk {n_done}/{len(results)} merged")
 
         if extra_fits:
-            logger.info(f"[{orbit_id}] Extra order-2/3 fit statistics (raw ln_T)...")
+            logger.info(f"[{orbit_id}] Extra fit statistics (order-2/3; two-tau + agreed model "
+                        f"{'on' if od['frac_h2o'] is not None else 'skipped: no frac_h2o'}; raw ln_T)...")
 
             def _extra_args(chunk):
+                frac = od["frac_h2o"]
                 return (chunk, od["tau"][:, chunk, 1:-1], ln_T_all[:, chunk, 1:-1],
-                        tuple(fit_orders))
+                        tuple(fit_orders),
+                        None if frac is None else frac[:, chunk, 1:-1],
+                        od["land"][chunk])
 
             if fit_workers > 1 and len(chunks) > 1:
                 with ProcessPoolExecutor(max_workers=fit_workers) as pool:
@@ -674,6 +703,8 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
     tmp_output = f"{output_file}.{os.getpid()}.tmp"
     try:
         with h5py.File(tmp_output, "w") as f_out:
+            if od["tau_convolution"] is not None:
+                f_out.attrs["tau_convolution"] = od["tau_convolution"]
             for key, value in output_dict.items():
                 arr = np.asarray(value)
                 if arr.dtype == np.float64 and key not in keep_float64:

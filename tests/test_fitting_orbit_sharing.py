@@ -26,7 +26,7 @@ def _patch(monkeypatch, sat0, fitted, computed, current_tau):
     monkeypatch.setattr(fitting, "validate_cloud_distance_file", lambda *a, **k: None)
     monkeypatch.setattr(fitting, "preprocess", lambda *a, **k: sat0)
     monkeypatch.setattr(fitting, "load_shared_data", lambda s: {})
-    monkeypatch.setattr(fitting, "fp_tau_file_is_current", lambda p: p in current_tau)
+    monkeypatch.setattr(fitting, "fp_tau_file_is_current", lambda p, **kw: p in current_tau)
 
     def compute(s, orbit_id, fp_tau_file):
         computed.append(orbit_id)
@@ -100,7 +100,7 @@ def test_live_lock_held_by_other_job_is_left_alone(tmp_path, monkeypatch):
 def test_ensure_fp_tau_waits_for_other_job(tmp_path, monkeypatch):
     sat0 = _fake_sat0(tmp_path, ["o1"])
     current, computed = set(), []
-    monkeypatch.setattr(fitting, "fp_tau_file_is_current", lambda p: p in current)
+    monkeypatch.setattr(fitting, "fp_tau_file_is_current", lambda p, **kw: p in current)
     monkeypatch.setattr(fitting, "_compute_fp_tau",
                         lambda s, o, f: computed.append(o) or current.add(f))
     tau = sat0["o1"]["fp_tau_file"]
@@ -120,7 +120,7 @@ def test_ensure_fp_tau_waits_for_other_job(tmp_path, monkeypatch):
 def test_ensure_fp_tau_computes_when_free(tmp_path, monkeypatch):
     sat0 = _fake_sat0(tmp_path, ["o1"])
     current, computed = set(), []
-    monkeypatch.setattr(fitting, "fp_tau_file_is_current", lambda p: p in current)
+    monkeypatch.setattr(fitting, "fp_tau_file_is_current", lambda p, **kw: p in current)
     monkeypatch.setattr(fitting, "_compute_fp_tau",
                         lambda s, o, f: computed.append(o) or current.add(f))
     assert fitting._ensure_fp_tau(sat0, "o1", 3600, 30) is True

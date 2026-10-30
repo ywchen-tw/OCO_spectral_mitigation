@@ -11,7 +11,7 @@ working.
 """
 
 import numpy as np
-from scipy.optimize import lsq_linear
+from scipy.optimize import least_squares, lsq_linear
 from scipy.signal import savgol_filter
 
 
@@ -205,12 +205,36 @@ def fit_spectral_model(tau, ln_T, fit_order, smooth=True):
 # order-2 and order-3 coefficients on the raw ln_T, their residual-based
 # standard errors, residual rms per order, and the channel count.  Produced by
 # _extra_fit_chunk and stored as <band>_<field>_nosg in fitting_details.
+#
+# Appended (2026-10-30), only computed when the tau file carries the per-channel
+# H2O attribution <band>_frac_h2o (telluric-Doppler variant); NaN otherwise:
+#   _t2 : two-tau model, no continuum, unconstrained lstsq
+#         ln T = c − k1_dry·τ_dry − k1_w·τ_h2o + ½·k2·τ²
+#   _am : the agreed per-band model (see _fit_am_o2a / _fit_am_wco2 / _fit_am_sco2)
+# with τ_h2o = frac_h2o·τ (frac NaN → 0), τ_dry = τ − τ_h2o.
 EXTRA_FIT_FIELDS = (
     "k1_o2", "k2_o2", "sig_k1_o2", "sig_k2_o2", "rms_o2",
     "k1_o3", "k2_o3", "k3_o3", "sig_k1_o3", "sig_k2_o3", "rms_o3",
     "rms_prod", "nchan",
+    # two-tau order-2 (T2)
+    "k1_dry_t2", "k1w_t2", "k2_t2", "rms_t2", "sig_k1_dry_t2", "sig_k1w_t2", "sig_k2_t2",
+    # agreed model (AM)
+    "k1_am", "k1w_am", "k2_am", "a1_am", "a2_am", "f_am", "c_am", "rms_am", "k2diag_am", "ok_am",
+    "sig_k1_am", "sig_k1w_am", "sig_k2_am", "sig_a1_am", "sig_a2_am", "sig_f_am", "sig_c_am",
+    "sig_k2diag_am",
 )
 _EXTRA_INDEX = {name: i for i, name in enumerate(EXTRA_FIT_FIELDS)}
+_T2_FIELDS = tuple(n for n in EXTRA_FIT_FIELDS if n.endswith("_t2"))
+_AM_FIELDS = tuple(n for n in EXTRA_FIT_FIELDS if n.endswith("_am"))
+
+# Agreed-model spectral coordinate x = (j − 507.5)/507.5 on the ORIGINAL
+# 0..1015 channel index j.  The chunk slabs passed to _extra_fit_chunk are
+# already sliced [1:-1], so slab position p is channel j = p + 1.
+_N_CHAN_FULL = 1016
+_SLAB_CHANNEL_OFFSET = 1
+_X_HALF = (_N_CHAN_FULL - 1) / 2.0     # 507.5
+_AM_MIN_CHAN = 8
+_AM_F_MAX = 0.2
 
 
 def _unconstrained_fit_stats(A, y):
@@ -226,11 +250,138 @@ def _unconstrained_fit_stats(A, y):
     return coef, sig, rms
 
 
-def _extra_fit_chunk(j_indices, tau_slab, lnT_slab, fit_orders):
+# ─── Two-tau and agreed-model fits (extra statistics) ────────────────────────
+# Formal 1-sigma errors are s²·(JᵀJ)⁻¹ with s² = RSS/(n − p), J the design
+# matrix (linear fits) or least_squares(...).jac (O2A).  The scale is the
+# fitted residual, not the L1B noise model: the residual is misfit-dominated
+# (reduced χ² ≫ 1 against the photon noise), so these are the formal errors for
+# independent residuals and UNDERSTATE scene-correlated error.
+
+def _cov_se(jac, resid):
+    """1-sigma parameter errors s·sqrt(diag((JᵀJ)⁻¹)), s² = RSS/(n − p)."""
+    n, p = jac.shape
+    s2 = float(resid @ resid) / max(n - p, 1)
+    try:
+        cov = s2 * np.linalg.inv(jac.T @ jac)
+        return np.sqrt(np.clip(np.diag(cov), 0, None))
+    except np.linalg.LinAlgError:
+        return np.full(p, np.nan)
+
+
+def _lin_se(cols, y):
+    """Unconstrained lstsq on the column design; (coef, rms, formal 1-sigma errors)."""
+    a = np.column_stack(cols)
+    c = np.linalg.lstsq(a, y, rcond=None)[0]
+    r = y - a @ c
+    return c, float(np.sqrt(np.mean(r**2))), _cov_se(a, r)
+
+
+def _fit_t2(td, tw, y):
+    """Two-tau order-2 model, no continuum: ln T = c − k1_dry·τ_dry − k1_w·τ_h2o + ½k2·τ²."""
+    t = td + tw
+    c, rms, se = _lin_se([np.ones_like(td), -td, -tw, 0.5 * t**2], y)
+    return {"k1_dry_t2": c[1], "k1w_t2": c[2], "k2_t2": c[3], "rms_t2": rms,
+            "sig_k1_dry_t2": se[1], "sig_k1w_t2": se[2], "sig_k2_t2": se[3]}
+
+
+def _am_nan():
+    return {name: np.nan for name in _AM_FIELDS}
+
+
+def _fit_am_o2a(t, x, y):
+    """O2A agreed model: ln T = c + a1·x + ln[(1 − f)·exp(−k1·τ) + f].
+
+    Bounds k1 ≥ 0, 0 ≤ f ≤ 0.2; k2 fixed 0.  Started from the linear fit on
+    [1, x, −τ] with f = 0.01 and k1 = max(k1_lin, 0.1).  On solver failure all
+    values are NaN and ok_am = 0 (no fallback to the linear fit).  k2diag_am is
+    the free k2 of the refit with ½k2τ² inside the exponential, started from
+    the converged solution (NaN if that refit fails).
+    """
+    c0 = np.linalg.lstsq(np.column_stack([np.ones_like(t), x, -t]), y, rcond=None)[0]
+
+    def res(p, free_k2):
+        c, a1, k1, f = p[:4]
+        k2 = p[4] if free_k2 else 0.0
+        return c + a1 * x + np.log((1 - f) * np.exp(-k1 * t + 0.5 * k2 * t**2) + f) - y
+
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        r = least_squares(res, [c0[0], c0[1], max(c0[2], 0.1), 0.01], args=(False,),
+                          bounds=([-np.inf, -np.inf, 0.0, 0.0], [np.inf, np.inf, np.inf, _AM_F_MAX]))
+        if not r.success or not np.all(np.isfinite(r.x)):
+            out = _am_nan()
+            out["ok_am"] = 0.0
+            return out
+        se = _cov_se(r.jac, r.fun)
+        out = _am_nan()
+        out.update({"k1_am": r.x[2], "k2_am": 0.0, "a1_am": r.x[1], "f_am": r.x[3], "c_am": r.x[0],
+                    "rms_am": float(np.sqrt(np.mean(r.fun**2))), "ok_am": 1.0,
+                    "sig_k1_am": se[2], "sig_a1_am": se[1], "sig_f_am": se[3], "sig_c_am": se[0]})
+        try:
+            rd = least_squares(res, list(r.x) + [0.0], args=(True,),
+                               bounds=([-np.inf, -np.inf, 0.0, 0.0, -np.inf],
+                                       [np.inf, np.inf, np.inf, _AM_F_MAX, np.inf]))
+            if rd.success:
+                out["k2diag_am"] = rd.x[4]
+                out["sig_k2diag_am"] = _cov_se(rd.jac, rd.fun)[4]
+        except ValueError:
+            pass
+    return out
+
+
+def _fit_am_wco2(td, tw, x, y):
+    """WCO2 agreed model: lstsq on [1, x, −τ_dry, −τ_h2o]; k2 fixed 0.
+    k2diag_am from the same design plus ½τ² (τ = τ_dry + τ_h2o)."""
+    one = np.ones_like(td)
+    c, rms, se = _lin_se([one, x, -td, -tw], y)
+    cd, _, sed = _lin_se([one, x, -td, -tw, 0.5 * (td + tw) ** 2], y)
+    out = _am_nan()
+    out.update({"k1_am": c[2], "k1w_am": c[3], "k2_am": 0.0, "a1_am": c[1], "c_am": c[0],
+                "rms_am": rms, "k2diag_am": cd[4], "ok_am": 1.0,
+                "sig_k1_am": se[2], "sig_k1w_am": se[3], "sig_a1_am": se[1], "sig_c_am": se[0],
+                "sig_k2diag_am": sed[4]})
+    return out
+
+
+def _fit_am_sco2(td, tw, x, y, land):
+    """SCO2 agreed model: lstsq on [1, x, (x² if land), −τ_dry, −τ_h2o, ½τ²];
+    a2_am NaN over water; k2diag_am = k2_am."""
+    one = np.ones_like(td)
+    t = td + tw
+    cols = [one, x] + ([x**2] if land else []) + [-td, -tw, 0.5 * t**2]
+    c, rms, se = _lin_se(cols, y)
+    k = 3 if land else 2
+    out = _am_nan()
+    out.update({"k1_am": c[k], "k1w_am": c[k + 1], "k2_am": c[k + 2], "a1_am": c[1],
+                "a2_am": c[2] if land else np.nan, "c_am": c[0], "rms_am": rms,
+                "k2diag_am": c[k + 2], "ok_am": 1.0,
+                "sig_k1_am": se[k], "sig_k1w_am": se[k + 1], "sig_k2_am": se[k + 2],
+                "sig_a1_am": se[1], "sig_a2_am": se[2] if land else np.nan, "sig_c_am": se[0],
+                "sig_k2diag_am": se[k + 2]})
+    return out
+
+
+def _extra_fit_chunk(j_indices, tau_slab, lnT_slab, fit_orders, frac_slab=None, land_chunk=None):
     """Extra statistics on the raw ln_T for a chunk of soundings (worker-safe).
 
     Independent of _fit_chunk so that the production path is untouched; the
     production-order fit is repeated here only to record its residual rms.
+
+    Parameters
+    ----------
+    j_indices  : [m] global sounding indices
+    tau_slab   : [3, m, n_chan] band tau, edge channels already excluded ([1:-1])
+    lnT_slab   : [3, m, n_chan] raw ln T, same channels
+    fit_orders : (o2a, wco2, sco2) production truncation orders
+    frac_slab  : [3, m, n_chan] H2O fraction of τ (<band>_frac_h2o, NaN → 0) or
+                 None (production tau files) → all _t2 / _am fields NaN
+    land_chunk : [m] bool land mask (SCO2 x² term), None → all water
+
+    The _t2/_am fits use the same channel mask and τ-sort as the order-2/3
+    fits (finite ln T and τ) and need ≥ 8 channels.  The agreed model's x is
+    (j − 507.5)/507.5 with j = slab position + 1 (original channel index),
+    permuted with the same sort.  Bands: 0 = O2A, 1 = WCO2, 2 = SCO2.  The
+    sig_* values are formal errors (see _cov_se: residual-scaled, understate
+    scene-correlated error).
 
     Returns (j_indices, extras [3, m, len(EXTRA_FIT_FIELDS)]), NaN on failure.
     """
@@ -266,7 +417,35 @@ def _extra_fit_chunk(j_indices, tau_slab, lnT_slab, fit_orders):
                     row[_EXTRA_INDEX[f"sig_k2_{tag}"]] = sig[2]
                     row[_EXTRA_INDEX[f"rms_{tag}"]] = rms
             except (np.linalg.LinAlgError, ValueError):
+                pass
+
+            # ── two-tau (T2) and agreed-model (AM) fits ──
+            if frac_slab is None or n < _AM_MIN_CHAN:
                 continue
+            frac = np.asarray(frac_slab[i_band, jl], dtype=np.float64)[mask][sort_idx]
+            frac = np.where(np.isfinite(frac), frac, 0.0)
+            tw = frac * tau_s
+            td = tau_s - tw
+            pos = np.flatnonzero(mask)[sort_idx] + _SLAB_CHANNEL_OFFSET
+            x = (pos - _X_HALF) / _X_HALF
+            try:
+                for name, val in _fit_t2(td, tw, y_raw).items():
+                    row[_EXTRA_INDEX[name]] = val
+            except (np.linalg.LinAlgError, ValueError):
+                pass
+            land = bool(land_chunk[jl]) if land_chunk is not None else False
+            try:
+                if i_band == 0:
+                    am = _fit_am_o2a(tau_s, x, y_raw)
+                elif i_band == 1:
+                    am = _fit_am_wco2(td, tw, x, y_raw)
+                else:
+                    am = _fit_am_sco2(td, tw, x, y_raw, land)
+            except (np.linalg.LinAlgError, ValueError):
+                am = _am_nan()
+                am["ok_am"] = 0.0
+            for name, val in am.items():
+                row[_EXTRA_INDEX[name]] = val
     return j_indices, extras
 
 

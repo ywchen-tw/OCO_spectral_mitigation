@@ -1,8 +1,8 @@
 #!/bin/env bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=8
-#SBATCH --ntasks-per-node=8
+#SBATCH --ntasks=16
+#SBATCH --ntasks-per-node=16
 #SBATCH --time=08:00:00
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
@@ -42,10 +42,11 @@
 # (an explicit --array is honored and skips the auto-resubmit).
 
 # Max concurrent array tasks (the `%N` throttle).
-MAX_CONCURRENT=36
-# Array tasks per date.  2026-10-30: on the preemptable QOS an 8-task job with an
+MAX_CONCURRENT=52
+# Array tasks per date.  2026-10-30: on the preemptable QOS an 8- or 16-task job with an
 # 8 h limit starts in seconds while a 24 h one waits ~1.5 days, and the variant
-# tau takes ~1.7 h per orbit with 4 workers (SLURM_NTASKS//2), i.e. ~30 h for a
+# tau takes ~1.7 h per orbit with 4 workers (SLURM_NTASKS//2; ~0.9 h with the 8 workers
+# of a 16-task allocation, 2026-10-30 evening), i.e. ~15-30 h for a
 # 15-20 orbit date.  So each date gets REPLICAS tasks (index -> date = idx % N):
 # preprocess() shuffles the orbit list and orbit_lock lets concurrent jobs on the
 # same date split the orbits; a task that times out just leaves fewer orbits for
@@ -116,8 +117,11 @@ DATES_EVENTS=(
 # production inputs on CURC (no results_<date>.h5, empty orbit dirs).  Substituted
 # the 2020 dates that DO have production cloud distances + fits, plus 2018-11-18
 # and 2023-09-04 as stand-ins for the two single-orbit dates.
+# 2026-10-30 (evening): 20200101 added so the locally studied orbit 29252a_GL
+# (reproduction target of the agreed-model handoff) is processed on CURC too.
 DATES_DOPPLER_TEST=( 20200227 20200228 20200406 20200411 20200521 20200703
-                     20200922 20200923 20201009 20201024 20181118 20230904 )
+                     20200922 20200923 20201009 20201024 20181118 20230904
+                     20200101 )
 ALL=( "${DATES_DOPPLER_TEST[@]}" )
 # ALL=( "${DATES_2020[@]}" "${DATES_DOPPLER_TEST[@]}" )
 # ALL=( "${DATES_2020[@]}" "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )

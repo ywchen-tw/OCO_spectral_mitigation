@@ -4,8 +4,15 @@ import numpy as np
 TAU_CONVOLUTION_VERSION = "transmission_ils_rayleigh_hr_v2"
 # Test variant with the telluric Doppler shift of the ABSCO grid applied
 # (fp_abs_coeff.py, fitting.py --telluric-doppler).  A separate version string
-# keeps the two tau caches from ever being mixed.
-TAU_CONVOLUTION_VERSION_TELLURIC_DOPPLER = "transmission_ils_rayleigh_hr_v3_telluric_doppler"
+# keeps the two tau caches from ever being mixed.  v4 (2026-10-30): the TOA
+# solar grid is shifted by the spacecraft velocity too, beta = (v_solar -
+# v_inst)/c (fp_abs_coeff.solar_doppler_beta); tau and the attribution
+# datasets are unchanged from v3.
+TAU_CONVOLUTION_VERSION_TELLURIC_DOPPLER = "transmission_ils_rayleigh_hr_v4_telluric_solar_doppler"
+# Previous variant stamp (solar grid shifted by v_solar only).  A v3 file can be
+# upgraded in place by recomputing only the <band>_toa_sol_output datasets
+# (abs_util.toa_solar.recompute_toa_sol, compute_tau_only.py --toa-only).
+TAU_CONVOLUTION_VERSION_TELLURIC_DOPPLER_V3 = "transmission_ils_rayleigh_hr_v3_telluric_doppler"
 
 
 def tau_convolution_version(telluric_doppler=False):

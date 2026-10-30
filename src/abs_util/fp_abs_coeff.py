@@ -258,6 +258,111 @@ def _init_worker(state):
 
 
 
+def absco_input_dir():
+    """Directory holding the ABSCO tables and l2_solar_model.h5 (trailing slash)."""
+    if platform.system() == "Darwin":
+        return "./src/abs_util/abs/"
+    if platform.system() == "Linux":
+        return "/scratch/alpine/yuch8913/oco/data/absco/v5.2_final/"
+    raise RuntimeError(f"Unsupported platform: {platform.system()}")
+
+
+def band_ils_solar_setup(iband, wvl_coef, del_lambda_all, rel_lresponse_all, solar_h5_path):
+    """Per-band ILS and solar-model arrays shared by every sounding of an orbit.
+
+    Returns a dict with
+      wloco_fps (8, 1016) float32 : L1B channel wavelengths [um] per footprint
+      xx_fps    (8, 1016, 200) float32 : ILS delta-lambda [um]
+      yy_fps    (8, 1016, 200) float32 : ILS response normalised to peak 1
+      sol_nu, sol_abs_val, sol_cont_val : solar model (wavenumber [cm-1],
+          absorption spectrum, continuum interpolated onto sol_nu)
+    Used by oco_fp_abs_all_bands (full tau step) and abs_util.toa_solar
+    (TOA-only recompute) so both build bit-identical inputs.
+    """
+    wloco_fps = np.empty((8, 1016), dtype=np.float32)
+    xx_fps    = np.empty((8, 1016, 200), dtype=np.float32)
+    yy_fps    = np.empty((8, 1016, 200), dtype=np.float32)
+    for fp in range(8):
+        wloco_fps[fp] = oco_wv_absco(wvl_coef, iband, footprint=fp)  # L1B dispersion: instrument-frame wavelengths
+        xx_fps[fp]    = del_lambda_all[iband, fp, :, :]
+        rel_lr        = rel_lresponse_all[iband, fp, :, :]
+        norm          = np.repeat(rel_lr.max(axis=1), 200).reshape(1016, 200)
+        yy_fps[fp]    = rel_lr / norm
+
+    band_num = iband + 1
+    with h5py.File(solar_h5_path, 'r') as f_sol:
+        sol_abs_nu   = f_sol[f'Solar/Absorption/Absorption_{band_num}/wavenumber'][:]
+        sol_abs_val  = f_sol[f'Solar/Absorption/Absorption_{band_num}/spectrum'][:]
+        sol_cont_nu  = f_sol[f'Solar/Continuum/Continuum_{band_num}/wavenumber'][:]
+        sol_cont_val = f_sol[f'Solar/Continuum/Continuum_{band_num}/spectrum'][:]
+    sol_cont_val = np.interp(sol_abs_nu, sol_cont_nu, sol_cont_val)
+
+    return {
+        'wloco_fps': wloco_fps, 'xx_fps': xx_fps, 'yy_fps': yy_fps,
+        'sol_nu': sol_abs_nu, 'sol_abs_val': sol_abs_val, 'sol_cont_val': sol_cont_val,
+    }
+
+
+def solar_doppler_beta(v_solar, v_inst, telluric_doppler):
+    """Fractional Doppler stretch of the solar spectrum, rest frame -> instrument frame.
+
+    Production (telluric_doppler=False): Sun -> sounding-location velocity only,
+    beta = v_solar / c, i.e. the L1B dispersion was assumed to be in the
+    Earth frame.  Telluric-Doppler variant: the L1B dispersion is in the
+    instrument frame (telluric lines sit at lambda_rest * (1 - v_inst/c), see
+    _process_track_all_bands), so the solar lines, which travel the same
+    surface -> spacecraft path, get the same -v_inst/c term on top of the
+    Sun -> surface term:  beta = (v_solar - v_inst) / c  (first order; the
+    v_solar*v_inst/c^2 cross term is ~1e-11 and neglected).
+    """
+    if telluric_doppler:
+        return (v_solar - v_inst) / C_LIGHT
+    return (v_solar) / C_LIGHT
+
+
+def toa_sol_track(wloco, xx, yy, sol_nu, sol_abs_val, sol_cont_val,
+                  v_solar, v_inst, dist_au, musolzen, telluric_doppler, xx_wloco=None):
+    """ILS-convolved TOA solar irradiance (times 1/mu0) for one sounding and band.
+
+    wloco (nx,), xx/yy (nx, nil) : channel wavelengths [um] and ILS of the
+        sounding's footprint (band_ils_solar_setup), wavelength DEcreasing
+        with wavenumber as in the solar model.
+    sol_nu, sol_abs_val, sol_cont_val : solar model on an increasing
+        wavenumber grid [cm-1].
+    v_solar, v_inst [m/s], dist_au [AU], musolzen = 1/cos(sza) : scalars
+        (pass Python floats: NumPy-scalar float32 would change the dtype of
+        the arithmetic).
+    telluric_doppler : apply the spacecraft term to the solar grid
+        (solar_doppler_beta).
+    Returns toa_sol (nx,) float64 -- the ``<band>_toa_sol_output`` row.
+    The operations and their order are exactly those the full tau step used
+    inline before this was factored out, so production numbers are unchanged.
+    """
+    # Doppler-shift the solar wavelength grid from the solar rest frame to the
+    # instrument frame: wvlsol_obs = wvlsol_rest * (1 + beta), with beta from
+    # solar_doppler_beta (v_solar/c in production, (v_solar - v_inst)/c in the
+    # telluric-Doppler variant).
+    fsol = (sol_abs_val * sol_cont_val * (1.0 / dist_au) ** 2)
+    beta_total = solar_doppler_beta(v_solar, v_inst, telluric_doppler)
+    wvlsol_ori = 1e4/sol_nu
+    wvlsol_obs = wvlsol_ori * (1.0 + beta_total)
+
+    # Adjust flux density for the 'stretching' of the wavelength bins
+    fsol_obs = fsol / (1.0 + beta_total)
+    indlr_sol = oco_conv_absco(wloco, xx, yy, wvlsol_obs, len(wvlsol_obs))
+
+    if xx_wloco is None:
+        xx_wloco = xx + wloco[:, np.newaxis]
+    nx = len(wloco)
+    toa_sol = np.empty(nx)
+    for ind in range(nx):
+        start_sol, end_sol = indlr_sol[ind, 1], indlr_sol[ind, 0] + 1
+        ilg0_sol     = np.interp(wvlsol_obs[start_sol:end_sol], xx_wloco[ind], yy[ind])
+        ilg0_sol_sum = np.sum(ilg0_sol)
+        toa_sol[ind] = np.dot(fsol_obs[start_sol:end_sol], ilg0_sol) / ilg0_sol_sum * musolzen
+    return toa_sol
+
+
 def _process_track_all_bands(track_data):
     """Process a single track for all 3 bands in one pool call."""
     s = _shared_state
@@ -352,6 +457,8 @@ def _process_track_all_bands(track_data):
         # physical value; idea_test/fit_order_study/PLAN.md, 2026-10-29).  Off by
         # default so the production tau stays reproducible; enabled through
         # fitting.py --telluric-doppler, which also stamps a separate tau version.
+        # The same switch adds the -v_inst/c term to the solar grid of the TOA
+        # irradiance (toa_sol_track / solar_doppler_beta, stamp v4, 2026-10-30).
         if telluric_doppler:
             wvldat_obs = wvldat * (1.0 - v_inst / C_LIGHT)
         else:
@@ -361,22 +468,9 @@ def _process_track_all_bands(track_data):
         wvlabsco = wvldat_obs
         
         
-        # Doppler-shift the solar wavenumber grid from  solar rest frame to instrument frame.
-        # wvlsol_obs is in um (instrument frame); wvlsol_obs = wvlsol_rest * (1 - (v_solar+v_inst)/c)
-        fsol = (sol_abs_val * sol_cont_val * (1.0 / dist_au) ** 2)
-        # beta_total   = (v_solar + v_inst) / C_LIGHT
-        beta_total   = (v_solar) / C_LIGHT # already accounted for Doppler and thermo-mechanical shifts observed 
-        wvlsol_ori = 1e4/sol_abs_nu
-        wvlsol_obs = wvlsol_ori * (1.0 + beta_total)
-
-        # Adjust flux density for the 'stretching' of the wavelength bins
-        fsol_obs = fsol / (1.0 + beta_total)
-        indlr_sol  = oco_conv_absco(wloco, xx, yy, wvlsol_obs, len(wvlsol_obs))
-    
         xx_wloco    = xx + wloco[:, np.newaxis]   # (1016, 200) — precomputed once per band
         rayleigh_tau_hr = np.sum(cal_mol_ext(mol_ext_wvl(wvlabsco), d_air_lay, dzf), axis=1)
         tau         = np.empty(nx)
-        toa_sol     = np.empty(nx)
         airmass     = musolzen + muobszen
         if store_components:
             frac_h2o = np.empty(nx)
@@ -398,24 +492,11 @@ def _process_track_all_bands(track_data):
                     ext[start:end, :], ext_h2o[start:end, :], dzf, ilg0, airmass,
                     rayleigh_tau_hr[start:end], pprf,
                 )
-            start_sol, end_sol = indlr_sol[ind, 1], indlr_sol[ind, 0] + 1
-            ilg0_sol     = np.interp(wvlsol_obs[start_sol:end_sol], xx_wloco[ind], yy[ind])
-            ilg0_sol_sum = np.sum(ilg0_sol)
-            toa_sol[ind] = np.dot(fsol_obs[start_sol:end_sol], ilg0_sol) / ilg0_sol_sum * musolzen
 
-            # if (ind == nx-1 or ind == nx-2) and iband == 1:
-            #     import matplotlib.pyplot as plt
-            #     fig, ax = plt.subplots(figsize=(10, 6))
-            #     l1 = ax.plot(xx[ind, :] + wloco[ind], yy[ind, :], label='Line Shape (Instrument Frame)')
-            #     l2 = ax.plot(wvlsol_obs[start_sol:end_sol], ilg0_sol, label='Solar Spectrum (Doppler-Shifted)')
-            #     ax1 = ax.twinx()
-            #     l3 = ax1.plot(wvlsol_obs[start_sol:end_sol], fsol_obs[start_sol:end_sol], label='Solar Flux Density (Doppler-Shifted)', color='orange')
-            #     ax.set_xlabel('Wavelength (um)')
-            #     ax.set_title(f'Band {iband+1} - FP {fp} - Wavelength Bin {ind}')
-            #     ax.legend([l1[0], l2[0], l3[0]], ['Line Shape (Instrument Frame)', 'Solar Spectrum (Doppler-Shifted)', 'Solar Flux Density (Doppler-Shifted)'])
-            #     # ax.legend([l2[0], l3[0]], ['Solar Spectrum (Doppler-Shifted)', 'Solar Flux Density (Doppler-Shifted)'])
-            #     plt.show()
-                
+        # TOA solar irradiance (solar Doppler: see solar_doppler_beta)
+        toa_sol = toa_sol_track(wloco, xx, yy, sol_abs_nu, sol_abs_val, sol_cont_val,
+                                v_solar, v_inst, dist_au, musolzen, telluric_doppler,
+                                xx_wloco=xx_wloco)
 
         mean_ext = tau / (np.sum(dzf) * airmass)
         if store_components:
@@ -445,13 +526,7 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
       - 3x ABSCO and L1b HDF5 reads
       - 3x pickle+send of large shared state to workers
     """
-    import platform
-    if platform.system() == "Darwin":
-        pathinp = "./src/abs_util/abs/"
-    elif platform.system() == "Linux":
-        pathinp = "/scratch/alpine/yuch8913/oco/data/absco/v5.2_final/"
-    else:
-        raise RuntimeError(f"Unsupported platform: {platform.system()}")
+    pathinp = absco_input_dir()
 
     pdmax = 100
     tdmax = 15
@@ -511,29 +586,12 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
         )
         inu1, inu2, nwav, nudat, wvldat = find_boundary(nu1, nu2, nu_gas)
 
-        band_num = iband + 1
-        with h5py.File(solar_h5_path, 'r') as f_sol:
-            sol_abs_nu   = f_sol[f'Solar/Absorption/Absorption_{band_num}/wavenumber'][:]
-            sol_abs_val  = f_sol[f'Solar/Absorption/Absorption_{band_num}/spectrum'][:]
-            sol_cont_nu  = f_sol[f'Solar/Continuum/Continuum_{band_num}/wavenumber'][:]
-            sol_cont_val = f_sol[f'Solar/Continuum/Continuum_{band_num}/spectrum'][:]
-            
-        sol_cont_val = np.interp(sol_abs_nu, sol_cont_nu, sol_cont_val) 
-
         inu1h2o, inu2h2o, nwavh2o, nudath2o, _ = find_boundary(nu1, nu2, nuh2o)
         if nwav != nwavh2o:
             print(f"[Warning] Wavenumber gridding of {rdabs_gas.upper()} & H2O ABSCO files do not match for band {lb_dict[iband]}.")
         iw_h2o_start, iw_h2o_end = np.searchsorted(nudat, nudath2o[[0, -1]], side='left')
 
-        wloco_fps = np.empty((8, 1016), dtype=np.float32)
-        xx_fps    = np.empty((8, 1016, 200), dtype=np.float32)
-        yy_fps    = np.empty((8, 1016, 200), dtype=np.float32)
-        for fp in range(8):
-            wloco_fps[fp] = oco_wv_absco(wvl_coef, iband, footprint=fp)  # already accounted for Doppler and thermo-mechanical shifts observed 
-            xx_fps[fp]    = del_lambda_all[iband, fp, :, :]
-            rel_lr        = rel_lresponse_all[iband, fp, :, :]
-            norm          = np.repeat(rel_lr.max(axis=1), 200).reshape(1016, 200)
-            yy_fps[fp]    = rel_lr / norm
+        ils_sol = band_ils_solar_setup(iband, wvl_coef, del_lambda_all, rel_lresponse_all, solar_h5_path)
 
         band_states[iband] = {
             'absco_data_gas': absco_data_gas,
@@ -542,9 +600,8 @@ def oco_fp_abs_all_bands(atm_dict, n_workers=None):
             'inu1': inu1, 'inu2': inu2, 'inu1h2o': inu1h2o, 'inu2h2o': inu2h2o,
             'iw_um_h2o_in_gas_start': iw_h2o_start,
             'iw_um_h2o_in_gas_end':   iw_h2o_end,
-            'wloco_fps': wloco_fps, 'xx_fps': xx_fps, 'yy_fps': yy_fps,
             'rdabs_gas': rdabs_gas,
-            'sol_nu': sol_abs_nu, 'sol_abs_val': sol_abs_val, 'sol_cont_val': sol_cont_val,
+            **ils_sol,
         }
 
     # --- Move Gas_Absorption arrays into OS shared memory to avoid pickle overhead ---

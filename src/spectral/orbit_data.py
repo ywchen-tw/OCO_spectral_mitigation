@@ -36,6 +36,21 @@ from abs_util.ils_tau import TAU_CONVOLUTION_VERSION, tau_convolution_version  #
 logger = logging.getLogger(__name__)
 
 
+LAND_FRACTION_THRESHOLD = 90.0   # percent; L1B sounding_land_fraction > 90 → land
+
+
+def land_mask_from_fraction(frac, fill=-999999):
+    """Land mask from the L1B ``SoundingGeometry/sounding_land_fraction`` (percent).
+
+    True where the fraction exceeds LAND_FRACTION_THRESHOLD; fill values
+    (``fill``) and non-finite values are False.
+    """
+    frac = np.asarray(frac, dtype=np.float64)
+    ok = np.isfinite(frac) & (frac != fill)
+    with np.errstate(invalid="ignore"):
+        return ok & (frac > LAND_FRACTION_THRESHOLD)
+
+
 # ─── Shared data loading (once per date) ──────────────────────────────────────
 
 def load_shared_data(sat):
@@ -244,6 +259,13 @@ def load_orbit_data(sat, orbit_id):
         tau         : float [3, N, 1016]  sco2 reuses wco2 tau (same as original)
         toa_sol     : float [3, N, 1016]  sco2 reuses wco2 toa_sol
         valid_l1b   : bool  [N]   True where L1B sounding was found
+        frac_h2o    : float32 [3, N, 1016] H2O fraction of tau (<band>_frac_h2o,
+                      telluric-Doppler variant tau files) or None when the tau
+                      file lacks any of the three datasets (production)
+        land        : bool  [N]   L1B sounding_land_fraction > 90 % at the
+                      matched (track, fp); False for fill values and soundings
+                      without an L1B match
+        tau_convolution : str or None, the tau file's ``tau_convolution`` attr
     """
     # --- Per-footprint optical depths (from oco_fp_atm_abs) ---
     # tau / toa_sol are stored float64 but carried as float32 (halves the five
@@ -261,6 +283,13 @@ def load_orbit_data(sat, orbit_id):
         wco2_toa_sol   = (f["wco2_toa_sol_output"][...] * m1).astype(np.float32)
         sco2_tau       = f["sco2_tau_output"][...].astype(np.float32)
         sco2_toa_sol   = (f["sco2_toa_sol_output"][...] * m1).astype(np.float32)
+        frac_keys = [f"{b}_frac_h2o" for b in ("o2a", "wco2", "sco2")]
+        if all(k in f for k in frac_keys):
+            frac_h2o = np.stack([f[k][...].astype(np.float32) for k in frac_keys], axis=0)
+        else:
+            frac_h2o = None
+        tc = f.attrs.get("tau_convolution")
+        tau_convolution = _decode_hdf5_attr(tc) if tc is not None else None
     N = len(fp_sounding_id)
 
     # --- L1B radiances ---
@@ -286,6 +315,7 @@ def load_orbit_data(sat, orbit_id):
     fp_lat    = np.full(N, np.nan)
     fp_wvls   = np.full((3, 8, 1016), np.nan)  # placeholder; wavelengths are not used in fitting but for plotting
     radiances = np.full((3, N, 1016), np.nan, dtype=np.float32)
+    land      = np.zeros(N, dtype=bool)
 
     # print("np.array([l1b.get_wvl_o2_a(i) for i in range(8)]) shape:", np.array([l1b.get_wvl_o2_a(i) for i in range(8)]).shape)
     fp_wvls[0, :, :] = np.array([l1b.get_wvl_o2_a(i) for i in range(8)])
@@ -301,6 +331,9 @@ def load_orbit_data(sat, orbit_id):
         radiances[0][valid] = l1b.rad_o2_a[v_track, v_fp, :]
         radiances[1][valid] = l1b.rad_co2_weak[v_track, v_fp, :]
         radiances[2][valid] = l1b.rad_co2_strong[v_track, v_fp, :]
+        with h5py.File(sat[orbit_id]["oco_l1b"], "r") as f:
+            land_frac = f["SoundingGeometry/sounding_land_fraction"][...]
+        land[valid] = land_mask_from_fraction(land_frac[v_track, v_fp])
 
     tau     = np.stack([o2a_tau,     wco2_tau,     sco2_tau],     axis=0)  # [3, N, 1016]
     toa_sol = np.stack([o2a_toa_sol, wco2_toa_sol, sco2_toa_sol], axis=0)  # [3, N, 1016]
@@ -317,6 +350,9 @@ def load_orbit_data(sat, orbit_id):
         "tau":         tau,
         "toa_sol":     toa_sol,
         "valid_l1b":   valid,
+        "frac_h2o":    frac_h2o,
+        "land":        land,
+        "tau_convolution": tau_convolution,
     }
 
 
