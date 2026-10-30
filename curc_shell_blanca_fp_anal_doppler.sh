@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
 #SBATCH --ntasks-per-node=8
-#SBATCH --time=24:00:00
+#SBATCH --time=08:00:00
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
 #SBATCH --output=sbatch-output_%x_%A_%a.txt
@@ -43,6 +43,15 @@
 
 # Max concurrent array tasks (the `%N` throttle).
 MAX_CONCURRENT=36
+# Array tasks per date.  2026-10-30: on the preemptable QOS an 8-task job with an
+# 8 h limit starts in seconds while a 24 h one waits ~1.5 days, and the variant
+# tau takes ~1.7 h per orbit with 4 workers (SLURM_NTASKS//2), i.e. ~30 h for a
+# 15-20 orbit date.  So each date gets REPLICAS tasks (index -> date = idx % N):
+# preprocess() shuffles the orbit list and orbit_lock lets concurrent jobs on the
+# same date split the orbits; a task that times out just leaves fewer orbits for
+# the others, and resubmitting the date resumes (tau files carry a version stamp,
+# finished fitting_details are skipped).
+REPLICAS=4
 
 # ── Date sets (YYYYMMDD), same three sets as build_feature_dataset.py main() ────
 # Set 1 — 2020-only
@@ -103,8 +112,14 @@ DATES_EVENTS=(
 # starts with the 12 dates of 2020 plus the two orbits studied locally
 # (2018-10-18, 2023-08-10); widen to the other arrays once the comparison on
 # these dates is satisfactory.
-DATES_DOPPLER_TEST=( 20181018 20230810 )
-ALL=( "${DATES_2020[@]}" "${DATES_DOPPLER_TEST[@]}" )
+# 2026-10-30: the launcher's original set (DATES_2020 + 20181018 20230810) has no
+# production inputs on CURC (no results_<date>.h5, empty orbit dirs).  Substituted
+# the 2020 dates that DO have production cloud distances + fits, plus 2018-11-18
+# and 2023-09-04 as stand-ins for the two single-orbit dates.
+DATES_DOPPLER_TEST=( 20200227 20200228 20200406 20200411 20200521 20200703
+                     20200922 20200923 20201009 20201024 20181118 20230904 )
+ALL=( "${DATES_DOPPLER_TEST[@]}" )
+# ALL=( "${DATES_2020[@]}" "${DATES_DOPPLER_TEST[@]}" )
 # ALL=( "${DATES_2020[@]}" "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
 DATES=()
 while IFS= read -r d; do DATES+=("$d"); done < <(printf '%s\n' "${ALL[@]}" | awk '!seen[$0]++')
@@ -116,7 +131,7 @@ echo "Total unique dates: $N"
 # same script as an array sized to the active date set, then exit.  This keeps the
 # --array range in sync with ALL= automatically — no #SBATCH edit needed.
 if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
-    RANGE="0-$(( N - 1 ))%${MAX_CONCURRENT}"
+    RANGE="0-$(( N * REPLICAS - 1 ))%${MAX_CONCURRENT}"
     echo "Bootstrapping array job: --array=$RANGE"
     exec sbatch --array="$RANGE" "$0"
 fi
@@ -139,11 +154,12 @@ cd /projects/yuch8913/OCO_spectral_mitigation
 
 # ── This task's date ────────────────────────────────────────────────────────────
 IDX=${SLURM_ARRAY_TASK_ID:-0}
-if [ "$IDX" -ge "$N" ]; then
-    echo "Array index $IDX >= $N dates — nothing to do."
+if [ "$IDX" -ge "$(( N * REPLICAS ))" ]; then
+    echo "Array index $IDX >= $N dates x $REPLICAS replicas — nothing to do."
     exit 0
 fi
-RAW="${DATES[$IDX]}"
+RAW="${DATES[$(( IDX % N ))]}"
+echo "Replica $(( IDX / N + 1 ))/$REPLICAS for this date"
 DATE="${RAW:0:4}-${RAW:4:2}-${RAW:6:2}"
 echo "Processing date: $DATE  (array task ${IDX})"
 # --telluric-doppler selects the test variant, defaults the output tree to

@@ -1,0 +1,146 @@
+#!/bin/env bash
+
+#SBATCH --nodes=1
+#SBATCH --ntasks=8
+#SBATCH --ntasks-per-node=8
+#SBATCH --time=08:00:00
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=Yu-Wen.Chen@colorado.edu
+#SBATCH --output=sbatch-output_%x_%A_%a.txt
+#SBATCH --job-name=oco_cld_dist
+#SBATCH --account=blanca-airs
+###SBATCH --partition=blanca-airs
+#SBATCH --qos=preemptable
+#SBATCH --requeue
+# NOTE: --time is 8 h, not 24 h: on 2026-10-30 a 24 h request sat in the
+# preemptable backfill queue with a 1.5-day start estimate, while the same job
+# with a 6 h limit started in seconds.  Cloud distance takes 1-2.5 h per date; a
+# date that times out can be resubmitted alone (downloads and phases are cached).
+# NOTE: no static --array here.  The range is derived from the active date set
+# (ALL= below) and applied via self-resubmission (bootstrap block), exactly like
+# curc_shell_blanca_fp_anal_perdate.sh.
+
+# PER-DATE ARRAY version of curc_shell_cld_dist_blanca_general.sh: one array
+# task per date, same python call and flags.  Created 2026-10-30 to re-download
+# the OCO-2 inputs and recompute cloud distances for the training-set dates
+# (Set 1 + Set 2 + Set 3 of build_feature_dataset.py) after the scratch purge
+# removed their data/OCO2/<year>/<doy> trees.
+#
+# Submit:            sbatch curc_shell_cld_dist_blanca_perdate.sh
+# One date (smoke):  sbatch --array=0-0 curc_shell_cld_dist_blanca_perdate.sh
+# Requeue a few:     sbatch --array=17,42 curc_shell_cld_dist_blanca_perdate.sh
+# An explicit --array is honored and skips the auto-resubmit.
+
+# Max concurrent array tasks (set to 50 on request, 2026-10-30).  Every task
+# downloads from GES DISC + LAADS; on
+# 2026-10-22 a burst of 503s left granules without L1B, so keep this modest.
+MAX_CONCURRENT=50
+
+# ── Date sets (YYYYMMDD), same three sets as build_feature_dataset.py main() ────
+# Set 1 — 2020-only
+DATES_2020=(
+    20200101 20200201 20200301 20200401 20200501 20200601
+    20200701 20200801 20200903 20201001 20201101 20201201
+)
+# Set 2 — 2016–2020, 1st + 15th of month
+DATES_2016_2020=(
+    20160101 20160201 20160301 20160405 20160501 20160601 20160701 20160801
+    20160901 20161001 20161101 20161201
+    20170101 20170201 20170301 20170401 20170501 20170601 20170701 20171001
+    20171105 20171201
+    20180101 20180201 20180301 20180401 20180501 20180601 20180701 20180801
+    20180901 20181001 20181101 20181201
+    20190101 20190201 20190301 20190401 20190501 20190601 20190701 20190801
+    20190901 20191001 20191101 20191201
+    20200101 20200201 20200301 20200401 20200501 20200601 20200701 20200801
+    20200903 20201001 20201101 20201201
+    20160115 20160215 20160315 20160415 20160515 20160615 20160715 20160821
+    20160915 20161015 20161115 20161215
+    20170115 20170215 20170315 20170415 20170515 20170615 20170715 20171015
+    20171115 20171215
+    20180115 20180212 20180315 20180415 20180515 20180615 20180715 20180815
+    20180915 20181015 20181117 20181215
+    20190115 20190215 20190315 20190415 20190515 20190615 20190715 20190815
+    20190915 20191015 20191115 20191215
+    20200115 20200215 20200315 20200415 20200515 20200615 20200715 20200815
+    20200915 20201015 20201115 20201215
+)
+# Set 3 — event-specific dates 2014–2021
+DATES_EVENTS=(
+    20141203 20141217
+    20150213 20150218 20150317 20150323 20150518 20150520 20150605 20150629
+    20150706 20150713 20150714 20150715 20150723 20150801 20150925
+    20160303 20160506 20160529 20160607 20160709 20160821 20160910 20160911
+    20161013 20161105 20161107
+    20170117 20170322 20170423 20170516 20170525 20170617 20170626 20171203
+    20180221 20180313 20180410 20180512 20180603 20180710 20180807 20180817
+    20180902 20180908 20180917 20181010 20181024 20181129 20181130
+    20190313 20190429 20190710 20190730 20190914
+    20200211 20200314 20200330 20200331 20200405 20200415 20200517 20200711
+    20200726 20200906 20200916 20201005 20201223 20201224
+    20210210 20210318 20210329 20210424 20210526 20210609 20210621 20210703
+    20210727 20210825 20210906 20210908 20210926 20211016 20211229
+
+    20230123 20230128 20230210 20230313 20230319 20230321 20230323
+    20230404 20230425 20230506 20230520 20230526
+    20230611 20230626 20230704 20230720 20230804 20230810 20230814
+    20230902 20230911 20231011 20231013
+
+    20240206 20240218 20240310 20240415 20240422 20240510 20240626
+    20240727 20240731 20240803 20240826 20240920 20241003 20241029
+    20241123 20241202 20241216
+)
+
+# Dates to leave alone even if listed above: they already have production
+# results/results_<date>.h5 on CURC and --force-recompute would overwrite them.
+SKIP_EXISTING=( 20150925 )
+
+# Active set — union + de-duplicate (preserve first-seen order), minus SKIP_EXISTING.
+ALL=( "${DATES_2020[@]}" "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
+DATES=()
+while IFS= read -r d; do
+    skip=0; for s in "${SKIP_EXISTING[@]}"; do [ "$d" = "$s" ] && skip=1; done
+    [ $skip -eq 0 ] && DATES+=("$d")
+done < <(printf '%s\n' "${ALL[@]}" | awk '!seen[$0]++')
+N=${#DATES[@]}
+echo "Total unique dates: $N"
+
+# ── Bootstrap: derive the array range from the active date set ────────────────────
+if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
+    RANGE="0-$(( N - 1 ))%${MAX_CONCURRENT}"
+    echo "Bootstrapping array job: --array=$RANGE"
+    exec sbatch --array="$RANGE" "$0"
+fi
+
+module load anaconda git intel/2024.2.1 hdf5/1.14.5 zlib/1.3.1 netcdf/4.9.2 swig/4.1.1 gsl/2.8
+conda activate data
+if [[ "$(uname -s)" == "Linux" ]]; then
+    export LD_LIBRARY_PATH=/projects/yuch8913/software/anaconda/envs/data/lib:$LD_LIBRARY_PATH
+else
+    export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+fi
+export HDF5_USE_FILE_LOCKING=FALSE
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+
+cd /projects/yuch8913/OCO_spectral_mitigation
+
+# ── This task's date ────────────────────────────────────────────────────────────
+IDX=${SLURM_ARRAY_TASK_ID:-0}
+if [ "$IDX" -ge "$N" ]; then
+    echo "Array index $IDX >= $N dates — nothing to do."
+    exit 0
+fi
+RAW="${DATES[$IDX]}"
+DATE="${RAW:0:4}-${RAW:4:2}-${RAW:6:2}"
+echo "Processing date: $DATE  (array task ${IDX})"
+T0=$(date +%s)
+python workspace/oco_modis_cloud_distance.py --date "$DATE" --delete-modis --visualize --force-recompute
+RC=$?
+echo "Wall time: $(( ($(date +%s) - T0) / 60 )) min"
+if [ $RC -ne 0 ]; then
+    echo "Failed to process date: $DATE"
+    exit 1          # unlike the general script, fail loudly so sacct shows FAILED
+fi
+echo "Successfully processed: $DATE"
