@@ -1552,3 +1552,620 @@ All channels with finite ln T, τ, σ (as `near_cloud_doppler.py`), unit weights
   change. The bars measure attribution to the H2O-shaped degree of freedom; a pure amount
   error additionally predicts that the near-cloud rise of k1_w/k1_dry equals the
   h2o_scale rise and is the same in WCO2 and SCO2.
+
+### Results — H2O vs cloud-path test (Opus agent), written after the runs
+
+Species split (`h2o_split.py`, all 10 365 soundings, 23 min with 8 workers; 0.12 s per sounding
+once BLAS is pinned to one thread per worker — with threaded BLAS the first 100-sounding timing run
+did not finish in 10 min): Σ(dry + H2O + Rayleigh) vs stored corrected τ, max relative error 2.3e-7 / 6.0e-8 /
+6.0e-8 (O2A / WCO2 / SCO2), median 2e-8: **PASS** (bar 1e-5). Median f_H2O 2.3e-4 / 0.15 / 0.16.
+The single-τ fits reproduce `near_cloud_doppler.py` exactly (S2/S3 k1 identical; SCO2 0–1 km
+contrast +2.83 %, SNR 3.57).
+
+0–1 km contrasts (n = 421 with a latitude-local reference; relative for k1, absolute for k2):
+
+| band | single-τ k1 o2 (SNR) | two-τ k1_dry (SNR) | k1_w (SNR) | single-τ k2 o2 (SNR) | two-τ k2 (SNR) |
+|---|---|---|---|---|---|
+| O2A | −0.18 % (−1.39) | −0.18 % (−1.40) | −2.8 % (−0.12), ill-determined | +0.0020 (1.25) | +0.0020 (1.26) |
+| WCO2 | +1.19 % (3.18) | −0.04 % (−0.17) | +14.6 % (5.14) | +0.035 (2.76) | −0.003 (−0.44) |
+| SCO2 | +2.83 % (3.57) | +0.10 % (0.42) | +7.9 % (3.41) | +0.0145 (3.65) | +0.0028 (1.40) |
+
+1–3 km: SCO2 k1 +2.44 % → k1_dry +0.03 %; WCO2 +1.29 % → −0.02 %. Order 3: SCO2 S3 +2.98 %
+(5.95) → T3 k1_dry −0.03 % (−0.19). T2d (k2 on τ_dry²) gives the same picture (SCO2 k1_dry
+−0.12 %, k2 +0.0014). All contrasts vanish beyond 3–10 km.
+
+**Bar A: H2O dominant** (R_A = 0.035, k1_w +7.9 % at SNR 3.4). **Bar B: H2O dominant**
+(R_B = 0.19). **Bar C: PASS** (O2A k1_dry − k1 = 1.6e-5 ≪ 6.6e-4; k1_w far SD 0.24 vs k1_dry
+0.0013, i.e. degenerate, so the two-τ fit leaves O2A unchanged). **Bar D: H2O implicated**:
+R² of the < 3 km SCO2 k1 contrast on (h2o_scale, tcwv) contrasts 0.885 (WCO2 0.680, SCO2 k2
+0.826); partial R² H2O | ln cld 0.887, ln cld | H2O 0.017; partial r(contrast, h2o_scale | ln cld)
+0.94. Far-clear R² is the same (0.906), so the H2O relation is not near-cloud specific.
+
+Mechanism: h2o_scale is elevated near clouds (+0.037 at 0–1 km, SNR 1.4; +0.075 at 1–3 km,
+SNR 2.8), while the met-prior column is lower (tcwv_met −3.2 % / −4.6 %). Near-cloud air is
+moister than the prior says. AOD_total also rises (+0.034, SNR 4.8).
+
+Pre-registered consistency check (pure amount error: k1_w/k1_dry rise = h2o_scale rise, same in
+WCO2 and SCO2), with the far-clear slope applied (`h2o_extra.py`):
+- 1–3 km: **consistent** for SCO2 (ratio +6.4 %, predicted +6.0 %, residual SNR −0.14); WCO2
+  +9.2 % vs +7.2 % (residual SNR 2.95).
+- 0–1 km: **not consistent**. SCO2 ratio +6.2 % vs predicted +3.0 % (residual SNR 2.0); WCO2
+  +14.7 % vs +3.6 % (residual SNR 9.1). The far-calibrated h2o_scale share of the single-τ SCO2
+  k1 median contrast is 36 % at 0–1 km and 83 % at 1–3 km.
+
+Extra (post hoc, `h2o_lat_breakdown_29252a_GL.csv`): the 0–1 km bin mixes two scenes.
+- 15–25°N (n = 253, 34 % QF1): h2o_scale +0.147 / +0.047 (two 5° bands), SCO2 ratio +14.3 % /
+  +2.4 %, SCO2 k1_dry −0.1 %, O2A k1 −0.4 %. This is the water-vapour amount case.
+- 55–50°S (n = 126, 93 % QF1): h2o_scale +0.023, but O2A k1 +1.5 %, SCO2 k1 +2.9 % with
+  k1_dry +1.7 % (survives the two-τ fit), WCO2 k1_dry +0.2 % with WCO2 ratio +14.4 %. This is a
+  path signal in O2A and SCO2, plus an H2O-shaped WCO2 excess that L2 does not report.
+The pooled median follows the larger tropical group, which is why bars A/B read "H2O dominant".
+
+### Decision
+
+1. By the pre-registered bars, the pooled near-cloud SCO2/WCO2 k1 and k2 signal on this orbit is
+   carried by the H2O degree of freedom (A, B: H2O dominant; D: H2O implicated, R² 0.885). The
+   two-τ fit removes it and leaves O2A untouched (C passes).
+2. It is not a pure amount error everywhere. At 1–3 km it matches the L2 h2o_scale rise. At
+   0–1 km the H2O degree of freedom takes 2× (SCO2) to 4× (WCO2) more than h2o_scale predicts.
+   The excess comes from a 55–50°S cloud-edge scene where O2A k1 and SCO2 k1_dry also rise by
+   ~1.5 %, i.e. a photon-path effect. **Verdict: a mix, regime-dependent: tropical near-cloud
+   contrast = moister air than the met prior; Southern Ocean sub-km contrast = path effect.**
+3. Consequence: a two-τ fit (or prescribing τ_H2O from h2o_scale) is the right tool to separate
+   the two, but its k1_w must not be read as water amount within 1 km of cloud, and the WCO2
+   two-τ split is unreliable there (k1_w absorbs a WCO2-only excess).
+
+### Caveats
+
+- One orbit; the 0–1 km contrast rests on 421 soundings in essentially two scenes (the latitude-
+  local reference exists for only 421 of 3 272 soundings < 1 km; most of the 62–52°S cloud deck
+  has no QF0 reference within ±1°). The scene split is post hoc.
+- h2o_scale and tcwv are L2 outputs from the same spectra (tcwv/tcwv_met vs h2o_scale r = 0.992),
+  so "H2O implicated" means the H2O-shaped signal, not independent proof of more vapour. The
+  opposite sign of the met-prior contrast makes a real moisture difference plausible.
+- The Southern Ocean group is 93 % QF1, so it is outside the operational QF0 product; its O2A
+  rise also coincides with the AOD_total rise.
+- SNRs use the far-clear robust SD of single soundings; the 0–1 km bin medians are not
+  independent across 421 soundings in two scenes, so SNR overstates significance.
+
+### Files
+
+Code: `h2o_split.py`, `h2o_analysis.py`, `h2o_extra.py`. Results: `results/h2o_tau_split_29252a_GL.npz`
+(327 MB), `h2o_per_sounding_29252a_GL.parquet`, `h2o_contrasts_29252a_GL.csv`,
+`h2o_correlations_29252a_GL.csv`, `h2o_extra_29252a_GL.csv`, `h2o_lat_breakdown_29252a_GL.csv`,
+`h2o_summary.md`, logs `h2o_split.log`, `h2o_analysis.log`; figures `h2o_k1_contrast_bins_29252a_GL.png`,
+`h2o_scatter_scale_29252a_GL.png`, `h2o_ratio_vs_scale_29252a_GL.png`. Run order: h2o_split
+(--subset all) → h2o_analysis → h2o_extra → h2o_extra --lat-breakdown.
+
+## Cross-band k1 ratio scatter and continuum-polynomial test (main session) — 2026-10-30
+
+Scripts `xr_ratio_scatter.py`, `alb_poly_test.py`; results `results/xr_ratio_scatter_29252a_GL.{csv,png}`,
+`results/alb_poly_29252a_GL.csv`, `results/alb_poly_48443a_TG_smoke100.csv` (100 Doppler-variant
+soundings of the land target orbit, from the local smoke run). Far-clear = cld > 20 km, QF0 (n = 1240 on
+29252a_GL, in three latitude clusters: 52–49°S, 18°N, 22–24°N). Spread = robust SD (%) after removing
+per-footprint medians.
+
+### SCO2/O2A k1 ratio (the path proxy of the direct-XCO2 side study), 29252a_GL far-clear
+
+| fit | ratio spread % | O2A k1 % | SCO2 k1 % | lag-1 | note |
+|---|---|---|---|---|---|
+| production τ, prod order (7,3,7) | 5.75 | 2.8 | 5.3 | −0.31 | noise-like |
+| production τ, order 2 / 3 | 1.23 / 0.94 | 0.84 / 0.67 | 1.35 / 0.58 | 0.96 | 18°N cluster −8 % / −5 % (H2O) |
+| corrected τ, order 2 / order 3 (bounded) | 2.38 / 1.09 | 0.84 / 0.41 | 1.01 / 0.72 | 0.97 | 18°N cluster −9 % / −5 % |
+| corrected τ, two-τ k1_dry | 1.15 | 0.84 | 0.25 | 0.93 | 18°N cluster at 0; +2 % step at 50°S |
+
+The two-τ fit removes the tropical (moist) cluster's 5–9 % single-τ offset. What remains is a 2 % step
+between the Southern Ocean (airmass 2.8) and the tropical (2.35) groups, carried entirely by O2A k1
+(r = +0.99 with airmass; SCO2 k1_dry r = +0.34). Within clusters the ratio scatters ~0.3 % (≈ 1.2 ppm)
+and SCO2 k1_dry alone 0.25 %, which is comparable to the real XCO2 variation across the same soundings
+(xco2_bc robust SD 0.27 %, 1.1 ppm, r = 0.97 with latitude). Airmass and scene are confounded on this
+orbit, so the step cannot be assigned; it needs the CURC dates (handoff step 5).
+
+### Continuum polynomial (L2-style linear/quadratic albedo per band)
+
+Model: ln T = c + a1 x (+ a2 x²) − k1 τ + ½ k2 τ² (…), x = channel index scaled to [−1, 1]; applied to
+S2, unconstrained S3 and T2 on corrected τ.
+
+Ocean glint (29252a_GL far-clear): a1 is small and nearly the same for every sounding (O2A −0.012 ± 0.002,
+WCO2 +0.0035 ± 0.0015, SCO2 −0.010 ± 0.002); k1 shifts by a near-constant +0.5 % (O2A), −0.3 % (WCO2),
++0.4 % (SCO2) with sounding-to-sounding variation of ±0.1 %; k1 spreads and the SCO2/O2A ratio spread are
+unchanged; rms drops ≤ 6 %. The quadratic term is partly degenerate with the τ polynomial in WCO2
+(k1 change p05–p95 −1 to +3 % for S2xx) and in unconstrained S3.
+
+Land (48443a_TG, 100 soundings, August): a1 is larger and scene-dependent (WCO2 +0.020 ± 0.010,
+SCO2 −0.003 ± 0.020, O2A +0.003 ± 0.005). The linear term shifts WCO2 k1 by −2 % (range −3.3 to −1 %)
+and SCO2 k1 by −1 to +1.7 % per sounding, and reduces the k1 spread: SCO2 S2 0.85 → 0.54 %, T2 1.02 →
+0.50 % (quadratic 0.22 %); WCO2 S2 1.09 → 0.90 % (quadratic 0.45 %); O2A unchanged (0.28 → 0.33 %).
+rms drops 7–10 % in the CO2 bands. Unconstrained order 3 is the most sensitive (WCO2 k1 −3.9 %).
+
+Reading: over ocean the continuum slope is a fixed instrument/solar/glint trend that cancels in contrasts;
+over land it is a real surface-reflectance degree of freedom that currently leaks into the CO2-band k1 at
+the 1–3 % level and would be read as a surface-type anomaly. A linear term per band is cheap and safe
+(condition number 8 → 9); the quadratic term should only be used with the two-τ model and after checking
+degeneracy. Not yet tested: whether near-cloud contrasts survive the extra column (the 3D-cloud signal acts
+on τ, the column on x; cond ≈ 10 says they are separable, but this needs the near-cloud metrics on CURC).
+
+### Identifiability of the continuum polynomial (main session) — 2026-10-30
+
+Quasi-continuum channels (corrected τ < 0.1) per band: O2A ≈ 420–450 but only at the blue edge and the red
+third (none in the band-head fifth); WCO2 ≈ 800–840 spread evenly; SCO2 12–37, all at the red edge.
+A continuum-only quadratic is therefore impossible in SCO2 (σ(a2) 0.03–0.06 at rms 0.02) and marginal in
+O2A. In the joint fit with τ known, x and x² are nearly orthogonal to the τ columns (VIF 1.0–1.4) and
+σ(a2) = 0.0023 in every band; σ(k1) grows by ≤ 10 %. The price of omitting the quadratic when it is
+present (a2 = 0.005–0.02 at the band edge) is a k1 bias of 0.3–0.4 × a2 in O2A/SCO2 but 2.7–3.0 × a2 in
+WCO2 (τ small and hump-shaped), i.e. 1.5–6 % — the band in which L2 uses albedo_quad in its QF and bias
+correction.
+
+Per-sounding check against L2 (same sounding ids, L2 slope/quad converted to ln T change per unit x /
+at the band edge): on 48443a_TG land the fitted a1 tracks the L2 albedo slope at r = 0.80 (O2A), 0.94
+(WCO2), 0.80 (SCO2) with regression slope 0.8–1.0; the fitted a2 tracks L2 albedo_quad at r = 0.8 in SCO2
+(scene SD 0.017), but only 0.4 (O2A) and 0.2 (WCO2), where the true quadratic (≈ 0.003 at the edge) is
+below the per-sounding σ. Over ocean (29252a_GL far-clear) a1 vs L2 slope r = 0.5–0.66 with slope 0.75–0.8
+(L2 has no quadratic over ocean). Conclusion: linear term in all bands; quadratic justified in SCO2 over
+land (constrained by the line channels, as in L2), noise-level in O2A/WCO2 where a prior or pooled value
+would be better than a free per-sounding term.
+
+### Shape model comparison on corrected τ: polynomial vs gamma vs additive-floor mixture (main session) — 2026-10-30
+
+Results `results/gm_models_29252a_GL_farclear.csv` (207 far-clear soundings) and
+`results/gm_models_48443a_TG_smoke100.csv` (100 land soundings). All models include the two-τ split
+(k1_dry, k1_w) and a linear continuum term a1·x. P2x = order 2 unconstrained; P3x = order 3 with
+k1, k2 ≥ 0; Gx = closed-form gamma ln T = c + a1x − κ ln(1 + (k1_dry τ_dry + k1_w τ_h2o)/κ);
+Mx = mixture ln T = c + a1x + ln[(1−f) e^{−(k1_dry τ_dry + k1_w τ_h2o)} + f e^{−k_s τ}], f ∈ [0, 0.5].
+
+| band / sample | P2x rms, k1 spread | P3x | Gx | Mx |
+|---|---|---|---|---|
+| O2A ocean | 0.040, 0.90 % (r airmass 0.99) | 0.031, 0.50 % (k2 pinned) | 0.047, 1.18 % (κ ≈ 7.7) | 0.029, 0.20 % (f = 0.94 %, k_s → 0) |
+| O2A land | 0.038, 0.33 % | 0.035, 0.36 % | 0.040, 0.44 % (κ ≈ 9.4) | 0.034, 0.33 % (f = 1.08 %) |
+| WCO2 ocean | 0.0194, 0.84 % (k2 −0.03) | 0.0194, 0.52 % | 0.0194, 0.47 % (κ → bound) | 0.0194, 1.12 % (f unconstrained) |
+| WCO2 land | 0.030, 0.93 % (k2 −0.21) | 0.030, 0.59 % | 0.030, 0.26 % (κ → bound) | 0.030, 0.24 % |
+| SCO2 ocean | 0.0167, 0.26 % (k2 0.011) | 0.0164, 0.15 % | 0.0166, 0.27 % (κ 84, p05–p95 61–131) | 0.0163, 0.16 % (f 0.18 %) |
+| SCO2 land | 0.0183, 0.50 % | 0.0182, 0.39 % | 0.0183, 0.49 % (κ 83, 41–286) | 0.0182, 0.52 % |
+
+Findings.
+- O2A is not gamma-shaped: the gamma form fits worse than order 2 (curvature in the wrong place). The
+  shape is an additive floor: a ~1 % unabsorbed component with k_s → 0, f = 0.94 % ± 0.04 % (ocean) and
+  1.08 % ± 0.06 % (land), r(f, albedo_o2a) = −0.94, no dependence on airmass, SZA, glint or AOD. This is an
+  additive radiance offset relative to the continuum (the "zero-level offset" the L2 preprocessor fits
+  for stray light and SIF), not Rayleigh (λ⁻⁴ predicts O2A/SCO2 ratio 53, observed 5.3). With the floor in
+  the model, O2A k1 spread drops from 0.90 % to 0.20 % and its airmass correlation from 0.99 to 0.56;
+  the order-2 "k2 ≈ 0.10" in O2A has been measuring this floor, not path variance.
+- WCO2 is linear in τ: κ runs to its upper bound, mixture f is unconstrained, and the free order-2 k2 is
+  negative (−0.03 ocean, −0.21 land) through continuum/curvature aliasing. k2 is not identifiable in WCO2.
+- SCO2: order 2, gamma and mixture are equivalent (κ ≈ 80, i.e. k2 ≈ 0.012, but κ is poorly determined per
+  sounding). Bounded order 3 pins k2 at 0 and gives the tightest k1 but a slight k1 offset.
+
+### Sign of a free k2 under the full measurement model (main session) — 2026-10-30
+
+Same samples as the shape comparison. Models: order-2 two-τ fit with linear (P2_lin) or quadratic
+(P2_quad) continuum, free vs BVLS-bounded (k1, k2 ≥ 0); for O2A also the floor model with a free k2 in
+the path part, ln[(1−f) e^{−k1 τ_dry − k1_w τ_h2o + ½ k2 τ²} + f].
+
+| band | sample | free k2 median (frac < 0) | bound effect on k1 |
+|---|---|---|---|
+| O2A, polynomial | ocean / land | +0.100 (0 %) / +0.085 (0 %) | never active |
+| O2A, floor model | ocean / land | −0.005 (95 %) / −0.001 (59 %) | n/a; k1 spread 0.4 % vs 0.2 % with k2 fixed at 0 |
+| WCO2, lin continuum | ocean / land | −0.030 (80 %) / −0.212 (100 %) | k1 0.983 → 0.991 / 0.928 → 0.983; spread 0.84 → 0.46 % / 0.93 → 0.26 % |
+| WCO2, quad continuum | ocean / land | +0.022 (41 %) / −0.200 (100 %) | ocean 41 % pinned; land k1 0.935 → 0.987, spread 0.47 → 0.18 % |
+| SCO2 | ocean / land | +0.011 (0 %) / +0.012 (0 %) | never active |
+
+Reading: positivity of k2 is a property of the log-Laplace transform (convexity), not of the gamma form,
+so a negative free k2 flags a measurement-model error. With floor, continuum and H2O terms in place:
+SCO2 k2 is positive everywhere (bound irrelevant); O2A path curvature is ≈ 0 (−0.005 ± 0.005, the
+residual channel-weighting effect, A3) once the floor is modelled; WCO2 over land has a large, consistent
+negative curvature (−0.2) that neither the continuum quadratic nor the H2O split removes — an open model
+deficiency (candidates: different vertical weighting of H2O and CO2 lines, line mixing / ILS core in the
+strong CO2 lines, residual τ scale). Bounding there is a band-aid that stabilizes k1 but hides the misfit;
+fixing k2 = 0 in WCO2 is the honest version of the same choice until the cause is found.
+
+### Stray light vs SIF in the O2A floor (main session) — 2026-10-30
+
+The flat floor f in ln T = c + a1x + ln[(1−f)L(τ) + f] is an instrument/additive term relative to the
+continuum. SIF is emitted at the surface and attenuated along the viewing path, so it is a component
+f_SIF·exp(−k_s k1 τ) with k_s = μ_v/airmass (0.46 ocean glint, 0.62 on 48443a_TG), not a flat floor.
+Tests (O2A, same samples): a free SIF-like component is assigned zero on both samples, including the land
+target where L2 reports fs_rel = 0.86 % (p05–p95 0.2–1.5 %); the flat floor stays 0.94 % (ocean, no SIF)
+vs 1.07 % (land). Synthetic injection of a 0.86 % SIF term into the land spectra and refitting the
+floor-only model changes k1 by −0.45 % (p05–p95 −0.46 to −0.44 %) while f0 and the rms barely move: SIF
+is not separable at the current residual level and hides in k1. Prescribing f_SIF = fs_rel from L2
+changes k1 by +0.46 % (0.10–0.79 %) with r = 1.00 against fs_rel (Δk1 ≈ +0.53 × fs_rel); rms unchanged;
+k1 spread 0.33 → 0.40 %. With the SIF term prescribed, a free k2 is −0.003 (≈ 0). Conclusion: the floor
+handles stray light; SIF must be prescribed (land, O2A only) from fs_rel or the IMAP-DOAS SIF, otherwise
+O2A k1 carries a vegetation-correlated error of about −0.5 % per 1 % SIF.
+
+Constraint (Steven, 2026-10-30): no retrieved L2 quantity enters the fit. SIF therefore cannot be
+prescribed from fs_rel. The only non-retrieved lever is Fraunhofer-line in-filling in the O2A continuum
+channels (τ < 0.1, ≈ 440 channels, of which ≈ 88 have ILS-convolved solar lines deeper than 2 %, max 35 %):
+an additive line-free term (stray light + SIF) can be estimated per sounding to σ ≈ 0.37 % of the continuum
+at a ln T noise of 0.005, i.e. SNR ≈ 2 against a vegetation SIF of 0.9 %, which maps to a k1 correction
+noise of ≈ 0.2 %. The O2-line floor at high τ sees stray light only (SIF attenuated along the viewing
+path), so the two can be separated by their τ dependence once the floor is modelled line-free
+(T_obs = e^{c+a1x}[(1−z−s)L(τ) + (z + s e^{−k_s k1 τ})/n_sun(λ)], n_sun = solar spectrum / envelope).
+Not yet implemented; the current flat floor absorbs stray light and leaves a −0.5 % k1 error per 1 % SIF
+over vegetation, smooth in space and absent over ocean, desert and snow.
+
+Decision (Steven, 2026-10-30): option 1. SIF is not modelled; the O2A fit carries a flat floor for stray
+light only, and the vegetation-correlated k1 error (≈ −0.5 % per 1 % SIF, O2A, land) is documented as a
+limitation. In-filling (option 2) stays on the follow-up list, to be taken up only if O2A land k1
+anomalies become decision-relevant.
+
+
+## Agreed fit model: local test before the CURC run (main session) — 2026-10-30
+
+Script `final_model_test.py`; results `results/final_model_per_sounding_{29252a_GL,48443a_TG_smoke100}.parquet`,
+`final_model_summary_*.md`, `final_model_contrasts_29252a_GL.{csv,png}`. Model: corrected τ; O2A
+ln[(1−f)e^{−k1τ}+f] + a1x, k2 = 0; WCO2 two-τ, k1 only, + a1x; SCO2 two-τ order 2 + a1x (+a2x² land).
+Free k2 stored as diagnostic. Channel mask as the local studies (finite ln T, τ, σ > 0).
+
+Far-clear 29252a_GL (n = 1240), k1 median (spread %): O2A 0.987 (0.17), WCO2 0.991 (0.25), SCO2 0.999
+(0.28); SCO2/O2A ratio 0.32 %, WCO2/SCO2 0.50 %. For comparison: production 5.0 / 5.6 / 8.1 % and ratios
+9.0 / 11.3 %; two-τ without continuum 0.86 / 0.84 / 0.25 % and ratios 1.10 / 1.25 %. Terms: f = 0.94 %
+[0.87, 1.33], a1 −0.006 / +0.004 / −0.010, SCO2 k2 +0.011 [0.007, 0.016]; free-k2 diagnostic O2A −0.005
+(95 % < 0), WCO2 −0.03 (80 % < 0), SCO2 never negative; no failed fits, f never at its bound; rms
+0.029 / 0.019 / 0.017. Land (48443a_TG, 100): k1 spreads 0.40 / 0.29 / 0.24 %, f = 1.08 %, WCO2 a1 +0.020,
+WCO2 free k2 −0.21 (100 % < 0, unchanged), SCO2 a2 ≈ 0 with wide scatter.
+
+Near-cloud 0–1 km contrasts (n = 421, SNR): k1 O2A −0.18 % (−1.7), WCO2 −0.08 % (−1.0), SCO2 −0.28 %
+(−1.1) — the single-τ SCO2 +2.8 % (3.6) and WCO2 +1.2 % (3.2) signals are gone; k1_w SCO2 +6.2 % (2.7);
+SCO2 k2 +0.0004 (0.2). New near-cloud signals appear in the nuisance terms: SCO2 continuum slope a1
++0.0048 (SNR 5.3, i.e. a 1 % change in ln T across the band), WCO2 a1 +0.0011 (2.5), O2A floor f
++0.0005 (1.7), O2A residual rms +2.6 % (1.9). All vanish beyond 3 km. Cost: 2.5 ms per sounding for the
+O2A nonlinear fit, < 0.2 ms for the linear bands (10 365 soundings in 4 s wall with 8 workers).
+
+Reading: the model does what the tests predicted (k1 scatter 0.2–0.3 % in all bands, cross-band ratio
+0.3–0.5 %), and the pooled near-cloud CO2-band k1 signal on this orbit is fully accounted for by H2O and
+the continuum slope. Whether a path signal survives in specific scenes (the 55°S deck) needs the latitude
+breakdown on CURC. The continuum-slope contrast near clouds is itself a candidate 3-D-cloud diagnostic.
+
+## Pseudo-XCO2 from the agreed model: local check (2026-10-30)
+
+Question: how would the agreed fit perform as a direct XCO2 estimator? Script `pseudo_xco2_test.py`, outputs
+`results/pseudo_xco2_29252a_GL.{md,csv,png}` and `pseudo_xco2_clusters_29252a_GL.csv`. Nothing is scaled to
+xco2_bc or to the prior (Steven's correction, 2026-10-30; a first version had normalised the far-clear
+medians). τ_S is computed with the prior CO2 profile, so xco2_est = prior × k1_S (E0, geometric path assumed),
+prior × k1_S/k1_O2A (E1, l_S = l_O2A assumed), prior × k1_W/k1_O2A (E1w); E2 is a held-out ridge of k1_S on
+the gas-free fit terms and is calibrated to the prior by construction (stand-in for a path forward model).
+Benchmarks: prior alone and the stored L2 xco2_strong_idp. Target xco2_bc, far-clear n = 1240.
+
+| estimator | bias vs bc | SD(est − bc) | white noise | corr(est − prior, bc − prior) | −1.5 ppm hemispheric step |
+|---|---|---|---|---|---|
+| production E1 | −9.8 ppm | 44 ppm | 52 ppm | 0.11 | wrong sign, 28 ppm |
+| two-τ T2 E1 | −28.7 ppm | 3.6 ppm | 1.1 ppm | 0.88 (slope 4.7) | 8 ppm, 5× too large |
+| agreed E0 (SCO2 alone) | +0.0 ppm | 1.8 ppm | 1.1 ppm | −0.33 | wrong sign, 0.9 ppm |
+| agreed E1 (SCO2/O2A) | +5.7 ppm | 1.7 ppm | 1.2 ppm | 0.15 (slope 0.31) | absent |
+| agreed E2 ridge | +1.0 ppm | 0.64 ppm | 0.46 ppm | 0.62 (slope 0.48) | −0.9 of −1.5 ppm |
+| prior alone | +0.8 ppm | 0.81 ppm | 0.29 ppm | 0 | 0 |
+| L2 strong IDP (as stored) | −13.8 ppm | 1.05 ppm | 0.71 ppm | 0.72 (slope 1.3) | −2.5 of −1.5 ppm |
+
+Reading. (1) Absolute level: the far-clear k1 medians 0.987 (O2A) / 0.999 (SCO2) put E1 at +5.7 ppm and E0
+at 0.0 ppm. The 1.2 % band difference is the sum of the band-dependent path factor and the band-dependent
+absolute τ accuracy (ABSCO scale, O2 continuum/CIA, solar model); L2 absorbs the same thing through its
+ABSCO scaling and bias correction. An unscaled pseudo-retrieval therefore carries a spectroscopy-level
+offset of order 1 % that cannot be separated from the path with one orbit. (2) Scatter: the agreed model
+moves the pseudo-XCO2 from ±44 ppm (production) and ±3.6 ppm (two-τ) to ±1.7 ppm per sounding, ≈ 1.15 ppm
+white plus ≈ 1.2 ppm scene-correlated structure (within clusters: wind speed +0.58, albedo −0.55, psurf
+−0.60, airmass −0.37) that does not average away (block-24 SD 1.18 vs 0.75 for the prior). (3) There is
+almost no XCO2 signal on this orbit to detect: the prior is within 0.8 ppm of xco2_bc and the near-cloud bc
+anomaly is ≈ 0; the one feature, a −1.5 ppm hemispheric increment (bc − prior), is reproduced by IDP but not
+by the k1 ratio (SCO2 and O2A k1 both step by +0.2 %, so the ratio is flat). (4) The within-cluster
+correlation of E1 with bc − prior (0.48, slope 1.7) is common-mode scene dependence shared with the L2
+increment (bc − prior itself correlates −0.72 with airmass within clusters); against xco2_raw − prior it is
+0.24. (5) E2 beats the prior only by shrinking toward it (within-cluster slope 0.15). (6) Sensitivity:
+1 ppm = 0.245 % of the k1 ratio; with a 0.32 % ratio spread the single-sounding 1σ limit is ≈ 1.3 ppm, so a
++4 ppm plume is a 3σ single-sounding feature and sub-ppm cloud anomalies need averaging that the structured
+part limits.
+
+Verdict: usable as a path diagnostic at the ppm level, not as an XCO2 estimator competitive with L2 on this
+orbit; the absolute level needs a band-to-band τ accuracy budget before it means anything. The decisive
+test needs land dates with real XCO2 variation (Kozienice 2021-09-06 plume, +4 ppm) and the multi-date CURC
+run; the proper bar is slope ≈ 1 of (est − prior) on (xco2_raw − prior) after removing scene covariates, with
+the bias reported unscaled.
+
+## Kozienice plume (2021-09-06, orbit 38200a_ND): known-answer test on land (2026-10-30)
+
+Steven asked for the land test locally. Orbit files (L1B, L2Met, L2CPr, Lite) downloaded to
+`data/OCO2/2021/249/`; `kozienice_pseudo_xco2.py` recomputes everything for the 1057 soundings within
+150 km of the plant with the study's copy of the τ step (Doppler-corrected, dry/H2O split, TOA solar as
+production), fits the agreed model and compares the unscaled estimates prior × k1_S (E0), prior × k1_S/k1_O2A
+(E1), prior × k1_W/k1_O2A (E1w) with the Lite xco2 (bc), xco2_raw and strong IDP. The prior is the CPr column
+mean (agrees with the Lite prior to 0.03 ppm) so the estimate exists for all soundings, not only the 393 that
+L2 retrieved. Outputs `results/kozienice_38200a_ND.{md,csv,png}`, `kozienice_38200a_ND_per_sounding.parquet`,
+`kozienice_38200a_ND_spectra.npz` (cache), `kozienice_bl_kernel.{md,csv}`.
+
+Background (beyond 40 km, QF0, n = 254): k1 0.985 / 0.987 / 1.003 (rSD 0.38 / 0.60 / 0.51 %); E0 bias vs bc
++0.6 ppm, rSD 2.1 ppm; E1 bias +7.0 ppm (O2A k1 0.985 with Lite fs_rel 1.6 %: the documented SIF
+limitation), rSD 2.8 ppm; L2 raw rSD 1.4, bc 0.6. The plain single-τ fit on the same τ: E0 −8.9 ppm, E1 +38 ppm,
+rSD 2.7 / 4.6 ppm. Soundings that L2 did not retrieve (cloudy, e.g. −12 km bin) give k1 drops of 3–6 % in all
+bands and estimates of 350–390 ppm: a cloud screen is a precondition.
+
+Plume (Lite bc > background + 2 ppm within 30 km, n = 14, 4 of them QF0): Δbc +5.3 ppm (QF0: +4.3). Agreed
+model: Δk1 SCO2 +1.87 % (QF0 +1.99 %), WCO2 +1.07 % (QF0 +1.61 %), O2A −1.0 % (QF0 −0.4 %); E0 − bg +7.8 ppm,
+E1 +9.7, E1w +8.0, raw +4.9. The plume is detected with the right sign in both CO2 bands and in the 5-km bins
+(+2 km bin: bc 414.7, E0 417.5, E1 426.8 vs backgrounds 409.3 / 409.7 / 416.2), with amplitude 1.5–2× L2.
+
+Why the amplitude: `kozienice_bl_kernel.py` regresses the ln T change from a 1-km boundary-layer CO2
+enhancement (same column amount as a uniform increase) on the agreed design. BL kernel of k1: SCO2 1.60
+[1.59, 1.60], WCO2 1.01 (24 background + 14 plume soundings; BL holds 12 % of the column). The strong band
+over-responds to near-surface CO2 by 1.6× (saturated lines, pressure-broadened wings carry the τ change
+into the channels that set k1); the weak band is column-mean. Observed SCO2/WCO2 contrast ratio 1.24–1.75
+vs 1.58 predicted. WCO2 still exceeds bc by ≈ 1.5× (+6.6 vs +4.3 ppm on 4 QF0 soundings, 2σ of its noise),
+with the L2 averaging kernel and bias correction as the remaining candidates. QF1 plume soundings
+(cld < 2.6 km) also show O2A k1 −1.4 % and f up: a scene/condensed-plume effect that E1 adds to the signal.
+
+Verdict for the pseudo-XCO2 idea: on land the agreed model detects a +5 ppm plume at single-sounding
+level (noise 2–3 ppm, so ≈ 2σ per sounding, clear in 5-km bins) and is quantitatively ≈ 1.5× too strong in
+WCO2 and 2× in SCO2, the latter understood (BL kernel). E0 (SCO2 alone) is unbiased in the background
+(+0.6 ppm) by the coincidence noted on 29252a_GL; E1 carries the SIF-induced O2A bias (+7 ppm) and the
+scene term. A pseudo-XCO2 would need (i) a cloud screen, (ii) the WCO2 band as the CO2 band (flat kernel)
+or a kernel correction for SCO2, (iii) the SIF/floor problem solved before O2A can serve as the path
+reference over vegetation. For the dissertation this is the right framing: the k-coefficients are path
+diagnostics with a band-dependent vertical kernel, not a retrieval.
+
+## O2A path coefficient vs the L2 surface-pressure adjustment (2026-10-30)
+
+Question (Steven): can the O2A PPDF fit capture dp, the L2 retrieved-minus-prior surface pressure? Context:
+L2 retrieves psurf from the O2A band with a 4 hPa prior sigma and uses it in xco2_raw; the B11.2 bias
+correction then adds back 0.82 × dpfrac on land (0.25 ppm/hPa over ocean, ≈ 60 %), so xco2 (bc) leans on
+the prior pressure. Script `o2a_dp_test.py`, outputs `results/o2a_dp_test.{md,csv,png}`,
+`results/o2a_dp_kernel.csv`. x = 100·dp/psurf_prior, y = 100·(k1 − 1); both datasets of the pseudo-XCO2
+tests (29252a_GL ocean, 38200a_ND Kozienice land).
+
+- Expected slope for a pure psurf change: surface-layer kernel of the O2A k1 (air added at the surface vs
+  uniformly, linearised floor model, 24 land QF0 soundings) = 1.80 [1.80, 1.81], i.e. k1 responds 1.8× to
+  near-surface air because the saturated band carries the change into the pressure-broadened wings.
+- Clear sky: ocean far-clear (n 1240) corr −0.47, slope −1.8; WCO2 and SCO2 k1 correlate the same way
+  (−0.56, −0.41) and the SCO2/O2A ratio not at all → common-mode scene dependence, not pressure. Land
+  background (n 254) corr +0.27, slope +1.1, r² 0.07. dp spread in clear sky is 0.06–0.12 % (0.6–1.2 hPa),
+  at or below the L2 dp noise (≈ 1.4 hPa), while k1 scatters 0.3–0.5 % (1.7–2.8 hPa equivalent after the
+  kernel) and does not average down in 24/96-sounding blocks (block corr ±0.7–0.8 with slopes 3.5–6, all
+  three bands alike).
+- Cloud-affected: ocean QF1 corr +0.77, slope 2.4; the 55°S deck cluster (L2 dp +1.17 %) has Δk1/Δdp =
+  1.16 with SCO2 and WCO2 k1 going down. Both methods see the same path change; L2 books it as +11 hPa of
+  surface pressure.
+- f_O2A anti-correlates with dp where clouds are present (−0.56 QF1 ocean, −0.32 land background).
+
+Verdict: no. In clear sky the clear-sky dp carries no detectable surface-pressure signal for either method
+(the met prior is better than both), and the O2A k1 scatter is scene-correlated 3–5× larger than the dp
+spread. The two agree only where dp is a cloud/path artefact. The L2 analogue of dividing by k1_O2A (E1) is
+the dp adjustment, which L2 itself undoes by 60–80 % in the bias correction; this supports keeping the O2A
+coefficient as a diagnostic rather than as a divisor in a pseudo-XCO2.
+
+### Follow-up: what the dp finding changes in the pseudo-XCO2 (2026-10-30)
+
+Script `o2a_anomaly_estimator.py`, output `results/o2a_anomaly_estimator.md`. Candidates: E0 = prior·k1_S;
+E1 = prior·k1_S/k1_O2A; EA(g) = prior·k1_S/(1 + g·Δk1_O2A) with Δk1_O2A the anomaly against the running
+median of the same footprint (±25 soundings, self excluded); g = 1 or 1.6/1.8 (SCO2 BL kernel over O2A
+surface kernel); WCO2 variants.
+
+| estimator | ocean far-clear bias / rSD (ppm) | ocean 0–1 km − far (bc +0.8) | land bg bias / rSD | plume − bg (bc +5.3, QF0 +4.3) |
+|---|---|---|---|---|
+| E0 | 0.0 / 1.92 | +1.15 | +0.6 / 1.95 | +7.8 / +8.3 |
+| E1 | +5.7 / 1.69 | +7.0 | +7.0 / 3.04 | +9.7 / +10.0 |
+| EA g=1 | 0.0 / 1.88 | +1.74 | +0.5 / 2.86 | +7.9 / +8.8 |
+| E0 WCO2 | −2.5 / 2.27 | −0.48 | −6.1 / 2.07 | +4.5 / +6.7 |
+
+- The local anomaly removes the E1 bias completely (SIF, τ scale) but adds the O2A noise (land Δk1_O2A rSD
+  0.39 %) and does not improve the near-cloud or plume response: in clear sky there is no O2A path
+  information to add, as the dp test showed.
+- As a screen, |Δk1_O2A| < 1 % keeps 87 % of QF0, 72 % of QF1 and 36 % of non-retrieved land soundings
+  (baseline from all neighbours); E0 rSD 2.11 vs 2.14 unscreened. A clear-neighbour baseline (MODIS
+  distance) is needed for a useful flag.
+- WCO2 as the CO2 band reproduces the plume amplitude (flat kernel) but carries a −6 ppm absolute offset
+  over land (k1_W background 0.987) and 2.1 ppm scatter.
+
+Conclusion: the dp finding improves the pseudo-XCO2 by subtraction. Use the prior air column (E0), as L2
+effectively does after bias correction; keep the O2A coefficient as a flag/diagnostic; put the remaining
+effort into the CO2-band side (WCO2 kernel, absolute τ scale, cloud screen), not into the O2A divisor.
+
+### Kozienice re-test with the revised design (2026-10-30)
+
+Script `kozienice_plume_retest.py`, outputs `results/kozienice_plume_retest.{md,png}`. Design: prior air
+column; XCO2 anomaly = prior × Δk1_CO2band / K_BL (SCO2 1.60, WCO2 1.01); anomalies against the running
+median of the same footprint (±25 soundings, self excluded) among clear neighbours (MODIS cloud distance
+> 5 km); O2A anomaly |Δk1_O2A| > 1 % as path flag only. Known answer: L2 bc anomaly computed the same way
+among QF0 neighbours.
+
+| quantity | background rSD (ppm) | all plume (n 14) | QF0 plume (n 4) | unflagged plume (n 12) |
+|---|---|---|---|---|
+| ΔX SCO2 / 1.60 | 1.32 | +5.0 | +5.6 | +5.4 |
+| ΔX WCO2 / 1.01 | 2.35 | +6.0 | +8.5 | +7.4 |
+| ΔX SCO2, no kernel | 2.11 | +8.0 | +8.9 | +8.6 |
+| E1-style (SCO2 − O2A) | 2.87 | +8.1 | +8.8 | +8.1 |
+| L2 bc anomaly | 0.65 | +5.4 | +4.5 | +5.4 |
+| L2 raw anomaly | 1.28 | +5.1 | +5.4 | +5.1 |
+
+- The kernel-corrected SCO2 anomaly reproduces the plume amplitude (+5.0 vs +5.4 ppm) with a background
+  scatter of 1.3 ppm, the same as L2 raw (1.28) and twice L2 bc (0.65); corr with the bc anomaly 0.30.
+  WCO2 is noisier (2.35) and overshoots within its noise.
+- The O2A flag removes 87 % of the non-retrieved (cloudy) soundings, 26 % of QF1 and 5 % of background
+  QF0; 2 of the 14 plume soundings (condensed plume, Δk1_O2A −1.4 %) are flagged. Upwind bins (−20..−10 km)
+  are entirely flagged, consistent with the cloud there.
+- Diagnostics in the plume: Δk1_w SCO2 −4.5 to −5.9 % (H2O coefficient drops), Δf_O2A +0.3×10⁻², Δk1_O2A
+  −0.6 % (all), +0.2 % (QF0).
+- Caveats: the anomaly definition relies on along-track baselines, so it measures contrasts, not absolute
+  XCO2 (the −6 ppm WCO2 and the band τ-scale offsets are removed by construction); 4 QF0 plume soundings
+  only; the 1.60 kernel is the boundary-layer kernel for a 1-km layer, appropriate for a fresh plume.
+
+### Absolute pseudo-XCO2 on the Kozienice orbit (2026-10-30)
+
+Script `kozienice_absolute.py`, output `results/kozienice_absolute.md`. Unscaled; L2 as stored.
+
+| quantity | background median | − L2 bc | − L2 raw | rSD vs bc | fp-median spread | plume (all / QF0) |
+|---|---|---|---|---|---|---|
+| E_S = prior·k1_S | 409.70 | +0.56 | −0.02 | 1.95 | 2.7 | 417.5 / 418.0 |
+| E_S,kern (baseline + Δ/1.60) | 409.57 | +0.39 | −0.24 | 1.27 | — | 414.0 / 414.7 |
+| E_W = prior·k1_W | 403.20 | −6.10 | −6.75 | 2.07 | — | 407.7 / 409.9 |
+| L2 raw | 409.78 | +0.57 | 0 | 1.02 | 1.8 | 414.7 / 414.9 |
+| L2 bc | 409.28 | 0 | −0.57 | 0 | 0.3 | 414.6 / 413.5 |
+
+- The absolute SCO2 level agrees with L2 raw to 0.02 ppm on this orbit and with bc to +0.6 ppm (ocean orbit:
+  0.0 ppm). WCO2 sits 6 ppm low (k1_W 0.987), a band τ-scale problem, not a path problem.
+- Footprint-dependent offsets: E_S per-footprint medians spread 2.7 ppm (k1_S 0.9998–1.0063), L2 raw 1.8,
+  L2 bc 0.3 after its footprint correction. A footprint-dependent τ scale (ILS) is the first absolute-level
+  correction a pseudo-XCO2 would need; it is not L2-derived.
+- The scatter of E_S − bc is uncorrelated with airmass, latitude, SIF, k1_O2A, f, k1_w, a1 (|r| ≤ 0.14) and
+  correlates +0.60 with the free SCO2 k2. Fixing k2 at the background median makes everything worse (rSD
+  3.3 ppm, plume contrast lost: −4.6 ppm), so the curvature is real scene information and k2 stays free.
+- The kernel-scaled version shrinks the local anomalies (and their noise) by 1.6; its 1.27 ppm is only
+  validated where the anomaly is real (plume).
+
+### Do the agreed coefficients correlate with the L2 XCO2 anomaly better than the production ones? (2026-10-30)
+
+Script `coef_anomaly_corr.py`, outputs `results/coef_anomaly_corr.{md,csv}` (29252a_GL; target the production
+`xco2_bc_anomaly`; coefficients as stored and as local anomalies; held-out ridge R² over 10 along-track
+blocks). Validation only.
+
+| subset | best production coefficient (r) | best agreed coefficients (r) | ridge R² production set | ridge R² agreed set | agreed k1 ×3 only |
+|---|---|---|---|---|---|
+| QF0 cld < 1 km (n 101) | wco2 k1 −0.26, wco2 k2 −0.25 | wco2 a1 +0.38, SCO2/O2A k1 +0.34, o2a k1 −0.28, o2a f +0.25 | — | — | — |
+| QF0 cld < 3 km (n 328) | wco2 k1 −0.13 | wco2 a1 +0.31, SCO2/O2A k1 +0.28, sco2 k1 +0.20 | −0.11 | 0.26 | −0.01 |
+| QF0+1 cld < 3 km (n 566) | intercepts +0.16 | sco2 k1 +0.31, wco2 k2_diag −0.37, wco2 a1 +0.24 | −0.27 | 0.48 | 0.03 |
+| QF0 cld < 10 km (n 1076) | — | — | −0.02 | 0.20 | 0.03 |
+| QF0 all (n 3005) | sco2 k1 +0.08 | sco2 k2 +0.16, wco2 a1 +0.14 | 0.02 | 0.16 | 0.02 |
+
+Against the raw anomaly (QF0+1 cld < 3): agreed sco2 a1 −0.71, wco2 k1_w −0.41, o2a k2_diag −0.37;
+production best wco2 k2 −0.37. Reading: yes, clearly better, and the information is in the new terms
+(continuum slope a1, floor f, H2O coefficient k1_w, free-k2 diagnostic, the SCO2/O2A ratio), not in k1
+alone (R² ≈ 0 for either k1 triple). The production ridge has no held-out skill on this orbit.
+
+Addendum (same day): the running-median anomaly above is NOT the pipeline/ML definition. Pipeline target
+= XCO2 − mean of clear soundings (cld_dist > r) within ±0.25° latitude, all footprints, kept where the
+reference std ≤ 1 ppm (src/spectral/anomaly.py); production ML targets use r = 5 km over ocean and 15 km
+over land (`xco2_bc_anomaly_r05` / `_r15`), the stored `xco2_bc_anomaly` is the 10 km default. The pipeline
+coefficient anomalies dk1_* use the same window via `compute_xco2_anomaly(extra_vars)`. Rerun with those
+definitions (`coef_anomaly_corr_pipeline.py`, `results/coef_anomaly_corr_pipeline.md`), held-out ridge R²:
+
+| target / subset | production set, stored → pipeline anomaly | agreed set, stored → pipeline anomaly | agreed k1 ×3 (anomaly) |
+|---|---|---|---|
+| r05 (ML ocean) QF0 cld < 1 (n 390) | −0.02 → 0.26 | 0.10 → 0.42 | 0.07 |
+| r05 QF0 cld < 3 (n 1235) | 0.00 → 0.20 | 0.18 → 0.43 | 0.09 |
+| r05 QF0 cld < 10 (n 2997) | −0.02 → 0.10 | 0.11 → 0.37 | 0.08 |
+| r05 QF0 all (n 4928) | −0.01 → 0.07 | 0.02 → 0.33 | 0.07 |
+| r10 QF0 cld < 3 (n 328) | −0.11 → 0.02 | 0.26 → 0.30 | 0.05 |
+| r15 (ML land) QF0 cld < 3 (n 172) | −0.03 → 0.00 | 0.16 → 0.28 | 0.00 |
+
+Conclusion unchanged and stronger on the ML target: agreed set 0.33–0.43 vs production 0.07–0.26 with
+the pipeline's own anomaly construction. Best single coefficients on r05: SCO2 k1 anomaly +0.34 (cld < 1),
++0.53 (QF0+1 cld < 3), SCO2 k1_w +0.27/+0.47, WCO2 a1 +0.28, WCO2 free-k2 diagnostic −0.27.
+
+### Third-order term to constrain the sign of k2? (2026-10-30)
+
+Steven's question: add a k3 term, free or tied to (k1, k2) by the gamma relation k3 = 2k2²/k1, so that the
+k1–k2–k3 relationships fix the sign of k2. Script `cubic_term_test.py`, output `results/cubic_term_test.md`
+(agreed CO2-band design; Kozienice background/plume and 29252a_GL far-clear subsample).
+
+| band / set | A agreed k1, spread, k2 | B free k3: k1, spread, k2 (<0 %), k3 | C gamma-tied: k1, spread, k2 (at 0 %), k3 | D k2 ≥ 0: spread, at 0 % |
+|---|---|---|---|---|
+| WCO2 land bg | 0.9868, 0.52 %, 0 (fixed) | 0.903, 3.95 %, −0.58 (96 %), −1.48 | 0.9868, 0.52 %, 0 (99 %), 0 | 0.52 %, 96 % |
+| WCO2 ocean far | 0.9912, 0.25 %, 0 (fixed) | 0.949, 1.89 %, −0.28 (100 %), −0.76 | 0.9912, 0.58 %, 0 (72 %), 0 | 0.58 %, 65 % |
+| SCO2 land bg | 1.0026, 0.48 %, +0.014 | 0.978, 0.90 %, −0.025 (98 %), −0.023 | 1.0029, 0.50 %, +0.015 (0 %), +0.0004 | 0.47 %, 0 % |
+| SCO2 ocean far | 0.9988, 0.27 %, +0.011 | 0.972, 0.49 %, −0.030 (100 %), −0.023 | 0.9989, 0.28 %, +0.012 (0 %), +0.0004 | 0.27 %, 0 % |
+
+Plume Δk1 (all / QF0): WCO2 A +1.07/+1.61, B +3.6/+8.9, C +1.32/+1.61; SCO2 A +1.87/+1.99, B +2.19/+2.20,
+C +2.00/+2.05. rms changes by < 2 % in every case.
+
+- A free cubic does not constrain k2, it destabilises it: τ² and τ³ are nearly collinear over the band's τ
+  range, so B drives k2 and k3 negative in both bands (negative skew, unphysical), lowers k1 by 2.5 % (SCO2)
+  to 8 % (WCO2) and doubles to quadruples the spread, for no rms gain. Same as the 2026-10-28 order-3
+  result on the production setup (k2 at the zero bound in 97 %).
+- The gamma-tied cubic is physically negligible in SCO2: k3 = 2k2²/k1 ≈ 4×10⁻⁴ (κ = k1²/k2 ≈ 70, so the
+  series converges fast); k1, k2 and the plume contrast move by < 0.1 %. In WCO2 it collapses onto the k2 = 0
+  bound (99 % land, 72 % ocean), identical to a plain k2 ≥ 0 bound, which in turn reproduces the agreed k1
+  but with a larger spread where the bound is sometimes inactive (ocean 0.58 vs 0.25 %).
+- The sign of k2 is set by the shape of ln T against τ at the band's high-τ channels, and in WCO2 that shape is
+  concave-down: a misfit (channel-population streaks, continuum/H2O structure), not path statistics. No
+  expansion order changes it; the WCO2 forward model does.
+
+Decision: keep the agreed model. k2 free in SCO2 (a k2 ≥ 0 bound is never active there), k2 = 0 in WCO2, no
+k3 anywhere; store nothing new.
+
+## WCO2 spread at low SOD (2026-10-30, Opus agent)
+
+Question: why does WCO2 ln T fan out at SOD < 0.1 (≈ ±0.05 against noise 0.005) in the revised fit, and can it be
+reduced? Scripts `wco2_lowsod_{common,solar,analysis,kozienice,fig}.py`; report `results/wco2_lowsod_report.md`;
+tables `results/wco2_lowsod_summary_29252a_GL.md`, `results/wco2_lowsod_kozienice_38200a_ND.md`; figures
+`results/wco2_lowsod_patterns_29252a_GL.png`, `results/wco2_lowsod_example_2020010100214501.png`.
+
+Cause: the TOA solar spectrum. Production shifts the solar lines by v_sol only (`fp_abs_coeff.py`
+`beta_total = v_solar / C_LIGHT`; the v_inst term is commented out). The spacecraft–surface velocity (±5.3 km/s on
+glint, up to 0.9 px) is missing, as it was for the telluric τ. At low SOD the solar lines are the only spectral
+structure, so the misregistration shows there. Evidence (far-clear 29252a_GL, n = 1240): 99 % of the residual at
+SOD < 0.1 is one fixed pattern per (footprint, v_inst cluster); the two cluster patterns anticorrelate (r −0.6 to −0.7),
+and their difference matches −Δv·∂lnS/∂v at r = 0.99 in every footprint; a free per-sounding shift scale gives α̂ = 0.99.
+This also explains the "unexplained" WCO2 SVD mode of 2026-10-29 (the solar test there used line depth, not ∂lnS/∂λ).
+
+| WCO2 candidate (29252a_GL far-clear) | rms SOD<0.1 | k1 median | spread % | within-cluster % | v-cluster step % | Δk1 0–1 km % (SNR) |
+|---|---|---|---|---|---|---|
+| agreed model | 0.0193 | 0.9914 | 0.253 | 0.078 | −0.86 | −0.098 (−1.3) |
+| solar lines at λ(1 + v_sol/c − v_inst/c), no fit parameter | 0.0048 | 0.9876 | 0.119 | 0.079 | +0.15 | −0.099 (−1.3) |
+| + L1B bad_sample_list ≠ 0 dropped | 0.0036 | 0.9902 | 0.127 | 0.072 | +0.17 | −0.061 (−0.9) |
+| + per-fp fixed pattern subtracted (cross-fitted) | 0.0026 | 0.9885 | 0.089 | 0.079 | +0.09 | −0.066 (−0.9) |
+| solar + Legendre P2, P3 | 0.0043 | 0.9923 | 0.127 | 0.080 | +0.15 | −0.030 (−0.4) |
+| solar + ∂τ/∂pix + ∂τ/∂lnw | 0.0047 | 0.9845 | 0.174 | 0.102 | +0.23 | −0.096 (−1.0) |
+
+- The solar error biased WCO2 k1 by ≈ 0.17 % per km/s of v_inst, i.e. a latitude/geometry-dependent step along glint
+  orbits. Sounding-to-sounding scatter and near-cloud contrasts are unchanged (v_inst is smooth along track). O2A rms
+  0.029 → 0.025, SCO2 0.0167 → 0.0158 with the same fix.
+- After the fix, L1B-flagged channels are the outliers: rms at SOD < 0.1 is 0.010 (isolated bad pixels) and 0.0086
+  (edge channels 0–89) against 0.0037 for unflagged channels. Dropping them lowers the within-cluster spread 0.079 → 0.072 %
+  (ocean) and the background rSD 0.60 → 0.40 % (land 38200a_ND). The k1 level moves +0.26 / +0.48 %, mostly from the
+  edge channels.
+- What remains is a detector-fixed per-footprint pattern (rms 0.003–0.006). It is the same in both velocity clusters,
+  so it is not tied to the line frame. It is stable across orbits (land 2021 vs ocean 2020 pattern r = 0.80–0.89), and
+  it is uncorrelated with solar depth, ∂lnS/∂v, f_H2O, ∂τ/∂pix and ∂τ/∂lnw (|r| ≤ 0.2). Subtracting it lowers the rms only;
+  no k1 metric moves.
+- The WCO2–SCO2 k1 correlation (0.51, land) is carried by the edge channels: their k1 lever tracks the mean
+  edge-channel residual (r = 0.9997) and correlates +0.61 with SCO2 k1. On ocean, the within-cluster correlation is ≈ 0
+  in every variant. It is not a usable quality criterion on these orbits.
+
+Recommendation: (1) add the solar −v_inst/c shift to the τ/TOA step under the same `--telluric-doppler` switch
+(production change, pending Steven); (2) exclude `bad_sample_list ≠ 0` channels (changes the k1 level; Steven's call;
+O2A/SCO2 effect not yet checked); (3) do not adopt the fixed-pattern subtraction, Legendre continuum or ILS columns for
+k1. Open: source of the detector-fixed pattern (per-pixel gain or ILS shape?); confirmation on an orbit with
+continuous v_inst; CH4 not tested.
+
+### Addendum: O2A and SCO2, and Kozienice plume check of the bad-sample mask (2026-10-30)
+
+Script `wco2_lowsod_allbands.py`; tables `results/wco2_lowsod_allbands_{29252a_GL,kozienice}.md`.
+
+| band, 29252a_GL far-clear | rms SOD<0.1 | rms all | k1 median | spread % | within % | step % | Δk1 0–1 km % (SNR) |
+|---|---|---|---|---|---|---|---|
+| O2A agreed | 0.0183 | 0.0293 | 0.9873 | 0.169 | 0.130 | −0.19 | −0.30 (−2.7) |
+| O2A solar fix | 0.0040 | 0.0249 | 0.9872 | 0.158 | 0.130 | −0.16 | −0.30 (−2.7) |
+| O2A solar + drop bad | 0.0036 | 0.0270 | 0.9888 | 0.166 | 0.140 | −0.16 | −0.27 (−2.2) |
+| SCO2 agreed | 0.0059 | 0.0167 | 0.9987 | 0.279 | 0.242 | −0.22 | −0.11 (−0.4) |
+| SCO2 solar fix | 0.0055 | 0.0158 | 0.9987 | 0.259 | 0.244 | −0.14 | −0.11 (−0.4) |
+| SCO2 solar + drop bad | 0.0054 | 0.0161 | 1.0022 | 0.269 | 0.265 | −0.04 | −0.03 (−0.1) |
+
+O2A f 0.0094 in all three; free-k2 diagnostic < 0 in 95 / 96 / 91 %. SCO2 k2 +0.011 / +0.011 / +0.013; k1_w
+0.983 / 0.983 / 0.986. Flagged channels at SOD ≥ 1 per footprint: O2A 0.1 (no line cores, max 1.14), WCO2 0,
+SCO2 13.8 (the SCO2 edge channels lie at SOD 0.1–1.9).
+
+Kozienice (land nadir, no solar error), dropping the bad ≠ 0 channels: k1 median +0.20 / +0.49 / +0.24 % and
+background rSD 0.38 → 0.38 / 0.60 → 0.40 / 0.51 → 0.44 % (O2A / WCO2 / SCO2). Plume Δk1 (all 14 / QF0 4)
+falls: WCO2 +1.48/+2.10 → +1.00/+1.27 %, SCO2 +1.95/+2.18 → +1.41/+1.41 %. All of the change comes from the edge
+channels (value 2); value 1 is neutral.
+
+Reading: the solar fix is safe in every band. It reduces rms and the latitude step and moves nothing else. The
+edge-channel exclusion is not a free noise reduction: it lowers the scatter and the plume response by similar
+amounts. It is a continuum-model choice and is deferred. This supersedes the earlier "exclude bad ≠ 0" recommendation.
+
+### Addendum: free k2 after the solar fix? (2026-10-30)
+
+Script `wco2_lowsod_k2_after_fix.py`, output `results/wco2_lowsod_k2_after_fix.md` (29252a_GL far-clear, solar-corrected
+ln T; Kozienice background for WCO2).
+
+| band / variant | k1 median | spread % | within % | k2 median (frac < 0 or at bound) | rms | Δk1 0–1 km % (SNR) |
+|---|---|---|---|---|---|---|
+| WCO2 k2 = 0 (current) | 0.9876 | 0.119 | 0.079 | 0 | 0.0058 | −0.099 (−1.3) |
+| WCO2 free k2 | 0.9607 | 0.353 | 0.240 | −0.099 (1.00) | 0.0056 | −0.183 (−0.8) |
+| WCO2 k2 ≥ 0 | 0.9876 | 0.119 | 0.079 | 0 (1.00 at bound) | 0.0058 | −0.099 (−1.3) |
+| O2A floor, k2 = 0 (current) | 0.9872 | 0.158 | 0.130 | 0; f 0.0094 | 0.0249 | −0.300 (−2.7) |
+| O2A floor + free k2 | 0.9806 | 0.248 | 0.176 | −0.0055 (0.96); f 0.0097 | 0.0249 | −0.189 (−1.2) |
+| O2A no floor, order 2 | 1.0800 | 0.886 | 0.185 | +0.099 (0.00) | 0.0370 | −0.293 (−2.1) |
+| O2A no floor, order 2 + k3 | 0.9442 | 0.264 | 0.231 | −0.056 (1.00), k3 −0.063 | 0.0251 | −0.096 (−0.4) |
+
+WCO2 free k2 before/after the fix: −0.033 (80 % < 0) → −0.099 (100 %). r(k2, k1) is +1.00/+0.94 raw and +0.94/+0.92
+within cluster; r(k2, a1) is −0.35/−0.67. Kozienice: free k2 −0.155 (100 % < 0), r(k2, k1) +0.98, rSD 0.60 → 1.67 %.
+Verdict: the solar fix does not make k2 physical in either band. Keep WCO2 k2 = 0 and the O2A floor with k2 = 0
+(free k2 as a diagnostic only).

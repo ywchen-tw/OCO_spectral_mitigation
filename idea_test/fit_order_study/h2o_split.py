@@ -25,7 +25,7 @@ import sys
 import time
 from pathlib import Path
 
-# One BLAS thread per worker: with 8 forked workers, threaded BLAS oversubscribes the cores (~40× slower).
+# One BLAS thread per worker: with 8 forked workers, threaded BLAS oversubscribes the cores (>50× slower).
 for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
 
