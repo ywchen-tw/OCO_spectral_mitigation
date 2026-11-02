@@ -165,6 +165,8 @@ def main():
     ap.add_argument('--script', default=str(SH),
                     help="Shell script whose run_case lines to read (default: the "
                          "non-drift deepens script).")
+    ap.add_argument('--base-col', default='xco2_bc',
+                    help="uncorrected baseline column (xco2_raw for raw-anomaly-target models)")
     ap.add_argument('--corr-col', default='deep_ensemble_corrected_xco2',
                     help="plot_data column holding the corrected XCO2 for the "
                          "'full_mu' scenario (default 'deep_ensemble_corrected_xco2'; "
@@ -179,6 +181,7 @@ def main():
     if args.csv_dir:
         CSV_DIR = Path(args.csv_dir)
     SCEN['full_mu'] = args.corr_col   # point the correction scenario at the chosen model column
+    SCEN['uncorrected'] = args.base_col   # xco2_raw for models trained on xco2_raw_anomaly
 
     global OUTDIR
     plotdata_base = Path(args.plotdata_base)
