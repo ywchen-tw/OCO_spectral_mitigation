@@ -78,6 +78,7 @@ MAUCERI_PANELS = {
               "Mauceri et al. (2023), AMT 16:1461, Fig. 11c (CC BY 4.0)", (-5.0, 13.0)),
 }
 PEAK_HALF_KM, BG_MIN_KM = 8.0, 33.0     # peak window and background in panel (e)
+MODEL_NAME, MODEL_ABBR = "deep ensemble", "DE"   # figure text (--model-name / --model-abbr)
 
 
 def peak_distance_km(seg, xcol, xpeak):
@@ -137,7 +138,7 @@ def draw_map(ax, fig, bg_img, extent, view, col, cmap, plant, title, cbar_label,
 
 
 def case_text(plant_id, date, k1, ctrl, mauceri_text, peak):
-    lines = ["This study (production deep ensemble, B11)", ""]
+    lines = [f"This study (production {MODEL_NAME}, B11)", ""]
     rise, n_pk, n_bg = peak
     kept = rise["deep_ensemble_corrected_xco2"] / rise["xco2_bc"]
     lines += [f"plume peak in panel (e) (<={PEAK_HALF_KM:.0f} km of the peak, n={n_pk},",
@@ -193,7 +194,7 @@ def plot_case(case, plants, plot_base, modis_dir, k1, ctrl, outdir, extent_km,
     vmin = min(finite_percentile(view[c], 2) for c in ("xco2_bc", "deep_ensemble_corrected_xco2"))
     vmax = max(finite_percentile(view[c], 98) for c in ("xco2_bc", "deep_ensemble_corrected_xco2"))
     maps = (("xco2_bc", f"Original {XCO2_LABEL}", CMAPS["xco2"], dict(vmin=vmin, vmax=vmax), f"{XCO2_LABEL} (ppm)"),
-            ("deep_ensemble_corrected_xco2", f"DE-corrected {XCO2_LABEL}", CMAPS["xco2"], dict(vmin=vmin, vmax=vmax), f"{XCO2_LABEL} (ppm)"),
+            ("deep_ensemble_corrected_xco2", f"{MODEL_ABBR}-corrected {XCO2_LABEL}", CMAPS["xco2"], dict(vmin=vmin, vmax=vmax), f"{XCO2_LABEL} (ppm)"),
             ("pred_anomaly", "Correction μ", CMAPS["mu"], dict(norm=centered_norm(view["pred_anomaly"])), "μ (ppm)"),
             ("cld_dist_km", "Nearest-cloud distance (MODIS)", CMAPS["cld_dist"], dict(vmin=0, vmax=50), "km"))
     for i, (col, title, cmap, kw, lab) in enumerate(maps):
@@ -211,7 +212,7 @@ def plot_case(case, plants, plot_base, modis_dir, k1, ctrl, outdir, extent_km,
     ax.plot(x, seg["xco2_bc"] - seg["xco2_bc"].mean(), "+", color="k", ms=7, mew=1.1,
             label=f"OCO-2 B11 ({XCO2_LABEL} bias-corrected)")
     ax.plot(x, seg["deep_ensemble_corrected_xco2"] - seg["deep_ensemble_corrected_xco2"].mean(),
-            ".", color="red", ms=6, label="OCO-2 corr. (this study, DE)")
+            ".", color="red", ms=6, label=f"OCO-2 corr. (this study, {MODEL_ABBR})")
     xp = float(plant["lon"] if xcol == "lon" else plant["lat"])
     ax.axvline(xp, color="0.4", lw=1, ls="--", label="plant " + ("longitude" if xcol == "lon" else "latitude"))
     in_pk = seg[xcol][peak_distance_km(seg, xcol, xpeak) <= PEAK_HALF_KM]
@@ -226,7 +227,7 @@ def plot_case(case, plants, plot_base, modis_dir, k1, ctrl, outdir, extent_km,
                      f"(same format and axis range as Mauceri et al.; n = {len(seg)})", fontsize=11)
     else:
         ax.set_ylim(*published[2])
-        ax.set_title(f"This study (B11, deep ensemble), n = {len(seg)}\n"
+        ax.set_title(f"This study (B11, {MODEL_NAME}), n = {len(seg)}\n"
                      f"Lat: {float(plant['lat']):.2f}° | Long: {float(plant['lon']):.2f}°",
                      fontsize=11)
     ax.legend(fontsize=9, loc="best")
@@ -266,6 +267,7 @@ def plot_case(case, plants, plot_base, modis_dir, k1, ctrl, outdir, extent_km,
 
 
 def main() -> None:
+    global MODEL_NAME, MODEL_ABBR
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plants", type=Path, default=DEFAULT_PLANTS)
@@ -277,14 +279,22 @@ def main() -> None:
     ap.add_argument("--side-by-side", nargs="*", default=["westar", "ghent", "sasan"],
                     choices=sorted(MAUCERI_PANELS),
                     help="plants that also get a version with the published Mauceri panel")
+    # 2026-11-02 options; defaults reproduce the DE figures
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="where the PNGs go (default <results-dir>/comparison)")
+    ap.add_argument("--model-name", default=MODEL_NAME,
+                    help=f"model name in the figure text (default '{MODEL_NAME}')")
+    ap.add_argument("--model-abbr", default=MODEL_ABBR,
+                    help=f"short product tag, e.g. '<abbr>-corrected' (default '{MODEL_ABBR}')")
     args = ap.parse_args()
+    MODEL_NAME, MODEL_ABBR = args.model_name, args.model_abbr
 
     apply_manuscript_style()
     plants = read_plants(args.plants)
     read = lambda name: (pd.read_csv(args.results_dir / name)
                          if (args.results_dir / name).exists() else None)
     k1, ctrl = read("nassar_k1_contrast.csv"), read("nassar_control_null.csv")
-    outdir = args.results_dir / "comparison"
+    outdir = args.out_dir or args.results_dir / "comparison"
     outdir.mkdir(parents=True, exist_ok=True)
     for case in CASES:
         plot_case(case, plants, args.plot_base, args.modis_dir, k1, ctrl, outdir,

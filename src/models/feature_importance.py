@@ -56,7 +56,7 @@ import pandas as pd
 
 from .pipeline import (FeaturePipeline, _ensure_derived_features,
                        filter_target_outliers,
-                       XCO2_FEATURES, SPEC_FEATURES,
+                       XCO2_FEATURES, SPEC_FEATURES, CO2_SHAPE_FEATURES,
                        CG_FULLPHYS_FEATURES, CG_INHOM_FEATURES, CG_SCREEN_FEATURES)
 
 from utils import get_storage_dir
@@ -82,9 +82,14 @@ MODEL_DIRS = {
     'xgb':    'model_gbdt/xgb_{surf}_full_prof_foldpca_{r}{rv}_f{fold}',
     'linreg': 'model_linear_baseline/linreg_{surf}_full_prof_foldpca_{r}{rv}_f{fold}',
 }
+# Fit-method-comparison runs (2026-11): <model-root>/<RUN_MDIR>/am/<prefix>_<surf>_<feature_set>_f<k>,
+# selected with --prefix / --feature-set (e.g. fm1620k5 / fm1620k5v2, no_xco2_sig).
+RUN_MDIR = {'de': 'model_deep_ensemble', 'xgb': 'model_gbdt', 'linreg': 'model_linear_baseline',
+            'tabm': 'model_tabm'}
 PIPELINE_FILES = {'de': 'deep_ensemble_pipeline.pkl',
                   'xgb': 'gbdt_pipeline.pkl',
-                  'linreg': 'linear_pipeline.pkl'}
+                  'linreg': 'linear_pipeline.pkl',
+                  'tabm': 'tabm_pipeline.pkl'}
 SURF = {'ocean': dict(sfc_type=0, r='r05', target='xco2_bc_anomaly_r05'),
         'land':  dict(sfc_type=1, r='r15', target='xco2_bc_anomaly_r15')}
 N_FOLDS = 5
@@ -142,7 +147,27 @@ def _load_linreg(model_dir: Path):
     return pipeline, lambda X: model.predict(X)
 
 
-_LOADERS = {'de': _load_de, 'xgb': _load_xgb, 'linreg': _load_linreg}
+def _load_tabm(model_dir: Path):
+    """TabM: point prediction = mean-member q50 (as workspace/build_tabm_plot_data.py)."""
+    import pickle
+    import torch
+    from .tabm import TabM, _tabm_predict
+
+    with open(model_dir / 'tabm_meta.pkl', 'rb') as f:
+        meta = pickle.load(f)
+    pipeline = FeaturePipeline.load(model_dir / PIPELINE_FILES['tabm'])
+    model = TabM(n_features=pipeline.n_features,
+                 K=int(meta.get('K', 16)), d_model=int(meta.get('d_model', 256)),
+                 n_layers=int(meta.get('n_layers', 4)), dropout=float(meta.get('dropout', 0.2)),
+                 aux_cloud=bool(meta.get('aux_cloud', False)),
+                 n_cloud_classes=int(meta.get('n_cloud_classes', 1)))
+    ckpt = torch.load(model_dir / 'model_tabm_best.pt', map_location='cpu', weights_only=True)
+    model.load_state_dict(ckpt['model_state_dict'])
+    model.eval()
+    return pipeline, lambda X: _tabm_predict(model, X)[0][:, 1]
+
+
+_LOADERS = {'de': _load_de, 'xgb': _load_xgb, 'linreg': _load_linreg, 'tabm': _load_tabm}
 
 
 def _stored_held_rmse(model_dir: Path) -> 'float | None':
@@ -150,6 +175,12 @@ def _stored_held_rmse(model_dir: Path) -> 'float | None':
     try:
         with open(model_dir / 'run_summary.json', encoding='utf-8') as f:
             return float(json.load(f)['primary_metric_value'])
+    except (OSError, KeyError, ValueError):
+        pass
+    # TabM runs that crashed after writing their metrics but before run_summary.json
+    try:
+        with open(model_dir / 'tabm_mondrian_date_kfold_metrics.json', encoding='utf-8') as f:
+            return float(json.load(f)['global']['rmse'])
     except (OSError, KeyError, ValueError):
         return None
 
@@ -186,7 +217,7 @@ def assign_groups(pipeline: FeaturePipeline) -> dict:
     for f in pipeline.features:
         if f in XCO2_FEATURES:
             out[f] = 'xco2'
-        elif f in SPEC_FEATURES:
+        elif f in SPEC_FEATURES or f in CO2_SHAPE_FEATURES:   # shape ratios are CO2-band fit quantities
             out[f] = 'spec'
         elif f in CG_FULLPHYS_FEATURES:
             out[f] = 'cg_fpcloud'
@@ -437,15 +468,20 @@ def aggregate(out_dir: Path, surface: str, models: list) -> None:
 def run_fold(surface: str, fold: int, models: list, data_path, out_dir: Path,
              n_repeats: int, n_rows: int, rmse_tol: float,
              exclude_snow: bool, scopes=('feature', 'group'),
-             run_version: str = '') -> None:
+             run_version: str = '', run_prefix: str = '', feature_set: str = '',
+             model_root=None) -> None:
     cfg = SURF[surface]
     rv = f'_{run_version}' if run_version else ''
     storage = get_storage_dir()
 
     loaded = {}
     for mk in models:
-        mdir = storage / 'results' / MODEL_DIRS[mk].format(
-            surf=surface, r=cfg['r'], rv=rv, fold=fold)
+        if run_prefix:
+            mdir = (Path(model_root) if model_root else storage / 'results_doppler') \
+                / RUN_MDIR[mk] / 'am' / f'{run_prefix}_{surface}_{feature_set}_f{fold}'
+        else:
+            mdir = storage / 'results' / MODEL_DIRS[mk].format(
+                surf=surface, r=cfg['r'], rv=rv, fold=fold)
         if not mdir.is_dir():
             raise SystemExit(f"model dir missing: {mdir}")
         pipeline, predict_mu = _LOADERS[mk](mdir)
@@ -577,6 +613,14 @@ def main():
     parser.add_argument('--run-version', default='',
                         help="Run-version tag of the fold dirs (e.g. 'v2'); empty = the "
                              "original runs.  Also namespaces the default output dir.")
+    parser.add_argument('--prefix', default='',
+                        help="Fit-method-comparison run prefix (e.g. fm1620k5, fm1620k5v2): fold "
+                             "dirs <model-root>/model_*/am/<prefix>_<surface>_<feature-set>_f<k> "
+                             "instead of the legacy MODEL_DIRS templates.")
+    parser.add_argument('--feature-set', default='full',
+                        help='Feature set of the --prefix runs (e.g. no_xco2_sig).')
+    parser.add_argument('--model-root', default=None,
+                        help='Root of the --prefix model dirs (default <storage>/results_doppler).')
     parser.add_argument('--aggregate', action='store_true',
                         help='Aggregate existing per-fold CSVs into the '
                              'comparison table instead of computing.')
@@ -586,8 +630,8 @@ def main():
     models = [m.strip() for m in args.models.split(',') if m.strip()]
     scopes = ('feature', 'group') if args.scopes == 'both' else (args.scopes,)
     for m in models:
-        if m not in MODEL_DIRS:
-            raise SystemExit(f"unknown model {m!r} (choose from {sorted(MODEL_DIRS)})")
+        if m not in _LOADERS:
+            raise SystemExit(f"unknown model {m!r} (choose from {sorted(_LOADERS)})")
 
     storage = get_storage_dir()
     out_dir = Path(args.out) if args.out else (
@@ -609,7 +653,8 @@ def main():
     for fold in folds:
         run_fold(args.surface, fold, models, data_path, out_dir,
                  args.n_repeats, args.n_rows, args.rmse_tol, args.exclude_snow,
-                 scopes=scopes, run_version=args.run_version)
+                 scopes=scopes, run_version=args.run_version, run_prefix=args.prefix,
+                 feature_set=args.feature_set, model_root=args.model_root)
 
 
 if __name__ == '__main__':

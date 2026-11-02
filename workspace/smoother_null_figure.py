@@ -67,10 +67,14 @@ def main():
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--out", type=Path, default=None,
                     help="Output file (default <report-dir>/smoother_null_<tag>.<fmt>).")
+    ap.add_argument("--model-csv", type=Path, default=None,
+                    help="Per-case tccon_comparison CSV of the correction model "
+                         "(default <report-dir>/tccon_comparison_de_<tag>.csv), e.g. "
+                         "the XGBoost atrain tccon_comparison_r100km.csv.")
     args = ap.parse_args()
 
     rd, tag = args.report_dir, args.radius_tag
-    de = load_cases(rd / f"tccon_comparison_de_{tag}.csv")
+    de = load_cases(args.model_csv or rd / f"tccon_comparison_de_{tag}.csv")
     windows = [float(w) for w in args.windows.split(",") if w.strip()]
     sm = {w: load_cases(rd / f"tccon_comparison_smoother_w{w:g}_{tag}.csv")
           for w in windows}

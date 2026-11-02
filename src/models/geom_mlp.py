@@ -47,7 +47,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
+from .pipeline import DATA_DIR, add_fit_method_arg, model_output_dir, FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
 from .splits import split_dataframe
 from . import diagnostics as diag
 from search.tracking import RunSummary, get_git_commit_hash
@@ -215,8 +215,9 @@ def main():
                    choices=['random', 'date', 'date_kfold'])
     p.add_argument('--n_folds', type=int, default=None)
     p.add_argument('--fold', type=int, default=None)
+    add_fit_method_arg(p)
     p.add_argument('--feature_set', type=str, default='full',
-                   choices=['full', 'no_xco2', 'no_spec', 'full_fitqual', 'full_contam'])
+                   choices=['full', 'no_xco2', 'no_spec', 'no_co2_spec', 'full_fitqual', 'full_contam'])
     p.add_argument('--target', type=str, default=None,
                    help="Clear-sky reference for the regression target: '10km' "
                         "(default, xco2_bc_anomaly), '15km' (xco2_bc_anomaly_r15), or '5km' (xco2_bc_anomaly_r05).")
@@ -231,11 +232,10 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
     storage_dir = get_storage_dir()
-    fdir = storage_dir / 'results/csv_collection'
+    fdir = storage_dir / DATA_DIR
     data_name = ('combined_2016_2020_dates.parquet' if platform.system() == "Linux"
                  else 'combined_2020-02-01_all_orbits.parquet')
-    base_dir = storage_dir / 'results/model_geom_mlp'
-    output_dir = base_dir / args.suffix if args.suffix else base_dir
+    output_dir = model_output_dir(storage_dir, 'model_geom_mlp', args.fit_method, args.suffix)
     output_dir.mkdir(parents=True, exist_ok=True)
     run_start = time.monotonic()
     run_id = args.suffix or datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -258,7 +258,7 @@ def main():
                                         random_state=args.seed,
                                         n_folds=args.n_folds, fold=args.fold)
     del df; gc.collect()
-    pipeline = FeaturePipeline.fit(train_df, sfc_type=args.sfc_type, feature_set=args.feature_set)
+    pipeline = FeaturePipeline.fit(train_df, sfc_type=args.sfc_type, feature_set=args.feature_set, fit_method=args.fit_method)
     pipeline.save(output_dir / 'geom_mlp_pipeline.pkl')
 
     def _prep(frame):
@@ -284,7 +284,7 @@ def main():
     with open(output_dir / META_FILE, 'wb') as f:
         pickle.dump({'n_features': pipeline.n_features, 'feature_names': pipeline.features,
                      'geom_mode': args.geom_mode, 'n_harmonics': args.n_harmonics,
-                     'geom_features': gnames, 'feature_set': args.feature_set,
+                     'geom_features': gnames, 'feature_set': args.feature_set, 'fit_method': args.fit_method,
                      'val_split': args.val_split}, f)
 
     q50 = _predict_point(model, X_te, G_te)
@@ -303,11 +303,11 @@ def main():
         secondary_metrics={'geom_mlp_held_mae': g['mae'], 'geom_mlp_held_r2': g['r2']},
         runtime_seconds=float(time.monotonic() - run_start),
         description=f'GeomMLP[{args.geom_mode}] H={args.n_harmonics}, {args.val_split}-split, '
-                    f'feature_set={args.feature_set}',
+                    f'feature_set={args.feature_set}, fit_method={args.fit_method}',
         artifacts={'output_dir': str(output_dir),
                    'metrics_json': str(output_dir / f'{prefix}_metrics.json')},
         config={'sfc_type': args.sfc_type, 'val_split': args.val_split, 'geom_mode': args.geom_mode,
-                'n_harmonics': args.n_harmonics, 'feature_set': args.feature_set, 'seed': args.seed},
+                'n_harmonics': args.n_harmonics, 'feature_set': args.feature_set, 'fit_method': args.fit_method, 'seed': args.seed},
     )
     with open(output_dir / 'run_summary.json', 'w', encoding='utf-8') as f:
         json.dump(summary.to_dict(), f, indent=2, sort_keys=True)

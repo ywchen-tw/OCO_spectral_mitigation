@@ -100,12 +100,14 @@ def load_details(path, extra=False):
         for k in META_KEYS:
             out[k] = f[k][...] if k in f else None
         for b in BANDS:
-            out[f"{b}_k1"] = f[f"{b}_k1_fitting_nosg"][...]
-            out[f"{b}_k2"] = f[f"{b}_k2_fitting_nosg"][...]
+            # production-order fits exist only in files before fit_schema doppler_am_t2_v1
+            for k in ("k1", "k2"):
+                key = f"{b}_{k}_fitting_nosg"
+                out[f"{b}_{k}"] = f[key][...] if key in f else None
             if extra:
                 for name in ("k1_o2", "k2_o2", "k1_o3", "k2_o3", "rms_prod", "rms_o2", "rms_o3", "nchan") + AM_T2_NAMES:
-                    key = f"{b}_{name}_nosg"
-                    out[f"{b}_{name}"] = f[key][...] if key in f else None
+                    key = next((k for k in (f"{b}_{name}", f"{b}_{name}_nosg") if k in f), None)
+                    out[f"{b}_{name}"] = f[key][...] if key else None
     return out
 
 

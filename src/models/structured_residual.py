@@ -23,13 +23,18 @@ import torch
 import torch.nn as nn
 
 from ._backbone_utils import dense_stack
+from .pipeline import SPEC_FEATURES
 
 
 _ANCHOR_FEATURE = "xco2_raw_minus_apriori"
 _PROFILE_PREFIXES = ("t_pc", "q_pc", "co2prior_pc", "pca_pc")
 _PROFILE_SCALARS = {"tropopause_sigma", "tropopause_temp"}
+# Spectroscopy block: every spectral-fit predictor of any fit method
+# (pipeline.SPEC_FEATURES, fit_schema doppler_am_t2_v1) plus the pre-2026-10-31
+# names, kept exactly as they were so old checkpoints keep their block sizes
+# (the old *_nosg gammas fell into "state" and still do).
 _SPECTRAL_PREFIXES = ("o2a_k", "wco2_k", "sco2_k")
-_SPECTRAL_FEATURES = {
+_SPECTRAL_FEATURES = set(SPEC_FEATURES) | {
     "exp_o2a_intercept",
     "o2a_exp_intercept-alb",
     "wco2_exp_intercept-alb",

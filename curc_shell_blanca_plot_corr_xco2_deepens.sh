@@ -212,6 +212,15 @@ run_case() {
 # ═══════════════════════ cases, organized by TCCON site then date ════════════════
 # (ported from *_general.sh + added sites).  SITE (last arg) sets the output dir
 # combined_DATE_SITE so same-date/different-station runs stay separate.
+#
+# 2026-11-01: the evaluation dates 2016-08-21, 2017-12-03, 2018-07-10, 2018-11-18
+# and 2020-12-24 were scanned with workspace/gen_tccon_cases.py (>= 10 footprints
+# within 100 km, TCCON within +-60 min) on their results_doppler parquets.  Only
+# 2017-12-03 has a station overpass (Réunion, 296 footprints, nearest 78 km, over
+# ocean), and Réunion's nearest TCCON observation is 1.6 h from it, so the case
+# is AVAIL=no and is skipped under REQUIRE_TCCON=1.  The other four dates have
+# no station within 100 km.
+#
 #         DATE         TCCON                              LON_MIN  LON_MAX  LAT_MIN  LAT_MAX   VMIN   VMAX  SURF  POSTER SITE
 
 # ── Burgos, Philippines (bu; lat 18.53, lon 120.65) ──
@@ -320,6 +329,7 @@ run_case  2017-04-23   ra20150301_20200718.public.qc.nc      54.83    55.94   -2
 run_case  2017-05-16   ra20150301_20200718.public.qc.nc      55.04    55.94   -21.44   -20.45   396.0  406.0  both  poster  ra  yes
 run_case  2017-05-25   ra20150301_20200718.public.qc.nc      54.89    55.94   -21.98   -19.89   402.0  404.5  both  poster  ra  yes
 run_case  2017-06-17   ra20150301_20200718.public.qc.nc      55.04    55.94   -21.45   -20.45   392.0  407.5  both  poster  ra  no
+run_case  2017-12-03   ra20150301_20200718.public.qc.nc      54.58    54.86   -21.55   -20.51   403.0  406.5  ocean poster  ra  no    # n=296 dmin=78km; nearest TCCON obs 1.6 h (2026-11-01 scan)
 run_case  2018-04-10   ra20150301_20200718.public.qc.nc      54.77    55.94   -21.97   -19.95   403.0  405.5  both  poster  ra  no
 run_case  2018-05-12   ra20150301_20200718.public.qc.nc      54.81    55.94   -21.97   -19.93   402.0  406.5  both  poster  ra  no
 run_case  2018-08-07   ra20150301_20200718.public.qc.nc      55.04    55.94   -21.44   -20.45   398.0  411.5  both  poster  ra  no

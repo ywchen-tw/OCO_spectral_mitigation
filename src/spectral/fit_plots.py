@@ -1,5 +1,9 @@
-"""Example-fit visualisations for the spectral pipeline (one PNG per band
-per orbit plus every 1000th sounding; selected in process_orbit).
+"""Example-fit visualisations for the spectral pipeline.
+
+plot_doppler_fit_example: one PNG per band per orbit for the Doppler-variant
+fit set (selected in fitting.process_orbit since 2026-10-31).
+plot_fitting_example / plot_orbit_fitting_examples: the older production-order
+(Savitzky-Golay) examples, kept for fitting_with_ring_effect and old callers.
 
 Split out of fitting.py (2026-07, review §7.4); fitting.py re-exports the
 public names.
@@ -93,6 +97,67 @@ def plot_fitting_example(tag, fp, sounding_ind, wvl, rad, transmittance, tau, ln
     #     plt.close(fig)
     # except (RuntimeError, ValueError):
     #     pass  # Gamma model may not converge for every sounding; skip quietly
+
+
+def _doppler_predictions(i_band, tau, td, tw, x, p):
+    """ln T predicted by the stored order-2, order-3 and agreed-model fits.
+
+    p : {field: value} for one sounding and band (cumulant_fit.FIT_FIELDS).
+    """
+    pred = {
+        "order 2": p["c_o2"] - p["k1_o2"] * tau + 0.5 * p["k2_o2"] * tau**2,
+        "order 3": (p["c_o3"] - p["k1_o3"] * tau + 0.5 * p["k2_o3"] * tau**2
+                    - p["k3_o3"] / 3.0 * tau**3),
+    }
+    base = p["c_am"] + p["a1_am"] * x
+    if i_band == 0:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            pred["agreed model"] = base + np.log((1 - p["f_am"]) * np.exp(-p["k1_am"] * tau) + p["f_am"])
+    else:
+        am = base - p["k1_am"] * td - p["k1w_am"] * tw + 0.5 * p["k2_am"] * tau**2
+        if i_band == 2 and np.isfinite(p["a2_am"]):
+            am = am + p["a2_am"] * x**2
+        pred["agreed model"] = am
+    return pred
+
+
+def plot_doppler_fit_example(tag, i_band, fp, sounding_id, wvl, rad, transmittance,
+                             tau, ln_T, frac, x, p, output_dir):
+    """One example PNG for a band: spectrum (left) and ln T vs τ with the
+    stored order-2, order-3 and agreed-model fits evaluated at the observed
+    channels (right; raw ln T, no smoothing).  The agreed model depends on the
+    channel position and τ split, so it is drawn as points, not a curve.
+
+    tau, ln_T, frac, x : the fitted channels (finite, edge channels excluded)
+    p                  : {field: value} for this sounding and band (FIT_FIELDS)
+    """
+    tw = frac * tau
+    td = tau - tw
+    pred = _doppler_predictions(i_band, tau, td, tw, x, p)
+    order = np.argsort(tau)
+    rc = {"font.family": ["Arial", "DejaVu Sans"], "axes.labelsize": 16,
+          "axes.titlesize": 15, "legend.fontsize": 13,
+          "xtick.labelsize": 13, "ytick.labelsize": 13}
+    with plt.rc_context(rc):
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
+        ax1r = ax1.twinx()
+        l1 = ax1.plot(wvl, rad, label="Radiance", color="green", linewidth=2)
+        l2 = ax1r.plot(wvl, transmittance, label="Transmittance", color="blue", linewidth=1)
+        ax1.set(xlabel="Wavelength (nm)", ylabel="Radiance")
+        ax1r.set(ylabel="Transmittance")
+        ax1.legend(l1 + l2, [line.get_label() for line in l1 + l2], loc="lower left")
+        ax2.scatter(tau, ln_T, label="Observed", color="0.55", s=8)
+        ax2.plot(tau[order], pred["order 2"][order], color="tab:orange", label="Order 2")
+        ax2.plot(tau[order], pred["order 3"][order], color="tab:purple", ls="--", label="Order 3")
+        ax2.scatter(tau, pred["agreed model"], color="tab:red", s=4, label="Agreed model")
+        ax2.set(xlabel=f"Total {tag.upper()} optical depth", ylabel="ln(Transmittance)")
+        ax2.set_title(f"k1_am = {p['k1_am']:.4f} ± {p['sig_k1_am']:.1e}   "
+                      f"rms_am = {p['rms_am']:.2e}", pad=10)
+        ax2.legend()
+        fig.suptitle(f"{tag.upper()}  FP {fp}  sounding {sounding_id}", fontsize=17)
+        fig.savefig(f"{output_dir}/{tag}_fit_example_snd{sounding_id}.png",
+                    dpi=120, bbox_inches="tight")
+        plt.close(fig)
 
 
 def plot_orbit_fitting_examples(od, fit_orders, output_dir):

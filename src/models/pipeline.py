@@ -364,13 +364,89 @@ class PCAScoreAppender:
 # Order matters only for readability — FeaturePipeline stores its own fitted
 # feature list, and each pickle carries the list it was fitted with.
 
-# Spectral-fit source for every fitted predictor (k's and gamma): the parallel
-# fit on the raw ln T (suffix '_nosg', the manuscript estimator) vs the
-# Savitzky-Golay-smoothed fit (suffix '').  The parquet stores the _nosg k's
-# directly (build_feature_dataset.py); the _nosg gamma predictors are derived
-# from *_intercept_nosg in _DERIVED_FEATURES.
-_USE_NOSG_FIT = True
-_S = '_nosg' if _USE_NOSG_FIT else ''
+# ── Spectral-fit predictors: one block per fit method (2026-10-31) ─────────────
+# Source: the fit_schema doppler_am_t2_v1 parquet (results_doppler/csv_collection,
+# build_feature_dataset.py).  Per band it holds four fits to the same
+# telluric+solar-Doppler tau and raw ln T (spectral.cumulant_fit):
+#   am      the agreed per-band model: k1 (+ H2O k1w on WCO2/SCO2, + k2 on SCO2),
+#           channel-slope a1 (+ a2 on SCO2 land), O2A fill-in f, and k2diag, the
+#           order-2 coefficient of a diagnostic refit
+#   o2, o3  order-2 / order-3 cumulant expansion in tau: k1, k2 (, k3)
+#   t2      two-tau order-2 model: k1_dry, k1w, k2
+#   legacy  the pre-Doppler production layout on the new fits: O2A and SCO2
+#           order 2, WCO2 order 3 (the old o2a_k1/k2, wco2_k1/k2/k3, sco2_k1/k2)
+# FeaturePipeline.fit(fit_method=...) selects one; the fitted pipeline stores the
+# choice with its feature list.  The block takes the place the old _nosg k's held
+# (after fp_area_km2): the continuum-reflectance predictors gamma = exp(intercept)
+# of the same fit -- O2A gamma, O2A gamma - albedo and, on land, WCO2 gamma -
+# albedo, as before -- then the coefficients.
+# Never predictors: sig_*, rms_*, ok_am, nchan (fit diagnostics) and the clear-sky
+# reference statistics {ref,r15,r05}_* -- a single sounding has no reference pool
+# at inference, so they are for analysis only.
+FIT_METHODS = ('am', 'o2', 'o3', 't2', 'legacy')
+DEFAULT_FIT_METHOD = 'am'
+FIT_BANDS = ('o2a', 'wco2', 'sco2')
+_FIT_COEFS = {
+    'am': {'o2a':  ['k1_am', 'a1_am', 'f_am', 'k2diag_am'],
+           'wco2': ['k1_am', 'k1w_am', 'a1_am', 'k2diag_am'],
+           'sco2': ['k1_am', 'k1w_am', 'k2_am', 'a1_am']},
+    'o2': {b: ['k1_o2', 'k2_o2'] for b in FIT_BANDS},
+    'o3': {b: ['k1_o3', 'k2_o3', 'k3_o3'] for b in FIT_BANDS},
+    't2': {b: ['k1_dry_t2', 'k1w_t2', 'k2_t2'] for b in FIT_BANDS},
+}
+_FIT_COEFS['legacy'] = {'o2a': _FIT_COEFS['o2']['o2a'], 'wco2': _FIT_COEFS['o3']['wco2'],
+                        'sco2': _FIT_COEFS['o2']['sco2']}
+# Land-only coefficients: the SCO2 agreed model fits a2 only over land (NaN over water).
+_FIT_COEFS_LAND = {'am': {'sco2': ['a2_am']}}
+# The fit whose intercept gives each band's gamma.
+_GAMMA_TAG = {m: {b: m for b in FIT_BANDS} for m in ('am', 'o2', 'o3', 't2')}
+_GAMMA_TAG['legacy'] = {'o2a': 'o2', 'wco2': 'o3', 'sco2': 'o2'}
+_INTERCEPT_TAGS = ('am', 'o2', 'o3', 't2')
+
+
+def _check_fit_method(fit_method: str) -> None:
+    if fit_method not in FIT_METHODS:
+        raise ValueError(f"fit_method must be one of {FIT_METHODS}, got {fit_method!r}")
+
+
+def gamma_feature(band: str, fit_method: str, minus_alb: bool = False) -> str:
+    """Name of a band's gamma (= exp(intercept)) predictor for a fit method,
+    e.g. 'o2a_exp_int_am', 'wco2_exp_int_o3_minus_alb'."""
+    _check_fit_method(fit_method)
+    return f'{band}_exp_int_{_GAMMA_TAG[fit_method][band]}' + ('_minus_alb' if minus_alb else '')
+
+
+def spectral_features(fit_method: str, sfc_type: int) -> list:
+    """The spectral-fit predictor block of one fit method and surface type."""
+    _check_fit_method(fit_method)
+    feats = [gamma_feature('o2a', fit_method), gamma_feature('o2a', fit_method, minus_alb=True)]
+    if sfc_type == 1:
+        feats.append(gamma_feature('wco2', fit_method, minus_alb=True))
+    for b in FIT_BANDS:
+        feats += [f'{b}_{c}' for c in _FIT_COEFS[fit_method][b]]
+        if sfc_type == 1:
+            feats += [f'{b}_{c}' for c in _FIT_COEFS_LAND.get(fit_method, {}).get(b, [])]
+    return feats
+
+
+def spectral_sigma_features(fit_method: str, sfc_type: int) -> list:
+    """Formal 1-sigma uncertainties of a method's spectral-fit block: sig_<coef> for
+    every coefficient and sig_exp_int_<tag> for every band whose gamma is in the
+    block (gamma - albedo has the same sigma; the albedo carries none).  Used by
+    the full_sig / spec_only_sig feature sets."""
+    _check_fit_method(fit_method)
+    gbands = ['o2a'] + (['wco2'] if sfc_type == 1 else [])
+    feats = [f'{b}_sig_exp_int_{_GAMMA_TAG[fit_method][b]}' for b in gbands]
+    for b in FIT_BANDS:
+        coefs = list(_FIT_COEFS[fit_method][b])
+        if sfc_type == 1:
+            coefs += _FIT_COEFS_LAND.get(fit_method, {}).get(b, [])
+        feats += [f'{b}_sig_{c}' for c in coefs]
+    return feats
+
+
+# Placeholder in the base lists for the spectral-fit block of the chosen method.
+_SPECTRAL_BLOCK = '<spectral-fit block>'
 
 # t700 was removed 2026-10-14: the 700 hPa level is underground wherever the
 # surface pressure is below ~700 hPa (1.3 % of soundings, 99 % of high terrain
@@ -379,11 +455,7 @@ _S = '_nosg' if _USE_NOSG_FIT else ''
 _FEATURES_SFC0 = [
     'xco2_raw_minus_apriori',
     'fp_area_km2',
-    f'exp_o2a_intercept{_S}',
-    f'o2a_exp_intercept-alb{_S}',
-    f'o2a_k1{_S}', f'o2a_k2{_S}',
-    f'wco2_k1{_S}', f'wco2_k2{_S}', f'wco2_k3{_S}',
-    f'sco2_k1{_S}', f'sco2_k2{_S}',
+    _SPECTRAL_BLOCK,
     'cos_glint_angle',
     'log_P',
     'dp_psfc_prior_ratio',
@@ -407,12 +479,7 @@ _FEATURES_SFC0 = [
 _FEATURES_SFC1 = [
     'xco2_raw_minus_apriori',
     'fp_area_km2',
-    f'exp_o2a_intercept{_S}',
-    f'o2a_exp_intercept-alb{_S}',
-    f'wco2_exp_intercept-alb{_S}',
-    f'o2a_k1{_S}', f'o2a_k2{_S}',
-    f'wco2_k1{_S}', f'wco2_k2{_S}', f'wco2_k3{_S}',
-    f'sco2_k1{_S}', f'sco2_k2{_S}',
+    _SPECTRAL_BLOCK,
     '1_over_cos_sza', '1_over_cos_vza',
     'sin_raa',
     'log_P',
@@ -436,7 +503,21 @@ _FEATURES_SFC1 = [
     'alb_sco2_over_wco2',
 ]
 
-_FEATURE_MAP = {0: _FEATURES_SFC0, 1: _FEATURES_SFC1}
+_BASE_FEATURES = {0: _FEATURES_SFC0, 1: _FEATURES_SFC1}
+
+
+def feature_list(sfc_type: int, fit_method: str = DEFAULT_FIT_METHOD) -> list:
+    """Base continuous predictors of a surface type with the spectral-fit block
+    of ``fit_method`` in place (before any feature-set ablation)."""
+    out = []
+    for f in _BASE_FEATURES[sfc_type]:
+        out += spectral_features(fit_method, sfc_type) if f == _SPECTRAL_BLOCK else [f]
+    return out
+
+
+# Base lists of the default fit method, for callers that read the active
+# predictors directly (compare_profile_features.py, workspace/check_pipeline_fold.py).
+_FEATURE_MAP = {s: feature_list(s) for s in _BASE_FEATURES}
 _FP_COLS     = [f'fp_{i}' for i in range(8)]
 
 # ── Feature-set ablations (see log/archive/MODEL_PLANS_HISTORICAL.md "Feature set ablations") ──
@@ -451,15 +532,22 @@ XCO2_FEATURES = frozenset([
     'xco2_raw_minus_apriori',
 ])
 
-# Set 3 — drop k1/k2/k3 spectroscopic coefficients and exp_intercept / exp_intercept-alb
-SPEC_FEATURES = frozenset([
-    f'exp_o2a_intercept{_S}',
-    f'o2a_exp_intercept-alb{_S}',
-    f'wco2_exp_intercept-alb{_S}',     # sfc_type=1 only
-    f'o2a_k1{_S}', f'o2a_k2{_S}',
-    f'wco2_k1{_S}', f'wco2_k2{_S}', f'wco2_k3{_S}',
-    f'sco2_k1{_S}', f'sco2_k2{_S}',
-])
+# Set 3 — drop the spectral-fit block (coefficients and gamma / gamma - albedo).
+# The union over every fit method and surface: a drop ignores absent names, so one
+# set removes the active method's block whichever method the pipeline uses.
+SPEC_FEATURES = frozenset(f for m in FIT_METHODS for s in (0, 1)
+                          for f in spectral_features(m, s) + spectral_sigma_features(m, s))
+
+# Set 3b — drop only the CO2-band (WCO2, SCO2) part of the spectral-fit block and
+# keep O2A.  The CO2-band k1 scales a tau computed with the prior CO2, so it can
+# carry real CO2 absorption as well as path-length bias (2020 check: over ocean its
+# correlation with the anomaly stays ~0.22 beyond 50 km from cloud, where O2A k1's
+# vanishes).  no_co2_spec tests how much skill rests on it.
+CO2_SPEC_FEATURES = frozenset(f for f in SPEC_FEATURES if f.startswith(('wco2_', 'sco2_')))
+# Set 3c — the complementary O2A part of the spectral-fit block (2026-11-01 ablation:
+# <base>_no_o2a_spec keeps the CO2-band fits and drops only the O2A coefficients,
+# gamma / gamma - albedo and their sig_*).
+O2A_SPEC_FEATURES = frozenset(f for f in SPEC_FEATURES if f.startswith('o2a_'))
 
 # Set 4 — drop the cloud/aerosol contamination channel.
 # Membership rule (physics, not provenance): a feature belongs here iff it diagnoses
@@ -579,8 +667,8 @@ CONTAM_FEATURES = CG_FULLPHYS_FEATURES | CG_INHOM_FEATURES | CG_SCREEN_FEATURES
 #   keep_xco2_geom  = xco2_raw_minus_apriori + geometry/L1B        ACOS-side match
 # and keep_spec_geom - keep_geom is the path-length skill without any ACOS input.
 # In keep_spec_geom the continuum reflectance gamma replaces gamma - albedo: land
-# appends exp_wco2_intercept (the W-band gamma), and both surfaces drop the two
-# *_exp_intercept-alb columns.  Train these WITHOUT --profile-pca (the profile EOF
+# appends the W-band gamma of the active fit method (wco2_exp_int_<tag>), and both
+# surfaces drop the *_exp_int_<tag>_minus_alb columns.  Train these WITHOUT --profile-pca (the profile EOF
 # block is fitted from the prior profiles and would otherwise ride along).
 # Caveat for the write-up: s31 is an L1B band-signal ratio (SCO2/O2A), so the floor
 # still carries a coarse spectral-brightness signal.
@@ -589,14 +677,15 @@ GEOM_L1B_FEATURES = frozenset([
     '1_over_cos_sza', '1_over_cos_vza', 'sin_raa',
 ])
 SPEC_GAMMA_FEATURES = (
-    (SPEC_FEATURES - {f'o2a_exp_intercept-alb{_S}', f'wco2_exp_intercept-alb{_S}'})
-    | {f'exp_wco2_intercept{_S}'}
+    frozenset(f for f in SPEC_FEATURES if not f.endswith('_minus_alb'))
+    | {gamma_feature('wco2', m) for m in FIT_METHODS}
 )
 
 _FEATURE_SETS: dict = {
     'full':               None,
     'no_xco2':            {'drop': XCO2_FEATURES},
     'no_spec':            {'drop': SPEC_FEATURES},
+    'no_co2_spec':        {'drop': CO2_SPEC_FEATURES},
     'no_xco2_and_spec':   {'drop': XCO2_FEATURES | SPEC_FEATURES},
     'no_contam':          {'drop': CONTAM_FEATURES},
     'no_contam_and_xco2': {'drop': CONTAM_FEATURES | XCO2_FEATURES},
@@ -608,20 +697,100 @@ _FEATURE_SETS: dict = {
     'no_fpcloud_and_xco2': {'drop': CG_FULLPHYS_FEATURES | XCO2_FEATURES},
     'no_inhom_and_xco2':   {'drop': CG_INHOM_FEATURES | XCO2_FEATURES},
     'no_screen_and_xco2':  {'drop': CG_SCREEN_FEATURES | XCO2_FEATURES},
-    'keep_spec_geom':     {'add_per_sfc': {1: [f'exp_wco2_intercept{_S}']},
+    # add_per_sfc values may be callables of the fit method
+    'keep_spec_geom':     {'add_per_sfc': {1: lambda m: [gamma_feature('wco2', m)]},
                            'keep': SPEC_GAMMA_FEATURES | GEOM_L1B_FEATURES},
     'keep_geom':          {'keep': GEOM_L1B_FEATURES},
+    # Spectral-fit outputs only (+ fp one-hot): the method's coefficients and gamma =
+    # exp(intercept), with no Lite input at all -- gamma replaces gamma - albedo and
+    # land adds the W-band gamma, as in keep_spec_geom.  Compares the fit methods'
+    # information content on its own (2026-10-31).
+    'spec_only':          {'add_per_sfc': {1: lambda m: [gamma_feature('wco2', m)]},
+                           'keep': SPEC_GAMMA_FEATURES},
+    # ... and both with the fit uncertainties of the method's block appended
+    # (spectral_sigma_features; 2026-10-31).  'add_fn' is called with (fit_method,
+    # sfc_type).
+    'full_sig':           {'add_fn': lambda m, s: spectral_sigma_features(m, s)},
+    'spec_only_sig':      {'add_per_sfc': {1: lambda m: [gamma_feature('wco2', m)]},
+                           'add_fn': lambda m, s: spectral_sigma_features(m, s),
+                           'keep': SPEC_GAMMA_FEATURES},
     'keep_xco2_geom':     {'keep': XCO2_FEATURES | GEOM_L1B_FEATURES},
+    # no_xco2 with the fit uncertainties appended: the no-retrieved-XCO2 predictor
+    # set the team asked for, tested with and without sig_* (2026-10-31).
+    'no_xco2_sig':        {'add_fn': lambda m, s: spectral_sigma_features(m, s),
+                           'drop': XCO2_FEATURES},
 }
+
+# Group-drop ablation of the two 2016-2020 reference sets (2026-11-01): the best
+# full set (full_sig) and the best no-dXCO2 set (no_xco2_sig), each minus one
+# feature group, named <base>_no_<group>.  Dropping the whole spectral block or
+# the fit uncertainties needs no new set: full_sig - SPEC_FEATURES == no_spec,
+# no_xco2_sig - SPEC_FEATURES == no_xco2_and_spec, and without sig_* they are
+# full / no_xco2.
+_SIG_ABLATION_GROUPS = {
+    'co2_spec': CO2_SPEC_FEATURES,
+    'o2a_spec': O2A_SPEC_FEATURES,
+    'contam':   CONTAM_FEATURES,
+    'fpcloud':  CG_FULLPHYS_FEATURES,
+    'inhom':    CG_INHOM_FEATURES,
+    'screen':   CG_SCREEN_FEATURES,
+}
+for _base in ('full_sig', 'no_xco2_sig'):
+    for _grp, _feats in _SIG_ABLATION_GROUPS.items():
+        _spec = dict(_FEATURE_SETS[_base])
+        _spec['drop'] = frozenset(_spec.get('drop', frozenset())) | _feats
+        _FEATURE_SETS[f'{_base}_no_{_grp}'] = _spec
+del _base, _grp, _feats, _spec
+
+# CO2-amount-independent variants of no_xco2_sig (2026-11-01, plume-preservation test).
+# The CO2-band k1 (and k2) scale with the true CO2 factor g, so the models can read a
+# real plume as bias (Sasan 2014-10-23: sco2_k1_am + wco2_k1_am carry the ~1 ppm cut).
+#   no_xco2_sig_nok1     drop the CO2-band dry k1 (+ sig)
+#   no_xco2_sig_nok1k1w  also drop the CO2-band water k1w (+ sig)
+#   no_xco2_sig_shape    drop CO2-band k1 and k2/k2diag (+ sig), add the g-invariant
+#                        shape ratios k2/k1^2 and k1_S/k1_W (keeps k1w)
+_CO2_K1 = frozenset({'wco2_k1_am', 'sco2_k1_am', 'wco2_sig_k1_am', 'sco2_sig_k1_am'})
+_CO2_K1W = frozenset({'wco2_k1w_am', 'sco2_k1w_am', 'wco2_sig_k1w_am', 'sco2_sig_k1w_am'})
+_CO2_K2 = frozenset({'sco2_k2_am', 'wco2_k2diag_am', 'sco2_sig_k2_am', 'wco2_sig_k2diag_am'})
+CO2_SHAPE_FEATURES = ['sco2_k2_over_k1sq_am', 'wco2_k2diag_over_k1sq_am', 'sco2_over_wco2_k1_am']
+_FEATURE_SETS['no_xco2_sig_nok1'] = {'add_fn': lambda m, s: spectral_sigma_features(m, s),
+                                     'drop': XCO2_FEATURES | _CO2_K1}
+_FEATURE_SETS['no_xco2_sig_nok1k1w'] = {'add_fn': lambda m, s: spectral_sigma_features(m, s),
+                                        'drop': XCO2_FEATURES | _CO2_K1 | _CO2_K1W}
+_FEATURE_SETS['no_xco2_sig_shape'] = {'add': CO2_SHAPE_FEATURES,
+                                      'add_fn': lambda m, s: spectral_sigma_features(m, s),
+                                      'drop': XCO2_FEATURES | _CO2_K1 | _CO2_K2}
+# no_xco2_sig with the three g-invariant shape ratios ADDED (nothing dropped): do the
+# ratios add skill on top of the CO2-band k1/k2? (2026-11-02)
+_FEATURE_SETS['no_xco2_sig_plus_shape'] = {'add': CO2_SHAPE_FEATURES,
+                                           'add_fn': lambda m, s: spectral_sigma_features(m, s),
+                                           'drop': XCO2_FEATURES}
+# full_sig with the CO2-band k1/k2 replaced by the shape ratios (dXCO2 kept): the
+# with-dXCO2 reference of the formal no_xco2_sig_shape set (2026-11-02).
+_FEATURE_SETS['full_sig_shape'] = {'add': CO2_SHAPE_FEATURES,
+                                   'add_fn': lambda m, s: spectral_sigma_features(m, s),
+                                   'drop': _CO2_K1 | _CO2_K2}
+# Group-drop ablation of the formal set no_xco2_sig_shape (2026-11-02), as for the
+# no_xco2_sig base above; the CO2-band group also removes the three shape ratios.
+for _grp, _feats in _SIG_ABLATION_GROUPS.items():
+    _spec = dict(_FEATURE_SETS['no_xco2_sig_shape'])
+    _extra = frozenset(CO2_SHAPE_FEATURES) if _grp == 'co2_spec' else frozenset()
+    _spec['drop'] = frozenset(_spec['drop']) | _feats | _extra
+    if _grp == 'co2_spec':
+        _spec['add'] = []
+    _FEATURE_SETS[f'no_xco2_sig_shape_no_{_grp}'] = _spec
+del _grp, _feats, _spec, _extra
 
 
 def _resolve_feature_set(qt_features: list, feature_set: str,
-                         sfc_type: 'int | None' = None) -> list:
+                         sfc_type: 'int | None' = None,
+                         fit_method: str = DEFAULT_FIT_METHOD) -> list:
     """Return qt_features with the named ablation applied (order preserved).
 
     A spec may combine appends and a drop.  Appends run first: 'add' appends the
     same features for both surfaces, 'add_per_sfc' selects the append list by
-    ``sfc_type`` (appended columns must exist in the dataframe at fit time).  A
+    ``sfc_type`` (a callable entry is called with ``fit_method``; appended columns
+    must exist in the dataframe at fit time).  A
     'keep' set then retains only the named features, and a 'drop' set removes
     features (including any just appended).  ``None`` is a sentinel leaving the
     base list unchanged.
@@ -636,9 +805,13 @@ def _resolve_feature_set(qt_features: list, feature_set: str,
     result = list(qt_features)
     if 'add_per_sfc' in spec:             # per-surface append
         add_src = spec['add_per_sfc'].get(sfc_type, []) if sfc_type is not None else []
+        if callable(add_src):
+            add_src = add_src(fit_method)
         result += [f for f in add_src if f not in result]
     if 'add' in spec:                     # append (both surfaces)
         result += [f for f in spec['add'] if f not in result]
+    if 'add_fn' in spec:                  # append, computed from (fit_method, sfc_type)
+        result += [f for f in spec['add_fn'](fit_method, sfc_type) if f not in result]
     if 'keep' in spec:                    # retain only the named group(s)
         keep = spec['keep']
         result = [f for f in result if f in keep]
@@ -768,9 +941,22 @@ def _exp_intercept_minus_alb(band: str, suffix: str = '') -> Callable:
                        - _col(df, f'alb_{band}'))
 
 
+def _exp_c(band: str, tag: str) -> Callable:
+    def f(df):
+        with np.errstate(over='ignore', invalid='ignore'):
+            return np.exp(_col(df, f'{band}_c_{tag}'))
+    return f
+
+
+def _exp_c_minus_alb(band: str, tag: str) -> Callable:
+    return lambda df: _exp_c(band, tag)(df) - _col(df, f'alb_{band}')
+
+
 # Features computed from base columns when the parquet lacks them.  The *_nosg
-# gamma predictors are never stored, so they are always derived here; their
-# formulas match the smoothed-fit columns of build_feature_dataset.py.
+# gamma predictors (pre-2026-10-31 parquets, kept for old pickles) are never
+# stored, so they are always derived here.  Of the fit_schema doppler_am_t2_v1
+# gammas the parquet stores only the agreed model's (<band>_exp_int_am[_minus_alb]);
+# the o2/o3/t2 ones are derived from <band>_c_<tag> with the same formula.
 _DERIVED_FEATURES = {
     'xco2_raw_minus_apriori': _Derived(
         'xco2_raw - xco2_apriori', ['xco2_raw', 'xco2_apriori'],
@@ -794,11 +980,53 @@ _DERIVED_FEATURES = {
         f'exp({b}_intercept_nosg) - alb_{b}', [f'{b}_intercept_nosg', f'alb_{b}'],
         _exp_intercept_minus_alb(b, '_nosg'))
        for b in ('o2a', 'wco2', 'sco2')},
+    **{f'{b}_exp_int_{t}': _Derived(f'exp({b}_c_{t})', [f'{b}_c_{t}'], _exp_c(b, t))
+       for b in FIT_BANDS for t in _INTERCEPT_TAGS},
+    **{f'{b}_sig_exp_int_{t}': _Derived(
+        f'exp({b}_c_{t}) * {b}_sig_c_{t}', [f'{b}_c_{t}', f'{b}_sig_c_{t}'],
+        lambda df, b=b, t=t: _exp_c(b, t)(df) * _col(df, f'{b}_sig_c_{t}'))
+       for b in FIT_BANDS for t in _INTERCEPT_TAGS},
+    **{f'{b}_exp_int_{t}_minus_alb': _Derived(
+        f'exp({b}_c_{t}) - alb_{b}', [f'{b}_c_{t}', f'alb_{b}'], _exp_c_minus_alb(b, t))
+       for b in FIT_BANDS for t in _INTERCEPT_TAGS},
 }
 
 
-def read_surface_rows(path, sfc_type: int) -> pd.DataFrame:
+# CO2-amount-invariant shape features of the CO2-band agreed-model fits (2026-11-01).
+# The band fits use a tau built from the prior CO2, so k1 = g*<l> and k2 = g^2*var(l)
+# scale with the CO2 factor g (a real plume raises the CO2-band k1; see
+# idea_test/ppdf_direct_xco2 and the Sasan 2014-10-23 attribution).  k2/k1^2 =
+# var(l)/<l>^2 and k1_S/k1_W = <l>_S/<l>_W cancel g and keep the path information.
+# Used by the no_xco2_sig_shape feature set only.
+def _safe_ratio(num, den):
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return np.where(np.abs(den) > 1e-6, num / den, np.nan)
+
+
+_DERIVED_FEATURES.update({
+    'sco2_k2_over_k1sq_am': _Derived(
+        'sco2_k2_am / sco2_k1_am**2', ['sco2_k2_am', 'sco2_k1_am'],
+        lambda df: _safe_ratio(_col(df, 'sco2_k2_am'), _col(df, 'sco2_k1_am') ** 2)),
+    'wco2_k2diag_over_k1sq_am': _Derived(
+        'wco2_k2diag_am / wco2_k1_am**2', ['wco2_k2diag_am', 'wco2_k1_am'],
+        lambda df: _safe_ratio(_col(df, 'wco2_k2diag_am'), _col(df, 'wco2_k1_am') ** 2)),
+    'sco2_over_wco2_k1_am': _Derived(
+        'sco2_k1_am / wco2_k1_am', ['sco2_k1_am', 'wco2_k1_am'],
+        lambda df: _safe_ratio(_col(df, 'sco2_k1_am'), _col(df, 'wco2_k1_am'))),
+})
+
+# Clear-sky reference-pool statistics ({ref,r15,r05}_<band>_<field>_mean/std, 171
+# columns, ~30 % of a fit_schema doppler_am_t2_v1 parquet) are analysis-only and never
+# model inputs (a single sounding has no reference), so read_surface_rows skips them.
+ANALYSIS_ONLY_PREFIXES = ('ref_', 'r15_', 'r05_')
+
+
+def read_surface_rows(path, sfc_type: int,
+                      skip_prefixes: tuple = ANALYSIS_ONLY_PREFIXES) -> pd.DataFrame:
     """Read the footprints of one surface type from a parquet or CSV file.
+
+    Columns starting with ``skip_prefixes`` (default: the analysis-only clear-sky
+    reference-pool statistics) are not read; pass ``()`` to read every column.
 
     A parquet is filtered one row group at a time, so neither the other surface
     nor the whole file is ever held in memory.  Reading the whole 2016-2020
@@ -815,14 +1043,16 @@ def read_surface_rows(path, sfc_type: int) -> pd.DataFrame:
         import pyarrow.parquet as pq
 
         pf = pq.ParquetFile(path)
+        columns = [c for c in pf.schema_arrow.names if not c.startswith(tuple(skip_prefixes))]
         parts = []
         for i in range(pf.num_row_groups):
-            group = pf.read_row_group(i)
+            group = pf.read_row_group(i, columns=columns)
             parts.append(group.filter(pc.equal(group['sfc_type'], sfc_type)))
             del group
         return pa.concat_tables(parts).to_pandas()
     df = pd.read_csv(path)
-    return df[df['sfc_type'] == sfc_type]
+    df = df[df['sfc_type'] == sfc_type]
+    return df.drop(columns=[c for c in df.columns if c.startswith(tuple(skip_prefixes))])
 
 
 def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -862,8 +1092,11 @@ def _check_columns(df: pd.DataFrame, cols: list, where: str) -> None:
             bases = [b for b in _DERIVED_FEATURES[c].bases if b not in df.columns]
             hints.append(f"{c!r} is derived and needs base column(s) {bases}")
     if any(c.endswith('_nosg') for c in missing):
-        hints.append("_nosg predictors need a parquet built from the dual fit (spectral "
-                     "fit WITHOUT --single-fit); _USE_NOSG_FIT=False selects the smoothed fit")
+        hints.append("_nosg predictors belong to pre-2026-10-31 pipelines and need a parquet "
+                     "from the old dual fit (results/csv_collection)")
+    if any(c in SPEC_FEATURES for c in missing):
+        hints.append("spectral-fit predictors need a fit_schema doppler_am_t2_v1 parquet "
+                     f"({DATA_DIR}, build_feature_dataset.py)")
     raise KeyError(f"{where}: predictor column(s) absent from the dataframe: {missing}. "
                    + "; ".join(hints))
 
@@ -881,6 +1114,40 @@ MAX_ABS_ANOMALY_PPM = 100.0
 # Kept separate from any model output subfolder so the profile-EOF block is a
 # shared, model-agnostic artifact.
 PROFILE_PCA_DIR = 'results/profile_pca'
+
+# Input parquets and model outputs of the fit_schema doppler_am_t2_v1 data, relative
+# to get_storage_dir().  Trainers write to <RESULTS_DIR>/<model dir>/<fit_method>/
+# [<suffix>/] (model_output_dir), so runs of different fit methods never share a
+# folder and the pre-2026-10-31 runs under results/ stay untouched.
+RESULTS_DIR = 'results_doppler'
+DATA_DIR = f'{RESULTS_DIR}/csv_collection'
+
+
+def add_fit_method_arg(parser, default: 'str | None' = DEFAULT_FIT_METHOD) -> None:
+    """Add --fit-method (alias --fit_method) to a trainer's argparse parser.
+    Trainers with a run config (tabm, xgb) pass default=None so the config's
+    pipeline.fit_method applies unless the flag is given."""
+    parser.add_argument('--fit-method', '--fit_method', dest='fit_method',
+                        default=default, choices=FIT_METHODS,
+                        help="Spectral-fit predictor block: 'am' agreed model (default), "
+                             "'o2' / 'o3' order-2 / order-3 cumulant fit, 't2' two-tau "
+                             "fit, 'legacy' O2A+SCO2 order 2 and WCO2 order 3 (the "
+                             "pre-Doppler layout).  See pipeline.spectral_features.")
+
+
+def model_output_dir(storage_dir, model_dir: str, fit_method: str, suffix: str = '') -> Path:
+    """<storage>/results_doppler/<model_dir>/<fit_method>[/<suffix>]."""
+    _check_fit_method(fit_method)
+    base = Path(storage_dir) / RESULTS_DIR / model_dir / fit_method
+    return base / suffix if suffix else base
+
+
+def check_loaded_fit_method(pipeline: 'FeaturePipeline', fit_method: str) -> None:
+    """Raise if a pipeline loaded with --pipeline was fitted for another fit method."""
+    got = getattr(pipeline, 'fit_method', None)
+    if got != fit_method:
+        raise ValueError(f"loaded pipeline was fitted with fit_method={got!r} but "
+                         f"--fit-method is {fit_method!r}; pass --fit-method {got}")
 
 
 # ── Regression target selection ───────────────────────────────────────────────
@@ -1093,7 +1360,8 @@ class FeaturePipeline:
                  feature_set: str = 'full',
                  profile_pca=None,
                  profile_scaler=None,
-                 profile_names: 'list | None' = None):
+                 profile_names: 'list | None' = None,
+                 fit_method: 'str | None' = None):
         self.sfc_type    = sfc_type
         self.qt          = qt
         self.qt_features = qt_features
@@ -1109,6 +1377,9 @@ class FeaturePipeline:
         self.pc1_col_idx   = pc1_col_idx
         self.log1p_cols    = log1p_cols or []   # qt_feature names pre-transformed by log1p
         self.feature_set   = feature_set        # named ablation set ('full', 'no_xco2', 'no_spec')
+        # Spectral-fit block (FIT_METHODS); None on pickles fitted before
+        # 2026-10-31, whose qt_features hold the old _nosg predictors.
+        self.fit_method    = fit_method
         # Profile-EOF/tropopause block (ProfilePCA + its own StandardScaler); None
         # when profiles are disabled.  Orthogonal to feature_set — always carried
         # through, never dropped by the no_xco2/no_spec ablations.
@@ -1123,7 +1394,8 @@ class FeaturePipeline:
             scaler: str = 'robust_clip',
             pca_augment: bool = False,
             feature_set: str = 'full',
-            profile_pca=None) -> 'FeaturePipeline':
+            profile_pca=None,
+            fit_method: str = DEFAULT_FIT_METHOD) -> 'FeaturePipeline':
         """Fit a new pipeline on df.
 
         Before scaling, fill values (<= _FILL_THRESHOLD), infinities and the
@@ -1166,6 +1438,11 @@ class FeaturePipeline:
             mid-month dates built before fitting.py emitted profiles) become
             NaN in the block and are dropped downstream by each trainer's
             finite-feature filter — regenerate those dates first for full coverage.
+        fit_method : spectral-fit predictor block, one of FIT_METHODS ('am'
+            default, 'o2', 'o3', 't2', 'legacy'); see spectral_features.  Needs a
+            fit_schema doppler_am_t2_v1 parquet (results_doppler/csv_collection).
+            Feature sets act on the chosen block ('no_spec' drops it,
+            'no_co2_spec' keeps only its O2A part).
 
         IMPORTANT (leakage discipline): for blocked-split validation, fit on the
         train split only.  Call ``split_dataframe(df, mode=...)`` first, then
@@ -1177,8 +1454,11 @@ class FeaturePipeline:
         if scaler not in _SCALERS:
             raise ValueError(f"scaler must be one of {sorted(_SCALERS)}, got {scaler!r}")
 
-        # Continuous features for this sfc_type, with the named ablation applied.
-        qt_features = _resolve_feature_set(_FEATURE_MAP[sfc_type], feature_set, sfc_type)
+        _check_fit_method(fit_method)
+        # Continuous features for this sfc_type and fit method, with the named
+        # ablation applied.
+        qt_features = _resolve_feature_set(feature_list(sfc_type, fit_method), feature_set,
+                                           sfc_type, fit_method)
         fp_cols     = list(_FP_COLS)
 
         df = _ensure_derived_features(df)
@@ -1238,9 +1518,9 @@ class FeaturePipeline:
             features       = [f for f in features if f not in fp_cols] + profile_names + fp_cols
 
         logger.info(
-            "FeaturePipeline fitted: sfc_type=%d, scaler=%s, pca_augment=%s, "
+            "FeaturePipeline fitted: sfc_type=%d, fit_method=%s, scaler=%s, pca_augment=%s, "
             "feature_set=%s, %d qt_features + %d profile + %d fp cols = %d total",
-            sfc_type, scaler, pca_augment, feature_set,
+            sfc_type, fit_method, scaler, pca_augment, feature_set,
             len(qt_features), len(profile_names), len(fp_cols), len(features),
         )
         logger.info(
@@ -1255,7 +1535,7 @@ class FeaturePipeline:
                    pca_appender=pca_appender, pc1_col_idx=pc1_col_idx,
                    log1p_cols=log1p_cols, feature_set=feature_set,
                    profile_pca=profile_obj, profile_scaler=profile_scaler,
-                   profile_names=profile_names)
+                   profile_names=profile_names, fit_method=fit_method)
 
     # ── Transformation ────────────────────────────────────────────────────────
 
@@ -1361,7 +1641,8 @@ class FeaturePipeline:
         feature_set = getattr(self, 'feature_set', 'full')
         n_profile   = len(getattr(self, 'profile_names', []))
         imputing    = getattr(self, 'impute_values', None) is not None
-        return (f"FeaturePipeline(sfc_type={self.sfc_type}, "
+        fit_method  = getattr(self, 'fit_method', None) or 'pre-2026-10-31 (_nosg)'
+        return (f"FeaturePipeline(sfc_type={self.sfc_type}, fit_method={fit_method!r}, "
                 f"scaler={scaler_type!r}, impute_fills={imputing}, pca_augment={pca_augment}, "
                 f"feature_set={feature_set!r}, profile={n_profile or 'off'}, "
                 f"log1p={log1p_cols or 'none'}, "
@@ -1377,15 +1658,16 @@ def main():
     )
     parser.add_argument('--data',     default=None,
                         help='Path to input file (.parquet or .csv).  '
-                             'Defaults to <storage_dir>/results/csv_collection/combined_2020_dates.parquet')
+                             f'Defaults to <storage_dir>/{DATA_DIR}/combined_2020_dates.parquet')
     parser.add_argument('--sfc-type', type=int, default=1, choices=[0, 1],
                         help='Surface type filter: 0=ocean, 1=land (default: 1)')
+    add_fit_method_arg(parser)
     parser.add_argument('--suffix',   type=str, default='',
-                        help='Subfolder under results/feature_pipeline/ used to derive the default '
-                             '--out path.  Ignored when --out is supplied explicitly.')
+                        help=f'Subfolder under {RESULTS_DIR}/feature_pipeline/<fit_method>/ used '
+                             'to derive the default --out path.  Ignored when --out is supplied.')
     parser.add_argument('--out',      default=None,
-                        help='Output path for pipeline.pkl.  '
-                             'Defaults to <storage_dir>/results/feature_pipeline/<suffix>/pipeline.pkl')
+                        help='Output path for pipeline.pkl.  Defaults to <storage_dir>/'
+                             f'{RESULTS_DIR}/feature_pipeline/<fit_method>/<suffix>/pipeline.pkl')
     parser.add_argument('--scaler',   default='robust_clip',
                         choices=sorted(_SCALERS),
                         help='Scaler type: robust_clip (default), robust_standard (pre-2026-10-14, '
@@ -1424,9 +1706,8 @@ def main():
         return str(p if p.is_absolute() else storage_dir / p)
 
     data_path = _resolve(args.data,
-                         storage_dir / 'results/csv_collection/combined_2020_dates.parquet')
-    base_dir  = storage_dir / 'results/feature_pipeline'
-    out_dir   = base_dir / args.suffix if args.suffix else base_dir
+                         storage_dir / DATA_DIR / 'combined_2020_dates.parquet')
+    out_dir   = model_output_dir(storage_dir, 'feature_pipeline', args.fit_method, args.suffix)
     out_path  = _resolve(args.out, out_dir / 'pipeline.pkl')
 
     print(f"Loading data: {data_path}", flush=True)
@@ -1445,7 +1726,8 @@ def main():
                                    scaler=args.scaler,
                                    pca_augment=args.pca_augment,
                                    feature_set=args.feature_set,
-                                   profile_pca=_prof)
+                                   profile_pca=_prof,
+                                   fit_method=args.fit_method)
     print(f"  {pipeline}", flush=True)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     pipeline.save(out_path)

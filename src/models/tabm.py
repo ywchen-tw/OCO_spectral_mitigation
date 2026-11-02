@@ -38,7 +38,9 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
+from .pipeline import (DATA_DIR, DEFAULT_FIT_METHOD, add_fit_method_arg, check_loaded_fit_method,
+                       model_output_dir, FeaturePipeline, _FEATURE_SETS, read_surface_rows, _ensure_derived_features,
+                       filter_target_outliers, resolve_target_col)
 from .splits import split_dataframe, split_date_kfold_train_calib_test
 from .adapters import TabMAdapter
 from . import diagnostics as diag
@@ -265,6 +267,7 @@ def _default_run_config() -> dict:
         },
         'pipeline': {
             'feature_set': 'full',
+            'fit_method': DEFAULT_FIT_METHOD,   # spectral-fit block (pipeline.FIT_METHODS)
             'pca_augment': False,
             'profile_pca': False,  # vertical-profile EOF block; opt-in via --profile-pca
         },
@@ -546,8 +549,9 @@ def main():
                         help='Number of date blocks for --val_split date_kfold.')
     parser.add_argument('--fold', type=int, default=None,
                         help='Which date block (0-based) to hold out for date_kfold.')
+    add_fit_method_arg(parser, default=None)
     parser.add_argument('--feature_set', type=str, default=None,
-                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec'],
+                        choices=sorted(_FEATURE_SETS),
                         help="Feature ablation set (see pipeline._FEATURE_SETS).")
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                         help="Append the vertical-profile EOF block (default ON). Bare "
@@ -610,6 +614,10 @@ def main():
         run_cfg['split']['val_split'] = args.val_split
     if args.feature_set is not None:
         run_cfg['pipeline']['feature_set'] = args.feature_set
+    if args.fit_method is not None:
+        run_cfg['pipeline']['fit_method'] = args.fit_method
+    run_cfg['pipeline'].setdefault('fit_method', DEFAULT_FIT_METHOD)
+    fit_method = run_cfg['pipeline']['fit_method']
     if args.profile_pca is not None:
         run_cfg['pipeline']['profile_pca'] = (True if args.profile_pca == 'auto'
                                               else args.profile_pca)
@@ -631,11 +639,10 @@ def main():
         run_cfg['train']['seed'] = int(args.seed)
 
     storage_dir = get_storage_dir()
-    fdir = storage_dir / 'results/csv_collection'
+    fdir = storage_dir / DATA_DIR
     data_name = (run_cfg['data']['linux_data_name'] if platform.system() == "Linux"
                  else run_cfg['data']['darwin_data_name'])
-    base_dir = storage_dir / 'results/model_tabm'
-    output_dir = base_dir / args.suffix if args.suffix else base_dir
+    output_dir = model_output_dir(storage_dir, 'model_tabm', fit_method, args.suffix)
     output_dir.mkdir(parents=True, exist_ok=True)
     run_start = time.monotonic()
     run_id = args.suffix if args.suffix else datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -655,8 +662,10 @@ def main():
 
     # ── Load + filter data ─────────────────────────────────────────────────────
     _dp = args.data if args.data else os.path.join(fdir, data_name)
-    df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
-    df = df[df['sfc_type'] == surface_type]
+    # One surface, row group by row group, analysis-only reference columns skipped
+    # (same loader as deep_ensemble): reading the whole 2016-2020 parquet first
+    # and masking afterwards OOMs at --mem=96G.
+    df = read_surface_rows(_dp, surface_type)
     if args.exclude_snow:
         df = df[df['snow_flag'] == run_cfg['data']['snow_flag_value']]
         print(f"  --exclude_snow: filtered to snow_flag=={run_cfg['data']['snow_flag_value']} "
@@ -718,15 +727,29 @@ def main():
     del train_df
     gc.collect()
 
+    # Training-date manifest (same format as deep_ensemble / gbdt / linear): the
+    # leakage guard the TCCON validation chain (build_*_plot_data.py) checks.
+    def _date_list(frame):
+        if frame is None or 'date' not in frame.columns:
+            return []
+        s = frame['date'].astype(str).str.replace("b'", "", regex=False)
+        return sorted(s.str.replace("'", "", regex=False).unique().tolist())
+    with open(output_dir / 'training_dates.json', 'w', encoding='utf-8') as f:
+        json.dump({'train_dates': _date_list(proper_df),
+                   'calib_dates': _date_list(calib_df),
+                   'held_dates': _date_list(held_df)}, f, indent=2)
+
     # ── Fit pipeline on the PROPER train split only (or load a provided one) ────
     pipeline_path = output_dir / 'tabm_pipeline.pkl'
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
+        check_loaded_fit_method(pipeline, fit_method)
     elif TabMAdapter.can_load(output_dir) and pipeline_path.exists():
         pipeline = FeaturePipeline.load(pipeline_path)
+        check_loaded_fit_method(pipeline, fit_method)
     else:
         pipeline = FeaturePipeline.fit(proper_df, sfc_type=surface_type,
-                                       feature_set=feature_set,
+                                       feature_set=feature_set, fit_method=fit_method,
                                        pca_augment=bool(run_cfg['pipeline']['pca_augment']),
                                        profile_pca=run_cfg['pipeline'].get('profile_pca', True))
         pipeline.save(pipeline_path)
@@ -906,7 +929,7 @@ def main():
                if 'member_spread_mean' in global_metrics else {}),
         },
         peak_memory_mb=float(peak_mb), runtime_seconds=float(time.monotonic() - run_start),
-        description=f'TabM K={run_cfg["model"]["K"]} {val_split}-split, feature_set={feature_set}',
+        description=f'TabM K={run_cfg["model"]["K"]} {val_split}-split, feature_set={feature_set}, fit_method={fit_method}',
         artifacts={
             'output_dir': str(output_dir),
             'run_config': str(run_cfg_path),

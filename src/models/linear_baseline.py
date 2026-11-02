@@ -39,7 +39,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
+from .pipeline import DATA_DIR, add_fit_method_arg, check_loaded_fit_method, model_output_dir, FeaturePipeline, _ensure_derived_features, filter_target_outliers, read_surface_rows, resolve_target_col, _FEATURE_SETS
 from .splits import split_dataframe, split_date_kfold_train_calib_test
 from . import diagnostics as diag
 from search.tracking import RunSummary, get_git_commit_hash
@@ -83,9 +83,9 @@ def main():
                         help='Number of date blocks for --val_split date_kfold.')
     parser.add_argument('--fold', type=int, default=None,
                         help='Which date block (0-based) to hold out for date_kfold.')
+    add_fit_method_arg(parser)
     parser.add_argument('--feature_set', type=str, default='full',
-                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec',
-                                 'no_contam', 'no_contam_and_xco2'])
+                        choices=sorted(_FEATURE_SETS))   # all registered sets (as deep_ensemble/tabm/gbdt)
     parser.add_argument('--exclude_snow', dest='exclude_snow', action='store_true',
                         help='Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow.')
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
@@ -113,11 +113,10 @@ def main():
     alphas = [float(a) for a in args.alphas.split(',') if a.strip()]
 
     storage_dir = get_storage_dir()
-    fdir = storage_dir / 'results/csv_collection'
+    fdir = storage_dir / DATA_DIR
     data_name = ('combined_2016_2020_dates.parquet' if platform.system() == "Linux"
                  else 'combined_2020-02-01_all_orbits.parquet')
-    base_dir = storage_dir / 'results/model_linear_baseline'
-    output_dir = base_dir / args.suffix if args.suffix else base_dir
+    output_dir = model_output_dir(storage_dir, 'model_linear_baseline', args.fit_method, args.suffix)
     output_dir.mkdir(parents=True, exist_ok=True)
     run_start = time.monotonic()
     run_id = args.suffix or datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -125,8 +124,9 @@ def main():
 
     # ── Load + filter ──────────────────────────────────────────────────────────
     _dp = args.data if args.data else os.path.join(fdir, data_name)
-    df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
-    df = df[df['sfc_type'] == args.sfc_type]
+    # One surface, one row group at a time: a whole-file read of the 2016-2020
+    # parquet needs >100 GB (same reader as deep_ensemble).
+    df = read_surface_rows(_dp, args.sfc_type)
     # Snow footprints KEPT by default (--exclude_snow to drop them).
     if args.exclude_snow:
         df = df[df['snow_flag'] == 0]
@@ -165,11 +165,12 @@ def main():
     # ── Fit pipeline on proper-train ONLY (leakage-safe) ───────────────────────
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
+        check_loaded_fit_method(pipeline, args.fit_method)
         prof_path = args.pipeline
     else:
         _prof = True if args.profile_pca == 'auto' else args.profile_pca
         pipeline = FeaturePipeline.fit(proper_df, sfc_type=args.sfc_type,
-                                       feature_set=args.feature_set, profile_pca=_prof)
+                                       feature_set=args.feature_set, fit_method=args.fit_method, profile_pca=_prof)
         pipeline.save(output_dir / PIPELINE_FILE)
         prof_path = str(args.profile_pca) if args.profile_pca else None
 
@@ -219,11 +220,11 @@ def main():
         secondary_metrics={'linreg_held_mae': g['mae'], 'linreg_held_r2': g['r2'],
                            'selected_alpha': best_alpha, 'calib_rmse': best_rmse},
         runtime_seconds=float(time.monotonic() - run_start),
-        description=f'Ridge baseline, {args.val_split}-split, feature_set={args.feature_set}, alpha={best_alpha:g}',
+        description=f'Ridge baseline, {args.val_split}-split, feature_set={args.feature_set}, fit_method={args.fit_method}, alpha={best_alpha:g}',
         artifacts={'output_dir': str(output_dir), 'model': str(output_dir / MODEL_FILE),
                    'metrics_json': str(output_dir / f'{prefix}_metrics.json')},
         config={'sfc_type': args.sfc_type, 'val_split': args.val_split,
-                'feature_set': args.feature_set, 'target': target_col,
+                'feature_set': args.feature_set, 'fit_method': args.fit_method, 'target': target_col,
                 'alphas': alphas, 'selected_alpha': best_alpha,
                 'profile_pca': prof_path, 'calib_frac': args.calib_frac,
                 'n_folds': args.n_folds, 'fold': args.fold, 'seed': args.seed},

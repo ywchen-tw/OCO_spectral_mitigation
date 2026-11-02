@@ -35,7 +35,7 @@ def _patch(monkeypatch, sat0, fitted, computed, current_tau):
 
     def process(s, orbit_id, shared, **k):
         # the fit must run while this job holds the orbit's output lock
-        out = f"{s['result_dir']}/fitting_details/fitting_details_2020-07-03_{orbit_id}.h5"
+        out = f"{s['result_dir']}/{fitting.FIT_SUBDIR}/fitting_details_2020-07-03_{orbit_id}.h5"
         assert orbit_lock.is_locked(out)
         fitted.append(orbit_id)
     monkeypatch.setattr(fitting, "process_orbit", process)
@@ -50,7 +50,7 @@ def test_locked_orbit_is_deferred_then_fitted_when_lock_clears(tmp_path, monkeyp
     # Another live job holds o2's fit during the first pass and finishes
     # (releases the lock) shortly afterwards.
     import threading
-    out_o2 = f"{tmp_path}/fitting_details/fitting_details_2020-07-03_o2.h5"
+    out_o2 = f"{tmp_path}/{fitting.FIT_SUBDIR}/fitting_details_2020-07-03_o2.h5"
     assert orbit_lock.try_acquire(out_o2)
     threading.Timer(1.0, lambda: orbit_lock.release(out_o2)).start()
 
@@ -69,7 +69,7 @@ def test_stale_lock_is_taken_over_in_first_pass(tmp_path, monkeypatch):
     sat0 = _fake_sat0(tmp_path, orbits)
     fitted, computed, current = [], [], set()
     _patch(monkeypatch, sat0, fitted, computed, current)
-    out_o2 = f"{tmp_path}/fitting_details/fitting_details_2020-07-03_o2.h5"
+    out_o2 = f"{tmp_path}/{fitting.FIT_SUBDIR}/fitting_details_2020-07-03_o2.h5"
     assert orbit_lock.try_acquire(out_o2)
     old = os.path.getmtime(orbit_lock.lock_path(out_o2)) - 10 * 3600
     os.utime(orbit_lock.lock_path(out_o2), (old, old))   # left by a dead job
@@ -86,7 +86,7 @@ def test_live_lock_held_by_other_job_is_left_alone(tmp_path, monkeypatch):
     sat0 = _fake_sat0(tmp_path, orbits)
     fitted, computed, current = [], [], set()
     _patch(monkeypatch, sat0, fitted, computed, current)
-    out_o1 = f"{tmp_path}/fitting_details/fitting_details_2020-07-03_o1.h5"
+    out_o1 = f"{tmp_path}/{fitting.FIT_SUBDIR}/fitting_details_2020-07-03_o1.h5"
     assert orbit_lock.try_acquire(out_o1)      # fresh lock: another live job
 
     fitting.run_simulation(sat0["date"], "x", str(tmp_path),

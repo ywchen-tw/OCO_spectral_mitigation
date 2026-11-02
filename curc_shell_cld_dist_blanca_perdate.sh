@@ -102,6 +102,12 @@ while IFS= read -r d; do
     skip=0; for s in "${SKIP_EXISTING[@]}"; do [ "$d" = "$s" ] && skip=1; done
     [ $skip -eq 0 ] && DATES+=("$d")
 done < <(printf '%s\n' "${ALL[@]}" | awk '!seen[$0]++')
+# DATES_LIST_FILE=<file, one YYYYMMDD per line, '#' comments> replaces the built-in set
+# (dates added later, without changing the idx -> date mapping of submitted tasks).
+if [ -n "${DATES_LIST_FILE:-}" ]; then
+    DATES=()
+    while IFS= read -r d; do DATES+=("${d//-/}"); done < <(grep -vE '^\s*(#|$)' "$DATES_LIST_FILE")
+fi
 N=${#DATES[@]}
 echo "Total unique dates: $N"
 

@@ -29,7 +29,8 @@ from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from .pipeline import (FeaturePipeline, _ensure_derived_features, resolve_target_col,
+from .pipeline import (DATA_DIR, add_fit_method_arg, check_loaded_fit_method, model_output_dir,
+                       FeaturePipeline, _ensure_derived_features, resolve_target_col,
                        filter_target_outliers)
 from .adapters import XGBoostAdapter
 from utils import get_storage_dir
@@ -352,7 +353,7 @@ def main():
     parser.add_argument('--suffix', type=str, default='',
                         help='Subfolder appended to output base dir '
                              '(e.g. --suffix land_2016_2020). '
-                             'Creates results/model_xgb/<suffix>/.')
+                             'Creates results_doppler/model_xgb/<fit_method>/<suffix>/.')
     parser.add_argument('--pipeline', type=str, default=None,
                         help='Path to a saved FeaturePipeline (.pkl). '
                              'If omitted, a new pipeline is fitted on the training data '
@@ -368,8 +369,9 @@ def main():
     parser.add_argument('--no-pca-augment', dest='pca_augment', action='store_false',
                         help='Disable PCA-score augmentation.')
     parser.set_defaults(pca_augment=None)
+    add_fit_method_arg(parser)
     parser.add_argument('--feature-set', dest='feature_set', default='full',
-                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec'],
+                        choices=['full', 'no_xco2', 'no_spec', 'no_co2_spec', 'no_xco2_and_spec'],
                         help="Feature ablation set (default 'full').")
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
                         help='Append the profile-EOF + tropopause block (ProfilePCA). Bare flag / '
@@ -391,6 +393,7 @@ def main():
     if args.pca_augment is not None:
         run_cfg['pipeline']['pca_augment'] = bool(args.pca_augment)
     run_cfg['pipeline']['feature_set'] = args.feature_set
+    run_cfg['pipeline']['fit_method'] = args.fit_method
     run_cfg['pipeline']['profile_pca'] = (True if args.profile_pca == 'auto' else args.profile_pca)
     if args.exclude_snow:
         run_cfg['data']['snow_flag_value'] = 0
@@ -404,14 +407,13 @@ def main():
         print(f"[MEM] {label:55s}  RSS={rss_mb:.0f} MB", flush=True)
 
     storage_dir = get_storage_dir()
-    fdir        = storage_dir / 'results/csv_collection'
+    fdir        = storage_dir / DATA_DIR
     if platform.system() == 'Linux':
         data_name = run_cfg['data']['linux_data_name']
     else:
         data_name = run_cfg['data']['darwin_data_name']
 
-    base_dir   = storage_dir / 'results/model_xgb'
-    output_dir = base_dir / args.suffix if args.suffix else base_dir
+    output_dir = model_output_dir(storage_dir, 'model_xgb', args.fit_method, args.suffix)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     run_cfg_path = output_dir / 'xgb_run_config.json'
@@ -459,10 +461,12 @@ def main():
     # ── Pipeline: load or fit ──────────────────────────────────────────────
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
+        check_loaded_fit_method(pipeline, args.fit_method)
     else:
         pipeline = FeaturePipeline.fit(df, sfc_type=sfc_type,
                                        pca_augment=bool(run_cfg['pipeline']['pca_augment']),
                                        feature_set=run_cfg['pipeline'].get('feature_set', 'full'),
+                                       fit_method=args.fit_method,
                                        profile_pca=run_cfg['pipeline'].get('profile_pca'))
         pipeline_path = output_dir / 'pipeline.pkl'
         pipeline.save(pipeline_path)

@@ -39,13 +39,15 @@ from pyproj import Transformer
 from constants import FIT_ORDER, anomaly_args as production_anomaly_args
 from config import Config
 from abs_util.fp_atm import oco_fp_atm_abs
+from abs_util.ils_tau import tau_convolution_version
 from abs_util.oco_util import timing
 from spectral import orbit_lock
 
 # Re-exports (backward compat: this module was a single file until 2026-07).
 from spectral.cumulant_fit import (  # noqa: F401
     LOG_TRANSMITTANCE_MODELS, MAX_KAPPAS, SAVGOL_ORDER, SAVGOL_WINDOW,
-    EXTRA_FIT_FIELDS, _extra_fit_chunk, _fit_chunk, _solve_cumulant, compute_transmittance,
+    EXTRA_FIT_FIELDS, FIT_FIELDS, FIT_SCHEMA, _doppler_fit_chunk,
+    _extra_fit_chunk, _fit_chunk, _solve_cumulant, compute_transmittance,
     fit_spectral_model,
     get_design_matrix, log_transmittance_model_1, log_transmittance_model_2,
     log_transmittance_model_3, log_transmittance_model_4,
@@ -53,262 +55,163 @@ from spectral.cumulant_fit import (  # noqa: F401
     log_transmittance_model_9, transmittance_model)
 from spectral.orbit_data import (  # noqa: F401
     _decode_hdf5_attr, _discover_orbit_files, _validate_readable_hdf5, cloud_distance_file_path,
-    fp_tau_file_is_current, load_orbit_data, load_profile_data,
+    LAND_FRACTION_THRESHOLD, fp_tau_file_is_current, load_orbit_data, load_profile_data,
     load_shared_data, search_oco2_orbit, select_lite_file,
     validate_cloud_distance_file)
 from spectral.anomaly import compute_xco2_anomaly, nosg_reference_stats  # noqa: F401
 from spectral.fit_plots import (  # noqa: F401
-    plot_fitting_example, plot_orbit_fitting_examples)
+    plot_doppler_fit_example, plot_fitting_example, plot_orbit_fitting_examples)
 
 
 logger = logging.getLogger(__name__)
 
+# Fit coefficients with clear-sky reference statistics ({ref,r15,r05}_<band>_<field>_{mean,std}).
+# REF_FIT_VARS enter the shared pool that also defines the XCO2 anomaly targets
+# (NaN only where the fit failed); REF_FIT_VARS_SOLO have extra NaN modes and
+# get their own calls.  See the anomaly section of process_orbit.
+REF_FIT_VARS = {
+    "o2a":  ("k1_am", "a1_am", "f_am", "exp_int_am", "k1_dry_t2", "k1w_t2", "k2_t2"),
+    "wco2": ("k1_am", "k1w_am", "a1_am", "exp_int_am", "k2diag_am",
+             "k1_dry_t2", "k1w_t2", "k2_t2"),
+    "sco2": ("k1_am", "k1w_am", "k2_am", "a1_am", "exp_int_am",
+             "k1_dry_t2", "k1w_t2", "k2_t2"),
+}
+REF_FIT_VARS_SOLO = (("o2a", "k2diag_am"), ("sco2", "a2_am"))
+
 
 # ─── Orbit orchestration ───────────────────────────────────────────────────────
 
-def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=True,
-                  dual_fit=True, fit_workers=1, extra_fits=False):
-    """Fit the spectral cumulant model for all soundings in one orbit.
+# Output subdirectory of <result_dir> for fitting_details_<date>_<orbit>.h5.  The v2
+# refit was written to fitting_details_v2 next to the v1 files; once it was complete the
+# v1 files were deleted and fitting_details_v2 renamed to fitting_details (2026-11-01).
+# For a future schema change, write to a new subdir (--fit-subdir) the same way so the
+# current fits are never overwritten in place.
+FIT_SUBDIR = "fitting_details"
+
+
+def process_orbit(sat, orbit_id, shared_data, overwrite=False, fit_workers=1,
+                  fit_subdir=FIT_SUBDIR):
+    """Fit one orbit's soundings on the telluric-Doppler tau and raw ln T.
 
     Workflow
     --------
-    1. Load per-orbit L1B radiances and optical depths (load_orbit_data).
-    2. Compute transmittances for all soundings at once (compute_transmittance).
-    3. Fit the cumulant model in contiguous chunks (_fit_chunk), optionally
-       across worker processes; example plots are rendered afterwards.
+    1. Load per-orbit L1B radiances and the v4 (telluric + solar Doppler)
+       optical depths with their per-channel H2O fraction (load_orbit_data).
+    2. Compute transmittances T = π·L/TOA_sol for all soundings and bands.
+    3. Fit cumulant_fit.FIT_FIELDS in contiguous chunks (_doppler_fit_chunk),
+       optionally across worker processes: unconstrained orders 2 and 3, the
+       two-tau (_t2) and the agreed-model (_am) fits, all on the raw ln T (no
+       smoothing), each coefficient with its 1-sigma sig_* error.
     4. Extract Lite retrieval variables via vectorised index lookup.
-    5. Compute XCO2 anomalies with vectorised lat-window approach.
-    6. Write results to fitting_details.h5.
+    5. XCO2 anomalies and clear-sky reference statistics (ref/r15/r05) of the
+       _am and _t2 coefficients (see the anomaly section).
+    6. Write fitting_details_<date>_<orbit>.h5 with attrs fit_schema and
+       tau_convolution.
+
+    A cached file is reused only when both attrs match (FIT_SCHEMA and the tau
+    file's tau_convolution); anything else is refitted.  The tau file must be the
+    telluric-Doppler version with frac_h2o — there is no fallback to other tau.
 
     Parameters
     ----------
     sat         : dict from preprocess()
     orbit_id    : str
     shared_data : dict from load_shared_data()
-    fit_order   : (o2a_order, wco2_order, sco2_order)
-    overwrite   : bool
-    dual_fit    : bool  additionally fit WITHOUT Savitzky-Golay smoothing and
-                  store the parallel parameter set as *_fitting_nosg datasets,
-                  so the smoothed-vs-raw comparison (M9a) needs no second run.
-    fit_workers : int  number of processes for the fit stage; 1 = in-process
-                  (results are identical regardless of worker count).
-    extra_fits  : bool also store the unconstrained order-2/3 fits of the raw
-                  ln_T with residual-based standard errors and residual rms
-                  (cumulant_fit.EXTRA_FIT_FIELDS, datasets <band>_<field>_nosg);
-                  with a variant tau file (<band>_frac_h2o present) also the
-                  two-tau (_t2) and agreed-model (_am) fits, else those are NaN.
-    The fitting_details file records the tau file's tau_convolution attr.
+    overwrite   : bool  refit even when a matching cache exists
+    fit_workers : int  processes for the fit stage; 1 = in-process
+                  (results are identical regardless of worker count)
     """
     date        = sat['date'].strftime("%Y-%m-%d")
-    output_dir  = f"{sat['result_dir']}/{date}/{orbit_id}"
-    h5_output_dir = f"{sat['result_dir']}/fitting_details"
+    h5_output_dir = f"{sat['result_dir']}/{fit_subdir}"
     output_file = f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
-    os.makedirs(output_dir, exist_ok=True)
     os.makedirs(h5_output_dir, exist_ok=True)
-    
+
     # ── 1. Load orbit data ─────────────────────────────────────────────────
     logger.info(f"[{orbit_id}] Loading orbit data...")
     od = load_orbit_data(sat, orbit_id)
     N  = len(od["sounding_id"])
-    
-    tags       = ["o2a", "wco2", "sco2"]
-    fit_orders = list(fit_order)   # (o2a_order, wco2_order, sco2_order)
+    tags = ["o2a", "wco2", "sco2"]
 
-    kappa_fitting     = np.full((3, N, MAX_KAPPAS), np.nan)
-    intercept_fitting = np.full((3, N), np.nan)
-    # Parallel no-Savitzky-Golay fit (raw ln_T), for the smoothing-bias A/B.
-    kappa_fitting_nosg     = np.full((3, N, MAX_KAPPAS), np.nan)
-    intercept_fitting_nosg = np.full((3, N), np.nan)
-    extra_fitting = np.full((3, N, len(EXTRA_FIT_FIELDS)), np.nan)
+    expected_tau = tau_convolution_version(True)
+    if od["tau_convolution"] != expected_tau or od["frac_h2o"] is None:
+        raise RuntimeError(
+            f"[{orbit_id}] tau file is not the telluric-Doppler version "
+            f"(tau_convolution={od['tau_convolution']!r}, expected {expected_tau!r}; "
+            f"frac_h2o {'missing' if od['frac_h2o'] is None else 'present'}); "
+            "recompute it with workspace/compute_tau_only.py --telluric-doppler")
 
-    # A cached file from before κ was added (or from before the positivity
-    # bounds) lacks the gamma-shape datasets; refit rather than reuse it.
-    # Likewise, when dual_fit is requested, a cache without the _nosg
-    # datasets must be refitted.
-    cached_has_kappa = False
-    cached_has_nosg = False
-    if os.path.isfile(output_file):
+    if os.path.isfile(output_file) and not overwrite:
+        cached_schema = cached_tau_conv = None
         try:
             with h5py.File(output_file, "r") as f:
-                cached_has_kappa = all(
-                    key in f for key in ("o2a_kappa", "wco2_kappa", "sco2_kappa")
-                )
-                cached_has_nosg = all(
-                    key in f for key in ("o2a_k1_fitting_nosg",
-                                         "wco2_k1_fitting_nosg",
-                                         "sco2_k1_fitting_nosg")
-                )
+                _s, _t = f.attrs.get("fit_schema"), f.attrs.get("tau_convolution")
+                cached_schema = _decode_hdf5_attr(_s) if _s is not None else None
+                cached_tau_conv = _decode_hdf5_attr(_t) if _t is not None else None
         except OSError:
-            cached_has_kappa = False
-            cached_has_nosg = False
+            pass
+        if cached_schema == FIT_SCHEMA and cached_tau_conv == od["tau_convolution"]:
+            logger.info(f"[{orbit_id}] {output_file} is current (fit_schema {FIT_SCHEMA}); skipping")
+            return
+        logger.info(f"[{orbit_id}] refitting: cached fit_schema {cached_schema!r}, "
+                    f"tau_convolution {cached_tau_conv!r} (need {FIT_SCHEMA!r}, "
+                    f"{od['tau_convolution']!r})")
 
-    # Extra fits: every <band>_<field>_nosg must be present (fields are appended
-    # over time, so a file with only the older ones is refitted).  The cached
-    # file must also come from the same tau convolution as the current tau file
-    # (attr tau_convolution).  Files written before the attr existed carry none;
-    # they are accepted (logged) so legacy production caches are not all refitted.
-    cached_has_extra = False
-    missing_extra = []
-    cached_tau_conv = None
-    if os.path.isfile(output_file):
-        try:
-            with h5py.File(output_file, "r") as f:
-                missing_extra = sorted({name for tag in tags for name in EXTRA_FIT_FIELDS
-                                        if f"{tag}_{name}_nosg" not in f},
-                                       key=EXTRA_FIT_FIELDS.index)
-                cached_has_extra = not missing_extra
-                _tc = f.attrs.get("tau_convolution")
-                cached_tau_conv = _decode_hdf5_attr(_tc) if _tc is not None else None
-        except OSError:
-            cached_has_extra = False
-    tau_conv_ok = (cached_tau_conv is None or od["tau_convolution"] is None
-                   or cached_tau_conv == od["tau_convolution"])
-    if os.path.isfile(output_file) and not overwrite and cached_tau_conv is None:
-        logger.info(f"[{orbit_id}] Cached {output_file} has no tau_convolution attr "
-                    f"(written before it was recorded); not checked against the tau file.")
-    cache_ok = (cached_has_kappa and (cached_has_nosg or not dual_fit)
-                and (cached_has_extra or not extra_fits) and tau_conv_ok)
-    if not os.path.isfile(output_file) or overwrite or not cache_ok:
-        if os.path.isfile(output_file) and not overwrite and not cache_ok:
-            if not cached_has_kappa or (dual_fit and not cached_has_nosg):
-                missing = ("κ" if not cached_has_kappa else "_nosg")
-                logger.info(
-                    f"[{orbit_id}] Cached {output_file} has no {missing} datasets; refitting."
-                )
-            if extra_fits and not cached_has_extra:
-                logger.info(f"[{orbit_id}] refitting: cached file lacks extra fields: "
-                            f"{', '.join(missing_extra) or '(unreadable)'}")
-            if not tau_conv_ok:
-                logger.info(f"[{orbit_id}] refitting: cached tau_convolution "
-                            f"{cached_tau_conv!r} != tau file {od['tau_convolution']!r}")
-        # ── 2. Transmittance for all soundings and bands at once ───────────────
-        logger.info(f"[{orbit_id}] Computing transmittances for {N} soundings...")
-        T_all    = compute_transmittance(od["radiances"], od["toa_sol"])  # [3, N, 1016]
-        ln_T_all = np.where(T_all > 0, np.log(T_all), np.nan)            # [3, N, 1016]
+    # ── 2. Transmittance for all soundings and bands at once ───────────────
+    logger.info(f"[{orbit_id}] Computing transmittances for {N} soundings...")
+    T_all    = compute_transmittance(od["radiances"], od["toa_sol"])  # [3, N, 1016]
+    ln_T_all = np.where(T_all > 0, np.log(T_all), np.nan)            # [3, N, 1016]
 
-        # ── 3. Chunked spectral fitting (optionally multi-process) ─────────────
-        valid_idx = np.where(od["valid_l1b"])[0]
-        chunk_size = 256
-        n_chunks = max(1, int(np.ceil(len(valid_idx) / chunk_size)))
-        chunks = np.array_split(valid_idx, n_chunks)
-        logger.info(f"[{orbit_id}] Fitting spectral models for {len(valid_idx)} "
-                    f"soundings in {n_chunks} chunks (fit_workers={fit_workers})...")
+    # ── 3. Chunked fitting (optionally multi-process) ──────────────────────
+    valid_idx = np.where(od["valid_l1b"])[0]
+    chunk_size = 256
+    n_chunks = max(1, int(np.ceil(len(valid_idx) / chunk_size)))
+    chunks = np.array_split(valid_idx, n_chunks)
+    logger.info(f"[{orbit_id}] Fitting orders 2/3, two-tau and agreed model for "
+                f"{len(valid_idx)} soundings in {n_chunks} chunks (fit_workers={fit_workers})...")
 
-        def _chunk_args(chunk):
-            # Edge channels excluded here once, matching the historical [1:-1].
-            return (chunk,
-                    od["tau"][:, chunk, 1:-1],
-                    ln_T_all[:, chunk, 1:-1],
-                    tuple(fit_orders), dual_fit)
+    def _chunk_args(chunk):
+        # Edge channels excluded here once, matching the historical [1:-1].
+        return (chunk, od["tau"][:, chunk, 1:-1], ln_T_all[:, chunk, 1:-1],
+                od["frac_h2o"][:, chunk, 1:-1], od["land"][chunk])
 
-        plot_cands = {}
-        if fit_workers > 1 and len(chunks) > 1:
-            with ProcessPoolExecutor(max_workers=fit_workers) as pool:
-                futures = [pool.submit(_fit_chunk, *_chunk_args(c)) for c in chunks]
-                results = [f.result() for f in futures]
-        else:
-            results = [_fit_chunk(*_chunk_args(c)) for c in chunks]
-
-        for n_done, (j_idx, k_c, ic_c, kns_c, icns_c, cands) in enumerate(results, 1):
-            kappa_fitting[:, j_idx, :]      = k_c
-            intercept_fitting[:, j_idx]     = ic_c
-            kappa_fitting_nosg[:, j_idx, :] = kns_c
-            intercept_fitting_nosg[:, j_idx] = icns_c
-            plot_cands.update(cands)
-            if n_done % 10 == 0 or n_done == len(results):
-                logger.info(f"  [{orbit_id}] chunk {n_done}/{len(results)} merged")
-
-        if extra_fits:
-            logger.info(f"[{orbit_id}] Extra fit statistics (order-2/3; two-tau + agreed model "
-                        f"{'on' if od['frac_h2o'] is not None else 'skipped: no frac_h2o'}; raw ln_T)...")
-
-            def _extra_args(chunk):
-                frac = od["frac_h2o"]
-                return (chunk, od["tau"][:, chunk, 1:-1], ln_T_all[:, chunk, 1:-1],
-                        tuple(fit_orders),
-                        None if frac is None else frac[:, chunk, 1:-1],
-                        od["land"][chunk])
-
-            if fit_workers > 1 and len(chunks) > 1:
-                with ProcessPoolExecutor(max_workers=fit_workers) as pool:
-                    xfutures = [pool.submit(_extra_fit_chunk, *_extra_args(c)) for c in chunks]
-                    xresults = [f.result() for f in xfutures]
-            else:
-                xresults = [_extra_fit_chunk(*_extra_args(c)) for c in chunks]
-            for j_idx, ex in xresults:
-                extra_fitting[:, j_idx, :] = ex
-
-        # Example plots, outside the (possibly multi-process) numeric loop.
-        # Replays the sequential selection rule: first successful fit per band,
-        # plus every 1000th sounding — plot_cands is a superset of these.
-        plot_done = {tag: False for tag in tags}
-        for i_band, j in sorted(plot_cands, key=lambda t: (t[1], t[0])):
-            tag, band_order = tags[i_band], fit_orders[i_band]
-            if not (not plot_done[tag] or j % 1000 == 0):
-                continue
-            tau_j  = od["tau"][i_band, j][1:-1]
-            ln_T_j = ln_T_all[i_band, j][1:-1]
-            mask = ~np.isnan(ln_T_j) & ~np.isnan(tau_j)
-            plot_fitting_example(
-                tag, int(od["fp_number"][j]), int(od["sounding_id"][j]),
-                od["wvl"][i_band, od["fp_number"][j]],
-                od["radiances"][i_band, j], T_all[i_band, j],
-                tau_j[mask], ln_T_j[mask], plot_cands[(i_band, j)],
-                band_order, output_dir,
-            )
-            plot_done[tag] = True
-
+    fit = np.full((3, N, len(FIT_FIELDS)), np.nan)
+    if fit_workers > 1 and len(chunks) > 1:
+        with ProcessPoolExecutor(max_workers=fit_workers) as pool:
+            futures = [pool.submit(_doppler_fit_chunk, *_chunk_args(c)) for c in chunks]
+            results = [f.result() for f in futures]
     else:
-        logger.info(f"[{orbit_id}] Output file {output_file} already exists and overwrite=False")
-        logger.info(f"Loading existing data from {output_file}...")
-        with h5py.File(output_file, "r") as f:
-            kappa_fitting[0, :, 0] = f["o2a_k1_fitting"][...]
-            kappa_fitting[0, :, 1] = f["o2a_k2_fitting"][...]
-            kappa_fitting[0, :, 2] = f["o2a_k3_fitting"][...]
-            kappa_fitting[0, :, 3] = f["o2a_k4_fitting"][...]
-            kappa_fitting[0, :, 4] = f["o2a_k5_fitting"][...]
-            intercept_fitting[0]   = f["o2a_intercept_fitting"][...]
-            kappa_fitting[1, :, 0] = f["wco2_k1_fitting"][...]
-            kappa_fitting[1, :, 1] = f["wco2_k2_fitting"][...]
-            kappa_fitting[1, :, 2] = f["wco2_k3_fitting"][...]
-            kappa_fitting[1, :, 3] = f["wco2_k4_fitting"][...]
-            kappa_fitting[1, :, 4] = f["wco2_k5_fitting"][...]
-            intercept_fitting[1]   = f["wco2_intercept_fitting"][...]
-            kappa_fitting[2, :, 0] = f["sco2_k1_fitting"][...]
-            kappa_fitting[2, :, 1] = f["sco2_k2_fitting"][...]
-            kappa_fitting[2, :, 2] = f["sco2_k3_fitting"][...]
-            kappa_fitting[2, :, 3] = f["sco2_k4_fitting"][...]
-            kappa_fitting[2, :, 4] = f["sco2_k5_fitting"][...]
-            intercept_fitting[2]   = f["sco2_intercept_fitting"][...]
-            if cached_has_nosg:
-                for _ib, _tag in enumerate(tags):
-                    for _ik in range(MAX_KAPPAS):
-                        _key = f"{_tag}_k{_ik + 1}_fitting_nosg"
-                        if _key in f:
-                            kappa_fitting_nosg[_ib, :, _ik] = f[_key][...]
-                    _ikey = f"{_tag}_intercept_fitting_nosg"
-                    if _ikey in f:
-                        intercept_fitting_nosg[_ib] = f[_ikey][...]
-            if extra_fits:
-                for _ib, _tag in enumerate(tags):
-                    for _ik, _name in enumerate(EXTRA_FIT_FIELDS):
-                        _key = f"{_tag}_{_name}_nosg"
-                        if _key in f:
-                            extra_fitting[_ib, :, _ik] = f[_key][...]
-            logger.info(f"Loaded existing fitting results from {output_file}. Skipping fitting step.")
-        logger.info(f"[{orbit_id}] Writing example fitting plots from cached fitting input.")
-        plot_orbit_fitting_examples(od, fit_orders, output_dir)
-        
-    # ── 3b. Exponential of fitting intercepts ─────────────────────────────
-    exp_intercept_o2a  = np.exp(intercept_fitting[0])
-    exp_intercept_wco2 = np.exp(intercept_fitting[1])
-    exp_intercept_sco2 = np.exp(intercept_fitting[2])
+        results = [_doppler_fit_chunk(*_chunk_args(c)) for c in chunks]
+    for j_idx, fc in results:
+        fit[:, j_idx, :] = fc
 
-    # ── 3c. Gamma shape parameter κ = ⟨l'⟩²/var(l') = k1²/k2 ───────────────
-    # Derived from the first two cumulants; undefined where k2 ≤ 0.
-    with np.errstate(divide='ignore', invalid='ignore'):
-        gamma_kappa = kappa_fitting[:, :, 0]**2 / kappa_fitting[:, :, 1]  # [3, N]
-    gamma_kappa[kappa_fitting[:, :, 1] <= 0] = np.nan
+    def _fv(band, name):
+        return fit[tags.index(band), :, FIT_FIELDS.index(name)]
+
+    # ── 3a. One example plot per band per orbit ────────────────────────────
+    # First sounding (orbit order) with a converged agreed-model fit; drawn from
+    # the stored values, written next to the tau file.  A plotting error only
+    # logs a warning.
+    plot_dir = f"{sat['result_dir']}/{date}/{orbit_id}"
+    os.makedirs(plot_dir, exist_ok=True)
+    for i_band, tag in enumerate(tags):
+        good = np.flatnonzero((_fv(tag, "ok_am") == 1) & np.isfinite(_fv(tag, "k1_am")))
+        if not len(good):
+            continue
+        j = int(good[0])
+        try:
+            tau_j = od["tau"][i_band, j][1:-1]
+            ln_j = ln_T_all[i_band, j][1:-1]
+            mask = ~np.isnan(ln_j) & ~np.isnan(tau_j)
+            frac_j = np.nan_to_num(od["frac_h2o"][i_band, j][1:-1][mask], nan=0.0)
+            x_j = (np.flatnonzero(mask) + 1 - 507.5) / 507.5
+            plot_doppler_fit_example(
+                tag, i_band, int(od["fp_number"][j]), int(od["sounding_id"][j]),
+                od["wvl"][i_band, od["fp_number"][j]], od["radiances"][i_band, j],
+                T_all[i_band, j], tau_j[mask], ln_j[mask], frac_j, x_j,
+                {name: fit[i_band, j, k] for k, name in enumerate(FIT_FIELDS)}, plot_dir)
+        except Exception as exc:   # noqa: BLE001 - a plot must never fail the fit
+            logger.warning(f"[{orbit_id}] example plot for {tag} failed: {exc}")
+
 
     # ── 4. Lite variable extraction (vectorised) ───────────────────────────
     def _lite(key):
@@ -344,52 +247,45 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
         sat[orbit_id]["oco_met"], sat[orbit_id]["oco_co2prior"], od["sounding_id"],
     )
 
-    # ── 6. XCO2 anomaly (vectorised lat-window) ────────────────────────────
-    logger.info(f"[{orbit_id}] Computing XCO2 anomalies...")
-    anomaly_args = production_anomaly_args()
-    xco2_raw_anomaly = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args)
-    ref_extra_vars = {
-        "o2a_k1":      kappa_fitting[0, :, 0],
-        "o2a_k2":      kappa_fitting[0, :, 1],
-        "o2a_k3":      kappa_fitting[0, :, 2],
-        "wco2_k1":     kappa_fitting[1, :, 0],
-        "wco2_k2":     kappa_fitting[1, :, 1],
-        "wco2_k3":     kappa_fitting[1, :, 2],
-        "sco2_k1":     kappa_fitting[2, :, 0],
-        "sco2_k2":     kappa_fitting[2, :, 1],
-        "sco2_k3":     kappa_fitting[2, :, 2],
-        "alb_o2a":     lt_alb_o2a,
-        "alb_wco2":    lt_alb_wco2,
-        "alb_sco2":    lt_alb_sco2,
-        "exp_int_o2a":  exp_intercept_o2a,
-        "exp_int_wco2": exp_intercept_wco2,
-        "exp_int_sco2": exp_intercept_sco2,
-    }
-    xco2_bc_anomaly, ref_means, ref_stds = compute_xco2_anomaly(
-        od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args)
+    # ── 6. XCO2 anomaly and clear-sky reference statistics ─────────────────
+    # compute_xco2_anomaly builds ONE clear-sky pool shared by the anomaly and
+    # every extra variable: a reference sounding must have all of them finite.
+    # The main call therefore carries only variables that are NaN just where the
+    # fit itself failed (albedo + the core _am/_t2 coefficients); its pool defines
+    # the anomaly targets.  O2A k2diag_am (own refit can fail) and SCO2 a2_am
+    # (land only) get their own calls (pool = core set + that variable) so they
+    # cannot shrink the target pool.  Fields NaN or constant by design (O2A k1w_am,
+    # k2_am of O2A/WCO2, f_am outside O2A) have no reference statistics.
+    logger.info(f"[{orbit_id}] Computing XCO2 anomalies and reference statistics...")
+    core_vars = {"alb_o2a": lt_alb_o2a, "alb_wco2": lt_alb_wco2, "alb_sco2": lt_alb_sco2}
+    for band, names in REF_FIT_VARS.items():
+        for name in names:
+            core_vars[f"{band}_{name}"] = _fv(band, name)
+    solo_vars = {f"{band}_{name}": _fv(band, name) for band, name in REF_FIT_VARS_SOLO}
 
-    # ── 6b. Second reference set with stricter min_cld_dist=15 km ─────────
-    anomaly_args_15 = production_anomaly_args(min_cld_dist=15.0)
-    xco2_raw_anomaly_15 = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args_15)
-    xco2_bc_anomaly_15, ref_means_15, ref_stds_15 = compute_xco2_anomaly(
-        od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_15)
+    ref_out = {}
+    anomaly_out = {}
+    for prefix, kwargs in (("ref", production_anomaly_args()),
+                           ("r15", production_anomaly_args(min_cld_dist=15.0)),
+                           ("r05", production_anomaly_args(min_cld_dist=5.0))):
+        suffix = "" if prefix == "ref" else f"_{prefix}"
+        anomaly_out[f"xco2_raw_anomaly{suffix}"] = compute_xco2_anomaly(
+            od["lat"], fp_cld_dist, lt_xco2_raw, **kwargs)
+        bc_anom, means, stds, _, _, n_ref = compute_xco2_anomaly(
+            od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=core_vars,
+            return_ref_stats=True, **kwargs)
+        anomaly_out[f"xco2_bc_anomaly{suffix}"] = bc_anom
+        ref_out[f"{prefix}_n"] = n_ref
+        for key in core_vars:
+            ref_out[f"{prefix}_{key}_mean"] = means[key]
+            ref_out[f"{prefix}_{key}_std"] = stds[key]
+        for key, arr in solo_vars.items():
+            _, m_solo, s_solo = compute_xco2_anomaly(
+                od["lat"], fp_cld_dist, lt_xco2_bc,
+                extra_vars={**core_vars, key: arr}, **kwargs)
+            ref_out[f"{prefix}_{key}_mean"] = m_solo[key]
+            ref_out[f"{prefix}_{key}_std"] = s_solo[key]
 
-    # ── 6c. Third reference set with looser min_cld_dist=5 km ─────────────
-    anomaly_args_05 = production_anomaly_args(min_cld_dist=5.0)
-    xco2_raw_anomaly_05 = compute_xco2_anomaly(od["lat"], fp_cld_dist, lt_xco2_raw, **anomaly_args_05)
-    xco2_bc_anomaly_05, ref_means_05, ref_stds_05 = compute_xco2_anomaly(
-        od["lat"], fp_cld_dist, lt_xco2_bc, extra_vars=ref_extra_vars, **anomaly_args_05)
-
-    # ── 6c'. Reference statistics of the unsmoothed (_nosg) fit ───────────
-    # Own calls (nosg_reference_stats): the extra variables narrow the shared
-    # clear-sky pool, so adding the _nosg set to the calls above could move the
-    # anomaly targets, and _nosg is all NaN when dual_fit is off.
-    nosg_ref = {}
-    if dual_fit:
-        nosg_ref = nosg_reference_stats(
-            od["lat"], fp_cld_dist, lt_xco2_bc, ref_extra_vars,
-            kappa_fitting_nosg, intercept_fitting_nosg,
-            {"ref": anomaly_args, "r15": anomaly_args_15, "r05": anomaly_args_05})
 
     # -- 6c. Calculate fp areas from lite vertex longitudes and latitudes --
     fp_area_km2 = np.full(N, np.nan)
@@ -422,52 +318,9 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
 
     # ── 7. Write output HDF5 ───────────────────────────────────────────────
     logger.info(f"[{orbit_id}] Writing {output_file}...")
-    output_dict = {
-        # Cumulant coefficients per band
-        "o2a_k1_fitting":         kappa_fitting[0, :, 0],
-        "o2a_k2_fitting":         kappa_fitting[0, :, 1],
-        "o2a_k3_fitting":         kappa_fitting[0, :, 2],
-        "o2a_k4_fitting":         kappa_fitting[0, :, 3],
-        "o2a_k5_fitting":         kappa_fitting[0, :, 4],
-        "o2a_intercept_fitting":  intercept_fitting[0],
-        "wco2_k1_fitting":        kappa_fitting[1, :, 0],
-        "wco2_k2_fitting":        kappa_fitting[1, :, 1],
-        "wco2_k3_fitting":        kappa_fitting[1, :, 2],
-        "wco2_k4_fitting":        kappa_fitting[1, :, 3],
-        "wco2_k5_fitting":        kappa_fitting[1, :, 4],
-        "wco2_intercept_fitting": intercept_fitting[1],
-        "sco2_k1_fitting":        kappa_fitting[2, :, 0],
-        "sco2_k2_fitting":        kappa_fitting[2, :, 1],
-        "sco2_k3_fitting":        kappa_fitting[2, :, 2],
-        "sco2_k4_fitting":        kappa_fitting[2, :, 3],
-        "sco2_k5_fitting":        kappa_fitting[2, :, 4],
-        "sco2_intercept_fitting": intercept_fitting[2],
-        # No-Savitzky-Golay parallel fit (raw ln_T), for the smoothing-bias A/B.
-        # Populated only when dual_fit=True (removed below otherwise, so a
-        # cache without them is refitted when dual_fit is later enabled).
-        "o2a_k1_fitting_nosg":         kappa_fitting_nosg[0, :, 0],
-        "o2a_k2_fitting_nosg":         kappa_fitting_nosg[0, :, 1],
-        "o2a_k3_fitting_nosg":         kappa_fitting_nosg[0, :, 2],
-        "o2a_k4_fitting_nosg":         kappa_fitting_nosg[0, :, 3],
-        "o2a_k5_fitting_nosg":         kappa_fitting_nosg[0, :, 4],
-        "o2a_intercept_fitting_nosg":  intercept_fitting_nosg[0],
-        "wco2_k1_fitting_nosg":        kappa_fitting_nosg[1, :, 0],
-        "wco2_k2_fitting_nosg":        kappa_fitting_nosg[1, :, 1],
-        "wco2_k3_fitting_nosg":        kappa_fitting_nosg[1, :, 2],
-        "wco2_k4_fitting_nosg":        kappa_fitting_nosg[1, :, 3],
-        "wco2_k5_fitting_nosg":        kappa_fitting_nosg[1, :, 4],
-        "wco2_intercept_fitting_nosg": intercept_fitting_nosg[1],
-        "sco2_k1_fitting_nosg":        kappa_fitting_nosg[2, :, 0],
-        "sco2_k2_fitting_nosg":        kappa_fitting_nosg[2, :, 1],
-        "sco2_k3_fitting_nosg":        kappa_fitting_nosg[2, :, 2],
-        "sco2_k4_fitting_nosg":        kappa_fitting_nosg[2, :, 3],
-        "sco2_k5_fitting_nosg":        kappa_fitting_nosg[2, :, 4],
-        "sco2_intercept_fitting_nosg": intercept_fitting_nosg[2],
-        # Gamma shape parameter κ = k1²/k2 per band (NaN where k2 ≤ 0)
-        "o2a_kappa":   gamma_kappa[0],
-        "wco2_kappa":  gamma_kappa[1],
-        "sco2_kappa":  gamma_kappa[2],
-        # Geometry
+    output_dict = {f"{tag}_{name}": fit[ib, :, ik]
+                   for ib, tag in enumerate(tags) for ik, name in enumerate(FIT_FIELDS)}
+    output_dict.update({
         "date":      np.array([date]*N, dtype='S'),
         "orbit_id":  np.array([orbit_id]*N, dtype='S'),
         "time":      _lite("time"),
@@ -487,8 +340,6 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
         "xco2_apriori":     _lite("xco2_apriori"),
         "xco2_bc":          lt_xco2_bc,
         "xco2_raw":         lt_xco2_raw,
-        "xco2_raw_anomaly": xco2_raw_anomaly,
-        "xco2_bc_anomaly":  xco2_bc_anomaly,
         # Lite retrieval variables
         "psfc":        _lite("psurf"),
         "airmass":     _lite("airmass"),
@@ -575,123 +426,10 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
         "eof3_1_rel":      _lite("eof3_1_rel"),
         "diverging_steps": _lite("diverging_steps"),
         "xco2_uncertainty": _lite("xco2_uncertainty"),
-        # Fitting intercept (exponential)
-        "exp_intercept_o2a":  exp_intercept_o2a,
-        "exp_intercept_wco2": exp_intercept_wco2,
-        "exp_intercept_sco2": exp_intercept_sco2,
-        # Reference clear-sky statistics (mean and std over lat-window, same mask as xco2_bc_anomaly)
-        "ref_o2a_k1_mean":       ref_means["o2a_k1"],
-        "ref_o2a_k1_std":        ref_stds["o2a_k1"],
-        "ref_o2a_k2_mean":       ref_means["o2a_k2"],
-        "ref_o2a_k2_std":        ref_stds["o2a_k2"],
-        "ref_o2a_k3_mean":       ref_means["o2a_k3"],
-        "ref_o2a_k3_std":        ref_stds["o2a_k3"],
-        "ref_wco2_k1_mean":      ref_means["wco2_k1"],
-        "ref_wco2_k1_std":       ref_stds["wco2_k1"],
-        "ref_wco2_k2_mean":      ref_means["wco2_k2"],
-        "ref_wco2_k2_std":       ref_stds["wco2_k2"],
-        "ref_wco2_k3_mean":      ref_means["wco2_k3"],
-        "ref_wco2_k3_std":       ref_stds["wco2_k3"],
-        "ref_sco2_k1_mean":      ref_means["sco2_k1"],
-        "ref_sco2_k1_std":       ref_stds["sco2_k1"],
-        "ref_sco2_k2_mean":      ref_means["sco2_k2"],
-        "ref_sco2_k2_std":       ref_stds["sco2_k2"],
-        "ref_sco2_k3_mean":      ref_means["sco2_k3"],
-        "ref_sco2_k3_std":       ref_stds["sco2_k3"],
-        "ref_alb_o2a_mean":      ref_means["alb_o2a"],
-        "ref_alb_o2a_std":       ref_stds["alb_o2a"],
-        "ref_alb_wco2_mean":     ref_means["alb_wco2"],
-        "ref_alb_wco2_std":      ref_stds["alb_wco2"],
-        "ref_alb_sco2_mean":     ref_means["alb_sco2"],
-        "ref_alb_sco2_std":      ref_stds["alb_sco2"],
-        "ref_exp_int_o2a_mean":  ref_means["exp_int_o2a"],
-        "ref_exp_int_o2a_std":   ref_stds["exp_int_o2a"],
-        "ref_exp_int_wco2_mean": ref_means["exp_int_wco2"],
-        "ref_exp_int_wco2_std":  ref_stds["exp_int_wco2"],
-        "ref_exp_int_sco2_mean": ref_means["exp_int_sco2"],
-        "ref_exp_int_sco2_std":  ref_stds["exp_int_sco2"],
-        # ── Reference set with stricter min_cld_dist=15 km (r15 prefix) ──
-        "xco2_raw_anomaly_r15":      xco2_raw_anomaly_15,
-        "xco2_bc_anomaly_r15":       xco2_bc_anomaly_15,
-        "r15_o2a_k1_mean":           ref_means_15["o2a_k1"],
-        "r15_o2a_k1_std":            ref_stds_15["o2a_k1"],
-        "r15_o2a_k2_mean":           ref_means_15["o2a_k2"],
-        "r15_o2a_k2_std":            ref_stds_15["o2a_k2"],
-        "r15_o2a_k3_mean":           ref_means_15["o2a_k3"],
-        "r15_o2a_k3_std":            ref_stds_15["o2a_k3"],
-        "r15_wco2_k1_mean":          ref_means_15["wco2_k1"],
-        "r15_wco2_k1_std":           ref_stds_15["wco2_k1"],
-        "r15_wco2_k2_mean":          ref_means_15["wco2_k2"],
-        "r15_wco2_k2_std":           ref_stds_15["wco2_k2"],
-        "r15_wco2_k3_mean":          ref_means_15["wco2_k3"],
-        "r15_wco2_k3_std":           ref_stds_15["wco2_k3"],
-        "r15_sco2_k1_mean":          ref_means_15["sco2_k1"],
-        "r15_sco2_k1_std":           ref_stds_15["sco2_k1"],
-        "r15_sco2_k2_mean":          ref_means_15["sco2_k2"],
-        "r15_sco2_k2_std":           ref_stds_15["sco2_k2"],
-        "r15_sco2_k3_mean":          ref_means_15["sco2_k3"],
-        "r15_sco2_k3_std":           ref_stds_15["sco2_k3"],
-        "r15_alb_o2a_mean":          ref_means_15["alb_o2a"],
-        "r15_alb_o2a_std":           ref_stds_15["alb_o2a"],
-        "r15_alb_wco2_mean":         ref_means_15["alb_wco2"],
-        "r15_alb_wco2_std":          ref_stds_15["alb_wco2"],
-        "r15_alb_sco2_mean":         ref_means_15["alb_sco2"],
-        "r15_alb_sco2_std":          ref_stds_15["alb_sco2"],
-        "r15_exp_int_o2a_mean":      ref_means_15["exp_int_o2a"],
-        "r15_exp_int_o2a_std":       ref_stds_15["exp_int_o2a"],
-        "r15_exp_int_wco2_mean":     ref_means_15["exp_int_wco2"],
-        "r15_exp_int_wco2_std":      ref_stds_15["exp_int_wco2"],
-        "r15_exp_int_sco2_mean":     ref_means_15["exp_int_sco2"],
-        "r15_exp_int_sco2_std":      ref_stds_15["exp_int_sco2"],
-        # ── Reference set with looser min_cld_dist=5 km (r05 prefix) ──
-        "xco2_raw_anomaly_r05":      xco2_raw_anomaly_05,
-        "xco2_bc_anomaly_r05":       xco2_bc_anomaly_05,
-        "r05_o2a_k1_mean":           ref_means_05["o2a_k1"],
-        "r05_o2a_k1_std":            ref_stds_05["o2a_k1"],
-        "r05_o2a_k2_mean":           ref_means_05["o2a_k2"],
-        "r05_o2a_k2_std":            ref_stds_05["o2a_k2"],
-        "r05_o2a_k3_mean":           ref_means_05["o2a_k3"],
-        "r05_o2a_k3_std":            ref_stds_05["o2a_k3"],
-        "r05_wco2_k1_mean":          ref_means_05["wco2_k1"],
-        "r05_wco2_k1_std":           ref_stds_05["wco2_k1"],
-        "r05_wco2_k2_mean":          ref_means_05["wco2_k2"],
-        "r05_wco2_k2_std":           ref_stds_05["wco2_k2"],
-        "r05_wco2_k3_mean":          ref_means_05["wco2_k3"],
-        "r05_wco2_k3_std":           ref_stds_05["wco2_k3"],
-        "r05_sco2_k1_mean":          ref_means_05["sco2_k1"],
-        "r05_sco2_k1_std":           ref_stds_05["sco2_k1"],
-        "r05_sco2_k2_mean":          ref_means_05["sco2_k2"],
-        "r05_sco2_k2_std":           ref_stds_05["sco2_k2"],
-        "r05_sco2_k3_mean":          ref_means_05["sco2_k3"],
-        "r05_sco2_k3_std":           ref_stds_05["sco2_k3"],
-        "r05_alb_o2a_mean":          ref_means_05["alb_o2a"],
-        "r05_alb_o2a_std":           ref_stds_05["alb_o2a"],
-        "r05_alb_wco2_mean":         ref_means_05["alb_wco2"],
-        "r05_alb_wco2_std":          ref_stds_05["alb_wco2"],
-        "r05_alb_sco2_mean":         ref_means_05["alb_sco2"],
-        "r05_alb_sco2_std":          ref_stds_05["alb_sco2"],
-        "r05_exp_int_o2a_mean":      ref_means_05["exp_int_o2a"],
-        "r05_exp_int_o2a_std":       ref_stds_05["exp_int_o2a"],
-        "r05_exp_int_wco2_mean":     ref_means_05["exp_int_wco2"],
-        "r05_exp_int_wco2_std":      ref_stds_05["exp_int_wco2"],
-        "r05_exp_int_sco2_mean":     ref_means_05["exp_int_sco2"],
-        "r05_exp_int_sco2_std":      ref_stds_05["exp_int_sco2"],
-    }
-    
-    
+    })
+    output_dict.update(anomaly_out)
+    output_dict.update(ref_out)       # {ref,r15,r05}_{alb_<band>,<band>_<field>}_{mean,std}, {prefix}_n
     output_dict.update(ak_arrays)   # [N, 20] column-operator datasets
-    output_dict.update(nosg_ref)    # {ref,r05,r15}_*_nosg_{mean,std}; empty unless dual_fit
-    if extra_fits:
-        output_dict.update({
-            f"{tag}_{name}_nosg": extra_fitting[ib, :, ik]
-            for ib, tag in enumerate(tags) for ik, name in enumerate(EXTRA_FIT_FIELDS)
-        })
-
-    if not dual_fit:
-        # Drop the (all-NaN) _nosg datasets so their absence marks the cache
-        # as needing a refit if dual_fit is enabled later.
-        output_dict = {k: v for k, v in output_dict.items()
-                       if not k.endswith('_fitting_nosg')}
 
     # float64 → float32 on write (except keys needing full precision) plus
     # shuffle+gzip: shrinks fitting_details.h5 severalfold and speeds the
@@ -703,8 +441,12 @@ def process_orbit(sat, orbit_id, shared_data, fit_order=FIT_ORDER, overwrite=Tru
     tmp_output = f"{output_file}.{os.getpid()}.tmp"
     try:
         with h5py.File(tmp_output, "w") as f_out:
-            if od["tau_convolution"] is not None:
-                f_out.attrs["tau_convolution"] = od["tau_convolution"]
+            f_out.attrs["tau_convolution"] = od["tau_convolution"]
+            f_out.attrs["fit_schema"] = FIT_SCHEMA
+            f_out.attrs["land_rule"] = f"sounding_land_fraction >= {LAND_FRACTION_THRESHOLD:g}"
+            f_out.attrs["sigma_note"] = (
+                "sig_* = formal 1-sigma, s^2 (J^T J)^-1 with s^2 = RSS/(n-p) of the fit's own "
+                "residual (raw ln T, no smoothing); understates scene-correlated error")
             for key, value in output_dict.items():
                 arr = np.asarray(value)
                 if arr.dtype == np.float64 and key not in keep_float64:
@@ -873,20 +615,20 @@ def run_simulation(target_date, data_dir, result_dir,
                    viz_dir=None,
                    visualize=True,
                    delete_ocofiles=False,
-                   dual_fit=True,
                    fit_workers=1,
                    lock_stale_hours=4.0,
                    tau_wait_minutes=180.0,
                    orbits=None,
                    overwrite=False,
-                   telluric_doppler=False,
                    cloud_dist_dir=None,
-                   extra_fits=False):
+                   fit_subdir=FIT_SUBDIR):
     """Top-level pipeline: preprocess → fit → analyse.
 
-    telluric_doppler / cloud_dist_dir / extra_fits: see preprocess() and
-    process_orbit(); together they form the test variant of the pipeline
-    (fitting.py --telluric-doppler) that writes to its own result tree.
+    Always on the telluric-Doppler tau (preprocess(telluric_doppler=True));
+    cloud_dist_dir: directory of results_<date>.h5 when it is not result_dir.
+    fit_subdir: subdirectory of result_dir for the fitting_details files.
+    viz_dir / visualize are accepted for launcher compatibility; the fit no
+    longer draws example plots.
 
     Several jobs may run this for the same date: each orbit's optical-depth
     precompute and fit are claimed through ``orbit_lock`` files, so the jobs
@@ -900,15 +642,13 @@ def run_simulation(target_date, data_dir, result_dir,
     wait_seconds  = float(tau_wait_minutes) * 60.0
     sat0 = preprocess(target_date, data_dir, result_dir, limit_granules,
                       lock_stale_seconds=stale_seconds, orbits=orbits,
-                      telluric_doppler=telluric_doppler, cloud_dist_dir=cloud_dist_dir)
-
-    fit_order = FIT_ORDER  # (o2a_order, wco2_order, sco2_order); see constants.py
+                      telluric_doppler=True, cloud_dist_dir=cloud_dist_dir)
 
     # Load Lite file and cloud distances once, shared across all orbits
     shared_data = load_shared_data(sat0)
 
     date          = sat0['date'].strftime("%Y-%m-%d")
-    h5_output_dir = f"{sat0['result_dir']}/fitting_details"
+    h5_output_dir = f"{sat0['result_dir']}/{fit_subdir}"
 
     def _output_file(orbit_id):
         return f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
@@ -922,9 +662,9 @@ def run_simulation(target_date, data_dir, result_dir,
             if not got:
                 logger.info(f"[{orbit_id}] Fit in progress in another job; deferring")
                 return False
-            process_orbit(sat0, orbit_id, shared_data, fit_order=fit_order,
-                          overwrite=overwrite, dual_fit=dual_fit, fit_workers=fit_workers,
-                          extra_fits=extra_fits)
+            process_orbit(sat0, orbit_id, shared_data,
+                          overwrite=overwrite, fit_workers=fit_workers,
+                          fit_subdir=fit_subdir)
 
         if delete_ocofiles:
             for key in ("oco_l1b", "oco_met", "oco_co2prior"):
@@ -986,8 +726,7 @@ def main():
     parser.add_argument('--delete-ocofiles', action='store_true',
                         help='Delete L1b/Met/CO2Prior files for each orbit after processing')
     parser.add_argument('--single-fit', action='store_true',
-                        help='Skip the parallel no-Savitzky-Golay fit (halves fit time; '
-                             'the *_fitting_nosg comparison datasets are then not produced)')
+                        help='Deprecated, ignored (2026-10-31: no smoothed fit any more)')
     parser.add_argument('--fit-workers', type=int, default=0,
                         help='Processes for the per-sounding fit stage; '
                              '0 = auto (cores - 1), 1 = serial. Results are '
@@ -1004,18 +743,18 @@ def main():
                         help='How long to wait for another job that is computing '
                              "an orbit's optical depths or fit before giving up on it")
     parser.add_argument('--telluric-doppler', action='store_true',
-                        help='Test variant: apply the telluric Doppler shift of the ABSCO '
-                             'grid in the optical-depth step, store the per-channel tau '
-                             'attribution, enable --extra-fits, and write to its own '
-                             'result tree (default <storage>/results_doppler) while '
-                             'reading cloud distances from --cloud-dist-dir')
+                        help='Accepted for launcher compatibility; always on since '
+                             '2026-10-31 (telluric + solar Doppler tau, results default '
+                             '<storage>/results_doppler)')
     parser.add_argument('--cloud-dist-dir', type=str, default=None,
                         help='Directory with results_<date>.h5 cloud distances when it '
-                             'differs from the output dir (default: the production '
-                             'results tree when --telluric-doppler is set)')
+                             'differs from the output dir (default: <storage>/results '
+                             'whenever the output dir is not that tree)')
+    parser.add_argument('--fit-subdir', type=str, default=FIT_SUBDIR,
+                        help=f'Subdirectory of the output dir for fitting_details files '
+                             f'(default {FIT_SUBDIR}, the current fit_schema)')
     parser.add_argument('--extra-fits', action='store_true',
-                        help='Also store unconstrained order-2/3 fits of the raw ln_T '
-                             'with residual-based standard errors and residual rms')
+                        help='Deprecated, ignored (the order-2/3, _t2 and _am fits are always stored)')
     args = parser.parse_args()
 
     try:
@@ -1027,21 +766,16 @@ def main():
     storage_dir = get_storage_dir()
     data_dir    = storage_dir / "data" if args.data_dir == "./data" else Path(args.data_dir)
     production_results = storage_dir / "results"
-    if args.output_dir:
-        output_dir = Path(args.output_dir)
-    elif args.telluric_doppler:
-        output_dir = storage_dir / "results_doppler"
-    else:
-        output_dir = production_results
+    output_dir = Path(args.output_dir) if args.output_dir else storage_dir / "results_doppler"
     cloud_dist_dir = None
     if args.cloud_dist_dir:
         cloud_dist_dir = Path(args.cloud_dist_dir)
-    elif args.telluric_doppler and output_dir != production_results:
+    elif output_dir != production_results:
         cloud_dist_dir = production_results
-    extra_fits = args.extra_fits or args.telluric_doppler
-    if args.telluric_doppler:
-        logger.info(f"Telluric-Doppler test variant: results -> {output_dir}, "
-                    f"cloud distances <- {cloud_dist_dir or output_dir}")
+    if args.single_fit or args.extra_fits:
+        logger.warning("--single-fit / --extra-fits are deprecated and ignored")
+    logger.info(f"Telluric-Doppler fits ({FIT_SCHEMA}): results -> {output_dir}, "
+                f"cloud distances <- {cloud_dist_dir or output_dir}")
     viz_dir     = Path(args.viz_dir) if args.visualize else storage_dir / "visualizations_combined"
 
     fit_workers = args.fit_workers
@@ -1054,15 +788,13 @@ def main():
         viz_dir=viz_dir,
         visualize=args.visualize,
         delete_ocofiles=args.delete_ocofiles,
-        dual_fit=not args.single_fit,
         fit_workers=fit_workers,
         lock_stale_hours=args.lock_stale_hours,
         tau_wait_minutes=args.tau_wait_minutes,
         orbits=args.orbit,
         overwrite=args.overwrite,
-        telluric_doppler=args.telluric_doppler,
         cloud_dist_dir=cloud_dist_dir,
-        extra_fits=extra_fits,
+        fit_subdir=args.fit_subdir,
     )
     return 0
 

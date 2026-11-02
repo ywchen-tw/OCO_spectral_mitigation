@@ -20,7 +20,8 @@
 #     bash curc_shell_blanca_build_feature_dataset_perdate.sh
 # In this "controller" pass it counts the active dates and resubmits ITSELF as a
 # job array (--array=0-(N-1)%MAX_JOBS).  Each array task then builds ONE date's
-# parquet (results/csv_collection/combined_<date>_all_orbits.parquet) via
+# parquet (results_doppler/csv_collection/combined_<date>_all_orbits.parquet,
+# from the fit_schema doppler_am_t2_v2 fits in results_doppler/fitting_details) via
 # `python src/analysis/build_feature_dataset.py --date ...`.
 #
 # MAX_JOBS caps how many array tasks run at once (SLURM's %N throttle).
@@ -111,6 +112,12 @@ ALL=( "${DATES_20261022[@]}" )
 # ALL=( "${DATES_2020[@]}" "${DATES_2016_2020[@]}" "${DATES_EVENTS[@]}" )
 DATES=()
 while IFS= read -r d; do DATES+=("$d"); done < <(printf '%s\n' "${ALL[@]}" | awk '!seen[$0]++')
+# DATES_LIST_FILE=<file, one YYYYMMDD or YYYY-MM-DD per line, '#' comments>
+# replaces the built-in set (sbatch --export=ALL,DATES_LIST_FILE=... --array=<idx>).
+if [ -n "${DATES_LIST_FILE:-}" ]; then
+    DATES=()
+    while IFS= read -r d; do DATES+=("${d//-/}"); done < <(grep -vE '^\s*(#|$)' "$DATES_LIST_FILE")
+fi
 N=${#DATES[@]}
 
 # ── Controller pass: not inside an array task → submit the array and exit ───────

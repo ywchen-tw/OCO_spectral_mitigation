@@ -54,7 +54,8 @@ def _date_list(frame: pd.DataFrame) -> list[str]:
     return sorted(pd.to_datetime(dates).dt.strftime("%Y-%m-%d").unique().tolist())
 
 
-def _read_profile_frame(data_path: Path, target_col: str) -> pd.DataFrame:
+def _read_profile_frame(data_path: Path, target_col: str,
+                        prefixes=tuple(_PROFILE_GROUPS)) -> pd.DataFrame:
     """Read only columns needed for fold splitting, target filtering, and PCA."""
     if str(data_path).endswith(".parquet"):
         import pyarrow.parquet as pq
@@ -63,7 +64,7 @@ def _read_profile_frame(data_path: Path, target_col: str) -> pd.DataFrame:
         columns = [
             col
             for col in available
-            if any(col.startswith(prefix) for prefix in _PROFILE_GROUPS)
+            if any(col.startswith(prefix) for prefix in prefixes)
         ]
         columns += [col for col in _SCALAR_PASSTHROUGH if col in available]
         columns += [
@@ -141,6 +142,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n-components", default="4")
     parser.add_argument(
+        "--groups",
+        default="t,q,co2prior",
+        help="Comma-separated profile groups (stems of profile_pca._PROFILE_GROUPS) "
+             "to fit, e.g. 't,q' for temperature + humidity without the CO2 prior "
+             "(the no-dXCO2 sets carry no prior information).",
+    )
+    parser.add_argument(
         "--co2-norm",
         default="mean",
         choices=["none", "mean", "max"],
@@ -165,7 +173,19 @@ def main() -> None:
     target_col = resolve_target_col(args.target)
     n_components = _parse_components(args.n_components)
 
-    frame = _read_profile_frame(data_path, target_col)
+    stems = [g.strip() for g in args.groups.split(",") if g.strip()]
+    groups = {prefix: dict(spec) for prefix, spec in _PROFILE_GROUPS.items()
+              if spec["stem"] in stems}
+    unknown = set(stems) - {g["stem"] for g in groups.values()}
+    if unknown or not groups:
+        raise ValueError(f"unknown profile groups {sorted(unknown)}; choose from "
+                         f"{[g['stem'] for g in _PROFILE_GROUPS.values()]}")
+    if "co2prior_sigma_" in groups:
+        groups["co2prior_sigma_"]["norm"] = (
+            None if args.co2_norm == "none" else args.co2_norm
+        )
+
+    frame = _read_profile_frame(data_path, target_col, tuple(groups))
     if target_col not in frame.columns:
         raise ValueError(f"target column {target_col!r} is absent from {data_path}")
     frame = filter_target_outliers(frame, target_col=target_col)
@@ -175,11 +195,6 @@ def main() -> None:
         n_folds=args.n_folds,
         fold=args.fold,
         calib_frac=args.calib_frac,
-    )
-
-    groups = {prefix: dict(spec) for prefix, spec in _PROFILE_GROUPS.items()}
-    groups["co2prior_sigma_"]["norm"] = (
-        None if args.co2_norm == "none" else args.co2_norm
     )
 
     for sfc_type in (0, 1):
@@ -198,6 +213,7 @@ def main() -> None:
                 "n_folds": args.n_folds,
                 "calib_frac": args.calib_frac,
                 "target_col": target_col,
+                "groups": [g["stem"] for g in groups.values()],
                 "proper_dates": _date_list(proper_df),
                 "calib_dates": _date_list(calib_df),
                 "held_dates": _date_list(held_df),

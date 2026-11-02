@@ -33,6 +33,8 @@ from .dcn_v2 import DCNV2Regressor
 from .deep_ensemble import Z90, _make_criterion, ensemble_predict
 from .pipeline import (
     FeaturePipeline,
+    add_fit_method_arg,
+    model_output_dir,
     _ensure_derived_features,
     filter_target_outliers,
     resolve_target_col,
@@ -240,9 +242,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--sfc_type", type=int, choices=[0, 1], required=True)
     parser.add_argument(
         "--feature_set",
-        choices=["full", "no_spec"],
+        choices=["full", "no_spec", "no_co2_spec"],
         default="full",
     )
+    add_fit_method_arg(parser)
     parser.add_argument(
         "--profile-pca",
         dest="profile_pca",
@@ -310,8 +313,9 @@ def main() -> None:
     )
     run_start = time.monotonic()
     storage_dir = get_storage_dir()
-    output_root = storage_dir / "results/model_structured_dcn_ensemble"
-    output_dir = output_root / args.suffix if args.suffix else output_root
+    output_dir = model_output_dir(
+        storage_dir, "model_structured_dcn_ensemble", args.fit_method, args.suffix
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     run_id = args.suffix or datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -374,6 +378,7 @@ def main() -> None:
         sfc_type=args.sfc_type,
         feature_set=args.feature_set,
         profile_pca=profile_pca,
+        fit_method=args.fit_method,
     )
     pipeline.save(output_dir / "experimental_pipeline.pkl")
     feature_names = list(pipeline.feature_names)
@@ -580,6 +585,7 @@ def main() -> None:
         "feature_names": feature_names,
         "n_members": args.n_members,
         "feature_set": args.feature_set,
+        "fit_method": args.fit_method,
         "profile_pca": bool(profile_pca),
         "target_col": target_col,
         "loss": args.loss,
@@ -623,7 +629,7 @@ def main() -> None:
         runtime_seconds=float(time.monotonic() - run_start),
         description=(
             f"{args.backbone} ensemble M={args.n_members}, "
-            f"{args.feature_set}+profile, {args.val_split}"
+            f"{args.feature_set}+profile, fit_method={args.fit_method}, {args.val_split}"
         ),
         artifacts={
             "output_dir": os.fspath(output_dir),
@@ -637,6 +643,7 @@ def main() -> None:
             "fold": args.fold,
             "n_folds": args.n_folds,
             "feature_set": args.feature_set,
+            "fit_method": args.fit_method,
             "backbone": args.backbone,
             "seed": args.seed,
             "loss": args.loss,

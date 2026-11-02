@@ -12,6 +12,11 @@ Colors: Okabe–Ito (CVD-safe), DE kept at the same blue as
 smoother_null_figure.py so the deep ensemble is one hue across the paper.
 
 Usage:  python workspace/feature_importance_figure.py [--top 12]
+        (2026-11-02) single-model run on another FI tree, e.g. the tuned XGBoost:
+        python workspace/feature_importance_figure.py --models xgb \
+            --fi-dir <...>/feature_importance_fm1620k5v2xt41_no_xco2_sig_shape \
+            --out-dir <dir> --model-label xgb=XGBoost
+        (defaults reproduce the 3-model DE/XGB/Ridge figures)
 """
 from __future__ import annotations
 
@@ -33,6 +38,11 @@ FI_DIR = Path(__file__).parents[1] / "results/model_comparison/feature_importanc
 MODELS = [("de", "Deep ensemble", "#0072B2"),
           ("xgb", "XGBoost (mean)", "#D55E00"),
           ("linreg", "Ridge", "#009E73")]
+# Extra models selectable with --models (not in the default set).
+EXTRA_MODELS = {"tabm": ("tabm", "TabM", "#CC79A7")}
+# Model whose global ΔRMSE sets the row order (--rank-by; default DE).
+RANK_BY = "de"
+RANK_NAME = {"de": "deep ensemble", "xgb": "XGBoost", "linreg": "Ridge", "tabm": "TabM"}
 STRATA = [("global", "all held soundings"),
           ("nearcloud", "near-cloud (≤ 10 km)")]
 # Fixed display names for the blocks (order set per surface by DE global ΔRMSE).
@@ -103,7 +113,7 @@ def _disp(name: str) -> str:
 
 
 def _load(surface: str, model: str) -> pd.DataFrame:
-    p = FI_DIR / surface / f"importance_{model}_{surface}_agg.csv"
+    p = Path(FI_DIR) / surface / f"importance_{model}_{surface}_agg.csv"
     if not p.is_file():
         raise SystemExit(f"missing {p} — run models.feature_importance --aggregate first")
     return pd.read_csv(p)
@@ -139,7 +149,7 @@ def figure_groups(out_dir: Path) -> None:
     tags = iter(["(a)", "(b)", "(c)", "(d)"])
     for i, surface in enumerate(("ocean", "land")):
         data = {mk: _load(surface, mk) for mk, _, _ in MODELS}
-        g0 = data["de"]
+        g0 = data[RANK_BY]
         order = (g0[(g0.stratum == "global") & (g0.scope == "group")]
                  .sort_values("delta_rmse", ascending=False)["name"].tolist())
         for k, (stratum, sub) in enumerate(STRATA):
@@ -170,7 +180,7 @@ def figure_features(surface: str, out_dir: Path, top: int,
     _nogroup) for a leaner supplement layout.
     """
     data = {mk: _load(surface, mk) for mk, _, _ in MODELS}
-    g0 = data["de"]
+    g0 = data[RANK_BY]
     order = (g0[(g0.stratum == "global") & (g0.scope == "feature")]
              .sort_values("delta_rmse", ascending=False)["name"].tolist()[:top])
     grp = (g0[g0.scope == "feature"].drop_duplicates("name")
@@ -208,7 +218,7 @@ def figure_table(surface: str, out_dir: Path, top: int = 20) -> None:
     column per model, cells shaded by value (single-hue sequential, one scale
     for the whole table so the three models are directly comparable)."""
     data = {mk: _load(surface, mk) for mk, _, _ in MODELS}
-    g0 = data["de"]
+    g0 = data[RANK_BY]
     order = (g0[(g0.stratum == "global") & (g0.scope == "feature")]
              .sort_values("delta_rmse", ascending=False)["name"].tolist()[:top])
     grp = (g0[g0.scope == "feature"].drop_duplicates("name")
@@ -271,7 +281,7 @@ def figure_table(surface: str, out_dir: Path, top: int = 20) -> None:
 
     ax.set_title(f"Top {top} features by permutation $\\Delta$RMSE (ppm) — "
                  f"{surface}, all held soundings\n"
-                 "(ranked by deep ensemble; median over 5 folds ± fold sd)",
+                 f"(ranked by {RANK_NAME.get(RANK_BY, RANK_BY)}; median over 5 folds ± fold sd)",
                  fontsize=8.6, loc="left", pad=10)
     fig.tight_layout()
     for ext in ("png", "pdf"):
@@ -335,12 +345,38 @@ def figure_table_permodel(surface: str, out_dir: Path, top: int = 20) -> None:
 
 
 def main() -> None:
+    global FI_DIR, MODELS, RANK_BY
     parser = argparse.ArgumentParser(description="Feature-importance manuscript figures")
     parser.add_argument("--top", type=int, default=12,
                         help="features in the per-feature panels (ranked by DE global)")
+    # 2026-11-02 options; the defaults reproduce the 3-model DE/XGB/Ridge figures
+    parser.add_argument("--fi-dir", type=Path, default=None,
+                        help=f"FI tree with {{ocean,land}}/importance_<model>_<surface>_agg.csv "
+                             f"(default {FI_DIR})")
+    parser.add_argument("--out-dir", type=Path, default=None,
+                        help="output dir (default: the FI dir)")
+    parser.add_argument("--models", default="de,xgb,linreg",
+                        help="comma-separated models, bar order (de, xgb, linreg, tabm)")
+    parser.add_argument("--rank-by", default=None,
+                        help="model whose global ΔRMSE orders the rows "
+                             "(default: de if selected, else the first model)")
+    parser.add_argument("--model-label", action="append", default=[], metavar="KEY=TEXT",
+                        help="legend/header text of a model, e.g. xgb=XGBoost")
     args = parser.parse_args()
+    if args.fi_dir is not None:
+        FI_DIR = args.fi_dir
+    catalog = {mk: (mk, lab, col) for mk, lab, col in MODELS}
+    catalog.update(EXTRA_MODELS)
+    keys = [k.strip() for k in args.models.split(",") if k.strip()]
+    bad = [k for k in keys if k not in catalog]
+    if bad:
+        raise SystemExit(f"unknown model(s) {bad}; choose from {sorted(catalog)}")
+    labels = dict(kv.split("=", 1) for kv in args.model_label)
+    MODELS = [(k, labels.get(k, catalog[k][1]), catalog[k][2]) for k in keys]
+    RANK_BY = args.rank_by or ("de" if "de" in keys else keys[0])
     apply_manuscript_style(base_size=8.5)
-    out_dir = FI_DIR
+    out_dir = Path(args.out_dir) if args.out_dir is not None else Path(FI_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
     figure_groups(out_dir)
     for surface in ("ocean", "land"):
         figure_features(surface, out_dir, args.top, show_group=True)

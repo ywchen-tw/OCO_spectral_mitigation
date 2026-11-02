@@ -280,8 +280,8 @@ def _fit_t2(td, tw, y):
     """Two-tau order-2 model, no continuum: ln T = c − k1_dry·τ_dry − k1_w·τ_h2o + ½k2·τ²."""
     t = td + tw
     c, rms, se = _lin_se([np.ones_like(td), -td, -tw, 0.5 * t**2], y)
-    return {"k1_dry_t2": c[1], "k1w_t2": c[2], "k2_t2": c[3], "rms_t2": rms,
-            "sig_k1_dry_t2": se[1], "sig_k1w_t2": se[2], "sig_k2_t2": se[3]}
+    return {"k1_dry_t2": c[1], "k1w_t2": c[2], "k2_t2": c[3], "c_t2": c[0], "rms_t2": rms,
+            "sig_k1_dry_t2": se[1], "sig_k1w_t2": se[2], "sig_k2_t2": se[3], "sig_c_t2": se[0]}
 
 
 def _am_nan():
@@ -430,7 +430,8 @@ def _extra_fit_chunk(j_indices, tau_slab, lnT_slab, fit_orders, frac_slab=None, 
             x = (pos - _X_HALF) / _X_HALF
             try:
                 for name, val in _fit_t2(td, tw, y_raw).items():
-                    row[_EXTRA_INDEX[name]] = val
+                    if name in _EXTRA_INDEX:      # c_t2 / sig_c_t2 are FIT_FIELDS-only
+                        row[_EXTRA_INDEX[name]] = val
             except (np.linalg.LinAlgError, ValueError):
                 pass
             land = bool(land_chunk[jl]) if land_chunk is not None else False
@@ -447,6 +448,115 @@ def _extra_fit_chunk(j_indices, tau_slab, lnT_slab, fit_orders, frac_slab=None, 
             for name, val in am.items():
                 row[_EXTRA_INDEX[name]] = val
     return j_indices, extras
+
+
+# ─── Doppler-variant fit set (fitting.py since 2026-10-31) ───────────────────
+# All fits on the raw ln T (no smoothing) of the telluric-Doppler tau file;
+# stored as <band>_<field> in fitting_details.  Every fitted coefficient has a
+# 1-sigma sig_* (formal, residual-scaled: see _cov_se).  Unlike EXTRA_FIT_FIELDS
+# (kept for the older _nosg files) the intercepts c_o2 / c_o3 / c_t2 and their
+# errors are stored, sig_k3_o3 is added, and exp_int_am = exp(c_am) with
+# sig_exp_int_am = exp(c_am)·sig_c_am.  Parameters fixed or absent by design
+# (k2_am of O2A/WCO2, k1w_am of O2A, f_am outside O2A, a2_am outside SCO2 land)
+# have NaN errors (k2_am itself is 0 where fixed).
+# v2 (2026-11-01): same fields; the SCO2 x² (a2_am) land design now follows the
+# Lite surface_type rule, land_fraction >= 80 (orbit_data.LAND_FRACTION_THRESHOLD;
+# v1 used > 90).  v2 files are in <results>/fitting_details (fitting.FIT_SUBDIR; the v1
+# files were deleted 2026-11-01).
+FIT_SCHEMA = "doppler_am_t2_v2"
+FIT_FIELDS = (
+    "nchan",
+    # unconstrained cumulant orders 2 and 3: ln T = c − k1·τ + ½k2·τ² (− ⅓k3·τ³)
+    "k1_o2", "k2_o2", "c_o2", "rms_o2", "sig_k1_o2", "sig_k2_o2", "sig_c_o2",
+    "k1_o3", "k2_o3", "k3_o3", "c_o3", "rms_o3",
+    "sig_k1_o3", "sig_k2_o3", "sig_k3_o3", "sig_c_o3",
+    # two-tau order-2 (T2)
+    "k1_dry_t2", "k1w_t2", "k2_t2", "c_t2", "rms_t2",
+    "sig_k1_dry_t2", "sig_k1w_t2", "sig_k2_t2", "sig_c_t2",
+    # agreed model (AM)
+    "k1_am", "k1w_am", "k2_am", "a1_am", "a2_am", "f_am", "c_am", "exp_int_am",
+    "rms_am", "k2diag_am", "ok_am",
+    "sig_k1_am", "sig_k1w_am", "sig_k2_am", "sig_a1_am", "sig_a2_am", "sig_f_am",
+    "sig_c_am", "sig_exp_int_am", "sig_k2diag_am",
+)
+_FIT_INDEX = {name: i for i, name in enumerate(FIT_FIELDS)}
+
+
+def _doppler_fit_chunk(j_indices, tau_slab, lnT_slab, frac_slab, land_chunk=None):
+    """FIT_FIELDS for a chunk of soundings, all bands (worker-safe).
+
+    Parameters
+    ----------
+    j_indices  : [m] global sounding indices
+    tau_slab   : [3, m, n_chan] band tau, edge channels already excluded ([1:-1])
+    lnT_slab   : [3, m, n_chan] raw ln T, same channels
+    frac_slab  : [3, m, n_chan] H2O fraction of τ (<band>_frac_h2o, NaN → 0)
+    land_chunk : [m] bool land mask (SCO2 x² term), None → all water
+
+    Channels with finite ln T and τ are used, sorted by τ.  Orders 2/3 need
+    ≥ 5 channels, _t2/_am ≥ 8 (x as in _extra_fit_chunk).  Bands: 0 = O2A,
+    1 = WCO2, 2 = SCO2.  Returns (j_indices, fits [3, m, len(FIT_FIELDS)]), NaN
+    on failure.
+    """
+    m = len(j_indices)
+    fits = np.full((3, m, len(FIT_FIELDS)), np.nan)
+    for jl in range(m):
+        for i_band in range(3):
+            tau_j = np.asarray(tau_slab[i_band, jl], dtype=np.float64)
+            ln_j  = np.asarray(lnT_slab[i_band, jl], dtype=np.float64)
+            mask = ~np.isnan(ln_j) & ~np.isnan(tau_j)
+            n = int(mask.sum())
+            row = fits[i_band, jl]
+            row[_FIT_INDEX["nchan"]] = n
+            if n < 5:
+                continue
+            tau_m = tau_j[mask]
+            sort_idx = np.argsort(tau_m)
+            tau_s = tau_m[sort_idx]
+            y_raw = ln_j[mask][sort_idx]
+            for order, tag in ((2, "o2"), (3, "o3")):
+                try:
+                    coef, sig, rms = _unconstrained_fit_stats(get_design_matrix(tau_s, order), y_raw)
+                except (np.linalg.LinAlgError, ValueError):
+                    continue
+                row[_FIT_INDEX[f"c_{tag}"]] = coef[0]
+                row[_FIT_INDEX[f"sig_c_{tag}"]] = sig[0]
+                for k in range(1, order + 1):
+                    row[_FIT_INDEX[f"k{k}_{tag}"]] = coef[k]
+                    row[_FIT_INDEX[f"sig_k{k}_{tag}"]] = sig[k]
+                row[_FIT_INDEX[f"rms_{tag}"]] = rms
+
+            if n < _AM_MIN_CHAN:
+                continue
+            frac = np.asarray(frac_slab[i_band, jl], dtype=np.float64)[mask][sort_idx]
+            frac = np.where(np.isfinite(frac), frac, 0.0)
+            tw = frac * tau_s
+            td = tau_s - tw
+            pos = np.flatnonzero(mask)[sort_idx] + _SLAB_CHANNEL_OFFSET
+            x = (pos - _X_HALF) / _X_HALF
+            try:
+                for name, val in _fit_t2(td, tw, y_raw).items():
+                    row[_FIT_INDEX[name]] = val
+            except (np.linalg.LinAlgError, ValueError):
+                pass
+            land = bool(land_chunk[jl]) if land_chunk is not None else False
+            try:
+                if i_band == 0:
+                    am = _fit_am_o2a(tau_s, x, y_raw)
+                elif i_band == 1:
+                    am = _fit_am_wco2(td, tw, x, y_raw)
+                else:
+                    am = _fit_am_sco2(td, tw, x, y_raw, land)
+            except (np.linalg.LinAlgError, ValueError):
+                am = _am_nan()
+                am["ok_am"] = 0.0
+            for name, val in am.items():
+                row[_FIT_INDEX[name]] = val
+            with np.errstate(over="ignore", invalid="ignore"):
+                row[_FIT_INDEX["exp_int_am"]] = np.exp(row[_FIT_INDEX["c_am"]])
+                row[_FIT_INDEX["sig_exp_int_am"]] = (row[_FIT_INDEX["exp_int_am"]]
+                                                    * row[_FIT_INDEX["sig_c_am"]])
+    return j_indices, fits
 
 
 def _fit_chunk(j_indices, tau_slab, lnT_slab, fit_orders, dual_fit):

@@ -36,19 +36,26 @@ from abs_util.ils_tau import TAU_CONVOLUTION_VERSION, tau_convolution_version  #
 logger = logging.getLogger(__name__)
 
 
-LAND_FRACTION_THRESHOLD = 90.0   # percent; L1B sounding_land_fraction > 90 → land
+# percent; L1B sounding_land_fraction >= 80 → land.  This is the ACOS L2 rule:
+# in the Lite files Retrieval/surface_type = 1 (land) exactly when
+# Sounding/land_fraction >= 80 and 0 (ocean) when <= 20 (mixed 20-80 footprints
+# are not retrieved), checked on 1.8 M soundings of 12 random 2016-2019 Lite files
+# (2026-11-01).  Until fit_schema doppler_am_t2_v1 the threshold was > 90, so the
+# 80-90 % land soundings (lake/wetland country, coasts) got the water design and
+# NaN sco2_a2_am although the L2 retrieval (and the model's sfc_type) calls them land.
+LAND_FRACTION_THRESHOLD = 80.0
 
 
 def land_mask_from_fraction(frac, fill=-999999):
     """Land mask from the L1B ``SoundingGeometry/sounding_land_fraction`` (percent).
 
-    True where the fraction exceeds LAND_FRACTION_THRESHOLD; fill values
-    (``fill``) and non-finite values are False.
+    True where the fraction is at least LAND_FRACTION_THRESHOLD (= the Lite
+    surface_type rule); fill values (``fill``) and non-finite values are False.
     """
     frac = np.asarray(frac, dtype=np.float64)
     ok = np.isfinite(frac) & (frac != fill)
     with np.errstate(invalid="ignore"):
-        return ok & (frac > LAND_FRACTION_THRESHOLD)
+        return ok & (frac >= LAND_FRACTION_THRESHOLD)
 
 
 # ─── Shared data loading (once per date) ──────────────────────────────────────

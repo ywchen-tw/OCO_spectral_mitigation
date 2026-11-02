@@ -13,6 +13,7 @@ Eval/plots:     evaluate_model_X_text, plot_evaluation_by_regime,
                 plot_permutation_importance
 """
 
+import gc
 import os
 import logging
 import numpy as np
@@ -20,6 +21,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
+try:
+    from tqdm import tqdm
+except ImportError:  # progress bar only
+    def tqdm(it, **_kw):
+        return it
 
 from .pipeline import compute_xco2_anomaly_date_id
 

@@ -183,57 +183,62 @@ def compute_ak_columns(combined):
     return cols
 
 
-# Clear-sky reference statistics of the unsmoothed fit, written by
-# spectral.fitting when dual_fit is on: {ref,r05,r15} x {k1,k2,k3,exp_int} x band.
-# Same names as the analysis.nosg_reference sidecar, which read_combined uses as
-# the fallback for parquets built before these were stored.
-NOSG_REF_KEYS = [
-    f'{_p}_{_stem}_nosg_{_s}'
-    for _p in ('ref', 'r05', 'r15')
-    for _b in ('o2a', 'wco2', 'sco2')
-    for _stem in (f'{_b}_k1', f'{_b}_k2', f'{_b}_k3', f'exp_int_{_b}')
-    for _s in ('mean', 'std')
-]
+# ─── Spectral-fit fields (fit_schema doppler_am_t2_v1, spectral.fitting since 2026-10-31) ───
+# fitting_details.h5 stores, per band, every name of spectral.cumulant_fit.FIT_FIELDS
+# as <band>_<field>: order-2/3 cumulant fits (_o2, _o3), the two-tau fit (_t2) and
+# the agreed model (_am, plus exp_int_am), each coefficient with its formal 1-sigma
+# sig_<field>; all on the telluric+solar-Doppler tau and raw ln T (no smoothing).
+# Clear-sky reference statistics: {ref,r15,r05}_<band>_<field>_{mean,std} for the
+# _am/_t2 coefficients, {ref,r15,r05}_alb_<band>_{mean,std} and {ref,r15,r05}_n.
+# Both groups are passed through to the parquet under their file names.
+# The production-order k*_fitting / _nosg / kappa fields of older files are gone
+# (backup of the reader for them: build_feature_dataset_backup_20261031.py).
+FIT_SCHEMA = 'doppler_am_t2_v2'    # = spectral.cumulant_fit.FIT_SCHEMA
+# v2 (2026-11-01): SCO2 x² land design on land_fraction >= 80 (Lite surface_type rule);
+# the v2 fits live in <result_dir>/fitting_details (= spectral.fitting.FIT_SUBDIR; the v1
+# fits were deleted and fitting_details_v2 renamed to fitting_details on 2026-11-01).
+FIT_SUBDIR = 'fitting_details'
+FIT_BANDS = ('o2a', 'wco2', 'sco2')
+REF_PREFIXES = ('ref', 'r15', 'r05')
+# Agreed-model terms a band's model does not have (always NaN or fixed 0 in the
+# file; see cumulant_fit._fit_am_*): not written.  SCO2 a2_am is land-only (NaN
+# over ocean) and is kept.
+AM_UNUSED = {
+    'o2a':  ('k1w_am', 'k2_am', 'a2_am'),
+    'wco2': ('k2_am', 'f_am', 'a2_am'),
+    'sco2': ('f_am',),
+}
+
+
+def _is_fit_key(key):
+    """True for a per-band fit field or a reference statistic of the fit file."""
+    band, _, field = key.partition('_')
+    if band in FIT_BANDS:
+        return field.removeprefix('sig_') not in AM_UNUSED[band]
+    return band in REF_PREFIXES
 
 
 def load_output_dict(filepath):
     """Load one orbit's fitting_details.h5 written by process_orbit().
 
-    Returns a flat dict with all per-band kappa arrays plus shared variables.
-    Keys that are absent from the file are silently skipped.
+    Returns a flat dict with the shared per-sounding variables listed below plus
+    every fit field and reference statistic (_is_fit_key).  Keys that are absent
+    from the file are silently skipped.  Returns None for a file written under
+    another fit schema (not yet refit), whose fields would not line up.
     """
     keys = [
         # basic identifiers
         'date', 'time', 'orbit_id',
-        # Cumulant coefficients (per band)
-        'o2a_k1_fitting', 'o2a_k2_fitting', 'o2a_k3_fitting',
-        'o2a_k4_fitting', 'o2a_k5_fitting', 'o2a_intercept_fitting',
-        'wco2_k1_fitting', 'wco2_k2_fitting', 'wco2_k3_fitting',
-        'wco2_k4_fitting', 'wco2_k5_fitting', 'wco2_intercept_fitting',
-        'sco2_k1_fitting', 'sco2_k2_fitting', 'sco2_k3_fitting',
-        'sco2_k4_fitting', 'sco2_k5_fitting', 'sco2_intercept_fitting',
-        'o2a_kappa', 'wco2_kappa', 'sco2_kappa',   # gamma shape κ = k1²/k2
-        'exp_intercept_o2a', 'exp_intercept_wco2', 'exp_intercept_sco2',
-        # Reference clear-sky statistics
-        'ref_o2a_k1_mean', 'ref_o2a_k1_std', 'ref_o2a_k2_mean', 'ref_o2a_k2_std',
-        'ref_o2a_k3_mean', 'ref_o2a_k3_std',
-        'ref_wco2_k1_mean', 'ref_wco2_k1_std', 'ref_wco2_k2_mean', 'ref_wco2_k2_std',
-        'ref_wco2_k3_mean', 'ref_wco2_k3_std',
-        'ref_sco2_k1_mean', 'ref_sco2_k1_std', 'ref_sco2_k2_mean', 'ref_sco2_k2_std',
-        'ref_sco2_k3_mean', 'ref_sco2_k3_std',
-        'ref_alb_o2a_mean', 'ref_alb_o2a_std', 'ref_alb_wco2_mean', 'ref_alb_wco2_std',
-        'ref_alb_sco2_mean', 'ref_alb_sco2_std',
-        'ref_exp_int_o2a_mean', 'ref_exp_int_o2a_std',
-        'ref_exp_int_wco2_mean', 'ref_exp_int_wco2_std',
-        'ref_exp_int_sco2_mean', 'ref_exp_int_sco2_std',
         # Geometry
         'lon', 'lat', 'sza', 'vza', 'mu_sza', 'mu_vza', 'fp_number', 'fp_id', 'fp_area_km2',
         # Cloud proximity
         'cld_dist_km',
         'weighted_cloud_dist_km',
-        # XCO2
+        # XCO2 (anomalies against the ref / r15 / r05 clear-sky pools)
         'xco2_apriori',
         'xco2_bc', 'xco2_raw', 'xco2_bc_anomaly', 'xco2_raw_anomaly',
+        'xco2_raw_anomaly_r15', 'xco2_bc_anomaly_r15',
+        'xco2_raw_anomaly_r05', 'xco2_bc_anomaly_r05',
         # Lite retrieval variables
         'psfc', 'airmass', 'delT', 'dp', 'dp_o2a', 'dp_sco2', 'co2_grad_del',
         'alb_o2a', 'alb_wco2', 'alb_sco2', 'aod_total', 'fs_rel',
@@ -255,57 +260,30 @@ def load_output_dict(filepath):
         'glint_angle', 'pol_angle', 'saa', 'vaa',
         # additional Lite variables that may be missing from older output files but are needed for consistency in the combined DataFrame
         "s31", "s32", "snow_flag", "t700", "tcwv", "operation_mode", "water_height",
-        # spectral-fit-quality diagnostics (Tier-A cloud-contamination candidates;
-        # absent in older fitting_details.h5 → skipped via `if key in f`)
+        # spectral-fit-quality diagnostics (Tier-A cloud-contamination candidates)
         "chi2_o2a", "chi2_wco2", "chi2_sco2",
         "rms_rel_o2a", "rms_rel_wco2", "rms_rel_sco2",
         "eof3_1_rel", "diverging_steps", "xco2_uncertainty",
         # Raw native-grid atmospheric profiles + pressure grid + surface pressure
         # (2-D [N, n_lev]); resampled to the sigma grid by compute_sigma_profile_columns.
-        # Absent in older files → skipped, and the sigma columns are simply not built.
         "t_profile", "q_profile", "co2prior_profile", "p_profile", "psurf_met",
         "tropopause_pressure", "tropopause_temp",
-        # No-Savitzky-Golay parallel fit (dual_fit) — absent in older files
-        'o2a_k1_fitting_nosg', 'o2a_k2_fitting_nosg', 'o2a_k3_fitting_nosg',
-        'o2a_k4_fitting_nosg', 'o2a_k5_fitting_nosg', 'o2a_intercept_fitting_nosg',
-        'wco2_k1_fitting_nosg', 'wco2_k2_fitting_nosg', 'wco2_k3_fitting_nosg',
-        'wco2_k4_fitting_nosg', 'wco2_k5_fitting_nosg', 'wco2_intercept_fitting_nosg',
-        'sco2_k1_fitting_nosg', 'sco2_k2_fitting_nosg', 'sco2_k3_fitting_nosg',
-        'sco2_k4_fitting_nosg', 'sco2_k5_fitting_nosg', 'sco2_intercept_fitting_nosg',
         # 20-level Lite column operator (2-D [N, 20]) for TCCON AK/prior
         # harmonization — flattened to ak_NN/pwf_NN/co2_ap_NN/plev_NN columns
-        # by compute_ak_columns; absent in older files
+        # by compute_ak_columns
         "xco2_averaging_kernel", "pressure_weight", "co2_profile_apriori",
         "pressure_levels",
-        # r15 reference set (min_cld_dist=15 km)
-        'xco2_raw_anomaly_r15', 'xco2_bc_anomaly_r15',
-        'r15_o2a_k1_mean', 'r15_o2a_k1_std', 'r15_o2a_k2_mean', 'r15_o2a_k2_std',
-        'r15_o2a_k3_mean', 'r15_o2a_k3_std',
-        'r15_wco2_k1_mean', 'r15_wco2_k1_std', 'r15_wco2_k2_mean', 'r15_wco2_k2_std',
-        'r15_wco2_k3_mean', 'r15_wco2_k3_std',
-        'r15_sco2_k1_mean', 'r15_sco2_k1_std', 'r15_sco2_k2_mean', 'r15_sco2_k2_std',
-        'r15_sco2_k3_mean', 'r15_sco2_k3_std',
-        'r15_alb_o2a_mean', 'r15_alb_o2a_std', 'r15_alb_wco2_mean', 'r15_alb_wco2_std',
-        'r15_alb_sco2_mean', 'r15_alb_sco2_std',
-        'r15_exp_int_o2a_mean', 'r15_exp_int_o2a_std',
-        'r15_exp_int_wco2_mean', 'r15_exp_int_wco2_std',
-        'r15_exp_int_sco2_mean', 'r15_exp_int_sco2_std',
-        # r05 reference set (min_cld_dist=5 km)
-        'xco2_raw_anomaly_r05', 'xco2_bc_anomaly_r05',
-        'r05_o2a_k1_mean', 'r05_o2a_k1_std', 'r05_o2a_k2_mean', 'r05_o2a_k2_std',
-        'r05_o2a_k3_mean', 'r05_o2a_k3_std',
-        'r05_wco2_k1_mean', 'r05_wco2_k1_std', 'r05_wco2_k2_mean', 'r05_wco2_k2_std',
-        'r05_wco2_k3_mean', 'r05_wco2_k3_std',
-        'r05_sco2_k1_mean', 'r05_sco2_k1_std', 'r05_sco2_k2_mean', 'r05_sco2_k2_std',
-        'r05_sco2_k3_mean', 'r05_sco2_k3_std',
-        'r05_alb_o2a_mean', 'r05_alb_o2a_std', 'r05_alb_wco2_mean', 'r05_alb_wco2_std',
-        'r05_alb_sco2_mean', 'r05_alb_sco2_std',
-        'r05_exp_int_o2a_mean', 'r05_exp_int_o2a_std',
-        'r05_exp_int_wco2_mean', 'r05_exp_int_wco2_std',
-        'r05_exp_int_sco2_mean', 'r05_exp_int_sco2_std',
-    ] + NOSG_REF_KEYS   # unsmoothed-fit reference statistics (dual_fit-era files)
+    ]
     with h5py.File(filepath, 'r') as f:
+        schema = f.attrs.get('fit_schema')
+        if isinstance(schema, bytes):
+            schema = schema.decode()
+        if schema != FIT_SCHEMA:
+            logger.warning("%s: fit_schema %r, expected %r — skipped",
+                           filepath, schema, FIT_SCHEMA)
+            return None
         out = {key: f[key][()] for key in keys if key in f}
+        out.update({key: f[key][()] for key in f if _is_fit_key(key)})
         if 'sounding_id' in f and 'weighted_cloud_dist_km' not in out:
             n = len(f['sounding_id'])
             out['weighted_cloud_dist_km'] = np.full(n, np.nan)
@@ -317,14 +295,20 @@ def main():
     fdir = '.'
     
 def raw_processing_single_date(result_dir, date, orbit_id=None):
-    """Load fitting results for all orbits, build combined DataFrame, run analysis.
+    """Combine one date's (or one orbit's) fitting_details.h5 into a feature parquet.
 
     Parameters
     ----------
-    sat : dict
-        Pipeline state from preprocess() with keys: 'date', 'result_dir', 'orbit_list'.
-    reference_csv : str or None
-        Optional path to a CSV from a reference scene for cross-scene mitigation.
+    result_dir : str or Path
+        Fit output root holding fitting_details/ (results_doppler); the parquet
+        goes to <result_dir>/csv_collection/.
+    date : str
+        YYYY-MM-DD.
+    orbit_id : str or None
+        One orbit only; None combines all orbits of the date.
+
+    A date with any orbit not yet refit under FIT_SCHEMA is not written, so a
+    parquet never mixes fit schemas or misses orbits; rerun after the refit.
     """
     
     output_dir = f"{result_dir}/csv_collection"
@@ -333,18 +317,28 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     # ── Collect and concatenate data across all orbits ─────────────────────────
     all_data = []
     if date is not None and orbit_id is None:
-        h5_output_dir = f"{result_dir}/fitting_details"
+        h5_output_dir = f"{result_dir}/{FIT_SUBDIR}"
         h5_files = glob.glob(os.path.join(h5_output_dir, f"fitting_details_{date}_*.h5"))
-        for filepath in h5_files:
-            if os.path.exists(filepath):
-                all_data.append(load_output_dict(filepath))
+        stale = []
+        for filepath in sorted(h5_files):
+            d = load_output_dict(filepath)
+            if d is None:
+                stale.append(os.path.basename(filepath))
             else:
-                print(f"File not found: {filepath}")
+                all_data.append(d)
+        if stale:
+            print(f"{date}: {len(stale)} orbit(s) not yet refit under fit_schema "
+                  f"{FIT_SCHEMA} ({', '.join(stale)}) — date skipped")
+            return
     elif date is not None and orbit_id is not None:
-        h5_output_dir = f"{result_dir}/fitting_details"
+        h5_output_dir = f"{result_dir}/{FIT_SUBDIR}"
         filepath = f"{h5_output_dir}/fitting_details_{date}_{orbit_id}.h5"
         if os.path.exists(filepath):
-            all_data.append(load_output_dict(filepath))
+            d = load_output_dict(filepath)
+            if d is None:
+                print(f"{filepath}: not yet refit under fit_schema {FIT_SCHEMA} — skipped")
+                return
+            all_data.append(d)
         else:
             print(f"File not found: {filepath}")
     else:
@@ -380,29 +374,6 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
         'lat': combined['lat'],
         'sza': combined['sza'],
         'vza': combined['vza'],
-        # Per-band kappa coefficients (short names for downstream use)
-        'o2a_intercept': combined['o2a_intercept_fitting'],
-        'wco2_intercept': combined['wco2_intercept_fitting'],
-        'sco2_intercept': combined['sco2_intercept_fitting'],
-        'o2a_k1': combined['o2a_k1_fitting'],
-        'o2a_k2': combined['o2a_k2_fitting'],
-        'o2a_k3': combined['o2a_k3_fitting'],
-        'o2a_k4': combined['o2a_k4_fitting'],
-        'o2a_k5': combined['o2a_k5_fitting'],
-        'wco2_k1': combined['wco2_k1_fitting'],
-        'wco2_k2': combined['wco2_k2_fitting'],
-        'wco2_k3': combined['wco2_k3_fitting'],
-        'wco2_k4': combined['wco2_k4_fitting'],
-        'wco2_k5': combined['wco2_k5_fitting'],
-        'sco2_k1': combined['sco2_k1_fitting'],
-        'sco2_k2': combined['sco2_k2_fitting'],
-        'sco2_k3': combined['sco2_k3_fitting'],
-        'sco2_k4': combined['sco2_k4_fitting'],
-        'sco2_k5': combined['sco2_k5_fitting'],
-        # Gamma shape parameter κ = k1²/k2 per band
-        'o2a_kappa':  combined['o2a_kappa'],
-        'wco2_kappa': combined['wco2_kappa'],
-        'sco2_kappa': combined['sco2_kappa'],
         # XCO2
         'xco2_apriori':     combined.get('xco2_apriori'),
         'xco2_bc':          xco2_bc,
@@ -540,35 +511,34 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['pol_ang_rad'] = np.radians(combined.get('pol_angle'))  # Convert polarization angle to radians
     
     
-    final_dict['o2a_k2_over_k1'] = combined.get('o2a_k2_fitting') / combined.get('o2a_k1_fitting')
-    final_dict['wco2_k2_over_k1'] = combined.get('wco2_k2_fitting') / combined.get('wco2_k1_fitting')
-    final_dict['sco2_k2_over_k1'] = combined.get('sco2_k2_fitting') / combined.get('sco2_k1_fitting')    
-    
-    final_dict['exp_o2a_intercept'] = np.exp(combined.get('o2a_intercept_fitting'))
-    final_dict['exp_wco2_intercept'] = np.exp(combined.get('wco2_intercept_fitting'))
-    final_dict['exp_sco2_intercept'] = np.exp(combined.get('sco2_intercept_fitting'))
-    
-    final_dict['o2a_exp_intercept-alb'] = np.exp(combined.get('o2a_intercept_fitting')) - combined.get('alb_o2a')
-    final_dict['wco2_exp_intercept-alb'] = np.exp(combined.get('wco2_intercept_fitting')) - combined.get('alb_wco2')
-    final_dict['sco2_exp_intercept-alb'] = np.exp(combined.get('sco2_intercept_fitting')) - combined.get('alb_sco2')
-    
-    final_dict['o2a_exp_intercept_over_alb'] = np.exp(combined.get('o2a_intercept_fitting')) / combined.get('alb_o2a')
-    final_dict['wco2_exp_intercept_over_alb'] = np.exp(combined.get('wco2_intercept_fitting')) / combined.get('alb_wco2')
-    final_dict['sco2_exp_intercept_over_alb'] = np.exp(combined.get('sco2_intercept_fitting')) / combined.get('alb_sco2')
+    # Fit fields and reference statistics, under their fitting_details names
+    # (<band>_<field>, <band>_sig_<field>, {ref,r15,r05}_*; see FIT_SCHEMA notes).
+    for _k in combined:
+        if _is_fit_key(_k):
+            final_dict[_k] = combined[_k]
 
-    # ── cross-band ratios (wco2/o2a, sco2/o2a, sco2/wco2) for three quantities:
-    #    albedo, exp_intercept, and (exp_intercept − alb). Isolate band-to-band
-    #    shape changes that a single-band profile cannot reveal. ───────────────
-    _alb = {b: combined.get(f'alb_{b}') for b in ('o2a', 'wco2', 'sco2')}
-    _exp = {b: np.exp(combined.get(f'{b}_intercept_fitting')) for b in ('o2a', 'wco2', 'sco2')}
-    _ema = {b: _exp[b] - _alb[b] for b in ('o2a', 'wco2', 'sco2')}
+    # k2/k1 curvature ratio: order-2 cumulant fit for every band; agreed model with
+    # its free k2 (SCO2 k2_am; O2A and WCO2 fix k2 = 0, so their k2diag_am).
+    for _band in FIT_BANDS:
+        final_dict[f'{_band}_k2_over_k1_o2'] = combined[f'{_band}_k2_o2'] / combined[f'{_band}_k1_o2']
+    final_dict['o2a_k2diag_over_k1_am'] = combined['o2a_k2diag_am'] / combined['o2a_k1_am']
+    final_dict['wco2_k2diag_over_k1_am'] = combined['wco2_k2diag_am'] / combined['wco2_k1_am']
+    final_dict['sco2_k2_over_k1_am'] = combined['sco2_k2_am'] / combined['sco2_k1_am']
+
+    # Continuum level exp(c_am) of the agreed model (was exp(intercept) of the
+    # production fit) against the Lite albedo, per band and across bands
+    # (wco2/o2a, sco2/o2a, sco2/wco2), to isolate band-to-band shape changes.
+    _alb = {b: combined.get(f'alb_{b}') for b in FIT_BANDS}
+    _exp = {b: combined[f'{b}_exp_int_am'] for b in FIT_BANDS}
+    _ema = {b: _exp[b] - _alb[b] for b in FIT_BANDS}
+    for _band in FIT_BANDS:
+        final_dict[f'{_band}_exp_int_am_minus_alb'] = _ema[_band]
+        final_dict[f'{_band}_exp_int_am_over_alb'] = _exp[_band] / _alb[_band]
     for _num, _den in (('wco2', 'o2a'), ('sco2', 'o2a'), ('sco2', 'wco2')):
         final_dict[f'alb_{_num}_over_{_den}'] = _alb[_num] / _alb[_den]
-        final_dict[f'exp_int_{_num}_over_{_den}'] = _exp[_num] / _exp[_den]
-        final_dict[f'exp_int_minus_alb_{_num}_over_{_den}'] = _ema[_num] / _ema[_den]
+        final_dict[f'exp_int_am_{_num}_over_{_den}'] = _exp[_num] / _exp[_den]
+        final_dict[f'exp_int_am_minus_alb_{_num}_over_{_den}'] = _ema[_num] / _ema[_den]
 
-
-    
     final_dict['1_over_cos_sza'] = 1 / cos_sza
     final_dict['1_over_cos_vza'] = 1 / cos_vza
     
@@ -576,107 +546,10 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
     final_dict['cos_glint_angle'] = np.cos(np.radians(combined.get('glint_angle')))
     final_dict['glint_prox'] = np.exp(-1 * combined.get('glint_angle') / 10.0) # Decay constant of 10 degrees
 
-    # add reference clear-sky statistics for downstream use in mitigation or stratification
-    final_dict['ref_o2a_k1_mean'] = combined.get('ref_o2a_k1_mean')
-    final_dict['ref_o2a_k1_std'] = combined.get('ref_o2a_k1_std')
-    final_dict['ref_o2a_k2_mean'] = combined.get('ref_o2a_k2_mean')
-    final_dict['ref_o2a_k2_std'] = combined.get('ref_o2a_k2_std')
-    final_dict['ref_o2a_k3_mean'] = combined.get('ref_o2a_k3_mean')
-    final_dict['ref_o2a_k3_std'] = combined.get('ref_o2a_k3_std')
-    final_dict['ref_wco2_k1_mean'] = combined.get('ref_wco2_k1_mean')
-    final_dict['ref_wco2_k1_std'] = combined.get('ref_wco2_k1_std')
-    final_dict['ref_wco2_k2_mean'] = combined.get('ref_wco2_k2_mean')
-    final_dict['ref_wco2_k2_std'] = combined.get('ref_wco2_k2_std')
-    final_dict['ref_wco2_k3_mean'] = combined.get('ref_wco2_k3_mean')
-    final_dict['ref_wco2_k3_std'] = combined.get('ref_wco2_k3_std')
-    final_dict['ref_sco2_k1_mean'] = combined.get('ref_sco2_k1_mean')
-    final_dict['ref_sco2_k1_std'] = combined.get('ref_sco2_k1_std')
-    final_dict['ref_sco2_k2_mean'] = combined.get('ref_sco2_k2_mean')
-    final_dict['ref_sco2_k2_std'] = combined.get('ref_sco2_k2_std')
-    final_dict['ref_sco2_k3_mean'] = combined.get('ref_sco2_k3_mean')
-    final_dict['ref_sco2_k3_std'] = combined.get('ref_sco2_k3_std')
-    final_dict['ref_alb_o2a_mean'] = combined.get('ref_alb_o2a_mean')
-    final_dict['ref_alb_o2a_std'] = combined.get('ref_alb_o2a_std')
-    final_dict['ref_alb_wco2_mean'] = combined.get('ref_alb_wco2_mean')
-    final_dict['ref_alb_wco2_std'] = combined.get('ref_alb_wco2_std')
-    final_dict['ref_alb_sco2_mean'] = combined.get('ref_alb_sco2_mean')
-    final_dict['ref_alb_sco2_std'] = combined.get('ref_alb_sco2_std')
-    final_dict['ref_exp_int_o2a_mean'] = combined.get('ref_exp_int_o2a_mean')
-    final_dict['ref_exp_int_o2a_std'] = combined.get('ref_exp_int_o2a_std')
-    final_dict['ref_exp_int_wco2_mean'] = combined.get('ref_exp_int_wco2_mean')
-    final_dict['ref_exp_int_wco2_std'] = combined.get('ref_exp_int_wco2_std')
-    final_dict['ref_exp_int_sco2_mean'] = combined.get('ref_exp_int_sco2_mean')
-    final_dict['ref_exp_int_sco2_std'] = combined.get('ref_exp_int_sco2_std')
-
-    # r15 reference set (min_cld_dist=15 km)
-    final_dict['xco2_raw_anomaly_r15']      = combined.get('xco2_raw_anomaly_r15')
-    final_dict['xco2_bc_anomaly_r15']       = combined.get('xco2_bc_anomaly_r15')
-    final_dict['r15_o2a_k1_mean']           = combined.get('r15_o2a_k1_mean')
-    final_dict['r15_o2a_k1_std']            = combined.get('r15_o2a_k1_std')
-    final_dict['r15_o2a_k2_mean']           = combined.get('r15_o2a_k2_mean')
-    final_dict['r15_o2a_k2_std']            = combined.get('r15_o2a_k2_std')
-    final_dict['r15_o2a_k3_mean']           = combined.get('r15_o2a_k3_mean')
-    final_dict['r15_o2a_k3_std']            = combined.get('r15_o2a_k3_std')
-    final_dict['r15_wco2_k1_mean']          = combined.get('r15_wco2_k1_mean')
-    final_dict['r15_wco2_k1_std']           = combined.get('r15_wco2_k1_std')
-    final_dict['r15_wco2_k2_mean']          = combined.get('r15_wco2_k2_mean')
-    final_dict['r15_wco2_k2_std']           = combined.get('r15_wco2_k2_std')
-    final_dict['r15_wco2_k3_mean']          = combined.get('r15_wco2_k3_mean')
-    final_dict['r15_wco2_k3_std']           = combined.get('r15_wco2_k3_std')
-    final_dict['r15_sco2_k1_mean']          = combined.get('r15_sco2_k1_mean')
-    final_dict['r15_sco2_k1_std']           = combined.get('r15_sco2_k1_std')
-    final_dict['r15_sco2_k2_mean']          = combined.get('r15_sco2_k2_mean')
-    final_dict['r15_sco2_k2_std']           = combined.get('r15_sco2_k2_std')
-    final_dict['r15_sco2_k3_mean']          = combined.get('r15_sco2_k3_mean')
-    final_dict['r15_sco2_k3_std']           = combined.get('r15_sco2_k3_std')
-    final_dict['r15_alb_o2a_mean']          = combined.get('r15_alb_o2a_mean')
-    final_dict['r15_alb_o2a_std']           = combined.get('r15_alb_o2a_std')
-    final_dict['r15_alb_wco2_mean']         = combined.get('r15_alb_wco2_mean')
-    final_dict['r15_alb_wco2_std']          = combined.get('r15_alb_wco2_std')
-    final_dict['r15_alb_sco2_mean']         = combined.get('r15_alb_sco2_mean')
-    final_dict['r15_alb_sco2_std']          = combined.get('r15_alb_sco2_std')
-    final_dict['r15_exp_int_o2a_mean']      = combined.get('r15_exp_int_o2a_mean')
-    final_dict['r15_exp_int_o2a_std']       = combined.get('r15_exp_int_o2a_std')
-    final_dict['r15_exp_int_wco2_mean']     = combined.get('r15_exp_int_wco2_mean')
-    final_dict['r15_exp_int_wco2_std']      = combined.get('r15_exp_int_wco2_std')
-    final_dict['r15_exp_int_sco2_mean']     = combined.get('r15_exp_int_sco2_mean')
-    final_dict['r15_exp_int_sco2_std']      = combined.get('r15_exp_int_sco2_std')
-
-    # r05 reference set (min_cld_dist=5 km)
-    final_dict['xco2_raw_anomaly_r05']      = combined.get('xco2_raw_anomaly_r05')
-    final_dict['xco2_bc_anomaly_r05']       = combined.get('xco2_bc_anomaly_r05')
-    final_dict['r05_o2a_k1_mean']           = combined.get('r05_o2a_k1_mean')
-    final_dict['r05_o2a_k1_std']            = combined.get('r05_o2a_k1_std')
-    final_dict['r05_o2a_k2_mean']           = combined.get('r05_o2a_k2_mean')
-    final_dict['r05_o2a_k2_std']            = combined.get('r05_o2a_k2_std')
-    final_dict['r05_o2a_k3_mean']           = combined.get('r05_o2a_k3_mean')
-    final_dict['r05_o2a_k3_std']            = combined.get('r05_o2a_k3_std')
-    final_dict['r05_wco2_k1_mean']          = combined.get('r05_wco2_k1_mean')
-    final_dict['r05_wco2_k1_std']           = combined.get('r05_wco2_k1_std')
-    final_dict['r05_wco2_k2_mean']          = combined.get('r05_wco2_k2_mean')
-    final_dict['r05_wco2_k2_std']           = combined.get('r05_wco2_k2_std')
-    final_dict['r05_wco2_k3_mean']          = combined.get('r05_wco2_k3_mean')
-    final_dict['r05_wco2_k3_std']           = combined.get('r05_wco2_k3_std')
-    final_dict['r05_sco2_k1_mean']          = combined.get('r05_sco2_k1_mean')
-    final_dict['r05_sco2_k1_std']           = combined.get('r05_sco2_k1_std')
-    final_dict['r05_sco2_k2_mean']          = combined.get('r05_sco2_k2_mean')
-    final_dict['r05_sco2_k2_std']           = combined.get('r05_sco2_k2_std')
-    final_dict['r05_sco2_k3_mean']          = combined.get('r05_sco2_k3_mean')
-    final_dict['r05_sco2_k3_std']           = combined.get('r05_sco2_k3_std')
-    final_dict['r05_alb_o2a_mean']          = combined.get('r05_alb_o2a_mean')
-    final_dict['r05_alb_o2a_std']           = combined.get('r05_alb_o2a_std')
-    final_dict['r05_alb_wco2_mean']         = combined.get('r05_alb_wco2_mean')
-    final_dict['r05_alb_wco2_std']          = combined.get('r05_alb_wco2_std')
-    final_dict['r05_alb_sco2_mean']         = combined.get('r05_alb_sco2_mean')
-    final_dict['r05_alb_sco2_std']          = combined.get('r05_alb_sco2_std')
-    final_dict['r05_exp_int_o2a_mean']      = combined.get('r05_exp_int_o2a_mean')
-    final_dict['r05_exp_int_o2a_std']       = combined.get('r05_exp_int_o2a_std')
-    final_dict['r05_exp_int_wco2_mean']     = combined.get('r05_exp_int_wco2_mean')
-    final_dict['r05_exp_int_wco2_std']      = combined.get('r05_exp_int_wco2_std')
-    final_dict['r05_exp_int_sco2_mean']     = combined.get('r05_exp_int_sco2_mean')
-    final_dict['r05_exp_int_sco2_std']      = combined.get('r05_exp_int_sco2_std')
-
-
+    # XCO2 anomalies against the r15 (min_cld_dist 15 km) and r05 (5 km) pools
+    for _pfx in ('r15', 'r05'):
+        final_dict[f'xco2_raw_anomaly_{_pfx}'] = combined.get(f'xco2_raw_anomaly_{_pfx}')
+        final_dict[f'xco2_bc_anomaly_{_pfx}'] = combined.get(f'xco2_bc_anomaly_{_pfx}')
 
     # Tropopause scalars (pass-through) + sigma-grid atmospheric profiles.
     # Both are no-ops for older fitting_details.h5 that lack the raw profile /
@@ -685,25 +558,6 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
         final_dict['tropopause_pressure'] = combined['tropopause_pressure']
         final_dict['tropopause_temp']     = combined.get('tropopause_temp')
     final_dict.update(compute_sigma_profile_columns(combined))
-
-    # No-Savitzky-Golay parallel fit parameters (dual_fit-era files only).
-    if 'o2a_k1_fitting_nosg' in combined:
-        for _band in ('o2a', 'wco2', 'sco2'):
-            for _k in ('k1', 'k2', 'k3', 'k4', 'k5', 'intercept'):
-                _src = f'{_band}_{_k}_fitting_nosg'
-                if _src in combined:
-                    final_dict[f'{_band}_{_k}_nosg'] = combined[_src]
-            # gamma of the unsmoothed fit, the observation paired with the
-            # {ref,r05,r15}_exp_int_<band>_nosg statistics (as exp_<band>_intercept
-            # is for the smoothed fit)
-            if f'{_band}_intercept_fitting_nosg' in combined:
-                final_dict[f'exp_{_band}_intercept_nosg'] = np.exp(
-                    combined[f'{_band}_intercept_fitting_nosg'])
-    # Their clear-sky reference statistics (fits written after 2026-10-15); older
-    # files lack them and the analyses fall back to the nosg_reference sidecar.
-    for _key in NOSG_REF_KEYS:
-        if _key in combined:
-            final_dict[_key] = combined[_key]
 
     # Lite 20-level column operator → flat ak_NN/pwf_NN/co2_ap_NN/plev_NN columns.
     final_dict.update(compute_ak_columns(combined))
@@ -727,7 +581,10 @@ def raw_processing_single_date(result_dir, date, orbit_id=None):
         stem = f'combined_{date}_orbit_{orbit_id}'
     else:
         stem = f'combined_{date}_all_orbits'
-    df.to_parquet(os.path.join(output_dir, f'{stem}.parquet'), index=False, compression='zstd')
+    # write-then-rename: a killed/preempted job never leaves a truncated parquet
+    out = os.path.join(output_dir, f'{stem}.parquet')
+    df.to_parquet(out + '.tmp', index=False, compression='zstd')
+    os.replace(out + '.tmp', out)
 
 
 def _union_parquet_schema(paths):
@@ -801,7 +658,8 @@ def raw_processing_multipe_dates(fdir, date_list, output_fname, n_workers=8):
     print(f"Streaming {len(selected_files)} parquet files "
           f"({len(schema.names)} columns) → {out_path}")
     total = 0
-    with pq.ParquetWriter(out_path, schema, compression='zstd') as writer:
+    tmp_path = out_path + '.tmp'      # renamed over out_path only when complete
+    with pq.ParquetWriter(tmp_path, schema, compression='zstd') as writer:
         for path in selected_files:
             table = pq.read_table(path)
             columns = {
@@ -812,6 +670,7 @@ def raw_processing_multipe_dates(fdir, date_list, output_fname, n_workers=8):
             writer.write_table(pa.table(columns).cast(schema))
             total += len(table)
             del table, columns
+    os.replace(tmp_path, out_path)
 
     print(f"Written {total:,} rows → {out_path}")
     return out_path
@@ -825,10 +684,25 @@ def main():
                              "If omitted, the built-in date_list below is used. "
                              "Used by the per-date SLURM launcher "
                              "(curc_shell_blanca_build_feature_dataset_perdate.sh).")
+    parser.add_argument('--result-dir', default=None,
+                        help="Fit output root holding fitting_details/ "
+                             "(default <storage>/results_doppler, written by "
+                             "spectral/fitting.py since 2026-10-31).  Parquets go to "
+                             "<result-dir>/csv_collection/.")
+    parser.add_argument('--date-set', choices=('training', 'training_2020', 'evaluation'),
+                        default='training',
+                        help="Built-in list used without --date: 'training' (2016-2020, 1st + "
+                             "15th of month; also writes combined_2016_2020_dates.parquet), "
+                             "'training_2020' (its 2020 dates; writes combined_2020_dates.parquet, "
+                             "for test analyses) or 'evaluation' (event / TCCON / drift dates).  "
+                             "Default: training.")
+    parser.add_argument('--combine-only', action='store_true',
+                        help="Skip the per-date builds (done by the per-date launcher) and only "
+                             "write the combined training parquet.")
     args = parser.parse_args()
 
     storage_dir = get_storage_dir()
-    fdir      = storage_dir / 'results'
+    fdir      = Path(args.result_dir) if args.result_dir else storage_dir / 'results_doppler'
     
     # --date overrides the built-in list (one date per SLURM job).  Accepts
     # YYYY-MM-DD or YYYYMMDD; normalise to the YYYYMMDD the loop expects.
@@ -847,141 +721,165 @@ def main():
     
     else:
         # # List of dates to process
-        date_list = [
-                    '20200101', '20200201', '20200301', '20200401',
-                    '20200501', '20200601', '20200701', '20200801',
-                    '20200903', '20201001', '20201101', '20201201']  
-        
         # date_list = [
-        #              '20160101', '20160201', '20160301', 
-        #                                                  '20160405',
-        #              '20160501', '20160601', '20160701', '20160801',
-        #              '20160901', '20161001', '20161101', '20161201',
-        #              '20170101', '20170201', '20170301', '20170401',
-        #              '20170501', '20170601', '20170701', 
-        #                          '20171001', 
-        #                                      '20171105', 
-        #                                                  '20171201',
-        #              '20180101', '20180201', '20180301', '20180401',
-        #              '20180501', '20180601', '20180701', '20180801',
-        #              '20180901', '20181001', '20181101', '20181201',
-        #              '20190101', '20190201', '20190301', '20190401',
-        #              '20190501', '20190601', '20190701', '20190801',
-        #              '20190901', '20191001', '20191101', '20191201',
-        #              '20200101', '20200201', '20200301', '20200401',
-        #              '20200501', '20200601', '20200701', '20200801',
-        #              '20200903', 
-        #                          '20201001', '20201101', '20201201',
-                    
-        #              '20160115', '20160215', '20160315', '20160415',
-        #              '20160515', '20160615', '20160715', 
-        #                                                  '20160821',
-        #              '20160915', '20161015', '20161115', '20161215',
-        #              '20170115', '20170215', '20170315', '20170415',
-        #              '20170515', '20170615', '20170715', 
-        #                          '20171015', '20171115', '20171215',
-        #              '20180115', 
-        #                          '20180212', 
-        #                                      '20180315', '20180415',
-        #              '20180515', '20180615', '20180715', '20180815',
-        #              '20180915', '20181015', 
-        #                                      '20181117', 
-        #                                                  '20181215',
-        #              '20190115', '20190215', '20190315', '20190415',
-        #              '20190515', '20190615', '20190715', '20190815',
-        #              '20190915', '20191015', '20191115', '20191215',
-        #              '20200115', '20200215', '20200315', '20200415',
-        #              '20200515', '20200615', '20200715', '20200815',
-        #              '20200915', '20201015', '20201115', '20201215'
-        #              ]
+        #             '20200101', '20200201', '20200301', '20200401',
+        #             '20200501', '20200601', '20200701', '20200801',
+        #             '20200903', '20201001', '20201101', '20201201']  
         
-        # date_list = [
-                    #  '20141023', '20141203', '20141217', 
-                    #  '20150213', '20150218', '20150317', '20150323',
-                    #  '20150518', '20150520', '20150605', '20150629',  
-                    #  '20150706', '20150713', '20150714', '20150715',
-                    #  '20150723', '20150801', '20150925', '20151204', 
+        # Training dates: 2016-2020, 1st + 15th of month (--date-set training)
+        training_dates = [
+                     '20160101', '20160201', '20160301', 
+                                                         '20160405',
+                     '20160501', '20160601', '20160701', '20160801',
+                     '20160901', '20161001', '20161101', '20161201',
+                     '20170101', '20170201', '20170301', '20170401',
+                     '20170501', '20170601', '20170701', 
+                                 '20171001', 
+                                             '20171105', 
+                                                         '20171201',
+                     '20180101', '20180201', '20180301', '20180401',
+                     '20180501', '20180601', '20180701', '20180801',
+                     '20180901', '20181001', '20181101', '20181201',
+                     '20190101', '20190201', '20190301', '20190401',
+                     '20190501', '20190601', '20190701', '20190801',
+                     '20190901', '20191001', '20191101', '20191201',
+                     '20200101', '20200201', '20200301', '20200401',
+                     '20200501', '20200601', '20200701', '20200801',
+                     '20200903', 
+                                 '20201001', '20201101', '20201201',
                     
-                    #  '20160303', '20160506', '20160529', '20160607',
-                    #  '20160709', '20160821', '20160910', '20160911', 
-                    #  '20161013', '20161105', '20161107',
-                    
-                    #  '20170117', '20170322', '20170423', '20170516',
-                    #  '20170525', '20170617', '20170626', '20171203', 
-                    
-                    #  '20180221', '20180313', '20180410', '20180512', 
-                    #  '20180603', '20180710', '20180807', '20180817',
-                    #  '20180902', '20180908', '20180917', '20181010', 
-                    #  '20181024', '20181118', '20181129', '20181130',
-                    
-                    #  '20190313', '20190429', '20190710', '20190730', 
-                    #  '20190914',
-                    
-                    #  '20200211', '20200314', '20200330', '20200331',
-                    #  '20200405', '20200415', '20200517', 
-                    #  '20200711', '20200726', '20200906', '20200916', 
-                    #  '20201005', '20201223', '20201224', 
-                    
-                    #  '20210210', '20210318', '20210329', '20210424', 
-                    #  '20210526', '20210609', '20210621', 
-                    #  '20210703', '20210727', '20210825', 
-                    #  '20210906', '20210908', '20210926', 
-                    #  '20211016', '20211229',
-
-                    #  # 2026-10-21: TCCON overpass dates from the orbit-lattice scan
-                    #  # (log/JQSRT_plan/tccon_overpass_candidates_2026-10-21.md), verified
-                    #  # against the OCO-2 Lite files; A-Train era 2015-2020, drift era 2023-2025.
-                    #  '20150910',
-                    #  '20160809', '20160831', '20161012',
-                    #  '20170529', '20170724',
-                    #  '20180205', '20180326', '20180628', '20180812',
-                    #  '20190130', '20190208', '20190425', '20190820',
-                    #  '20191107', '20191108',
-                    #  '20200227', '20200228', '20200406', '20200411',
-                    #  '20200521', '20200703', '20200922',
-                    #  '20200923', '20201009', '20201024',
-
-                    #  '20230220', '20230610', '20230710', '20230904',
-                    #  '20230906', '20230915', '20231002',
-                    #  '20240121', '20240625', '20240714', '20240730',
-                    #  '20241103',
-                    #  '20250123', '20250529',
-                    # ] 
-        # 2026-10-22: dates submitted this afternoon as oco_spectral_anal jobs
-        # (curc_shell_blanca_general.sh / fp_anal_general.sh); includes jobs that
-        # have already finished. None of these appear in the archived lists above.
-        date_list = [
+                     '20160115', '20160215', '20160315', '20160415',
+                     '20160515', '20160615', '20160715', 
+                                                         '20160821',
+                     '20160915', '20161015', '20161115', '20161215',
+                     '20170115', '20170215', '20170315', '20170415',
+                     '20170515', '20170615', '20170715', 
+                                 '20171015', '20171115', '20171215',
+                     '20180115', 
+                                 '20180212', 
+                                             '20180315', '20180415',
+                     '20180515', '20180615', '20180715', '20180815',
+                     '20180915', '20181015', 
+                                             '20181117', 
+                                                         '20181215',
+                     '20190115', '20190215', '20190315', '20190415',
+                     '20190515', '20190615', '20190715', '20190815',
+                     '20190915', '20191015', '20191115', '20191215',
+                     '20200115', '20200215', '20200315', '20200415',
+                     '20200515', '20200615', '20200715', '20200815',
+                     '20200915', '20201015', '20201115', '20201215'
+                     ]
+        
+        # Event / evaluation dates, sorted (2026-10-31): union of
+        #   - the event-specific list 2014-2021 plus the TCCON overpass dates from the
+        #     orbit-lattice scan (log/JQSRT_plan/tccon_overpass_candidates_2026-10-21.md),
+        #   - the dates submitted 2026-10-22 as oco_spectral_anal jobs
+        #     (curc_shell_blanca_general.sh / fp_anal_general.sh),
+        #   - the post-drift 2023-2024 dates of workspace/gen_drift_cases.py,
+        #   - TCCON validation cases of curc_shell_blanca_plot_corr_xco2_deepens.sh that
+        #     were missing (2015-08-13, 2017-01-26/02-03/02-06, 2019-06-09/14/22).
+        # (--date-set evaluation)
+        evaluation_dates = [
                      '20140914', '20140923', '20141004', '20141005',
-                     '20141030', '20141124',
-                     '20160114', '20160419', '20160802', '20161111',
-                     '20161129',
-                     '20170424', '20170720', '20171218',
+                     '20141023', '20141030', '20141124', '20141203',
+                     '20141217',
+
+                     '20150213', '20150218', '20150317', '20150323',
+                     '20150518', '20150520', '20150605', '20150629',
+                     '20150706', '20150713', '20150714', '20150715',
+                     '20150723', '20150801', '20150813', '20150910',
+                     '20150925', '20151204',
+
+                     '20160114', '20160303', '20160419', '20160506',
+                     '20160529', '20160607', '20160709', '20160802',
+                     '20160809', '20160821', '20160831', '20160910',
+                     '20160911', '20161012', '20161013', '20161105',
+                     '20161107', '20161111', '20161129',
+
+                     '20170117', '20170126', '20170203', '20170206',
+                     '20170322', '20170423', '20170424', '20170516',
+                     '20170525', '20170529', '20170617', '20170626',
+                     '20170720', '20170724', '20171203', '20171218',
+
+                     '20180205', '20180221', '20180313', '20180326',
+                     '20180410', '20180512', '20180603', '20180628',
+                     '20180710', '20180807', '20180812', '20180817',
+                     '20180902', '20180908', '20180917', '20181010',
+                     '20181024', '20181118', '20181129', '20181130',
+
+                     '20190130', '20190208', '20190313', '20190425',
+                     '20190429', '20190609', '20190614', '20190622',
+                     '20190710', '20190730', '20190820', '20190914',
+                     '20191107', '20191108',
+
+                     '20200211', '20200227', '20200228', '20200314',
+                     '20200330', '20200331', '20200405', '20200406',
+                     '20200411', '20200415', '20200517', '20200521',
+                     '20200703', '20200711', '20200726', '20200906',
+                     '20200916', '20200922', '20200923', '20201005',
+                     '20201009', '20201024', '20201223', '20201224',
+
+                     '20210210', '20210318', '20210329', '20210424',
+                     '20210526', '20210609', '20210621', '20210703',
+                     '20210727', '20210825', '20210906', '20210908',
+                     '20210926', '20211016', '20211229',
 
                      '20220114', '20220130', '20220301', '20220616',
                      '20220621', '20220623', '20220624', '20220709',
                      '20220722', '20220810', '20220821', '20221013',
                      '20221227',
-                     '20240409', '20240610', '20240823', '20240828',
-                     '20241025', '20241128',
-                     '20250228', '20250305', '20250306', '20250407',
-                     '20250428', '20250503', '20250608', '20250710',
-                     '20250715', '20250811', '20250908',
-                     '20250914', '20251208',
+
+                     '20230123', '20230128', '20230210', '20230220',
+                     '20230313', '20230319', '20230321', '20230323',
+                     '20230404', '20230425', '20230506', '20230520',
+                     '20230526', '20230610', '20230611', '20230626',
+                     '20230704', '20230710', '20230720', '20230804',
+                     '20230810', '20230814', '20230902', '20230904',
+                     '20230906', '20230911', '20230915', '20231002',
+                     '20231011', '20231013',
+
+                     '20240121', '20240206', '20240218', '20240310',
+                     '20240409', '20240415', '20240422', '20240510',
+                     '20240610', '20240625', '20240626', '20240714',
+                     '20240727', '20240730', '20240731', '20240803',
+                     '20240823', '20240826', '20240828', '20240920',
+                     '20241003', '20241025', '20241029', '20241103',
+                     '20241123', '20241128', '20241202', '20241216',
+
+                     '20250123', '20250228', '20250305', '20250306',
+                     '20250407', '20250428', '20250503', '20250529',
+                     '20250608', '20250710', '20250715', '20250811',
+                     '20250908', '20250914', '20251208',
                     ]
             
         
 
-        for date in date_list:
-            date_dt = datetime.strptime(date, '%Y%m%d')
-            print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
-            raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
+        date_list = {'training': training_dates,
+                     'training_2020': [d for d in training_dates if d.startswith('2020')],
+                     'evaluation': evaluation_dates}[args.date_set]
 
+        if not args.combine_only:
+            for date in date_list:
+                date_dt = datetime.strptime(date, '%Y%m%d')
+                print(f"Processing date: {date_dt.strftime('%Y-%m-%d')}")
+                raw_processing_single_date(result_dir=fdir, date=date_dt.strftime('%Y-%m-%d'), orbit_id=None)
 
-    # date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
-    # csv_output_dir = os.path.join(fdir, 'csv_collection')
-    # output_fname = 'combined_2016_2020_dates.parquet'
-    # # output_fname = 'combined_2020_dates.parquet'
-    # raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
+        if args.date_set == 'evaluation':
+            return
+
+    date_list_hyphen = [datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d') for date in date_list]
+    csv_output_dir = os.path.join(fdir, 'csv_collection')
+    output_fname = ('combined_2020_dates.parquet' if args.date_set == 'training_2020'
+                    else 'combined_2016_2020_dates.parquet')
+    # raw_processing_multipe_dates silently leaves out dates without a parquet;
+    # the training file must hold every date, so stop instead.
+    missing = [d for d in date_list_hyphen if not os.path.exists(
+        os.path.join(csv_output_dir, f'combined_{d}_all_orbits.parquet'))]
+    if missing:
+        print(f"{len(missing)} of {len(date_list_hyphen)} training dates have no parquet "
+              f"yet ({', '.join(missing)}); {output_fname} not written.")
+        sys.exit(1)
+    raw_processing_multipe_dates(fdir=csv_output_dir, date_list=date_list_hyphen, output_fname=output_fname)
 
 if __name__ == "__main__":
     main()

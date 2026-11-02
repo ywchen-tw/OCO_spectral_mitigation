@@ -50,7 +50,7 @@ FIT_ORDER = (7, 3, 7)
 # unsmoothed spectrum (Sect. 2.2, Fig. 2, the model predictors), '' = the
 # SG(51, 3)-smoothed production fit.  Applies to k1-k3 and gamma; their _nosg
 # clear-sky reference statistics come from analysis.nosg_reference (sidecar).
-# models.pipeline keeps its own switch (_USE_NOSG_FIT) for the predictors.
+# models.pipeline selects its predictors by fit_method (FIT_METHODS) since 2026-10-31.
 PATH_LENGTH_FIT_SUFFIX = '_nosg'
 
 # ---------------------------------------------------------------------------

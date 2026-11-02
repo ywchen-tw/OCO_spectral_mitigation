@@ -72,6 +72,9 @@ def _cleanup_tau_temp_files(output, use_ring=False, telluric_doppler=False):
             print(f'[Warning] Could not remove temporary file {output_tmp}: {exc}')
 
 
+_TAU_COMPRESSION = dict(compression="gzip", compression_opts=4, shuffle=True)
+
+
 def _write_tau_file_atomic(path, datasets, use_ring=False, telluric_doppler=False,
                            stamp=None, extra_attrs=None, dataset_attrs=None):
     """Write ``datasets`` to ``path`` via a temp file + os.replace.
@@ -99,7 +102,12 @@ def _write_tau_file_atomic(path, datasets, use_ring=False, telluric_doppler=Fals
             for key, value in (extra_attrs or {}).items():
                 h5f.attrs[key] = value
             for name, data in datasets.items():
-                dset = h5f.create_dataset(name, data=data)
+                arr = np.asarray(data)
+                # lossless gzip+shuffle on numeric arrays: ~-32 % per tau file
+                # (2026-10-31, scratch quota); h5py readers are unaffected
+                kw = (_TAU_COMPRESSION
+                      if arr.ndim >= 1 and arr.size > 1 and arr.dtype.kind in "biuf" else {})
+                dset = h5f.create_dataset(name, data=arr, **kw)
                 for key, value in (dataset_attrs or {}).get(name, {}).items():
                     dset.attrs[key] = value
             h5f.flush()

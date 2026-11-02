@@ -35,6 +35,13 @@ Stages (per-date cache under OUT_DIR/cache makes compute restartable):
 Usage:
     PYTHONPATH=src python workspace/test_set_anomaly_decay.py --stage all
     PYTHONPATH=src python workspace/test_set_anomaly_decay.py --stage compute --limit 2
+
+Figure stage on another model's per-date anomaly parquets (2026-11-02; defaults
+reproduce the DE figure above), e.g. the tuned-XGBoost evaluation-date files:
+    PYTHONPATH=src:workspace python workspace/test_set_anomaly_decay.py --stage figure \
+        --cache-dir <...>/xgb/fm1620k5v2xt41_eval_dates/per_date --out-dir <dir> \
+        --anom-cols anom_bc_r05 anom_bc_r15 anom_shape_r05 anom_shape_r15 \
+        --model-label ML
 """
 from __future__ import annotations
 
@@ -326,6 +333,17 @@ C_OCEAN, C_LAND = "#0072B2", "#D55E00"
 BIN_EDGES = np.arange(0.0, 30.5, 1.0)
 CENTERS = 0.5 * (BIN_EDGES[:-1] + BIN_EDGES[1:])
 DXCO2_DE_LABEL = r"$\Delta X_{\mathrm{CO2}}^{\mathrm{DE}}$"
+# figure-stage defaults (--anom-cols); the 'de' entries name the corrected series
+DEFAULT_ANOM_COLS = ("xco2_bc_anomaly_r05", "xco2_bc_anomaly_r15",
+                     "xco2_de_anomaly_r05", "xco2_de_anomaly_r15")
+
+
+def _dxco2_label(model_label: str) -> str:
+    """Delta-XCO2 axis label with the product superscript (DE -> the original
+    constant, so the default figure is unchanged)."""
+    if model_label == "DE":
+        return DXCO2_DE_LABEL
+    return r"$\Delta X_{\mathrm{CO2}}^{\mathrm{" + model_label + r"}}$"
 
 
 def binned_stats(d, y):
@@ -365,14 +383,29 @@ def run_figure(args) -> None:
     import matplotlib.pyplot as plt
     from plot_style import DXCO2_BC_LABEL, apply_manuscript_style
 
-    caches = sorted(CACHE_DIR.glob("*.parquet"))
+    cache_dir = Path(args.cache_dir) if getattr(args, "cache_dir", None) else CACHE_DIR
+    out_dir = Path(args.out_dir) if getattr(args, "out_dir", None) else OUT_DIR
+    model_label = getattr(args, "model_label", None) or "DE"
+    dlabel = _dxco2_label(model_label)
+    src_cols = list(getattr(args, "anom_cols", None) or DEFAULT_ANOM_COLS)
+    caches = sorted(cache_dir.glob("*.parquet"))
     if not caches:
-        raise SystemExit(f"no cache files in {CACHE_DIR} — run --stage compute")
+        raise SystemExit(f"no cache files in {cache_dir} — run --stage compute")
     cols = ["date", "cld_dist_km", "sfc_type",
             "xco2_bc_anomaly_r05", "xco2_bc_anomaly_r15",
             "xco2_de_anomaly_r05", "xco2_de_anomaly_r15"]
-    t = pd.concat([pd.read_parquet(p, columns=cols) for p in caches],
-                  ignore_index=True)
+    # read the requested source columns and expose them under the internal names
+    rename = {s: c for s, c in zip(src_cols, cols[3:]) if s != c}
+    t = pd.concat([pd.read_parquet(p, columns=cols[:3] + src_cols).rename(columns=rename)
+                   for p in caches], ignore_index=True)
+    t["date"] = t["date"].astype(str)
+    if getattr(args, "date_min", None):
+        t = t[t["date"] >= args.date_min]
+    if getattr(args, "date_max", None):
+        t = t[t["date"] <= args.date_max]
+    t = t.reset_index(drop=True)
+    if rename:
+        print(f"  [figure] columns {rename} from {cache_dir}")
     n_dates = t["date"].nunique()
     print(f"  [figure] {len(t):,} soundings from {n_dates} test dates")
 
@@ -394,7 +427,7 @@ def run_figure(args) -> None:
     stats_rows = []
     panels = [
         (axa, "bc", f"(a) before correction ({DXCO2_BC_LABEL})"),
-        (axb, "de", f"(b) after DE correction ({DXCO2_DE_LABEL})"),
+        (axb, "de", f"(b) after {model_label} correction ({dlabel})"),
     ]
     for ax, kind, title in panels:
         for mask, surf, col, color, label in [
@@ -416,8 +449,9 @@ def run_figure(args) -> None:
         ax.set_title(title, fontsize=9, loc="left")
         ax.legend(frameon=False, loc="upper right", fontsize=8)
     axa.set_ylabel(f"{DXCO2_BC_LABEL} (ppm)")
-    axb.set_ylabel(f"{DXCO2_DE_LABEL} (ppm)")
-    axa.text(0.02, 0.03, f"{n_dates} held-out dates, 2014–2021",
+    axb.set_ylabel(f"{dlabel} (ppm)")
+    period = getattr(args, "period_label", None) or "2014–2021"
+    axa.text(0.02, 0.03, f"{n_dates} held-out dates, {period}",
              transform=axa.transAxes, fontsize=7, color="0.35")
     axb.text(0.985, 0.30,
              "solid: bin mean   dashed: median\nshading: interquartile range\n"
@@ -425,16 +459,16 @@ def run_figure(args) -> None:
              transform=axb.transAxes, fontsize=7, ha="right", va="top",
              color="0.35", linespacing=1.4)
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     for ext in ("png", "pdf"):
-        out = OUT_DIR / f"test_anomaly_decay.{ext}"
+        out = out_dir / f"test_anomaly_decay.{ext}"
         fig.savefig(out)
         print(f"  wrote {out}")
     plt.close(fig)
 
     stats = pd.DataFrame(stats_rows)
-    csv = OUT_DIR / "test_anomaly_decay_binstats.csv"
+    csv = out_dir / "test_anomaly_decay_binstats.csv"
     stats.to_csv(csv, index=False)
     print(f"  wrote {csv}")
 
@@ -463,6 +497,21 @@ def main() -> None:
                     help="recompute dates whose cache already exists")
     ap.add_argument("--n-jobs", type=int, default=-1,
                     help="joblib workers for the anomaly recomputation")
+    # figure-stage options (2026-11-02); the defaults reproduce the DE figure
+    ap.add_argument("--cache-dir", default=None,
+                    help=f"figure stage: per-date parquets to read (default {CACHE_DIR})")
+    ap.add_argument("--out-dir", default=None,
+                    help=f"figure stage: output dir (default {OUT_DIR})")
+    ap.add_argument("--anom-cols", nargs=4, default=list(DEFAULT_ANOM_COLS),
+                    metavar=("BC_R05", "BC_R15", "CORR_R05", "CORR_R15"),
+                    help="figure stage: before/after anomaly columns (ocean r05, land r15)")
+    ap.add_argument("--model-label", default="DE",
+                    help="figure stage: corrected-product name in the panel (b) title and "
+                         "the Delta-XCO2 superscript (default DE; ML for the manuscript)")
+    ap.add_argument("--period-label", default="2014–2021",
+                    help="figure stage: period text in panel (a)")
+    ap.add_argument("--date-min", default=None, help="figure stage: keep dates >= YYYY-MM-DD")
+    ap.add_argument("--date-max", default=None, help="figure stage: keep dates <= YYYY-MM-DD")
     args = ap.parse_args()
 
     if args.stage in ("compute", "all"):

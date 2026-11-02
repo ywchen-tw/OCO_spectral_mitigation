@@ -169,8 +169,15 @@ def main():
                     help="plot_data column holding the corrected XCO2 for the "
                          "'full_mu' scenario (default 'deep_ensemble_corrected_xco2'; "
                          "use 'tabm_corrected_xco2' for TabM).")
+    ap.add_argument('--csv-dir', default=None,
+                    help="Directory holding combined_<date>_all_orbits.parquet "
+                         "(default <data root>/results/csv_collection; the Doppler "
+                         "variant uses results_doppler/csv_collection).")
     args = ap.parse_args()
     sfx = args.fname_suffix
+    global CSV_DIR
+    if args.csv_dir:
+        CSV_DIR = Path(args.csv_dir)
     SCEN['full_mu'] = args.corr_col   # point the correction scenario at the chosen model column
 
     global OUTDIR

@@ -29,7 +29,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import (roc_auc_score, average_precision_score,
                              recall_score, precision_score, f1_score)
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers
+from .pipeline import DATA_DIR, add_fit_method_arg, model_output_dir, FeaturePipeline, _ensure_derived_features, filter_target_outliers
 from .splits import split_dataframe
 from search.tracking import RunSummary, get_git_commit_hash
 from utils import get_storage_dir
@@ -77,8 +77,9 @@ def main():
     p.add_argument('--n_folds', type=int, default=None)
     p.add_argument('--fold', type=int, default=None)
     p.add_argument('--near_cloud_km', type=float, default=10.0)
+    add_fit_method_arg(p)
     p.add_argument('--feature_set', type=str, default='full',
-                   choices=['full', 'no_xco2', 'no_spec', 'full_fitqual', 'full_contam'])
+                   choices=['full', 'no_xco2', 'no_spec', 'no_co2_spec', 'full_fitqual', 'full_contam'])
     p.add_argument('--cloud_features', action='store_true',
                    help="Append the cloud-diagnostic feature block (fit-quality, "
                         "scattering dp, cloud aerosols, brightness, continuum, glint) "
@@ -99,11 +100,10 @@ def main():
     args = p.parse_args()
 
     storage_dir = get_storage_dir()
-    fdir = storage_dir / 'results/csv_collection'
+    fdir = storage_dir / DATA_DIR
     data_name = ('combined_2016_2020_dates.parquet' if platform.system() == "Linux"
                  else 'combined_2020_dates.parquet')
-    output_dir = storage_dir / 'results/model_xgb_cloud' / args.suffix if args.suffix \
-        else storage_dir / 'results/model_xgb_cloud'
+    output_dir = model_output_dir(storage_dir, 'model_xgb_cloud', args.fit_method, args.suffix)
     output_dir.mkdir(parents=True, exist_ok=True)
     run_start = time.monotonic()
     run_id = args.suffix or datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -120,7 +120,7 @@ def main():
                                         random_state=args.seed,
                                         n_folds=args.n_folds, fold=args.fold)
 
-    pipeline = FeaturePipeline.fit(train_df, sfc_type=args.sfc_type, feature_set=args.feature_set)
+    pipeline = FeaturePipeline.fit(train_df, sfc_type=args.sfc_type, feature_set=args.feature_set, fit_method=args.fit_method)
     pipeline.save(output_dir / 'xgb_cloud_pipeline.pkl')
 
     cloud_cols = ()
@@ -175,7 +175,7 @@ def main():
     held_out.to_parquet(output_dir / 'xgb_cloud_held_predictions.parquet', index=False)
     with open(output_dir / 'xgb_cloud_meta.pkl', 'wb') as f:
         pickle.dump({'near_cloud_km': args.near_cloud_km, 'sfc_type': args.sfc_type,
-                     'val_split': args.val_split, 'feature_set': args.feature_set,
+                     'val_split': args.val_split, 'feature_set': args.feature_set, 'fit_method': args.fit_method,
                      'cloud_features': args.cloud_features,
                      'cloud_cols': list(cloud_cols)}, f)
 
@@ -190,7 +190,7 @@ def main():
         artifacts={'output_dir': str(output_dir),
                    'metrics_json': str(output_dir / f'xgb_cloud_{args.val_split}_metrics.json')},
         config={'sfc_type': args.sfc_type, 'val_split': args.val_split,
-                'near_cloud_km': args.near_cloud_km, 'feature_set': args.feature_set,
+                'near_cloud_km': args.near_cloud_km, 'feature_set': args.feature_set, 'fit_method': args.fit_method,
                 'cloud_features': args.cloud_features, 'seed': args.seed,
                 'n_estimators': args.n_estimators,
                 'max_depth': args.max_depth, 'learning_rate': args.learning_rate,

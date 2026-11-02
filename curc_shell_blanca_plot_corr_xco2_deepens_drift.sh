@@ -224,6 +224,14 @@ run_case() {
 
 # All 40 requested dates now have a local parquet; all 40 resolve to a station,
 # 21 have coincident TCCON (AVAIL=yes).  Grouped by station.
+#
+# 2026-11-01: 2025-03-05 (an evaluation date) scanned with workspace/gen_tccon_cases.py
+# on its results_doppler parquet: one overpass, Darwin (164 footprints, nearest 1 km,
+# land), but the Darwin TCCON file has no observations within +-1 day (nearest is
+# ~22 days away), so the case is AVAIL=no and is skipped under REQUIRE_TCCON=1.
+
+# -- darwin01 (db; lat -12.46, lon 130.93) --
+run_case  2025-03-05   db20130101_20250731.public.qc.nc     130.71   131.13   -13.35   -11.74   416.0  426.0  land  poster db  no    # n=164 dmin=1km tccon_obs=0
 
 # -- burgos01 (bu) --
 run_case  2023-01-23   bu20170303_20250409.public.qc.nc     120.59   120.80    18.36    18.54   416.5  421.5  land  poster bu  yes   # n=3844 dmin=0km

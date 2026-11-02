@@ -466,7 +466,7 @@ def plot_pair(
     xco2_ppm = f"{XCO2_LABEL} (ppm)"
     panels = [
         (f"Original {XCO2_LABEL} (bias-corrected)", "xco2_bc", CMAPS["xco2"], vmin, vmax, None, xco2_ppm),
-        (f"DeepEns corrected {XCO2_LABEL}", "deep_ensemble_corrected_xco2", CMAPS["xco2"], vmin, vmax, None, xco2_ppm),
+        (f"{MODEL_LABEL} corrected {XCO2_LABEL}", "deep_ensemble_corrected_xco2", CMAPS["xco2"], vmin, vmax, None, xco2_ppm),
         ("Predicted correction μ", "pred_anomaly", CMAPS["mu"], None, None, mu_norm, "μ (ppm)"),
         ("Nearest-cloud distance", "cld_dist_km", CMAPS["cld_dist"], 0.0, 50.0, None, "km"),
         (f"{MEAN_L_LABEL} (O2A)", "o2a_k1", CMAPS["spec"], o2a_k1_min, o2a_k1_max, None, f"{MEAN_L_LABEL} (O2A)"),
@@ -569,6 +569,9 @@ def plot_pair(
     return output
 
 
+MODEL_LABEL = "DeepEns"   # corrected-panel title prefix (--model-label, 2026-11-02)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plants", type=Path, default=DEFAULT_PLANTS)
@@ -585,11 +588,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--preservation-summary", type=Path, default=DEFAULT_PRESERVATION_SUMMARY)
     parser.add_argument("--preservation-by-footprint", type=Path, default=DEFAULT_PRESERVATION_BY_FOOTPRINT)
     parser.add_argument("--no-modis", action="store_true")
+    parser.add_argument("--model-label", default=MODEL_LABEL,
+                        help=f"corrected-panel title prefix (default '{MODEL_LABEL}'; "
+                             "e.g. ML for the XGBoost manuscript model)")
     return parser.parse_args()
 
 
 def main() -> None:
+    global MODEL_LABEL
     args = parse_args()
+    MODEL_LABEL = args.model_label
     apply_manuscript_style()   # Arial (AMT), Arial mathtext, thin axes, 300 dpi
     plants = read_plants(args.plants)
     preservation_summary = load_optional_csv(args.preservation_summary)

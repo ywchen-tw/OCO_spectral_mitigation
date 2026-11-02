@@ -40,7 +40,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
-from .pipeline import (FeaturePipeline, _FEATURE_SETS, _ensure_derived_features,
+from .pipeline import (DATA_DIR, add_fit_method_arg, model_output_dir,
+                       FeaturePipeline, _FEATURE_SETS, _ensure_derived_features,
                        filter_target_outliers, read_surface_rows, resolve_target_col)
 from .splits import split_dataframe, split_date_kfold_train_calib_test
 from . import conformal as cf
@@ -299,6 +300,7 @@ def main():
                    choices=['random', 'date', 'date_kfold'])
     p.add_argument('--n_folds', type=int, default=None)
     p.add_argument('--fold', type=int, default=None)
+    add_fit_method_arg(p)
     p.add_argument('--feature_set', type=str, default='full',
                    choices=sorted(_FEATURE_SETS))
     p.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
@@ -414,11 +416,10 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
     storage_dir = get_storage_dir()
-    fdir = storage_dir / 'results/csv_collection'
+    fdir = storage_dir / DATA_DIR
     data_name = ('combined_2016_2020_dates.parquet' if platform.system() == "Linux"
                  else 'combined_2020-02-01_all_orbits.parquet')
-    base_dir = storage_dir / 'results/model_deep_ensemble'
-    output_dir = base_dir / args.suffix if args.suffix else base_dir
+    output_dir = model_output_dir(storage_dir, 'model_deep_ensemble', args.fit_method, args.suffix)
     output_dir.mkdir(parents=True, exist_ok=True)
     run_start = time.monotonic()
     run_id = args.suffix or datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -491,6 +492,7 @@ def main():
 
     _profile_pca = True if args.profile_pca in (True, 'auto') else args.profile_pca
     pipeline = FeaturePipeline.fit(proper_df, sfc_type=args.sfc_type, feature_set=args.feature_set,
+                                   fit_method=args.fit_method,
                                    profile_pca=_profile_pca)
     pipeline.save(output_dir / 'deep_ensemble_pipeline.pkl')
 
@@ -706,7 +708,7 @@ def main():
         pickle.dump({'n_features': pipeline.n_features, 'n_members': args.n_members,
                      'q_split': q_split, 'q_by_bin': q_by_bin, 'mondrian_edges': edges.tolist(),
                      'mondrian_col': args.mondrian_col,
-                     'feature_set': args.feature_set, 'val_split': args.val_split,
+                     'feature_set': args.feature_set, 'fit_method': args.fit_method, 'val_split': args.val_split,
                      'loss': args.loss, 'nu': args.nu, 'beta': args.beta,
                      'near_cloud_target': args.near_cloud_target,
                      'near_cloud_km': args.near_cloud_km,
@@ -731,12 +733,12 @@ def main():
                            **cloud_metrics},
         runtime_seconds=float(time.monotonic() - run_start),
         description=f'Deep ensemble M={args.n_members} + conformal, {args.val_split}-split, '
-                    f'feature_set={args.feature_set}',
+                    f'feature_set={args.feature_set}, fit_method={args.fit_method}',
         artifacts={'output_dir': str(output_dir),
                    'metrics_json': str(output_dir / f'de_mondrian_{args.val_split}_metrics.json')},
         config={'sfc_type': args.sfc_type, 'val_split': args.val_split,
                 'n_members': args.n_members, 'calib_frac': args.calib_frac,
-                'feature_set': args.feature_set, 'seed': args.seed,
+                'feature_set': args.feature_set, 'fit_method': args.fit_method, 'seed': args.seed,
                 'loss': args.loss, 'nu': args.nu, 'beta': args.beta,
                 'cloud_aux_weight': args.cloud_aux_weight,
                 'dropout': args.dropout, 'norm': args.norm,

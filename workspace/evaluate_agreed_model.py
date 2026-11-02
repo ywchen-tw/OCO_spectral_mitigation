@@ -128,13 +128,15 @@ def load_orbit(dop_path, prod_path):
             for nm in PRODORDER:
                 dop[(b, nm)] = _read(f, f"{b}_{nm}_fitting_nosg")
             for nm in EXTRA_NAMES:
-                dop[(b, nm)] = _read(f, f"{b}_{nm}_nosg")
+                # fit_schema doppler_am_t2_v1 (2026-10-31) drops the _nosg suffix
+                a = _read(f, f"{b}_{nm}")
+                dop[(b, nm)] = a if a is not None else _read(f, f"{b}_{nm}_nosg")
         tau_attr = f.attrs.get("tau_convolution", "")
     alternates = {"land": "sfc_type", "xco2": "xco2_bc"}   # only needed when the primary is absent
     missing += [k for k, v in meta.items() if v is None and not (k in alternates and meta[alternates[k]] is not None)]
     missing += [k for k, v in prof.items() if v is None]
     missing += [k for k, v in pool.items() if v is None]
-    missing += [f"{b}_{nm}_nosg" for (b, nm), v in dop.items() if v is None and nm in EXTRA_NAMES]
+    missing += [f"{b}_{nm}[_nosg]" for (b, nm), v in dop.items() if v is None and nm in EXTRA_NAMES]
     prod = {}
     if prod_path is not None and Path(prod_path).exists():
         with h5py.File(prod_path, "r") as g:

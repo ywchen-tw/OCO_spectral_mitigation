@@ -43,6 +43,7 @@ TRANSECT_CASES = (("westar", "2015-12-04"), ("ghent", "2015-08-13"),
 SUMMARY_CASES = TRANSECT_CASES + (("vindhyachal", "2014-10-23"),)
 PLUME_KM, BG_LO, BG_HI = 15.0, 30.0, 100.0     # nassar_k1_contrast defaults
 K1_XLIM = 0.04                                  # panel (c) range; larger bars are clipped
+MODEL_NAME = "production deep ensemble"         # suptitle text (--model-name)
 
 
 def case_label(plants, plant_id, date):
@@ -111,7 +112,7 @@ def plot_transects(plants, plot_base, k1, outdir, max_km=100.0):
             a.set_xlim(-max_km, max_km)
             panel_label(a, f"({'abc'[i]}{j + 1})")
 
-    fig.suptitle("Mauceri et al. power-plant overpasses, production deep ensemble   "
+    fig.suptitle(f"Mauceri et al. power-plant overpasses, {MODEL_NAME}   "
                  f"(yellow: plume window ±{PLUME_KM:.0f} km, grey: background "
                  f"{BG_LO:.0f}–{BG_HI:.0f} km)", fontsize=11)
     fig.tight_layout()
@@ -218,21 +219,30 @@ def plot_summary(plants, k1, ctrl, ctrl_win, outdir):
 
 
 def main() -> None:
+    global MODEL_NAME
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plants", type=Path, default=DEFAULT_PLANTS)
     ap.add_argument("--plot-base", type=Path, default=DEFAULT_PLOT_BASE)
     ap.add_argument("--results-dir", type=Path,
                     default=DEFAULT_PLOT_BASE / "plume_preservation_mauceri")
+    # 2026-11-02 options; defaults reproduce the DE figures
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="where the PNGs go (default: --results-dir)")
+    ap.add_argument("--model-name", default=MODEL_NAME,
+                    help=f"model text in the transect suptitle (default '{MODEL_NAME}')")
     args = ap.parse_args()
+    MODEL_NAME = args.model_name
+    outdir = args.out_dir or args.results_dir
+    outdir.mkdir(parents=True, exist_ok=True)
 
     apply_manuscript_style()
     plants = read_plants(args.plants)
     k1 = pd.read_csv(args.results_dir / "nassar_k1_contrast.csv")
     ctrl = pd.read_csv(args.results_dir / "nassar_control_null.csv")
     ctrl_win = pd.read_csv(args.results_dir / "nassar_control_null_windows.csv")
-    plot_transects(plants, args.plot_base, k1, args.results_dir)
-    plot_summary(plants, k1, ctrl, ctrl_win, args.results_dir)
+    plot_transects(plants, args.plot_base, k1, outdir)
+    plot_summary(plants, k1, ctrl, ctrl_win, outdir)
 
 
 if __name__ == "__main__":

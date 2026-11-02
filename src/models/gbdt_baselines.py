@@ -35,7 +35,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from .pipeline import FeaturePipeline, _ensure_derived_features, filter_target_outliers, resolve_target_col
+from .pipeline import DATA_DIR, add_fit_method_arg, check_loaded_fit_method, model_output_dir, FeaturePipeline, _ensure_derived_features, filter_target_outliers, read_surface_rows, resolve_target_col, _FEATURE_SETS
 from .splits import split_dataframe, split_date_kfold_train_calib_test
 from . import diagnostics as diag
 from search.tracking import RunSummary, get_git_commit_hash
@@ -146,6 +146,10 @@ def train_xgboost_mean(X_train, y_train, X_calib, y_calib, cfg: 'dict | None' = 
         subsample=float(cfg.get('subsample', 1.0)),
         colsample_bytree=float(cfg.get('colsample_bytree', 0.8)),
         reg_lambda=float(cfg.get('reg_lambda', 1.0)),
+        # XGBoost library defaults unless overridden via --xgb-params (2026-11-01 tuning)
+        reg_alpha=float(cfg.get('reg_alpha', 0.0)),
+        min_child_weight=float(cfg.get('min_child_weight', 1.0)),
+        gamma=float(cfg.get('gamma', 0.0)),
         n_jobs=int(cfg.get('n_jobs', 1)),
         random_state=SEED,
         tree_method='hist',
@@ -286,8 +290,9 @@ def main():
                         help='Number of date blocks for --val_split date_kfold.')
     parser.add_argument('--fold', type=int, default=None,
                         help='Which date block (0-based) to hold out for date_kfold.')
+    add_fit_method_arg(parser)
     parser.add_argument('--feature_set', type=str, default='full',
-                        choices=['full', 'no_xco2', 'no_spec', 'no_xco2_and_spec'])
+                        choices=sorted(_FEATURE_SETS))   # all registered sets incl. group-drop ablations (as deep_ensemble/tabm)
     parser.add_argument('--exclude_snow', dest='exclude_snow', action='store_true',
                         help='Filter OUT snow/ice footprints (snow_flag==1). Default: KEEP snow.')
     parser.add_argument('--profile-pca', dest='profile_pca', nargs='?', const='auto', default=None,
@@ -306,6 +311,12 @@ def main():
                              'results/csv_collection/). Use for local multi-date testing.')
     parser.add_argument('--target', type=str, default=None,
                         help="Clear-sky reference for the regression target: '10km' (default, xco2_bc_anomaly), '15km' (xco2_bc_anomaly_r15), or '5km' (xco2_bc_anomaly_r05).")
+    parser.add_argument('--xgb-params', dest='xgb_params', type=str, default=None,
+                        help='XGBoost hyperparameter overrides for --objective mean: a JSON '
+                             'object or a path to a .json file, e.g. \'{"max_depth": 8, '
+                             '"learning_rate": 0.03, "min_child_weight": 10}\'. Keys: '
+                             'n_estimators max_depth learning_rate subsample colsample_bytree '
+                             'reg_lambda reg_alpha min_child_weight gamma early_stopping_rounds.')
     args = parser.parse_args()
 
     algo = _resolve_algo(args.model)
@@ -315,6 +326,17 @@ def main():
     n_jobs = args.n_jobs if args.n_jobs is not None else int(
         os.environ.get('SLURM_CPUS_PER_TASK') or os.environ.get('SLURM_NTASKS') or os.cpu_count() or 1)
     tree_cfg = {'n_jobs': n_jobs, 'num_threads': n_jobs}
+    xgb_params = None
+    if args.xgb_params:
+        _src = args.xgb_params
+        xgb_params = json.load(open(_src)) if os.path.isfile(_src) else json.loads(_src)
+        _allowed = {'n_estimators', 'max_depth', 'learning_rate', 'subsample', 'colsample_bytree',
+                    'reg_lambda', 'reg_alpha', 'min_child_weight', 'gamma', 'early_stopping_rounds'}
+        _bad = set(xgb_params) - _allowed
+        if _bad:
+            raise SystemExit(f"--xgb-params: unknown key(s) {sorted(_bad)}; allowed {sorted(_allowed)}")
+        tree_cfg.update(xgb_params)
+        logger.info("XGBoost hyperparameter overrides: %s", xgb_params)
     logger.info("tree threads n_jobs=%d (bit-reproducible only if n_jobs==1)", n_jobs)
 
     if args.seed is not None:
@@ -322,11 +344,10 @@ def main():
         SEED = int(args.seed)   # flows into model random_state + random split below
 
     storage_dir = get_storage_dir()
-    fdir = storage_dir / 'results/csv_collection'
+    fdir = storage_dir / DATA_DIR
     data_name = ('combined_2016_2020_dates.parquet' if platform.system() == "Linux"
                  else 'combined_2020-02-01_all_orbits.parquet')
-    base_dir = storage_dir / 'results/model_gbdt'
-    output_dir = base_dir / args.suffix if args.suffix else base_dir
+    output_dir = model_output_dir(storage_dir, 'model_gbdt', args.fit_method, args.suffix)
     output_dir.mkdir(parents=True, exist_ok=True)
     run_start = time.monotonic()
     run_id = args.suffix or datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -334,8 +355,9 @@ def main():
 
     # ── Load + filter ──────────────────────────────────────────────────────────
     _dp = args.data if args.data else os.path.join(fdir, data_name)
-    df = pd.read_parquet(_dp) if _dp.endswith('.parquet') else pd.read_csv(_dp)
-    df = df[df['sfc_type'] == args.sfc_type]
+    # One surface, one row group at a time: a whole-file read of the 2016-2020
+    # parquet needs >100 GB (same reader as deep_ensemble).
+    df = read_surface_rows(_dp, args.sfc_type)
     # Snow footprints KEPT by default (--exclude_snow to drop them).
     if args.exclude_snow:
         df = df[df['snow_flag'] == 0]
@@ -381,11 +403,12 @@ def main():
 
     if args.pipeline:
         pipeline = FeaturePipeline.load(args.pipeline)
+        check_loaded_fit_method(pipeline, args.fit_method)
         prof_path = args.pipeline
     else:
         _prof = True if args.profile_pca == 'auto' else args.profile_pca
         pipeline = FeaturePipeline.fit(fit_df, sfc_type=args.sfc_type,
-                                       feature_set=args.feature_set, profile_pca=_prof)
+                                       feature_set=args.feature_set, fit_method=args.fit_method, profile_pca=_prof)
         pipeline.save(output_dir / 'gbdt_pipeline.pkl')
         prof_path = str(args.profile_pca) if args.profile_pca else None
     features = pipeline.features
@@ -418,9 +441,11 @@ def main():
         print(f"[{prefix}] RMSE={g['rmse']:.4f}  MAE={g['mae']:.4f}  R²={g['r2']:.4f}  "
               f"(point predictor — interval metrics are degenerate)")
         _bi = getattr(model, 'best_iteration', None)
+        _bs = getattr(model, 'best_score', None)     # calib-block RMSE at best_iteration (tuning metric)
         secondary = {f'{algo}_held_mae': g['mae'], f'{algo}_held_r2': g['r2'],
-                     'best_iteration': int(_bi) if _bi is not None else None}
-        description = f'{algo} MEAN baseline, {args.val_split}-split, feature_set={args.feature_set}'
+                     'best_iteration': int(_bi) if _bi is not None else None,
+                     'calib_rmse': float(_bs) if _bs is not None else None}
+        description = f'{algo} MEAN baseline, {args.val_split}-split, feature_set={args.feature_set}, fit_method={args.fit_method}'
     else:
         # ── Quantile objective: one model per quantile ─────────────────────────
         if algo == 'xgboost':
@@ -441,7 +466,7 @@ def main():
             'pinball_q05': g['pinball_q05'], 'pinball_q50': g['pinball_q50'],
             'pinball_q95': g['pinball_q95'],
         }
-        description = f'{algo} quantile baseline, {args.val_split}-split, feature_set={args.feature_set}'
+        description = f'{algo} quantile baseline, {args.val_split}-split, feature_set={args.feature_set}, fit_method={args.fit_method}'
 
     summary = RunSummary(
         run_id=run_id, script_name=os.path.basename(__file__), model_family=f'gbdt_{algo}',
@@ -452,11 +477,11 @@ def main():
         description=description,
         artifacts={'output_dir': str(output_dir), 'metrics_json': str(output_dir / f'{prefix}_metrics.json')},
         config={'model': algo, 'objective': args.objective, 'sfc_type': args.sfc_type,
-                'val_split': args.val_split, 'feature_set': args.feature_set,
+                'val_split': args.val_split, 'feature_set': args.feature_set, 'fit_method': args.fit_method,
                 'target': target_col, 'profile_pca': prof_path, 'n_jobs': n_jobs,
                 'xgboost_version': _xgb_version(),
                 'calib_frac': args.calib_frac, 'n_folds': args.n_folds, 'fold': args.fold,
-                'test_size': args.test_size},
+                'test_size': args.test_size, 'xgb_params': xgb_params},
     )
     with open(output_dir / 'run_summary.json', 'w', encoding='utf-8') as f:
         json.dump(summary.to_dict(), f, indent=2, sort_keys=True)
