@@ -163,7 +163,7 @@ The user chose `shape` as the formal version. It costs about 10 % of CV RMSE but
 | full_sig_shape (dXCO2, comparison) | 0.400 | 0.542 |
 | shape before tuning | 0.465 | 0.611 |
 | Ridge shape | 0.589 | 0.755 |
-| TabM C shape | 0.457 | 0.599 |
+| TabM C shape | 0.4545 | 0.5985 |
 
 - **Seeds 0/1/2 (shape):** ocean 0.4477 / 0.4478 / 0.4477; land 0.6037 / 0.6028 / 0.6029.
 - **Fit methods (tuned no_xco2_sig):**
