@@ -47,6 +47,7 @@ import argparse
 import json
 import logging
 import time
+import os
 import zlib
 from pathlib import Path
 
@@ -163,8 +164,14 @@ def _load_tabm(model_dir: Path):
                  n_cloud_classes=int(meta.get('n_cloud_classes', 1)))
     ckpt = torch.load(model_dir / 'model_tabm_best.pt', map_location='cpu', weights_only=True)
     model.load_state_dict(ckpt['model_state_dict'])
+    # GPU when the job has one (CPU inference made a TabM fold take ~8 h: ~80 s per
+    # 1.7M-row pass); FI_DEVICE=cpu|cuda forces the choice.
+    dev = os.environ.get('FI_DEVICE') or ('cuda' if torch.cuda.is_available() else 'cpu')
+    model.to(dev)
     model.eval()
-    return pipeline, lambda X: _tabm_predict(model, X)[0][:, 1]
+    bs = 65536 if dev.startswith('cuda') else 8192
+    logger.info("TabM permutation inference on %s (batch %d)", dev, bs)
+    return pipeline, lambda X: _tabm_predict(model, X, batch_size=bs)[0][:, 1]
 
 
 _LOADERS = {'de': _load_de, 'xgb': _load_xgb, 'linreg': _load_linreg, 'tabm': _load_tabm}
@@ -254,7 +261,8 @@ def _r2(y, mu):
 
 def permutation_importance(predict_mu, X, y, features: list, groups: dict,
                            strata: dict, n_repeats: int, fold: int,
-                           seed: int = SEED, scopes=('feature', 'group')) -> pd.DataFrame:
+                           seed: int = SEED, scopes=('feature', 'group'),
+                           part=None) -> pd.DataFrame:
     """Permutation ΔRMSE/ΔR² per feature and per group, per stratum.
 
     strata : {name: bool row mask over X}.  Shuffling happens within the
@@ -270,6 +278,10 @@ def permutation_importance(predict_mu, X, y, features: list, groups: dict,
     while the joint-group deltas are not.  The permutation seeds depend only on
     (seed, fold, stratum, repeat), so a group-only rerun reproduces exactly the
     shuffles a full rerun would have used.
+
+    part : (i, n) computes only units i, i+n, i+2n, ... (array sub-tasks).  Because
+    the shuffles do not depend on the unit, the union of the n parts equals the full
+    run exactly; rows carry a `_unit` index so merge_parts() restores the full order.
     """
     col_idx = {f: i for i, f in enumerate(features)}
     units = []
@@ -285,6 +297,10 @@ def permutation_importance(predict_mu, X, y, features: list, groups: dict,
             cols = [col_idx[f] for f in features if groups[f] in members]
             if cols:
                 units.append((uname, 'group', uname, cols))
+    unit_ids = list(range(len(units)))
+    if part is not None:
+        unit_ids = unit_ids[part[0]::part[1]]
+        logger.info("part %d/%d: %d of %d units", part[0], part[1], len(unit_ids), len(units))
 
     rows = []
     for sname, mask in strata.items():
@@ -303,7 +319,8 @@ def permutation_importance(predict_mu, X, y, features: list, groups: dict,
             rng = np.random.default_rng([seed, fold, zlib.crc32(sname.encode()), rep])
             perms.append(rng.permutation(n))
         t0 = time.monotonic()
-        for u_i, (name, scope, group, cols) in enumerate(units, 1):
+        for u_i, u_id in enumerate(unit_ids, 1):
+            name, scope, group, cols = units[u_id]
             d_rmse, d_r2 = [], []
             saved = Xs[:, cols].copy()
             for perm in perms:
@@ -318,10 +335,33 @@ def permutation_importance(predict_mu, X, y, features: list, groups: dict,
                              delta_rmse=float(np.mean(d_rmse)),
                              delta_rmse_sd=float(np.std(d_rmse)),
                              delta_r2=float(np.mean(d_r2))))
-            if u_i % 10 == 0 or u_i == len(units):
+            if part is not None:
+                rows[-1]['_unit'] = u_id
+            if u_i % 10 == 0 or u_i == len(unit_ids):
                 logger.info("  [%s] %d/%d units (%.1f min)", sname, u_i,
-                            len(units), (time.monotonic() - t0) / 60)
+                            len(unit_ids), (time.monotonic() - t0) / 60)
     return pd.DataFrame(rows)
+
+
+def merge_parts(out_dir: Path, mk: str, surface: str, fold: int, n: int) -> bool:
+    """Merge parts/importance_<mk>_<surface>_f<fold>_p<i>of<n>.csv into the per-fold CSV
+    once all n exist (row order = the unsplit run: stratum, then unit).  Atomic write;
+    safe if two finishing parts both merge.  Returns True when merged."""
+    paths = [out_dir / 'parts' / f'importance_{mk}_{surface}_f{fold}_p{i}of{n}.csv'
+             for i in range(n)]
+    if not all(p.exists() for p in paths):
+        return False
+    df = pd.concat([pd.read_csv(p) for p in paths], ignore_index=True)
+    st_order = {s: k for k, s in enumerate(['global', 'nearcloud'])}
+    df = (df.assign(_st=df['stratum'].map(st_order).fillna(99))
+            .sort_values(['_st', '_unit'], kind='stable')
+            .drop(columns=['_st', '_unit']).reset_index(drop=True))
+    out_csv = out_dir / f'importance_{mk}_{surface}_f{fold}.csv'
+    tmp = out_csv.with_name(out_csv.name + f'.tmp{os.getpid()}')
+    df.to_csv(tmp, index=False)
+    os.replace(tmp, out_csv)
+    print(f"[{mk} f{fold}] merged {n} parts → {out_csv}")
+    return True
 
 
 # ─── Native importances (corroboration) ────────────────────────────────────────
@@ -469,7 +509,7 @@ def run_fold(surface: str, fold: int, models: list, data_path, out_dir: Path,
              n_repeats: int, n_rows: int, rmse_tol: float,
              exclude_snow: bool, scopes=('feature', 'group'),
              run_version: str = '', run_prefix: str = '', feature_set: str = '',
-             model_root=None) -> None:
+             model_root=None, part=None) -> None:
     cfg = SURF[surface]
     rv = f'_{run_version}' if run_version else ''
     storage = get_storage_dir()
@@ -552,10 +592,23 @@ def run_fold(surface: str, fold: int, models: list, data_path, out_dir: Path,
         strata = {'global': np.ones(len(yv), dtype=bool),
                   'nearcloud': (cld >= 0) & (cld <= NEAR_CLOUD_KM)}
         res = permutation_importance(predict_mu, Xv, yv, feats0, groups,
-                                     strata, n_repeats, fold, scopes=scopes)
+                                     strata, n_repeats, fold, scopes=scopes, part=part)
         res.insert(0, 'model', mk)
         res.insert(1, 'surface', surface)
         res.insert(2, 'fold', fold)
+        if part is not None:
+            pdir = out_dir / 'parts'; pdir.mkdir(exist_ok=True)
+            pcsv = pdir / f'importance_{mk}_{surface}_f{fold}_p{part[0]}of{part[1]}.csv'
+            res.to_csv(pcsv.with_name(pcsv.name + '.tmp'), index=False)
+            os.replace(pcsv.with_name(pcsv.name + '.tmp'), pcsv)
+            print(f"[{mk} f{fold}] part {part[0]}/{part[1]} → {pcsv}")
+            merge_parts(out_dir, mk, surface, fold, part[1])
+            if part[0] == 0:
+                nat = native_importance(mk, loaded[mk]['dir'], feats0)
+                if nat is not None:
+                    nat.to_csv(out_dir / f'native_{mk}_{surface}_f{fold}.csv', index=False)
+            del Xv
+            continue
         out_csv = out_dir / f'importance_{mk}_{surface}_f{fold}.csv'
         if set(scopes) != {'feature', 'group'} and out_csv.exists():
             # Partial rerun: splice the recomputed scope into the existing file,
@@ -621,6 +674,14 @@ def main():
                         help='Feature set of the --prefix runs (e.g. no_xco2_sig).')
     parser.add_argument('--model-root', default=None,
                         help='Root of the --prefix model dirs (default <storage>/results_doppler).')
+    parser.add_argument('--part', default=None,
+                        help="i/n: compute only every n-th permutation unit starting at i "
+                             "(array sub-tasks; needs --fold and --scopes both).  The last "
+                             "part to finish merges parts/ into the per-fold CSV; results are "
+                             "identical to the unsplit run.")
+    parser.add_argument('--merge-parts', type=int, default=None, metavar='N',
+                        help='Only merge parts/*_p<i>of<N>.csv into the per-fold CSVs (for '
+                             '--fold, or all folds) and exit.')
     parser.add_argument('--aggregate', action='store_true',
                         help='Aggregate existing per-fold CSVs into the '
                              'comparison table instead of computing.')
@@ -640,6 +701,19 @@ def main():
         / args.surface)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    part = None
+    if args.part:
+        i, n = (int(x) for x in args.part.split('/'))
+        if not (0 <= i < n) or args.fold is None or scopes != ('feature', 'group'):
+            raise SystemExit("--part i/n needs 0<=i<n, --fold, and --scopes both")
+        part = (i, n)
+    if args.merge_parts:
+        for mk in models:
+            for fold in ([args.fold] if args.fold is not None else range(N_FOLDS)):
+                if not merge_parts(out_dir, mk, args.surface, fold, args.merge_parts):
+                    print(f"[{mk} f{fold}] parts incomplete — not merged")
+        return
+
     if args.aggregate:
         aggregate(out_dir, args.surface, models)
         return
@@ -654,7 +728,7 @@ def main():
         run_fold(args.surface, fold, models, data_path, out_dir,
                  args.n_repeats, args.n_rows, args.rmse_tol, args.exclude_snow,
                  scopes=scopes, run_version=args.run_version, run_prefix=args.prefix,
-                 feature_set=args.feature_set, model_root=args.model_root)
+                 feature_set=args.feature_set, model_root=args.model_root, part=part)
 
 
 if __name__ == '__main__':

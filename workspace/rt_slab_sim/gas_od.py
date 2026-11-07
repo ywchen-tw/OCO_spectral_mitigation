@@ -34,7 +34,10 @@ from abs_util.abs.get_index import get_P_index, get_T_index
 from abs_util.abs.rdabs_gas_absco import rdabs_species_absco
 from abs_util.abs.rdabsco_gas_absco import rdabsco_species_absco
 
-ABSCO_DIR = os.path.join(cfg.REPO_ROOT, "src", "abs_util", "abs")
+# laptop: tables next to the abs_util code; CURC: ABSCO_DIR=/scratch/alpine/
+# $USER/oco/data/absco/v5.2_final (exported by the launcher)
+ABSCO_DIR = os.environ.get("ABSCO_DIR",
+                           os.path.join(cfg.REPO_ROOT, "src", "abs_util", "abs"))
 
 TRILINEAR_MATRIX = np.array([[ 1,  0,  0,  0,  0,  0,  0,  0],
                              [-1,  0,  0,  0,  1,  0,  0,  0],
@@ -57,10 +60,14 @@ def _read_absco(path, gas_key):
         }
 
 
-def layer_od(absco_gas, absco_h2o, p_hpa, t_k, d_o2, d_h2o, h2o_vmr, dz_km):
-    """Absorption OD per (wavenumber, layer) for O2 + H2O, O2A window."""
+BAND = cfg.BANDS[cfg.BAND]
+GAS = BAND["gas"]           # "o2" (O2A) or "co2" (WCO2/SCO2)
+
+
+def layer_od(absco_gas, absco_h2o, p_hpa, t_k, d_gas, d_h2o, h2o_vmr, dz_km):
+    """Absorption OD per (wavenumber, layer) for the band absorber + H2O."""
     nu_gas, _, tk_gas, broad_gas, hpa_gas, _ = rdabs_species_absco(
-        absco_data=absco_gas, species="o2")
+        absco_data=absco_gas, species=GAS)
     nu_h2o_all, _, tkh2o, broadh2o, hpah2o, _ = rdabs_species_absco(
         absco_data=absco_h2o, species="h2o")
 
@@ -82,14 +89,14 @@ def layer_od(absco_gas, absco_h2o, p_hpa, t_k, d_o2, d_h2o, h2o_vmr, dz_km):
         absco = rdabsco_species_absco(
             absco_gas, None, tk_gas, broad_gas, hpa_gas,
             t_k[iz], p_hpa[iz], T_ind, P_inds[iz], h2o_vmr[iz],
-            inu1, inu2, species="o2",
+            inu1, inu2, species=GAS,
             trilinear_matrix=TRILINEAR_MATRIX, mode="trilinear")
         abscoh2o = rdabsco_species_absco(
             absco_h2o, None, tkh2o, broadh2o, hpah2o,
             t_k[iz], p_hpa[iz], T_ind_h2o, P_inds_h2o[iz], h2o_vmr[iz],
             inu1h, inu2h, species="h2o",
             trilinear_matrix=TRILINEAR_MATRIX, mode="trilinear")
-        ext0 = calc_ext_absco(d_o2[iz], absco)          # 1/km
+        ext0 = calc_ext_absco(d_gas[iz], absco)         # 1/km
         ext1_ = calc_ext_absco(d_h2o[iz], abscoh2o)
         if h2o_pad:
             ext1[:] = 0.0
@@ -105,7 +112,11 @@ def select_wavelengths(nu, slant_tau_full):
     idx = set()
     order = np.argsort(slant_tau_full)
     idx.update(order[:cfg.N_CONTINUUM])                # lowest-tau anchors
-    targets = np.geomspace(*cfg.SLANT_TAU_RANGE, cfg.N_TAU_SAMPLES)
+    # CO2 bands: the window's largest slant tau can sit below the O2A fit
+    # ceiling (WCO2 ~1-3), so the log-spaced targets stop at what exists
+    lo, hi = cfg.SLANT_TAU_RANGE
+    hi = min(hi, float(np.nanmax(slant_tau_full)))
+    targets = np.geomspace(lo, hi, cfg.N_TAU_SAMPLES)
     for t in targets:
         idx.add(int(np.argmin(np.abs(slant_tau_full - t))))
     return np.array(sorted(idx))
@@ -117,14 +128,17 @@ def main():
         fine = {k: f["fine"][k][...] for k in f["fine"]}
         sza = f["meta"].attrs["sza"]
 
-    absco_gas = _read_absco(os.path.join(ABSCO_DIR, "o2_v52.hdf"), "Gas_07_Absorption")
+    print(f"Band {cfg.BAND}: {BAND['wvl_um']} um, absorber {GAS} "
+          f"({BAND['absco']}/{BAND['gas_key']})")
+    absco_gas = _read_absco(os.path.join(ABSCO_DIR, BAND["absco"]), BAND["gas_key"])
     absco_h2o = _read_absco(os.path.join(ABSCO_DIR, "h2o_v52.hdf"), "Gas_01_Absorption")
+    fine_dens = {"d_o2_cm3": "d_o2", "d_co2_cm3": "d_co2"}[BAND["dens"]]
 
     print("Coarse-grid OD ...")
     nu, wvl_um, od = layer_od(
         absco_gas, absco_h2o,
         lay["pressure_hpa"], lay["temperature_k"],
-        lay["d_o2_cm3"], lay["d_h2o_cm3"], lay["h2o_vmr"],
+        lay[BAND["dens"]], lay["d_h2o_cm3"], lay["h2o_vmr"],
         lay["thickness_km"])
     od_col = od.sum(axis=1)
 
@@ -147,7 +161,7 @@ def main():
     nu_f, _, od_fine = layer_od(
         absco_gas, absco_h2o,
         fine["p_lay_pa"][keep] / 100.0, fine["t_lay_k"][keep],
-        fine["d_o2"][keep], fine["d_h2o"][keep], fine["h2o_vmr"][keep],
+        fine[fine_dens][keep], fine["d_h2o"][keep], fine["h2o_vmr"][keep],
         dz_below[keep])
     assert np.array_equal(nu, nu_f)
     od_col_fine = od_fine.sum(axis=1)
@@ -168,6 +182,8 @@ def main():
         f.attrs["airmass"] = airmass
         f.attrs["sza"] = sza
         f.attrs["sensor_zenith"] = cfg.SENSOR_ZENITH
+        f.attrs["band"] = cfg.BAND
+        f.attrs["gas"] = GAS
         g = f.create_group("full_grid")
         g["nu_cm1"] = nu
         g["od_column"] = od_col

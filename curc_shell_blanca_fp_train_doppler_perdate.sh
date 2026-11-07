@@ -12,6 +12,7 @@
 ###SBATCH --partition=blanca-airs
 #SBATCH --qos=preemptable
 #SBATCH --requeue
+#SBATCH --exclude=bnode0503,bnode0504,bnode0505,bnode0506,bnode0507,bnode0508,bnode0509,bnode0510,blanca-cores1,blanca-cores2,bgpu-biokem1,bgpu-biokem2,bgpu-biokem3   # slow CPUs for tau (2026-11-02: 208-306 vs 450-694 soundings/min on blanca-g4/g6, bgpu-g4)
 
 # PER-DATE ARRAY: TELLURIC-DOPPLER VARIANT FITS (src/spectral/fitting.py
 # --telluric-doppler: production fit orders + the order-2/3 extras and the agreed-

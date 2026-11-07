@@ -781,6 +781,44 @@ for _grp, _feats in _SIG_ABLATION_GROUPS.items():
     _FEATURE_SETS[f'no_xco2_sig_shape_no_{_grp}'] = _spec
 del _grp, _feats, _spec, _extra
 
+# Formal set without the k2diag diagnostics (2026-11-02 evening, handoff 4d): k2diag is the
+# free-k2 refit kept as a diagnostic of a coefficient production fixes at zero; drop the O2A
+# k2diag (+ sig) and the WCO2 k2diag/k1^2 ratio.  (wco2_k2diag_am / wco2_sig_k2diag_am are
+# already dropped by no_xco2_sig_shape; the SCO2 k2/k1^2 ratio and k1_S/k1_W stay.)
+_K2DIAG = frozenset({'o2a_k2diag_am', 'o2a_sig_k2diag_am', 'wco2_k2diag_over_k1sq_am'})
+_FEATURE_SETS['no_xco2_sig_shape_nok2diag'] = {
+    'add': [f for f in CO2_SHAPE_FEATURES if f not in _K2DIAG],
+    'add_fn': lambda m, s: spectral_sigma_features(m, s),
+    'drop': XCO2_FEATURES | _CO2_K1 | _CO2_K2 | _K2DIAG}
+# ... and its group-drop ablation, as for no_xco2_sig_shape (the CO2-band group also
+# removes the remaining shape ratios).
+for _grp, _feats in _SIG_ABLATION_GROUPS.items():
+    _spec = dict(_FEATURE_SETS['no_xco2_sig_shape_nok2diag'])
+    _extra = frozenset(CO2_SHAPE_FEATURES) if _grp == 'co2_spec' else frozenset()
+    _spec['drop'] = frozenset(_spec['drop']) | _feats | _extra
+    if _grp == 'co2_spec':
+        _spec['add'] = []
+    _FEATURE_SETS[f'no_xco2_sig_shape_nok2diag_no_{_grp}'] = _spec
+del _grp, _feats, _spec, _extra
+
+
+# Mauceri et al. (2023) top features (their Fig. 8; Lite B10 names -> ours: h2o_ratio -> h2o_ratio_bc,
+# albedo_wco2 -> alb_wco2), alone and with our spectral-fit block (the 'spec' group of
+# no_xco2_sig_shape_nok2diag: am coefficients, sig_* and the k2diag-free CO2 shape ratios).
+# dp, and over ocean aod_ice / alb_wco2, are not in the base lists -> appended per surface (2026-11-03).
+_MAUCERI_TOP = {0: ['dp', 'co2_grad_del', 'aod_ice', 'alb_wco2'],
+                1: ['dp_abp', 'dp', 'h2o_ratio_bc', 'co2_grad_del', 'aod_water']}
+_SIGMA_ALL = frozenset(f for _m in FIT_METHODS for _s in (0, 1) for f in spectral_sigma_features(_m, _s))
+_FEATURE_SETS['mauceri_top'] = {'add_per_sfc': {s: list(v) for s, v in _MAUCERI_TOP.items()},
+                                'keep_per_sfc': {s: frozenset(v) for s, v in _MAUCERI_TOP.items()}}
+_FEATURE_SETS['mauceri_top_spec'] = {
+    'add_per_sfc': {s: list(v) for s, v in _MAUCERI_TOP.items()},
+    'add': [f for f in CO2_SHAPE_FEATURES if f not in _K2DIAG],
+    'add_fn': lambda m, s: spectral_sigma_features(m, s),
+    'keep_per_sfc': {s: frozenset(v) | SPEC_FEATURES | frozenset(CO2_SHAPE_FEATURES) | _SIGMA_ALL
+                     for s, v in _MAUCERI_TOP.items()},
+    'drop': XCO2_FEATURES | _CO2_K1 | _CO2_K2 | _K2DIAG}
+
 
 def _resolve_feature_set(qt_features: list, feature_set: str,
                          sfc_type: 'int | None' = None,
@@ -814,6 +852,10 @@ def _resolve_feature_set(qt_features: list, feature_set: str,
         result += [f for f in spec['add_fn'](fit_method, sfc_type) if f not in result]
     if 'keep' in spec:                    # retain only the named group(s)
         keep = spec['keep']
+        result = [f for f in result if f in keep]
+    if 'keep_per_sfc' in spec:            # per-surface keep (sfc_type None -> union)
+        kp = spec['keep_per_sfc']
+        keep = kp[sfc_type] if sfc_type in kp else frozenset().union(*kp.values())
         result = [f for f in result if f in keep]
     if 'drop' in spec:                    # remove named group(s)
         drop = spec['drop']

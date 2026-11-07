@@ -695,6 +695,10 @@ def main():
     ap.add_argument('--fname-suffix', default='',
                     help="Appended before the extension of every output filename "
                          "(e.g. '_r100km') so a parameter sweep's reports coexist.")
+    ap.add_argument('--csv-dir', default=None,
+                    help="directory of combined_<date>_all_orbits.parquet source parquets "
+                         "(xco2_raw, xco2_qf, Lite AK columns); default: results/csv_collection "
+                         "then <storage>/results/csv_collection")
     ap.add_argument('--exclude-sites', default='',
                     help="Comma-separated TCCON site codes (e.g. 'ny'); also emits an "
                          "_excl_<sites> variant of the scatter/dumbbell and by-surface "
@@ -830,7 +834,9 @@ def main():
         """Locate the pre-apply source parquet (carries xco2_raw, absent from
         plot_data.parquet). Returns a Path or None."""
         name = f"combined_{date}_all_orbits.parquet"
-        for base in (Path('results/csv_collection'), storage / 'results/csv_collection'):
+        bases = ((Path(args.csv_dir),) if args.csv_dir else
+                 (Path('results/csv_collection'), storage / 'results/csv_collection'))
+        for base in bases:
             p = base / name
             if p.exists():
                 return p

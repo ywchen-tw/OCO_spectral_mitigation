@@ -52,14 +52,15 @@ if [[ "$(uname -s)" == "Linux" ]]; then
 fi
 
 # EDIT THESE for the CURC filesystem before first submit:
-export ER3T_DIR=${ER3T_DIR:-/projects/yuch8913/er3t}
-export MCARATS_V010_EXE=${MCARATS_V010_EXE:-/projects/yuch8913/mcarats/v0.10.4/src/mcarats}
+export ER3T_DIR=${ER3T_DIR:-/projects/yuch8913/wen_soft/er3t}
+export MCARATS_V010_EXE=${MCARATS_V010_EXE:-/projects/yuch8913/wen_soft/mcarats/v0.10.4/src/mcarats}
+export ABSCO_DIR=${ABSCO_DIR:-/scratch/alpine/${USER}/oco/data/absco/v5.2_final}
 
 # data root, same convention as the other launchers (CURC_DATA_ROOT, then
 # OCO2_DATAROOT, else scratch default); slab_config.py uses it as the
 # parent of results/, so everything is under
 # ${OCO2_DATAROOT}/results/rt_slab_sim -- rsync slab_atm.h5 + slab_od.h5 THERE
-DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-/scratch/alpine/${USER}/oco2_data}}"
+DATA_ROOT="${CURC_DATA_ROOT:-${OCO2_DATAROOT:-/scratch/alpine/${USER}/oco/spec_anal}}"
 DATA_ROOT="${DATA_ROOT%/}"
 export OCO2_DATAROOT="$DATA_ROOT"
 mkdir -p "${OCO2_DATAROOT}/results/rt_slab_sim"

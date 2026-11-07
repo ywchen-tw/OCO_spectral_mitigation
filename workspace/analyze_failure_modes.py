@@ -108,9 +108,14 @@ def parse_cases(script: str) -> list[dict]:
     return cases
 
 
+CSV_DIR = None   # --csv-dir: per-date source parquets (e.g. results_doppler/csv_collection)
+
+
 def source_parquet(date: str, storage: Path) -> Path | None:
     name = f"combined_{date}_all_orbits.parquet"
-    for base in (Path("results/csv_collection"), storage / "results/csv_collection"):
+    bases = ((Path(CSV_DIR),) if CSV_DIR else
+             (Path("results/csv_collection"), storage / "results/csv_collection"))
+    for base in bases:
         if (base / name).exists():
             return base / name
     return None
@@ -168,10 +173,14 @@ def stage2_footprints(radius_km: float, window_min: float) -> pd.DataFrame:
             if pq is None:
                 continue
             oco = pd.read_parquet(pq)
+            if "is_guarded" not in oco.columns:     # XGB/linreg plot_data: two guard flags
+                g_cols = [k for k in ("clim_guard", "anomaly_guard") if k in oco.columns]
+                oco["is_guarded"] = (oco[g_cols].any(axis=1) if g_cols
+                                     else np.zeros(len(oco), dtype=bool))
             sp = source_parquet(c["date"], storage)
             if sp is not None:
                 avail = set(apq.ParquetFile(sp).schema_arrow.names)
-                want = [col for col in SRC_DRIVERS + ["xco2_raw"]
+                want = [col for col in SRC_DRIVERS + PD_DRIVERS + ["xco2_raw"]
                         if col in avail and col not in oco.columns]
                 src = (pd.read_parquet(sp, columns=["time", "lon", "lat"] + want)
                          .drop_duplicates(["time", "lon", "lat"]))
@@ -265,7 +274,8 @@ def stage3_bins(d: pd.DataFrame, surface: str, nbins: int = 10) -> pd.DataFrame:
                 bias_after=g.resid_after.mean(),
                 mean_imp=g.imp.mean(),
                 frac_worse=(g.imp > 0).mean(),
-                z2=((g.resid_after / g.de_sigma) ** 2).mean()))
+                z2=((g.resid_after / g.de_sigma) ** 2).mean()
+                if "de_sigma" in g.columns else np.nan))
     return pd.DataFrame(rows)
 
 
@@ -373,6 +383,11 @@ def stage6_cv_albedo(d: pd.DataFrame, out_dir: Path, rtag: str) -> list[str]:
     edges = np.unique(np.quantile(tccon_alb, np.linspace(0, 1, 11)))
     edges[0], edges[-1] = -np.inf, np.inf
 
+    missing = [Path(CV_FOLD_TMPL.format(f=f)) for f in range(5)
+               if not Path(CV_FOLD_TMPL.format(f=f)).exists()]
+    if missing:   # DE-only cross-check; skip before reading the 36 GB training parquet
+        print(f"stage 6: SKIP — missing {missing[0]}")
+        return ["_(skipped: held-out fold predictions not available)_"]
     comb = apq.read_table(COMBINED_PARQUET,
                           columns=["lat", "aod_total", "fp", "alb_o2a"]
                           ).to_pandas()
@@ -457,8 +472,25 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--radius-km", type=float, default=100.0)
     ap.add_argument("--window-min", type=float, default=60.0)
-    ap.add_argument("--out-dir", default=str(BASE / TAG / "failure_modes"))
+    ap.add_argument("--out-dir", default=None,
+                    help="default <root>/failure_modes (DE production tree without --root)")
+    ap.add_argument("--root", default=None,
+                    help="model tree holding atrain/ and drift/ (e.g. results_doppler/model_comparison/"
+                         "xgb/fm1620k5v2xt41_am_no_xco2_sig_shape); default the DE production tree")
+    ap.add_argument("--corr-col", default=None, help="corrected-XCO2 column (default DE)")
+    ap.add_argument("--csv-dir", default=None, help="per-date source parquets dir")
+    ap.add_argument("--atrain-script", default="curc_shell_blanca_plot_corr_xco2_deepens.sh")
+    ap.add_argument("--drift-script", default="curc_shell_blanca_plot_corr_xco2_deepens_drift.sh")
     args = ap.parse_args()
+    global TREES, CORR, CSV_DIR
+    root = Path(args.root) if args.root else BASE / TAG
+    TREES = {"atrain": (root / "atrain", args.atrain_script),
+             "drift": (root / "drift", args.drift_script)}
+    if args.corr_col:
+        CORR = args.corr_col
+    CSV_DIR = args.csv_dir
+    if args.out_dir is None:
+        args.out_dir = str(root / "failure_modes")
     today = dt.date.today().isoformat()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -581,7 +613,8 @@ def main():
         "geometry block, not separately.", "",
         *ols_md(), "",
         "## 4. Is failure flagged by the model's own σ?", "",
-        *sigma_awareness(d), "",
+        *(sigma_awareness(d) if "de_sigma" in d.columns and np.isfinite(d.de_sigma).any()
+          else ["(no model σ for this model — section skipped)"]), "",
         "## 5. Worsener dossiers (driver z-scores vs full cohort)", "",
         *stage4_dossiers(d, worse), "",
         "## 6. Held-out CV cross-check: is the bright stratum a MODEL "
@@ -638,7 +671,10 @@ def main():
         "not mis-correction.",
         "",
     ]
-    out_md = BASE / f"FAILURE_MODES_{today}.md"
+    # DE production run keeps its old location; other trees write next to their artifacts.
+    # NOTE the narrative paragraphs are the DE writeup — numbers in the tables are this tree's.
+    out_md = (BASE / f"FAILURE_MODES_{today}.md") if not args.root else \
+        (out_dir / f"FAILURE_MODES_{today}.md")
     out_md.write_text("\n".join(md))
     print(f"wrote {out_md}")
     print(f"artifacts in {out_dir}")

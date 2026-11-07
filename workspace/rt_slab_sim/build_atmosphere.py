@@ -200,6 +200,13 @@ def column_cm2(dens_cm3, dz_m):
 def main():
     prof = load_footprint_profile(cfg.SOUNDING_ID)
     m = prof["meta"]
+    m["scene"] = cfg.SCENE
+    if cfg.SZA_OVERRIDE is not None:
+        # scene override: downstream stages (gas_od airmass + wavelength
+        # selection, run_slab source direction) read meta/sza only
+        m["sza_sounding"] = m["sza"]
+        m["sza"] = float(cfg.SZA_OVERRIDE)
+        print(f"Scene {cfg.SCENE}: SZA override {m['sza_sounding']:.2f} -> {m['sza']:.2f}")
     print(f"Selected sounding {m['sounding_id']}  "
           f"lat {m['lat']:.2f}  lon {m['lon']:.2f}  SZA {m['sza']:.2f}  "
           f"VZA {m['vza']:.2f}  land_frac {m['land_fraction']:.0f}  "
