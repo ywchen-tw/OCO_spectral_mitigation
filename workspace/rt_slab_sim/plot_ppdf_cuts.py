@@ -13,6 +13,10 @@ exactly as in plot_ppdf.py panel (d).
 The sun comes from the west, so the illuminated side of the cloud is
 x < 9.5 km and the shadow band is x ~ 15-22 km.
 
+The reader and l-axis helpers (read_slab_hist, rebin_path_axis, rebin_path,
+direct_peak_km, relative_path_axis) are shared with the candidate manuscript
+panel manuscript/JQSRT_draft/scripts/make_path_schematic_mc_panel.py.
+
 Run:  python workspace/rt_slab_sim/plot_ppdf_cuts.py [--tau 0.0] [--rebin 5]
 """
 import argparse
@@ -50,9 +54,22 @@ def cloud_edge_distance(x):
     return 0.0
 
 
-def load_ppdf(tau, rebin):
-    """Return (x_km, l_rel, hist dict keyed (surface, solver), tau_shown,
-    l_direct, bin_km)."""
+REF_X_MAX_KM = 5.0       # far-field columns (x < 5 km) that anchor l = 1
+
+
+def read_slab_hist(tau):
+    """Per-run Rad_mplen=3 histograms and radiances at the stored wavelength
+    whose slant tau is nearest `tau`.
+
+    Returns a dict with
+      x_km      (Nx,) column centres
+      edges_m   (Nbin+1,) total-geometric-path bin edges
+      hist      {(surface, solver): (Nrun, Nx, Nbin)} radiance FRACTION per
+                path bin, as written by MCARaTS (sums to ~1 per pixel; the
+                remainder is paths beyond PLEN_MAX_M)
+      rad_runs  {(surface, solver): (Nx, Nrun)} pixel radiance of each run
+      tau_shown, sza (deg), l_direct (km, TOA slant down + nadir up)
+    """
     x_km = (np.arange(cfg.NX) + 0.5) * cfg.DX_KM
 
     with h5py.File(cfg.ATM_FILE, "r") as f:
@@ -65,34 +82,67 @@ def load_ppdf(tau, rebin):
         slant_tau = f["slant_tau"][...]
         edges = np.linspace(f.attrs["plen_min_m"], f.attrs["plen_max_m"],
                             f.attrs["plen_nbin"] + 1)
-        raw = {}
+        hist, rad_runs = {}, {}
         for surface in cfg.SURFACE_ALBEDOS:
             for solver in cfg.SOLVERS:
                 g = f[f"{surface}/{solver}"]
                 iw_stored = g["iw"][...]
                 iw = int(np.argmin(np.abs(slant_tau[iw_stored] - tau)))
-                raw[(surface, solver)] = g["plen_hist"][iw].mean(axis=0)
+                hist[(surface, solver)] = g["plen_hist"][iw]
+                rad_runs[(surface, solver)] = g["rad_runs"][iw]
         tau_shown = slant_tau[iw_stored][iw]
 
-    nb = (edges.size - 1) // rebin
-    mid = 0.5 * (edges[:-1] + edges[1:])
-    mid_rb = mid[:nb * rebin].reshape(nb, rebin).mean(axis=1) / 1e3      # km
-    bin_km = (edges[1] - edges[0]) * rebin / 1e3
+    return dict(x_km=x_km, edges_m=edges, hist=hist, rad_runs=rad_runs,
+                tau_shown=tau_shown, sza=sza, l_direct=l_direct)
 
-    def do_rebin(h):
-        h = h[:, :nb * rebin].reshape(h.shape[0], nb, rebin).sum(axis=2)
-        s = h.sum(axis=1, keepdims=True)
-        return h / np.where(s > 0, s, 1)             # renormalize per column
 
-    hist = {k: do_rebin(v) for k, v in raw.items()}
+def rebin_path_axis(edges_m, rebin):
+    """Bin centres (km) and bin width (km) after aggregating `rebin` bins."""
+    nb = (edges_m.size - 1) // rebin
+    mid = 0.5 * (edges_m[:-1] + edges_m[1:])
+    mid_rb = mid[:nb * rebin].reshape(nb, rebin).mean(axis=1) / 1e3
+    return mid_rb, (edges_m[1] - edges_m[0]) * rebin / 1e3
 
-    # anchor the far-field direct-bounce peak (dark / 3-D) at l = 1
-    ref_cols = x_km < 5.0
-    clear_mean_hist = hist[("dark", "3d")][ref_cols].mean(axis=0)
-    L_peak = mid_rb[int(np.argmax(clear_mean_hist))]
-    l_rel = 1.0 + (mid_rb - L_peak) / l_direct
 
-    return x_km, l_rel, hist, tau_shown, l_direct, bin_km, sza
+def rebin_path(h, rebin):
+    """Sum groups of `rebin` path bins along the last axis (a trailing
+    partial group is dropped, as in rebin_path_axis)."""
+    nb = h.shape[-1] // rebin
+    return h[..., :nb * rebin].reshape(h.shape[:-1] + (nb, rebin)).sum(axis=-1)
+
+
+def per_column_fraction(h):
+    """Renormalize each column histogram (last axis) to unit sum."""
+    s = h.sum(axis=-1, keepdims=True)
+    return h / np.where(s > 0, s, 1)
+
+
+def direct_peak_km(x_km, mid_rb, hist_dark3d):
+    """L_peak (km): the direct-bounce peak of the mean per-column-normalized
+    far-field (x < REF_X_MAX_KM) histogram of the dark / 3-D case, on the
+    rebinned path axis mid_rb."""
+    ref_cols = x_km < REF_X_MAX_KM
+    clear_mean_hist = per_column_fraction(hist_dark3d)[ref_cols].mean(axis=0)
+    return mid_rb[int(np.argmax(clear_mean_hist))]
+
+
+def relative_path_axis(x_km, mid_rb, hist_dark3d, l_direct):
+    """l = 1 + (L - L_peak) / l_direct, L_peak from direct_peak_km."""
+    return 1.0 + (mid_rb - direct_peak_km(x_km, mid_rb, hist_dark3d)) / l_direct
+
+
+def load_ppdf(tau, rebin):
+    """Return (x_km, l_rel, hist dict keyed (surface, solver), tau_shown,
+    l_direct, bin_km, sza); hist is pooled over runs and renormalized per
+    column."""
+    d = read_slab_hist(tau)
+    mid_rb, bin_km = rebin_path_axis(d["edges_m"], rebin)
+    hist = {k: per_column_fraction(rebin_path(v.mean(axis=0), rebin))
+            for k, v in d["hist"].items()}
+    l_rel = relative_path_axis(d["x_km"], mid_rb, hist[("dark", "3d")],
+                               d["l_direct"])
+    return (d["x_km"], l_rel, hist, d["tau_shown"], d["l_direct"], bin_km,
+            d["sza"])
 
 
 def cut_stats(h, l_rel):

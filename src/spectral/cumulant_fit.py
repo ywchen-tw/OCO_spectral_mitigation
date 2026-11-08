@@ -210,7 +210,7 @@ def fit_spectral_model(tau, ln_T, fit_order, smooth=True):
 # H2O attribution <band>_frac_h2o (telluric-Doppler variant); NaN otherwise:
 #   _t2 : two-tau model, no continuum, unconstrained lstsq
 #         ln T = c − k1_dry·τ_dry − k1_w·τ_h2o + ½·k2·τ²
-#   _am : the agreed per-band model (see _fit_am_o2a / _fit_am_wco2 / _fit_am_sco2)
+#   _am : the agreed per-band model (see fit_am_o2a / _fit_am_wco2 / _fit_am_sco2)
 # with τ_h2o = frac_h2o·τ (frac NaN → 0), τ_dry = τ − τ_h2o.
 EXTRA_FIT_FIELDS = (
     "k1_o2", "k2_o2", "sig_k1_o2", "sig_k2_o2", "rms_o2",
@@ -288,8 +288,15 @@ def _am_nan():
     return {name: np.nan for name in _AM_FIELDS}
 
 
-def _fit_am_o2a(t, x, y):
+def fit_am_o2a(t, x, y):
     """O2A agreed model: ln T = c + a1·x + ln[(1 − f)·exp(−k1·τ) + f].
+
+    Public entry point of the production O2A fit (_extra_fit_chunk and
+    _doppler_fit_chunk call it); also used by the slab RT test
+    (workspace/rt_slab_sim/fit_and_plot.py).  Inputs are the already-masked
+    channels (finite ln T and τ, T ≤ 1, ≥ _AM_MIN_CHAN of them): t = total τ
+    (dry + H2O, not split for O2A), x = spectral coordinate in [−1, 1],
+    y = raw ln T (no smoothing).  Returns a dict keyed by the _AM_FIELDS names.
 
     Bounds k1 ≥ 0, 0 ≤ f ≤ 0.2; k2 fixed 0.  Started from the linear fit on
     [1, x, −τ] with f = 0.01 and k1 = max(k1_lin, 0.1).  On solver failure all
@@ -326,6 +333,10 @@ def _fit_am_o2a(t, x, y):
         except ValueError:
             pass
     return out
+
+
+# pre-2026-11-02 private name, still imported by idea_test/ppdf_direct_xco2
+_fit_am_o2a = fit_am_o2a
 
 
 def _fit_am_wco2(td, tw, x, y):
@@ -437,7 +448,7 @@ def _extra_fit_chunk(j_indices, tau_slab, lnT_slab, fit_orders, frac_slab=None, 
             land = bool(land_chunk[jl]) if land_chunk is not None else False
             try:
                 if i_band == 0:
-                    am = _fit_am_o2a(tau_s, x, y_raw)
+                    am = fit_am_o2a(tau_s, x, y_raw)
                 elif i_band == 1:
                     am = _fit_am_wco2(td, tw, x, y_raw)
                 else:
@@ -542,7 +553,7 @@ def _doppler_fit_chunk(j_indices, tau_slab, lnT_slab, frac_slab, land_chunk=None
             land = bool(land_chunk[jl]) if land_chunk is not None else False
             try:
                 if i_band == 0:
-                    am = _fit_am_o2a(tau_s, x, y_raw)
+                    am = fit_am_o2a(tau_s, x, y_raw)
                 elif i_band == 1:
                     am = _fit_am_wco2(td, tw, x, y_raw)
                 else:
@@ -556,6 +567,87 @@ def _doppler_fit_chunk(j_indices, tau_slab, lnT_slab, frac_slab, land_chunk=None
                 row[_FIT_INDEX["exp_int_am"]] = np.exp(row[_FIT_INDEX["c_am"]])
                 row[_FIT_INDEX["sig_exp_int_am"]] = (row[_FIT_INDEX["exp_int_am"]]
                                                     * row[_FIT_INDEX["sig_c_am"]])
+    return j_indices, fits
+
+
+# ─── Test model t2s: two-τ order-2 with slope (2026-11-02) ───────────────────
+# Candidate simpler production model, NOT part of FIT_SCHEMA.  One linear
+# design for every band, no bounds, no floor:
+#   ln T = c + a1·x (+ a2·x² over land, SCO2 only) − k1·τ_dry − k1w·τ_h2o + ½k2·τ²
+# with τ = τ_dry + τ_h2o.  For SCO2 this is exactly the agreed model
+# (_fit_am_sco2); for WCO2 it is the k2diag design of _fit_am_wco2; for O2A it
+# replaces the nonlinear floor fit and, unlike fit_am_o2a, splits τ into dry
+# and H2O parts with o2a_frac_h2o.  t2s_fit_chunk runs it per orbit as a side
+# product with the inputs of _doppler_fit_chunk; fields are stored as
+# <band>_<field>.  sig_* are formal errors (_cov_se).
+T2S_MODEL = "two-tau order-2 with slope (t2s)"
+T2S_FIELDS = (
+    "nchan",
+    "k1_t2s", "k1w_t2s", "k2_t2s", "a1_t2s", "a2_t2s", "c_t2s", "rms_t2s",
+    "sig_k1_t2s", "sig_k1w_t2s", "sig_k2_t2s", "sig_a1_t2s", "sig_a2_t2s", "sig_c_t2s",
+)
+
+
+def fit_t2s(td, tw, x, y, land):
+    """t2s fit of one band of one sounding (ordinary least squares).
+
+    td, tw : dry and H2O slant τ per channel (τ_h2o = frac_h2o·τ, frac NaN → 0)
+    x      : spectral coordinate in [−1, 1] ((j − 507.5)/507.5 in production)
+    y      : raw ln T (T > 1 already NaN, edge channels already dropped)
+    land   : add the a2·x² column (the caller passes True only for SCO2 land)
+
+    Channels with non-finite td, tw, x or y are dropped; channel order does not
+    matter.  Fewer than _AM_MIN_CHAN channels, or a singular design, give NaN
+    coefficients.  a2_t2s / sig_a2_t2s are NaN without the x² column.
+    Returns a dict keyed by T2S_FIELDS.
+    """
+    td, tw, x, y = (np.asarray(v, dtype=np.float64) for v in (td, tw, x, y))
+    keep = np.isfinite(td) & np.isfinite(tw) & np.isfinite(x) & np.isfinite(y)
+    out = {name: np.nan for name in T2S_FIELDS}
+    out["nchan"] = float(keep.sum())
+    if keep.sum() < _AM_MIN_CHAN:
+        return out
+    td, tw, x, y = td[keep], tw[keep], x[keep], y[keep]
+    t = td + tw
+    cols = [np.ones_like(td), x] + ([x**2] if land else []) + [-td, -tw, 0.5 * t**2]
+    try:
+        c, rms, se = _lin_se(cols, y)
+    except (np.linalg.LinAlgError, ValueError):
+        return out
+    names = ["c", "a1"] + (["a2"] if land else []) + ["k1", "k1w", "k2"]
+    for i, stub in enumerate(names):
+        out[f"{stub}_t2s"] = c[i]
+        out[f"sig_{stub}_t2s"] = se[i]
+    out["rms_t2s"] = rms
+    return out
+
+
+def t2s_fit_chunk(j_indices, tau_slab, lnT_slab, frac_slab, land_chunk=None):
+    """T2S_FIELDS for a chunk of soundings, all bands (worker-safe).
+
+    Same signature and inputs as _doppler_fit_chunk (edge channels already
+    excluded, frac NaN → 0, land → SCO2 x² term), so fitting.process_orbit's
+    _chunk_args can feed it unchanged.  Channels with finite ln T and τ, sorted
+    by τ as in _doppler_fit_chunk (so SCO2 t2s reproduces SCO2 am exactly);
+    x = (j − 507.5)/507.5 with j = slab position + 1.  Bands: 0 = O2A,
+    1 = WCO2, 2 = SCO2.  Returns (j_indices, fits [3, m, len(T2S_FIELDS)]).
+    """
+    m = len(j_indices)
+    fits = np.full((3, m, len(T2S_FIELDS)), np.nan)
+    for jl in range(m):
+        land = bool(land_chunk[jl]) if land_chunk is not None else False
+        for i_band in range(3):
+            tau_j = np.asarray(tau_slab[i_band, jl], dtype=np.float64)
+            ln_j = np.asarray(lnT_slab[i_band, jl], dtype=np.float64)
+            mask = ~np.isnan(ln_j) & ~np.isnan(tau_j)
+            sort_idx = np.argsort(tau_j[mask])
+            tau_s = tau_j[mask][sort_idx]
+            frac = np.asarray(frac_slab[i_band, jl], dtype=np.float64)[mask][sort_idx]
+            tw = np.where(np.isfinite(frac), frac, 0.0) * tau_s
+            pos = np.flatnonzero(mask)[sort_idx] + _SLAB_CHANNEL_OFFSET
+            x = (pos - _X_HALF) / _X_HALF
+            res = fit_t2s(tau_s - tw, tw, x, ln_j[mask][sort_idx], land and i_band == 2)
+            fits[i_band, jl] = [res[name] for name in T2S_FIELDS]
     return j_indices, fits
 
 

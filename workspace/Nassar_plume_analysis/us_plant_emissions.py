@@ -23,6 +23,27 @@ Per overpass
     within +/-30 deg that minimizes the residual.
 
 Usage:  PYTHONPATH=src:workspace python workspace/Nassar_plume_analysis/us_plant_emissions.py
+
+Two modes
+  default        the emission estimates above (us_emission_estimates.csv/.md,
+                 us_emission_summary.png) and the SI figure us_emission_si.png: maps,
+                 transects with the fitted plumes, fitted and reported Q (--maps-only:
+                 the maps with the reanalysis wind arrow, us_emission_maps_si.png).
+                 Kept for future use: since 2026-11-04 the SI figure carries no emission
+                 rate (author decision), but this path still reproduces the emission
+                 edition.  It needs, under --cache-dir: the Open-Meteo ERA5 JSON
+                 (era5_*.json, 10 m wind and surface pressure) and the EPA CAMPD JSON
+                 (campd_*.json, reported hourly CO2), both fetched on first run; the
+                 ERA5 pressure-level / surface files era5_cds/ (era5_plant_winds_download.py)
+                 and the MERRA-2 files merra2/ (merra2_plant_winds_download.py); and the
+                 viewing geometry in --csv-dir.
+  --no-emission  the SI figure us_plumes_si.png/.pdf with no wind, plume fit or CAMPD
+                 input: per plant, maps of the original and corrected XCO2 without a
+                 wind arrow, and the along-track XCO2 relative to its background with the
+                 plume-peak enhancement of plot_mauceri_comparison.peak_rise and the 25 km
+                 spread ratios of <plot-base>/plume_preservation/nassar_control_null.csv.
+                 Reads only plot_data.parquet, the cached MODIS tiles and that table, and
+                 writes us_plume_peak.csv; --cache-dir is not used.
 """
 from __future__ import annotations
 
@@ -55,6 +76,7 @@ XCO2_MODEL_LABEL = r"$X_{\mathrm{CO2}}^{\mathrm{ML}}$"
 from plot_nassar_plumes import (DEFAULT_PLANTS, DEFAULT_PLOT_BASE, aqua_time_lag_min,  # noqa: E402
                                 circle_lon_lat, download_gibs_wms_rgb, haversine_km,
                                 modis_lag_note, plant_extent, read_plants)
+import plot_mauceri_comparison as pmc  # noqa: E402  (plume-peak window of --no-emission)
 
 # (plant_id, date, EPA ORIS facility id, UTC offset of local standard time)
 CASES = (
@@ -76,6 +98,10 @@ CASE_NOTES = {
     ("westar", "2023-03-13"): "S4: near-cloud window, all-band <l'> shift (cloud artifact)",
 }
 SEGMENT_GAP_S = 60.0
+# Corrected-XCO2 column of plot_data.parquet (--corrected-col); the default is the
+# deep-ensemble tree, the XGBoost tree writes xgb_corrected_xco2.
+DEFAULT_CORRECTED_COL = "deep_ensemble_corrected_xco2"
+DEFAULT_CSV_DIR = Path("results/csv_collection")
 # Cases of the SI figure (top to bottom) and the plot inputs kept by run_case for it.
 SI_CASES = (("ghent", "2015-08-13"), ("westar", "2015-12-04"))
 PLOT_INPUTS = {}
@@ -378,20 +404,50 @@ def scan_nassar(seg, col, kernels):
     return f
 
 
-def run_case(case, plants, plot_base, cache, api_key, radius_km, outdir, heights, f_min,
-             plot_height, method="nassar", csv_dir=Path("results/csv_collection"),
-             modis_dir=None):
-    pid, date, oris, utc_off = case
-    plant = plants[pid]
+def closest_segment(plot_base, date, plant, corrected_col):
+    """Footprints with finite xco2_bc, in time order, of the overpass segment that passes
+    closest to the plant, with their distance dist (km) from it."""
     lat0, lon0 = float(plant["lat"]), float(plant["lon"])
     df = pd.read_parquet(plot_base / f"combined_{date}" / "plot_data.parquet",
-                         columns=["time", "lat", "lon", "xco2_bc", "deep_ensemble_corrected_xco2",
+                         columns=["time", "lat", "lon", "xco2_bc", corrected_col,
                                   "cld_dist_km"])
     df = df[np.isfinite(df["xco2_bc"])].sort_values("time").reset_index(drop=True)
     df["dist"] = haversine_km(df["lat"].to_numpy(), df["lon"].to_numpy(), lat0, lon0)
     seg_id = (df["time"].diff().abs() > SEGMENT_GAP_S).cumsum()
-    seg = df[(seg_id == seg_id.iloc[df["dist"].idxmin()]) & (df["dist"] <= radius_km)].copy()
+    return df[seg_id == seg_id.iloc[df["dist"].idxmin()]]
+
+
+def add_track_coords(seg, plant, track=None):
+    """Add local east / north (ex, ny) and along-track (s_km) coordinates in km, origin at
+    the plant, to seg in place.  The track direction runs from the southernmost to the
+    northernmost footprint of seg unless given.  Returns the track unit vector."""
+    lat0, lon0 = float(plant["lat"]), float(plant["lon"])
+    ex, ny = local_km(seg["lat"].to_numpy(), seg["lon"].to_numpy(), lat0, lon0)
+    seg["ex"], seg["ny"] = ex, ny
+    if track is None:
+        i0, i1 = np.argmin(ny), np.argmax(ny)
+        track = np.array([ex[i1] - ex[i0], ny[i1] - ny[i0]]); track /= np.linalg.norm(track)
+    seg["s_km"] = ex * track[0] + ny * track[1]
+    return track
+
+
+def plant_segment(plot_base, date, plant, corrected_col, radius_km):
+    """Closest-approach segment within radius_km of the plant, with its track coordinates;
+    returns the segment, the track unit vector and the UTC time of closest approach."""
+    seg = closest_segment(plot_base, date, plant, corrected_col)
+    seg = seg[seg["dist"] <= radius_km].copy()
     t_utc = datetime.fromtimestamp(float(seg.loc[seg["dist"].idxmin(), "time"]), tz=timezone.utc)
+    track = add_track_coords(seg, plant)
+    return seg, track, t_utc
+
+
+def run_case(case, plants, plot_base, cache, api_key, radius_km, outdir, heights, f_min,
+             plot_height, method="nassar", csv_dir=DEFAULT_CSV_DIR,
+             modis_dir=None, corrected_col=DEFAULT_CORRECTED_COL):
+    pid, date, oris, utc_off = case
+    plant = plants[pid]
+    lat0, lon0 = float(plant["lat"]), float(plant["lon"])
+    seg, track, t_utc = plant_segment(plot_base, date, plant, corrected_col, radius_km)
 
     met = era5_at(lat0, lon0, t_utc, cache)                # 10 m wind and surface pressure
     modis_lag = (aqua_time_lag_min(date, lat0, lon0, t_utc, modis_dir)
@@ -400,11 +456,7 @@ def run_case(case, plants, plot_base, cache, api_key, radius_km, outdir, heights
     prof = era5_profile(pid, date, lat0, lon0, t_utc, cache / "era5_cds")
     a = pg_a(met["ws_10m"])                                # stability class from the 10 m wind
 
-    ex, ny = local_km(seg["lat"].to_numpy(), seg["lon"].to_numpy(), lat0, lon0)
-    seg["ex"], seg["ny"] = ex, ny
-    i0, i1 = np.argmin(ny), np.argmax(ny)
-    track = np.array([ex[i1] - ex[i0], ny[i1] - ny[i0]]); track /= np.linalg.norm(track)
-    seg["s_km"] = ex * track[0] + ny * track[1]
+    ex, ny = seg["ex"].to_numpy(), seg["ny"].to_numpy()
     ppm_per_kgm2 = 1.0 / (1e-6 * M_CO2 / M_AIR * met["ps_pa"] / G)
 
     plume_h_m = STACK_HEIGHT_M[pid] + PLUME_RISE_M
@@ -455,7 +507,7 @@ def run_case(case, plants, plot_base, cache, api_key, radius_km, outdir, heights
             det = scan_nassar(seg, "xco2_bc", kern)
         else:
             det = scan_direction(seg, "xco2_bc", kern, mask)
-        for col in ("xco2_bc", "deep_ensemble_corrected_xco2"):
+        for col in ("xco2_bc", corrected_col):
             if method == "nassar":
                 f0 = fit_nassar(seg, col, kern[0])
                 q0, q0se = (f0["q"], f0["qse"]) if f0 else (np.nan, np.nan)
@@ -494,11 +546,12 @@ def run_case(case, plants, plot_base, cache, api_key, radius_km, outdir, heights
             plot_wind = (ws, wd)
     if plot_fits:
         plot_case(seg, plot_fits, plant, date, plot_wind, plot_height, rep, plot_rows, outdir,
-                  method=method, modis_dir=modis_dir, radius_km=radius_km, modis_lag=modis_lag)
+                  method=method, modis_dir=modis_dir, radius_km=radius_km, modis_lag=modis_lag,
+                  corrected_col=corrected_col)
         PLOT_INPUTS[(pid, date)] = ((seg, plot_fits, plant, date, plot_wind, plot_height, rep,
                                      plot_rows, outdir),
                                     dict(method=method, modis_dir=modis_dir, radius_km=radius_km,
-                                         modis_lag=modis_lag))
+                                         modis_lag=modis_lag, corrected_col=corrected_col))
     return rows
 
 
@@ -516,6 +569,9 @@ def hlabel(h):
 # north-south (was 40; the 25 km ring stays whole) so two cases fit <= 8 in.
 LAYOUT = dict(fig_w=6.2, left=0.62, gap=0.12, cb_gap=0.10, cb_w=0.12, cb_lab=0.62,
               bot=0.42, c_h=1.05, row_gap=0.74, top=0.40)
+# Bottom margin of a maps-only block (--maps-only): room for the map tick labels and the
+# longitude label that sit in row_gap when the transect is drawn.
+MAPS_ONLY_BOT = 0.48
 MAP_HALF_Y_KM = 32.0
 
 
@@ -530,33 +586,46 @@ def map_view(plant, radius_km):
 WARN_H = 0.2                                               # extra top room for a MODIS-lag note
 
 
-def case_block_h(plant, radius_km=50.0, modis_lag=None):
+def below_maps_h(transect=True):
+    """Height (in) below the map row of a case block: the transect panel and its margins,
+    or only the map-axis margin for a maps-only block."""
+    L = LAYOUT
+    return L["bot"] + L["c_h"] + L["row_gap"] if transect else MAPS_ONLY_BOT
+
+
+def case_block_h(plant, radius_km=50.0, modis_lag=None, transect=True):
     """Height (in) of one case block of plot_case."""
     L = LAYOUT
     _, v = map_view(plant, radius_km)
     map_w = (L["fig_w"] - L["left"] - L["gap"] - L["cb_gap"] - L["cb_w"] - L["cb_lab"]) / 2
     map_h = map_w * (v[3] - v[2]) / ((v[1] - v[0]) * np.cos(np.radians(float(plant["lat"]))))
-    return (L["bot"] + L["c_h"] + L["row_gap"] + map_h + L["top"]
+    return (below_maps_h(transect) + map_h + L["top"]
             + (WARN_H if modis_lag_note(modis_lag) else 0.0))
 
 
 def plot_case(seg, fits, plant, date, wind, height, rep, rows, outdir, method="nassar",
               modis_dir=None, radius_km=50.0, fig=None, fig_h=None, y0=0.0, tags="abc",
-              modis_lag=None):
+              modis_lag=None, corrected_col=DEFAULT_CORRECTED_COL, transect=True, peak=None,
+              median_lines=False):
     """One case: (a, b) maps over MODIS, (c) along-track transect with the fits.  With
     fig given, draws the block with its bottom y0 inches up a figure fig_h inches tall
-    (for the combined SI figure) instead of writing its own PNG."""
-    ws, wd = wind
+    (for the combined SI figure) instead of writing its own PNG.  transect=False draws
+    the maps alone, with the reanalysis wind arrow only (the best-fit direction and Q
+    are products of the plume fit).  wind=None draws no wind arrow, and peak (from
+    plume_peak) replaces the fit transect by the wind-free plume-peak transect
+    (--no-emission)."""
+    ws, wd = wind if wind is not None else (np.nan, np.nan)
     lat0, lon0 = float(plant["lat"]), float(plant["lon"])
     # manuscript colours: B11 blue, corrected (model) vermillion
-    cols = (("xco2_bc", XCO2_BC_LABEL, "#0072B2"), ("deep_ensemble_corrected_xco2", XCO2_MODEL_LABEL, "#D55E00"))
+    cols = (("xco2_bc", XCO2_BC_LABEL, "#0072B2"), (corrected_col, XCO2_MODEL_LABEL, "#D55E00"))
     halo = [pe.withStroke(linewidth=2.6, foreground="k", alpha=0.6)]
 
     # Map window in lon/lat as in plot_mauceri_comparison.py: radius + 0.05 deg around the
     # plant, 25 and 50 km distance circles, white star (same for a and b).
-    arrows = [(wd, "-")]
-    same_dir = fits.get("xco2_bc") is not None and abs(fits["xco2_bc"]["dwd"]) < 1
-    if fits.get("xco2_bc") is not None and not same_dir:     # coincident arrows would hide the wind
+    arrows = [(wd, "-")] if wind is not None else []
+    same_dir = (transect and fits.get("xco2_bc") is not None
+                and abs(fits["xco2_bc"]["dwd"]) < 1)
+    if transect and fits.get("xco2_bc") is not None and not same_dir:     # coincident arrows would hide the wind
         arrows.append(((wd + fits["xco2_bc"]["dwd"]) % 360, "--"))
     km_lon = 111.32 * np.cos(np.radians(lat0))
     ext, vext = map_view(plant, radius_km)
@@ -580,16 +649,20 @@ def plot_case(seg, fits, plant, date, wind, height, rep, rows, outdir, method="n
         return (np.min(np.hypot(fx[:, None] - px, fy[:, None] - py)) >= 4.0
                 and np.min(np.hypot(px, py)) >= 4.0)
 
-    grid = [(gx, gy) for gx in np.arange(-30, 31, 1.0) for gy in np.arange(-30, 31, 1.0)]
-    centre = next((o for o in sorted(grid, key=lambda o: np.hypot(*o)) if ok(o)), (0.0, 0.0))
-    t0x, t0y, px, py = arrow_pts(*centre)
-    tail = (lon0 + t0x / km_lon, lat0 + t0y / 111.32)
-    tips = [(lon0 + (t0x + arrow_km * a) / km_lon, lat0 + (t0y + arrow_km * b) / 111.32)
-            for a, b in zip(ux, uy)]
+    if arrows:
+        grid = [(gx, gy) for gx in np.arange(-30, 31, 1.0) for gy in np.arange(-30, 31, 1.0)]
+        centre = next((o for o in sorted(grid, key=lambda o: np.hypot(*o)) if ok(o)), (0.0, 0.0))
+        t0x, t0y, px, py = arrow_pts(*centre)
+        tail = (lon0 + t0x / km_lon, lat0 + t0y / 111.32)
+        tips = [(lon0 + (t0x + arrow_km * a) / km_lon, lat0 + (t0y + arrow_km * b) / 111.32)
+                for a, b in zip(ux, uy)]
+    else:                                                  # no wind (--no-emission)
+        px = py = np.empty(0)
+        tail, tips = None, []
     # Ring labels at the NE, SE or NW of the rings, whichever is clearest of track and arrows.
     def _clear(b):
         bx, by = 50 * np.sin(np.radians(b)), 50 * np.cos(np.radians(b))
-        return min(np.min(np.hypot(fx - bx, fy - by)), np.min(np.hypot(px - bx, py - by)))
+        return np.min(np.hypot(np.concatenate([fx, px]) - bx, np.concatenate([fy, py]) - by))
     ring_bearing = max((45, 135, 315), key=_clear)
     # Arrow key in the corner of (b) farthest from the track.
     hx, hy = 0.5 * (vext[1] - vext[0]) * km_lon, 0.5 * (vext[3] - vext[2]) * 111.32
@@ -606,13 +679,13 @@ def plot_case(seg, fits, plant, date, wind, height, rep, rows, outdir, method="n
     bot, c_h, row_gap, top = (LAYOUT[k] for k in ("bot", "c_h", "row_gap", "top"))
     note = modis_lag_note(modis_lag) if modis_dir is not None else ""
     top += WARN_H if note else 0.0
-    block_h = bot + c_h + row_gap + map_h + top
+    y_map = below_maps_h(transect)
+    block_h = y_map + map_h + top
     own = fig is None
     if own:
         fig_h = block_h
         fig = plt.figure(figsize=(fig_w, fig_h))
     box = lambda x, y, w, h: fig.add_axes([x / fig_w, (y0 + y) / fig_h, w / fig_w, h / fig_h])
-    y_map = bot + c_h + row_gap
     axes = [box(left, y_map, map_w, map_h), box(left + map_w + gap, y_map, map_w, map_h)]
     cax = box(left + 2 * map_w + gap + cb_gap, y_map, cb_w, map_h)
 
@@ -672,21 +745,48 @@ def plot_case(seg, fits, plant, date, wind, height, rep, rows, outdir, method="n
         panel_label(ax, f"({tags[i]})")
         ax.legend(loc="lower left", fontsize=9, framealpha=0.85, handletextpad=0.3,
                   borderaxespad=0.4, markerscale=0.8)
+    if peak is not None and peak["spread"] is not None:   # 25 km disk, so on the map
+        axes[1].text(0.97, 0.96, "Spread ratio, 25 km\n"
+                     f"{peak['spread'][0]:.2f} (controls {peak['spread'][1]:.2f})",
+                     transform=axes[1].transAxes, ha="right", va="top", fontsize=8.5,
+                     linespacing=1.2, zorder=8,
+                     bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="0.8",
+                               alpha=0.85))
     # Arrow key without a box: white text and lines with a dark halo.
-    key = [Line2D([], [], color="w", lw=1.6, ls=ls, path_effects=halo) for _, ls in arrows]
-    leg = axes[1].legend(key, [f"Wind {ws:.1f} m s$^{{-1}}$" + (" (= best fit)" if same_dir else ""),
-                               "Best fit"][:len(key)], loc=key_loc,
-                         fontsize=9, frameon=False, labelcolor="w", handlelength=1.8,
-                         borderaxespad=0.3, handletextpad=0.5)
-    for t in leg.get_texts():
-        t.set_path_effects([pe.withStroke(linewidth=2.2, foreground="k", alpha=0.7)])
+    if arrows:
+        key = [Line2D([], [], color="w", lw=1.6, ls=ls, path_effects=halo) for _, ls in arrows]
+        leg = axes[1].legend(key, [f"Wind {ws:.1f} m s$^{{-1}}$" + (" (= best fit)" if same_dir else ""),
+                                   "Best fit"][:len(key)], loc=key_loc,
+                             fontsize=9, frameon=False, labelcolor="w", handlelength=1.8,
+                             borderaxespad=0.3, handletextpad=0.5)
+        for t in leg.get_texts():
+            t.set_path_effects([pe.withStroke(linewidth=2.2, foreground="k", alpha=0.7)])
     cb = fig.colorbar(sc, cax=cax, extend="both")
     cb.set_label(r"$X_{\mathrm{CO2}}$ (ppm)")
     cb.ax.yaxis.set_major_locator(MaxNLocator(6))
     cb.solids.set_alpha(1)
+    if transect:
+        tax = box(left, bot, 2 * map_w + gap, c_h)
+        if peak is not None:
+            plot_peak_transect(tax, peak, cols, tags[2], median_lines=median_lines)
+        else:
+            plot_transect(tax, seg, fits, rows, cols, method, radius_km, tags[2])
+    fig.text(0.5, (y0 + block_h - 0.06) / fig_h, f"{plant['source_name']}, {date}",
+             fontsize=10.5, ha="center", va="top")
+    if note and bg_img is not None:                        # image not time-matched to OCO-2
+        fig.text(0.5, (y0 + block_h - 0.06 - WARN_H) / fig_h, f"Note: {note}",
+                 fontsize=8, ha="center", va="top", color="0.3")
+    if not own:
+        return
+    stem = ("us_plumes" if peak is not None else "us_emission") + ("" if transect else "_maps")
+    out = outdir / f"{stem}_{plant['plant_id']}_{date}_{height}.png"
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.05); plt.close(fig)
+    print(f"  wrote {out}")
 
-    # (c) both series, each relative to its own fitted background
-    ax = box(left, bot, 2 * map_w + gap, c_h)
+
+def plot_transect(ax, seg, fits, rows, cols, method, radius_km, tag):
+    """Panel (c) of plot_case: both series, each relative to its own fitted background,
+    with the fitted plumes, the plume/background windows and the fitted and reported Q."""
     s = seg["s_km"].to_numpy()
     edges = np.arange(np.floor(s.min()), s.max() + 2, 2.0)
     mid = 0.5 * (edges[1:] + edges[:-1])
@@ -740,41 +840,183 @@ def plot_case(seg, fits, plant, date, wind, height, rep, rows, outdir, method="n
     ax.legend(handles, labels, fontsize=9, ncol=len(handles), loc="lower right",
               bbox_to_anchor=(1.0, 1.0), frameon=False, handlelength=1.4, handletextpad=0.4,
               columnspacing=0.8, borderaxespad=0.1)
-    panel_label(ax, f"({tags[2]})")
-    fig.text(0.5, (y0 + block_h - 0.06) / fig_h, f"{plant['source_name']}, {date}",
-             fontsize=10.5, ha="center", va="top")
-    if note and bg_img is not None:                        # image not time-matched to OCO-2
-        fig.text(0.5, (y0 + block_h - 0.06 - WARN_H) / fig_h, f"Note: {note}",
-                 fontsize=8, ha="center", va="top", color="0.3")
-    if not own:
-        return
-    out = outdir / f"us_emission_{plant['plant_id']}_{date}_{height}.png"
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.05); plt.close(fig)
-    print(f"  wrote {out}")
+    panel_label(ax, f"({tag})")
 
 
-def plot_si_figure(cases, outdir, name="us_emission_si"):
+def plume_peak(plot_base, plant, date, corrected_col, track, control_null=None):
+    """Wind-free plume numbers of one SI case (--no-emission).
+
+    Footprints: the closest-approach segment cut to the latitude or longitude range of the
+    Mauceri et al. panel (plot_mauceri_comparison.CASES), with along-track coordinates on
+    the given track.  Peak enhancement: plot_mauceri_comparison.peak_rise, the median
+    within PEAK_HALF_KM of the panel's plume peak minus the median at least BG_MIN_KM
+    from it.  Spread ratio: the 25 km row of control_null (nassar_control_null.csv), the
+    corrected / original p95-p05 spread of the plant window and the median over its
+    matched controls; None when the table is missing."""
+    pid = plant["plant_id"]
+    _, _, xcol, xrange, xpeak, _ = next(c for c in pmc.CASES if c[:2] == (pid, date))
+    seg = closest_segment(plot_base, date, plant, corrected_col)
+    seg = seg[seg[xcol].between(*xrange)].copy()
+    add_track_coords(seg, plant, track)
+    series = ("xco2_bc", corrected_col)
+    d = np.asarray(pmc.peak_distance_km(seg, xcol, xpeak))
+    rise, n_pk, n_bg = pmc.peak_rise(seg, xcol, xpeak, cols=series)
+    bg = {c: float(seg.loc[d >= pmc.BG_MIN_KM, c].median()) for c in series}
+    spread = None
+    if control_null is not None and Path(control_null).exists():
+        c = pd.read_csv(control_null)
+        r = c[(c["plant_id"] == pid) & (c["date"] == date) & (c["radius_km"] == 25.0)]
+        if len(r):
+            spread = (float(r["plant_ratio_corr_over_bc"].iloc[0]),
+                      float(r["control_ratio_median"].iloc[0]))
+    return dict(seg=seg, dist_peak=d, rise=rise, bg=bg, n_peak=n_pk, n_bg=n_bg,
+                spread=spread)
+
+
+MEDIAN_BIN_KM, MEDIAN_MIN_FP = 2.0, 3                     # transect bin medians (--no-emission)
+
+
+def binned_median_line(s, y, bin_km=MEDIAN_BIN_KM, min_fp=MEDIAN_MIN_FP):
+    """One value per along-track bin: x = bin centre (increasing), y = median of the finite
+    y in the bin; bins with fewer than min_fp footprints are skipped.  Neighbouring kept
+    bins are joined across at most one skipped bin; longer gaps break the line (NaN)."""
+    edges = np.arange(np.floor(s.min()), s.max() + bin_km, bin_km)
+    idx = np.digitize(s, edges) - 1
+    ok = np.isfinite(y)
+    keep, med = [], []
+    for k in range(len(edges) - 1):
+        v = y[ok & (idx == k)]
+        if len(v) >= min_fp:
+            keep.append(k)
+            med.append(float(np.median(v)))
+    keep = np.asarray(keep)
+    x = edges[keep] + 0.5 * bin_km
+    yy = np.asarray(med)
+    brk = np.flatnonzero(np.diff(keep) > 2) + 1            # gap of two or more skipped bins
+    return np.insert(x, brk, np.nan), np.insert(yy, brk, np.nan)
+
+
+def plot_peak_transect(ax, peak, cols, tag, median_lines=False):
+    """Panel (c) of plot_case with --no-emission: the footprints of both series along
+    track, each relative to its own background median; the plume-peak window and the
+    background are shaded and the legend gives the peak enhancement of each series.
+    median_lines (--median-lines; off since 2026-11-04, author) adds the 2 km bin medians
+    (binned_median_line) and the peak level as a thin dashed segment across the window.  The spread ratio is
+    written on the corrected map by plot_case, next to the 25 km ring it refers to."""
+    seg, d = peak["seg"], peak["dist_peak"]
+    s = seg["s_km"].to_numpy()
+    in_pk, in_bg = d <= pmc.PEAK_HALF_KM, d >= pmc.BG_MIN_KM
+    sp = s[in_pk]
+    # No window labels (2026-11-04, author): inside the frame they covered footprints and
+    # above it there is no room under the legend row; the caption names the two shadings.
+    ax.axvspan(sp.min(), sp.max(), color="0.35", alpha=0.18, lw=0, zorder=0)
+    for side in (s[in_bg & (s < sp.min())], s[in_bg & (s > sp.max())]):
+        if len(side):
+            ax.axvspan(side.min(), side.max(), color="0.6", alpha=0.09, lw=0, zorder=0)
+    handles, labels, shown = [Line2D([], [], color="none")], ["Peak enhancement"], []
+    # Marker shape as well as colour (2026-11-03, author): the operational product (first
+    # series) as "+", the corrected series as dots.  The dots sit above the pluses (zorder)
+    # and are the more opaque, so the corrected series carries the weight; the pluses stay
+    # visible around and between them.
+    plus = dict(marker="+", ms=3.8, mew=0.9, alpha=0.6, zorder=2)
+    dot = dict(marker="o", ms=2.8, mew=0, alpha=0.85, zorder=3)
+    for k, (col, lab, c) in enumerate(cols):
+        style = plus if k == 0 else dot
+        y = seg[col].to_numpy() - peak["bg"][col]
+        ax.plot(s, y, ls="none", color=c, **style)
+        if median_lines:
+            mx, my = binned_median_line(s, y)
+            ax.plot(mx, my, "-", color=c, lw=1.6, solid_capstyle="butt",
+                    solid_joinstyle="miter", zorder=4,
+                    path_effects=[pe.withStroke(linewidth=2.6, foreground="w")])
+            # Peak level: one thin dashed segment across the peak window, no halo, so that
+            # it does not read as a second branch of the median line.
+            ax.hlines(peak["rise"][col], sp.min(), sp.max(), color=c, lw=0.9,
+                      linestyles=(0, (4, 2)), zorder=5)
+        shown.append(y[np.isfinite(y)])
+        marker_handle = (Line2D([], [], color=c, marker="+", ms=5.5, mew=style["mew"], ls="none")
+                         if style is plus else
+                         Line2D([], [], color=c, marker="o", ms=4.0, mew=0, ls="none"))
+        handles.append(marker_handle if not median_lines else Line2D([], [], color=c, lw=1.6))
+        labels.append(f"{lab}  {peak['rise'][col]:+.2f} ppm")
+    v = np.concatenate(shown)
+    lo, hi = np.percentile(v, [1, 99])
+    # Robust range, but every footprint of the peak window stays in view.
+    for col, *_ in cols:
+        yp = seg[col].to_numpy()[in_pk] - peak["bg"][col]
+        hi = max(hi, float(np.nanmax(yp)))
+    pad = 0.12 * (hi - lo)
+    ax.set_ylim(lo - pad, hi + pad)
+    ax.set_xlim(s.min() - 1.5, s.max() + 1.5)
+    ax.set_xlabel("Along-track distance (km)"); ax.set_ylabel(r"$\Delta X_{\mathrm{CO2}}$ (ppm)")
+    ax.axhline(0, color="k", lw=0.6, zorder=1); ax.grid(alpha=0.25, lw=0.5)
+    ax.legend(handles, labels, fontsize=9, ncol=len(handles), loc="lower right",
+              bbox_to_anchor=(1.0, 1.0), frameon=False, handlelength=1.4, handletextpad=0.4,
+              columnspacing=0.8, borderaxespad=0.1)
+    panel_label(ax, f"({tag})")
+
+
+def plot_si_figure(cases, outdir, name="us_emission_si", transect=True, formats=("png",)):
     """The SI figure: the case blocks of plot_case stacked top to bottom, panels (a)-(c),
-    (d)-(f), ..."""
+    (d)-(f), ...; with transect=False the map rows only, panels (a, b), (c, d), ..."""
     cases = [c for c in cases if c in PLOT_INPUTS]
     if not cases:
         return
     hs = [case_block_h(PLOT_INPUTS[c][0][2], PLOT_INPUTS[c][1]["radius_km"],
-                       PLOT_INPUTS[c][1]["modis_lag"]) for c in cases]
+                       PLOT_INPUTS[c][1]["modis_lag"], transect=transect) for c in cases]
     space = 0.12                                           # extra gap between case blocks (in)
     fig_h = sum(hs) + space * (len(cases) - 1)
     fig = plt.figure(figsize=(LAYOUT["fig_w"], fig_h))
     letters = "abcdefghijkl"
+    npan = 3 if transect else 2
     for k, c in enumerate(cases):
         a, kw = PLOT_INPUTS[c]
         plot_case(*a, **kw, fig=fig, fig_h=fig_h, y0=sum(hs[k + 1:]) + space * (len(cases) - 1 - k),
-                  tags=letters[3 * k:3 * k + 3])
-    out = outdir / f"{name}.png"
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.05); plt.close(fig)
-    print(f"  wrote {out}")
+                  tags=letters[npan * k:npan * k + npan], transect=transect)
+    for ext in formats:
+        out = outdir / f"{name}.{ext}"
+        fig.savefig(out, bbox_inches="tight", pad_inches=0.05)
+        print(f"  wrote {out}")
+    plt.close(fig)
 
 
-def plot_summary(tab, heights, outdir):
+def run_no_emission(args, plants):
+    """--no-emission: the SI figure us_plumes_si and us_plume_peak.csv from
+    plot_data.parquet, the cached MODIS tiles and nassar_control_null.csv alone."""
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    modis_dir = None if args.no_modis else args.modis_dir
+    ctrl = args.control_null or args.plot_base / "plume_preservation" / "nassar_control_null.csv"
+    rows = []
+    for pid, date in SI_CASES:
+        plant = plants[pid]
+        seg, track, t_utc = plant_segment(args.plot_base, date, plant, args.corrected_col,
+                                          args.radius_km)
+        lag = (aqua_time_lag_min(date, float(plant["lat"]), float(plant["lon"]), t_utc,
+                                 modis_dir) if modis_dir is not None else None)
+        peak = plume_peak(args.plot_base, plant, date, args.corrected_col, track, ctrl)
+        PLOT_INPUTS[(pid, date)] = ((seg, {}, plant, date, None, "peak", None, None,
+                                     args.output_dir),
+                                    dict(modis_dir=modis_dir, radius_km=args.radius_km,
+                                         modis_lag=lag, corrected_col=args.corrected_col,
+                                         peak=peak, median_lines=args.median_lines))
+        r0, r1 = peak["rise"]["xco2_bc"], peak["rise"][args.corrected_col]
+        rows.append(dict(plant=plant["source_name"], date=date,
+                         overpass_utc=f"{t_utc:%Y-%m-%d %H:%M}", corrected_col=args.corrected_col,
+                         n_peak=peak["n_peak"], n_bg=peak["n_bg"],
+                         peak_half_km=pmc.PEAK_HALF_KM, bg_min_km=pmc.BG_MIN_KM,
+                         peak_enh_bc_ppm=r0, peak_enh_corr_ppm=r1, peak_kept=r1 / r0,
+                         spread_ratio_plant_25km=peak["spread"][0] if peak["spread"] else np.nan,
+                         spread_ratio_ctrl_median_25km=(peak["spread"][1] if peak["spread"]
+                                                        else np.nan)))
+    tab = pd.DataFrame(rows)
+    tab.to_csv(args.output_dir / "us_plume_peak.csv", index=False)
+    with pd.option_context("display.width", 250):
+        print(tab.round(4).to_string(index=False))
+    plot_si_figure(SI_CASES, args.output_dir, name="us_plumes_si", transect=not args.maps_only,
+                   formats=("png", "pdf"))
+
+
+def plot_summary(tab, heights, outdir, corrected_col=DEFAULT_CORRECTED_COL):
     cases = tab.drop_duplicates(["plant", "date"])[["plant", "date"]].values.tolist()
     fig, ax = plt.subplots(figsize=(13, 5.2))
     x = np.arange(len(cases))
@@ -782,7 +1024,7 @@ def plot_summary(tab, heights, outdir):
     width = 0.8 / nh
     markers = dict(zip(heights, "osPD^v"))
     for ih, h in enumerate(heights):
-        for k, (col, c) in enumerate((("xco2_bc", "C0"), ("deep_ensemble_corrected_xco2", "C3"))):
+        for k, (col, c) in enumerate((("xco2_bc", "C0"), (corrected_col, "C3"))):
             t = tab[(tab.series == col) & (tab.wind_height == h)].set_index(["plant", "date"])
             t = t.reindex([tuple(cc) for cc in cases])
             xx = x - 0.4 + width * (ih + 0.5) + (k - 0.5) * width * 0.35
@@ -835,6 +1077,30 @@ def main() -> None:
     ap.add_argument("--cache-dir", type=Path, default=None,
                     help="wind/emission cache (default <output-dir>/_cache); lets a scratch "
                          "--output-dir reuse the cached ERA5/MERRA-2/CAMPD inputs")
+    ap.add_argument("--corrected-col", default=DEFAULT_CORRECTED_COL,
+                    help="corrected-XCO2 column of plot_data.parquet "
+                         f"(default {DEFAULT_CORRECTED_COL}; xgb_corrected_xco2 for the XGBoost tree)")
+    ap.add_argument("--maps-only", action="store_true",
+                    help="draw the SI figure without the emission panels (maps of the "
+                         "original and corrected XCO2 with the reanalysis wind only) and write "
+                         "it as us_emission_maps_si.png; the fits and tables are unchanged")
+    ap.add_argument("--no-emission", action="store_true",
+                    help="draw the SI figure without any wind, plume fit or CAMPD input "
+                         "(us_plumes_si.png/.pdf and us_plume_peak.csv): maps of the original "
+                         "and corrected XCO2 without a wind arrow and the along-track "
+                         "plume-peak transect (with --maps-only: the maps alone); no emission "
+                         "table is written and --cache-dir is not used")
+    ap.add_argument("--median-lines", action="store_true",
+                    help="with --no-emission, also draw the 2 km bin medians and the dashed "
+                         "peak level in the transects (off by default since 2026-11-04)")
+    ap.add_argument("--control-null", type=Path, default=None,
+                    help="nassar_control_null.csv with the 25 km spread ratios shown by "
+                         "--no-emission (default <plot-base>/plume_preservation/"
+                         "nassar_control_null.csv)")
+    ap.add_argument("--csv-dir", type=Path, default=DEFAULT_CSV_DIR,
+                    help="per-date feature parquets with the viewing geometry for --method nassar "
+                         "(the collection the --plot-base tree was built from, e.g. "
+                         "results_doppler/csv_collection for the Doppler trees)")
     args = ap.parse_args()
 
     if args.heights is None:
@@ -850,6 +1116,9 @@ def main() -> None:
     plants = read_plants(args.plants)
     for p_id, p in plants.items():
         p["plant_id"] = p_id
+    if args.no_emission:
+        run_no_emission(args, plants)
+        return
     cache.mkdir(parents=True, exist_ok=True)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -857,18 +1126,27 @@ def main() -> None:
         print(f"{case[0]} {case[1]}")
         rows += run_case(case, plants, args.plot_base, cache, args.api_key, args.radius_km,
                          args.output_dir, args.heights, args.f_min, args.plot_height,
-                         method=args.method,
-                         modis_dir=None if args.no_modis else args.modis_dir)
+                         method=args.method, csv_dir=args.csv_dir,
+                         modis_dir=None if args.no_modis else args.modis_dir,
+                         corrected_col=args.corrected_col)
     tab = pd.DataFrame(rows)
     tab.to_csv(args.output_dir / "us_emission_estimates.csv", index=False)
     show = tab[["plant", "date", "series", "wind_height", "ws", "wd", "wind_track_angle_deg",
                 "q_era5_kgs", "q_best_kgs", "q_best_se", "best_dwd", "F_detect",
                 "q_reported_kgs", "flag"]].round(2)
-    (args.output_dir / "us_emission_estimates.md").write_text(show.to_markdown(index=False))
+    try:
+        md = show.to_markdown(index=False)
+    except ImportError:                                    # tabulate missing (e.g. er3t_v11)
+        md = show.to_string(index=False)
+    (args.output_dir / "us_emission_estimates.md").write_text(md)
     with pd.option_context("display.width", 250, "display.max_colwidth", 60):
         print(show.to_string(index=False))
-    plot_summary(tab, [h for h in args.heights if h in set(tab.wind_height)], args.output_dir)
-    plot_si_figure(SI_CASES, args.output_dir)
+    plot_summary(tab, [h for h in args.heights if h in set(tab.wind_height)], args.output_dir,
+                 corrected_col=args.corrected_col)
+    if args.maps_only:
+        plot_si_figure(SI_CASES, args.output_dir, name="us_emission_maps_si", transect=False)
+    else:
+        plot_si_figure(SI_CASES, args.output_dir)
 
 
 if __name__ == "__main__":

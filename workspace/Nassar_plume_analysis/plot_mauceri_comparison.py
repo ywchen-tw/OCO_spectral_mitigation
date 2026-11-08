@@ -88,13 +88,15 @@ def peak_distance_km(seg, xcol, xpeak):
                         float(near["lat"].median()), float(near["lon"].median()))
 
 
-def peak_rise(seg, xcol, xpeak):
+def peak_rise(seg, xcol, xpeak, cols=("xco2_bc", "deep_ensemble_corrected_xco2")):
     """Median within PEAK_HALF_KM of the panel's plume peak minus the median
-    farther than BG_MIN_KM, for the original and the corrected series."""
+    farther than BG_MIN_KM, for each series in cols (default the original and the
+    DE-corrected series; us_plant_emissions.py --no-emission passes its
+    --corrected-col)."""
     d = peak_distance_km(seg, xcol, xpeak)
     pk, bg = seg[d <= PEAK_HALF_KM], seg[d >= BG_MIN_KM]
     out = {}
-    for col in ("xco2_bc", "deep_ensemble_corrected_xco2"):
+    for col in cols:
         out[col] = float(pk[col].median() - bg[col].median())
     return out, len(pk), len(bg)
 

@@ -54,7 +54,8 @@ def rolling(x: np.ndarray, y: np.ndarray, width_km: float = 5.0):
     return xs, med
 
 
-def load_transect_segment(pair, plants, plot_base, max_km=100.0):
+def load_transect_segment(pair, plants, plot_base, max_km=100.0,
+                          corr_col="deep_ensemble_corrected_xco2"):
     """Load the closest-approach overpass segment for one (plant, date) case.
 
     Returns (seg, src, min_dist) with seg carrying the along-track x_km
@@ -68,9 +69,13 @@ def load_transect_segment(pair, plants, plot_base, max_km=100.0):
         print(f"  SKIP {plant_id}:{date} — missing {path}")
         return None
     src = plants[plant_id]
-    df = pd.read_parquet(path, columns=[
-        "time", "lat", "lon", "cld_dist_km", "xco2_bc",
-        "deep_ensemble_corrected_xco2", "pred_anomaly", "fp"])
+    # corr_col: "deep_ensemble_corrected_xco2" (DE trees) or
+    # "xgb_corrected_xco2" (XGBoost trees, which carry no "fp" column).
+    import pyarrow.parquet as pq
+    present = set(pq.read_schema(path).names)
+    cols = ["time", "lat", "lon", "cld_dist_km", "xco2_bc", corr_col,
+            "pred_anomaly"] + (["fp"] if "fp" in present else [])
+    df = pd.read_parquet(path, columns=cols)
     df = df[np.isfinite(df["xco2_bc"])].sort_values("time").reset_index(drop=True)
     df["source_dist_km"] = haversine_km(df["lat"].to_numpy(), df["lon"].to_numpy(),
                                         float(src["lat"]), float(src["lon"]))

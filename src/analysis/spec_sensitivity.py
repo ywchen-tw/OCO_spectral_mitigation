@@ -27,7 +27,15 @@ beyond predictive skill — the "spec features are the physics" evidence chain:
    compatible: no neighbors, no MODIS. Date-blocked holdout; reports ROC AUC.
    AUC ≫ 0.5 = "the spectra see the clouds", the MODIS-free selling point.
 
-Outputs → results/figures/<analysis_dir>/spec_sensitivity/
+Outputs → <results-root>/figures/cld_dist_analysis/spec_sensitivity/
+
+FIT SCHEMA (2026-11-02): ``--fit-schema v1`` (default, unchanged) reads the
+v1 cumulant columns (o2a_k1, ..., exp_o2a_intercept, ``_nosg`` fit suffix via
+analysis.ref_corrected).  ``--fit-schema v2`` reads the agreed-model ``_am``
+coefficients of the Doppler refit (results_doppler/): ⟨l'⟩ = <band>_k1_am,
+var(l') = sco2_k2_am / <band>_k2diag_am (O2A, WCO2), γ = <band>_exp_int_am;
+k3 does not exist in v2.  The derived delta/z columns keep the v1 names
+(dk1_<band>, zexp_o2a, ...), so the analyses themselves are schema-agnostic.
 
 Usage
 -----
@@ -40,6 +48,14 @@ Usage
     PYTHONPATH=src python3 -m analysis.spec_sensitivity --analyses shadow \
         --reference production --population snowfree --near-max 15 \
         --exclude-mixed-ref .../mixed_window_flags_snowfree_15km.parquet
+
+    # 2026-11-02 edition on the fit-schema-v2 data (outputs mirror the old
+    # layout under results_doppler/figures/...)
+    PYTHONPATH=src python3 -m analysis.spec_sensitivity --analyses shadow \
+        --fit-schema v2 --results-root <repo>/results_doppler \
+        --reference production --population snowfree --near-max 15 \
+        --exclude-mixed-ref <repo>/results_doppler/figures/cld_dist_analysis/\
+spec_sensitivity/prodref/mixed_surface_windows/mixed_window_flags_snowfree_15km.parquet
 """
 
 import sys
@@ -86,6 +102,40 @@ SPEC_FEATURE_SETS = {
     'k_only':         SPEC_FEATURES_K,
     'intercept_only': SPEC_FEATURES_INT,
     'full_spec':      SPEC_FEATURES_K + SPEC_FEATURES_INT,
+}
+
+# ── fit schema v2 (agreed model, suffix _am) ──────────────────────────────────
+# (delta term, band, coefficient stub): observation <band>_<stub>_am, reference
+# <prefix>_<band>_<stub>_am_{mean,std}.  The term names follow the v1 delta
+# columns (d<term>_<band>, z<term>_<band>) so downstream code is unchanged.
+# 'k2' is var(l'): the SCO2 two-term k2_am, the diagonal-only k2diag_am for
+# O2A/WCO2 (same mapping as the Fig. 4 heatmap rows, AM_ROWS in
+# manuscript/JQSRT_draft/scripts/make_landclass_heatmap_figure.py).
+V2_COEFS = [
+    ('k1', 'o2a', 'k1'), ('k2', 'o2a', 'k2diag'), ('exp', 'o2a', 'exp_int'),
+    ('a1', 'o2a', 'a1'), ('f', 'o2a', 'f'),
+    ('k1', 'wco2', 'k1'), ('k1w', 'wco2', 'k1w'), ('k2', 'wco2', 'k2diag'),
+    ('exp', 'wco2', 'exp_int'), ('a1', 'wco2', 'a1'),
+    ('k1', 'sco2', 'k1'), ('k1w', 'sco2', 'k1w'), ('k2', 'sco2', 'k2'),
+    ('exp', 'sco2', 'exp_int'), ('a1', 'sco2', 'a1'), ('a2', 'sco2', 'a2'),
+]
+_V2_BANDS = ('o2a', 'wco2', 'sco2')
+_V2_VAR_L = {'o2a': 'k2diag', 'wco2': 'k2diag', 'sco2': 'k2'}
+SPEC_FEATURES_K_V2 = ([f'{b}_k1_am' for b in _V2_BANDS]
+                      + [f'{b}_{_V2_VAR_L[b]}_am' for b in _V2_BANDS])
+SPEC_FEATURES_INT_V2 = ([f'{b}_exp_int_am' for b in _V2_BANDS]
+                        + [f'{b}_exp_int_am_minus_alb' for b in _V2_BANDS])
+SPEC_FEATURE_SETS_V2 = {
+    'k_only':         SPEC_FEATURES_K_V2,
+    'intercept_only': SPEC_FEATURES_INT_V2,
+    'full_spec':      SPEC_FEATURES_K_V2 + SPEC_FEATURES_INT_V2,
+}
+FEATURE_SETS_BY_SCHEMA = {'v1': SPEC_FEATURE_SETS, 'v2': SPEC_FEATURE_SETS_V2}
+# Extra delta columns written to the shadow statistics CSV (not plotted), so
+# var(l'), γ and the new agreed-model terms can be read per branch and bin.
+SHADOW_EXTRA_VARS = {
+    'v1': [],
+    'v2': [f'd{term}_{band}' for term, band, _ in V2_COEFS if term != 'k1'],
 }
 
 _SURFACES = [('ocean', 0), ('land', 1)]
@@ -182,7 +232,8 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
                            z_thresh: float = 0.5, n_min: int = 500,
                            exclude_mixed_ref: str | Path | None = None,
                            near_max: float = _NEAR_MAX,
-                           pop_tag: str = '') -> None:
+                           pop_tag: str = '',
+                           extra_vars: list[str] | tuple = ()) -> None:
     """Near-cloud Δk₁/anomaly profiles split by continuum shift sign.
 
     ``exclude_mixed_ref`` (opt-in) points at the per-footprint flag file written
@@ -203,7 +254,8 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
     Every (surface, branch, variable) gets one row per distance bin plus a
     pooled ``cld_bin == 'all'`` row over the whole near-cloud window.  Each row
     carries mean/sem/n and the median with its 95 % order-statistic interval
-    (median/med_lo/med_hi).
+    (median/med_lo/med_hi).  ``extra_vars`` (columns present in ``df``) get the
+    same rows in the CSV but are not plotted.
     """
     need = ['zexp_o2a', 'dk1_o2a', 'dk1_wco2', 'dk1_sco2', 'xco2_bc_anomaly']
     if not all(c in df.columns for c in need):
@@ -245,6 +297,8 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
                   ('dk1_sco2', f'Δ{MEAN_L_LABEL} SCO$_2$'),
                   ('xco2_bc_anomaly', f'{XCO2_LABEL} BC anomaly (ppm)')]
 
+    extra_vars = [v for v in extra_vars if v in near.columns]
+
     rows = []
     x = np.arange(len(labels))
     for sname, scode in _SURFACES:
@@ -252,8 +306,12 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
         if not len(sdf):
             continue
         fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True)
-        for k, (ax, (var, vlabel)) in enumerate(zip(axes.ravel(), panel_vars)):
-            panel_label(ax, f'({chr(ord("a") + k)})')
+        # extra variables: statistics only (ax None)
+        stat_vars = (list(zip(axes.ravel(), panel_vars))
+                     + [(None, (v, v)) for v in extra_vars])
+        for k, (ax, (var, vlabel)) in enumerate(stat_vars):
+            if ax is not None:
+                panel_label(ax, f'({chr(ord("a") + k)})')
             for bname, bmask, color in branches:
                 b = sdf[bmask.reindex(sdf.index, fill_value=False)]
                 g = b.groupby('_bin', observed=False)[var].agg(
@@ -261,7 +319,7 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
                 per_bin = {str(_k): _v.to_numpy()
                            for _k, _v in b.groupby('_bin', observed=False)[var]}
                 ok = g['count'] >= n_min
-                if ok.any():
+                if ax is not None and ok.any():
                     m = np.where(ok, g['mean'], np.nan)
                     e = np.where(ok, g['sem'], np.nan)
                     ax.errorbar(x, m, yerr=e, color=color, marker='o', ms=3.5,
@@ -282,6 +340,8 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
                              'sem': (pooled.sem() if len(pooled) else np.nan),
                              'n': int(pooled.count()), 'median': med,
                              'med_lo': mlo, 'med_hi': mhi})
+            if ax is None:
+                continue
             ax.axhline(0, color='gray', lw=0.8)
             ax.set_title(vlabel, fontsize=10)
             ax.grid(alpha=0.3)
@@ -304,7 +364,8 @@ def run_shadow_brightening(df: pd.DataFrame, outdir: str,
 
 def run_spec_classifier(df: pd.DataFrame, outdir: str,
                         max_train: int = 2_000_000,
-                        holdout_frac: float = 0.2) -> None:
+                        holdout_frac: float = 0.2,
+                        feature_sets: dict | None = None) -> None:
     """Predict near-cloud (<10 km) from raw spec features; date-blocked AUC."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.ensemble import HistGradientBoostingClassifier
@@ -326,7 +387,7 @@ def run_spec_classifier(df: pd.DataFrame, outdir: str,
     rows, curves = [], {}
     for sname, scode in _SURFACES:
         sm = data['sfc_type'] == scode
-        for set_name, feats in SPEC_FEATURE_SETS.items():
+        for set_name, feats in (feature_sets or SPEC_FEATURE_SETS).items():
             feats = [f for f in feats if f in data.columns]
             if not feats:
                 continue
@@ -384,12 +445,30 @@ def run_spec_classifier(df: pd.DataFrame, outdir: str,
 
 # ── driver ────────────────────────────────────────────────────────────────────
 
+def _v2_ref_prefixes(reference: str) -> tuple[str, str]:
+    """(ocean, land) reference-statistics prefixes of a --reference choice."""
+    return ('r05', 'r15') if reference == 'production' else ('ref', 'ref')
+
+
 def _needed_columns(analyses: list[str], reference: str = 'common-r10',
-                    need_fp_id: bool = False) -> list[str]:
+                    need_fp_id: bool = False,
+                    fit_schema: str = 'v1') -> list[str]:
     cols = {'date', 'lon', 'lat', 'sfc_type', 'cld_dist_km',
             'xco2_bc', 'xco2_qf', 'snow_flag', 'xco2_bc_anomaly'}
     if need_fp_id:
         cols.add('fp_id')
+    if fit_schema == 'v2':
+        if 'subpixel' in analyses or 'shadow' in analyses:
+            for _, band, stub in V2_COEFS:
+                cols.add(f'{band}_{stub}_am')
+                for p in set(_v2_ref_prefixes(reference)):
+                    cols.update((f'{p}_{band}_{stub}_am_mean',
+                                 f'{p}_{band}_{stub}_am_std'))
+        if reference == 'production':
+            cols.update(('xco2_bc_anomaly_r05', 'xco2_bc_anomaly_r15'))
+        if 'classifier' in analyses:
+            cols.update(SPEC_FEATURE_SETS_V2['full_spec'])
+        return sorted(cols)
     if 'subpixel' in analyses or 'shadow' in analyses:
         for obs, ref_m, ref_s, *_ in _REF_PAIRS:
             cols.update((obs, ref_m, ref_s))
@@ -419,15 +498,49 @@ _PRODREF_ALIAS = {
 }
 
 
-def _apply_production_reference(df: pd.DataFrame) -> pd.DataFrame:
+def _add_v2_deltas(df: pd.DataFrame, ocean_prefix: str,
+                   land_prefix: str) -> pd.DataFrame:
+    """Fit-schema-v2 delta/z columns d<term>_<band> / z<term>_<band> for
+    every V2_COEFS row, against the ocean / land reference prefix (r05/r15
+    for the production reference, ref/ref for common-r10).  Rows without
+    reference statistics stay NaN; a zero reference σ gives a NaN z-score."""
+    ocean = (df['sfc_type'] == 0).to_numpy()
+    new_cols = {}
+    for term, band, stub in V2_COEFS:
+        stem = f'{band}_{stub}_am'
+        need = [stem] + [f'{p}_{stem}_{s}' for p in (ocean_prefix, land_prefix)
+                         for s in ('mean', 'std')]
+        if not all(c in df.columns for c in need):
+            logger.warning(f"v2 deltas: {stem} or its reference statistics "
+                           "missing — d/z columns skipped")
+            continue
+        ref_m = np.where(ocean, df[f'{ocean_prefix}_{stem}_mean'],
+                         df[f'{land_prefix}_{stem}_mean'])
+        ref_s = np.where(ocean, df[f'{ocean_prefix}_{stem}_std'],
+                         df[f'{land_prefix}_{stem}_std'])
+        d = df[stem].to_numpy() - ref_m
+        with np.errstate(divide='ignore', invalid='ignore'):
+            z = np.where(ref_s > 0, d / ref_s, np.nan)
+        new_cols[f'd{term}_{band}'] = d.astype(np.float32)
+        new_cols[f'z{term}_{band}'] = z.astype(np.float32)
+    return df.assign(**new_cols)
+
+
+def _apply_production_reference(df: pd.DataFrame,
+                                fit_schema: str = 'v1') -> pd.DataFrame:
     """Alias the shadow-analysis columns to each surface's production
     reference (ocean r05 / land r15) and screen the anomaly at the
     training threshold (models.pipeline.filter_target_outliers)."""
-    from analysis.ref_corrected import add_r05_anomalies, add_r15_anomalies
-    df = add_r15_anomalies(add_r05_anomalies(df))
     ocean = df['sfc_type'] == 0
-    for alias, (c05, c15) in _PRODREF_ALIAS.items():
-        df[alias] = np.where(ocean, df[c05], df[c15])
+    if fit_schema == 'v2':
+        df = _add_v2_deltas(df, 'r05', 'r15')
+        df['xco2_bc_anomaly'] = np.where(ocean, df['xco2_bc_anomaly_r05'],
+                                         df['xco2_bc_anomaly_r15'])
+    else:
+        from analysis.ref_corrected import add_r05_anomalies, add_r15_anomalies
+        df = add_r15_anomalies(add_r05_anomalies(df))
+        for alias, (c05, c15) in _PRODREF_ALIAS.items():
+            df[alias] = np.where(ocean, df[c05], df[c15])
     df.loc[df['xco2_bc_anomaly'].abs() > 100.0, 'xco2_bc_anomaly'] = np.nan
     return df
 
@@ -437,6 +550,19 @@ def main():
     apply_manuscript_style()
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[2])
     ap.add_argument('--parquet-fname', default='combined_2016_2020_dates.parquet')
+    ap.add_argument('--results-root', type=Path, default=None,
+                    help="Results tree holding csv_collection/<parquet-fname> "
+                         "and receiving figures/cld_dist_analysis/"
+                         "spec_sensitivity/ (default <storage_dir>/results; "
+                         "the fit-schema-v2 data live in results_doppler).")
+    ap.add_argument('--parquet', type=Path, default=None,
+                    help='Explicit parquet path (overrides --results-root/'
+                         'csv_collection/--parquet-fname for the input only).')
+    ap.add_argument('--fit-schema', choices=['v1', 'v2'], default='v1',
+                    help="Spectral-fit column schema: 'v1' (default, the "
+                         "o2a_k1/k2/k3 cumulant columns) or 'v2' (agreed-model "
+                         "_am coefficients of the Doppler refit; var(l') = "
+                         "sco2_k2_am / <band>_k2diag_am, no k3).")
     ap.add_argument('--analyses', nargs='+', default=['subpixel', 'shadow', 'classifier'],
                     choices=['subpixel', 'shadow', 'classifier'])
     ap.add_argument('--max-rows', type=int, default=None,
@@ -476,9 +602,9 @@ def main():
     if args.exclude_mixed_ref and not Path(args.exclude_mixed_ref).exists():
         ap.error(f"--exclude-mixed-ref file not found: {args.exclude_mixed_ref}")
 
-    storage_dir = get_storage_dir()
-    path = storage_dir / 'results' / 'csv_collection' / args.parquet_fname
-    outdir = args.outdir or str(storage_dir / 'results' / 'figures'
+    results_root = args.results_root or (get_storage_dir() / 'results')
+    path = args.parquet or (results_root / 'csv_collection' / args.parquet_fname)
+    outdir = args.outdir or str(results_root / 'figures'
                                 / 'cld_dist_analysis' / 'spec_sensitivity')
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
@@ -493,8 +619,14 @@ def main():
     avail = set(pq.read_schema(path).names)
     if sidecar_path(path).exists():
         avail |= set(pq.read_schema(sidecar_path(path)).names)
+    # a schema mismatch would otherwise only surface as a skipped analysis
+    probe = 'o2a_k1_am' if args.fit_schema == 'v2' else 'o2a_k1'
+    if probe not in avail:
+        ap.error(f"{path.name} has no {probe} column; wrong --fit-schema "
+                 f"({args.fit_schema})?")
     needed = _needed_columns(args.analyses, args.reference,
-                             need_fp_id=bool(args.exclude_mixed_ref))
+                             need_fp_id=bool(args.exclude_mixed_ref),
+                             fit_schema=args.fit_schema)
     cols = [c for c in needed if c in avail]
     if len(cols) < len(needed):
         logger.warning("columns not found, skipped: %s", sorted(set(needed) - avail))
@@ -508,10 +640,11 @@ def main():
         df, require_qf0=(args.population == 'qf0snowfree'))
     if args.reference == 'production':
         logger.info("Computing production-reference (r05/r15) deltas …")
-        df = _apply_production_reference(df)
+        df = _apply_production_reference(df, args.fit_schema)
     elif any(a in args.analyses for a in ('subpixel', 'shadow')):
         logger.info("Computing ref-corrected deltas …")
-        df = add_ref_anomalies(df)
+        df = (_add_v2_deltas(df, 'ref', 'ref') if args.fit_schema == 'v2'
+              else add_ref_anomalies(df))
 
     if 'subpixel' in args.analyses:
         logger.info("── sub-pixel cloud check ──")
@@ -520,10 +653,12 @@ def main():
         logger.info("── shadow vs brightening ──")
         run_shadow_brightening(df, outdir,
                                exclude_mixed_ref=args.exclude_mixed_ref,
-                               near_max=args.near_max, pop_tag=pop_tag)
+                               near_max=args.near_max, pop_tag=pop_tag,
+                               extra_vars=SHADOW_EXTRA_VARS[args.fit_schema])
     if 'classifier' in args.analyses:
         logger.info("── spec-only cloud classifier ──")
-        run_spec_classifier(df, outdir)
+        run_spec_classifier(
+            df, outdir, feature_sets=FEATURE_SETS_BY_SCHEMA[args.fit_schema])
     logger.info(f"Done → {outdir}")
 
 

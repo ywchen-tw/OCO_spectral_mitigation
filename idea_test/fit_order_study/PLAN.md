@@ -2169,3 +2169,31 @@ WCO2 free k2 before/after the fix: −0.033 (80 % < 0) → −0.099 (100 %). r(k
 within cluster; r(k2, a1) is −0.35/−0.67. Kozienice: free k2 −0.155 (100 % < 0), r(k2, k1) +0.98, rSD 0.60 → 1.67 %.
 Verdict: the solar fix does not make k2 physical in either band. Keep WCO2 k2 = 0 and the O2A floor with k2 = 0
 (free k2 as a diagnostic only).
+
+## Origin of the O2A floor: scattered light, not an instrument offset (CURC, 2026-11-05)
+
+Supersedes the 2026-10-30 notes that called the O2A floor stray light / a zero-level offset, rejected Rayleigh
+via the O2A/SCO2 floor ratio, and found no SZA/airmass dependence (single orbit, narrow geometry).
+
+- No-floor O2A fit (6000 soundings, 2018-07-01, two glint orbits): k2 +0.061 land / +0.110 water, never negative;
+  rms 0.0336 vs 0.0250; k1 +8 %; residual is a wave in τ. r(k2, τ p95) +0.89 land / +0.79 water (partial, f fixed,
+  0.96 / 0.86), so no-floor k2 is set by floor size and sampled τ range. Floor + free k2: median +0.001.
+- Saturation argument fails: k1·τ > 5.6 essentially never; O2A has ~2× (not 10×) SCO2's fraction of T < 5 % channels.
+- Floors are start-independent (SCO2 f 0.0019 / 0.0021, O2A 0.0080 / 0.0121 land / water). SCO2 floor-only fit
+  leaves the same residual as k2 (degenerate).
+- Real-data geometry test (6 dates 2016–2020, QF0, cloud distance > 10 km, 15k land + 15k water), X = τ_R P(Θ)/(4μμ0),
+  τ_R = 0.0255: spread of f·A·μ0 (offset) vs f·A/X (Rayleigh) across μ0 quintiles 52 / 16 % land, 47 / 16 % water;
+  across obs modes (land) 33 / 7 %; per-sounding IQR/median 33 / 16 %. f·A/X = 0.22 land, 0.11 water. f·A vs AOD
+  Spearman +0.4. Far-clear land: f vs albedo −0.84, f vs fs_rel ≈ 0.
+- Slab Rayleigh-off (1e6 photons × 3, 3D, far columns): k1 1.001 / 1.005, f 0 / 1e-5, no-floor k2 0.002 / 0.004
+  - Local reproduction 2026-11-05 (run_slab.py --variant norayleigh, results/rt_slab_sim/*_norayleigh.h5):
+    far k1 1.015 / 1.017, f 3e-5 / ~0, no-floor k2 0.013 / -0.004, dark continuum -24 %. At 1e6 the
+    run-to-run k1 spread is 1-4e-2 (CURC "agree to 2e-4" does not hold at 1e6). Manuscript now says
+    "within 0.02 of 1" and quotes the 0.04 run spread. A 1e7 rerun (~30-50 min) would cut noise ~3x.
+- Correction size by QF x cloud distance: workspace/correction_size_by_qf.py ->
+  results_doppler/model_comparison/xgb/fm1620k5v2xt41_eval_dates/correction_size/, SI Table S14.
+  (A 0.03 / 0.30). Rayleigh on: f 0.083 / 0.011, f·γ = 0.0034 on both, f·A/X 0.22 / 0.29.
+- Consequence: fit form unchanged. Flat floor ignores the partial O2 absorption of scattered light, so O2A k1_am reads
+  low where scattered light is a large share (slab 0.80 at A 0.03, 0.97 at 0.30), incl. cloud shadows.
+- Manuscript (JQSRT) updated 2026-11-05: Sect. 2 model paragraph and k1 caveat, Sect. 3 Rayleigh-off sentence,
+  SI S6 Rayleigh-off paragraph, new SI S1.6 "Origin of the O2 A-band floor".

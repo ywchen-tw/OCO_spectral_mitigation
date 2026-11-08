@@ -295,7 +295,7 @@ def write_tccon_parallel_metrics(df, out_dir):
 def main():
     # module globals used by load_oco/load_atom/process/make_summary_plot; declared
     # up front (before argparse reads them as defaults) so the overrides below are legal
-    global CORR_COL, OUT_BASE, PLOT_BASE, MERGED_DIR, MODEL_LABEL
+    global CORR_COL, OUT_BASE, PLOT_BASE, MERGED_DIR, MODEL_LABEL, CSV_DIR
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--radius-km", type=float, default=100)
     ap.add_argument("--window-min", type=float, default=120)
@@ -316,6 +316,9 @@ def main():
     ap.add_argument("--merged-dir", default=MERGED_DIR,
                     help="atom_merged/ profiles (model-independent; default reuses the DE tree)")
     ap.add_argument("--model-label", default=MODEL_LABEL, help="cosmetic label for plot legends")
+    ap.add_argument("--csv-dir", default=CSV_DIR,
+                    help="dir of combined_<date>_all_orbits.parquet (OCO operator columns); "
+                         "results_doppler/csv_collection for the schema-v2 models")
     args = ap.parse_args()
     twin = args.window_min * 60
 
@@ -325,6 +328,7 @@ def main():
     PLOT_BASE = args.plot_base if args.plot_base is not None else args.out_base
     MERGED_DIR = args.merged_dir
     MODEL_LABEL = args.model_label
+    CSV_DIR = args.csv_dir
 
     all_rows = []
     for date in DATES:

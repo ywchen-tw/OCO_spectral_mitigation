@@ -303,7 +303,9 @@ else:
     PLEN_MAX_M = PLEN_MIN_M + 500.0e3  # same 200 m bins
 
 # --------------------------------------------------------------------------
-# Production spectral estimator (mirror src/spectral defaults)
+# Retired order-7 cumulant estimator (fit_and_plot.py --estimator order7).
+# Since 2026-11-02 the default slab estimator is the production O2A agreed
+# model, spectral.cumulant_fit.fit_am_o2a (fit schema doppler_am_t2_v2).
 # --------------------------------------------------------------------------
 FIT_ORDER = BANDS[BAND]["fit_order"]   # constants.FIT_ORDER = (7, 3, 7)
 AEROSOL_AOD = (None if AEROSOL is None else
@@ -325,5 +327,29 @@ SCENES_DIR = os.path.join(OUT_DIR_BASE, SCENES_SUBDIR)
 OUT_DIR = OUT_DIR_BASE if SCENE == "base" else os.path.join(SCENES_DIR, SCENE)
 ATM_FILE = os.path.join(OUT_DIR, "slab_atm.h5")
 OD_FILE = os.path.join(OUT_DIR, "slab_od.h5")
+# H2O share of the slab OD (gas_od.py --h2o-split; t2s slab estimator)
+OD_H2O_FILE = os.path.join(OUT_DIR, "slab_od_h2o.h5")
 RAD_FILE = os.path.join(OUT_DIR, "slab_rad.h5")
 TMP_DIR = os.path.join(OUT_DIR, "tmp-mca")
+
+# --------------------------------------------------------------------------
+# Sensitivity variants (run_slab.py / fit_and_plot.py --variant).  A variant
+# changes one physical switch of the production scene and writes every
+# output with a "_<variant>" suffix, so the production files above are never
+# touched.  "norayleigh": the 1-D Rayleigh extinction is zero in every layer;
+# gas absorption, cloud, surfaces and geometry are unchanged.  The photon
+# count, run count and solvers of a variant sweep are stored as attributes
+# of its slab_rad_<variant>.h5 (run_slab.collect), not here.
+# --------------------------------------------------------------------------
+VARIANTS = ("norayleigh",)
+
+
+def variant_path(path, variant=None):
+    """Production path, or the same path with a "_<variant>" suffix before
+    the extension (a directory gets the suffix appended)."""
+    if not variant:
+        return path
+    if variant not in VARIANTS:
+        raise ValueError(f"unknown slab variant {variant!r}")
+    root, ext = os.path.splitext(path)
+    return f"{root}_{variant}{ext}"

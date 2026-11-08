@@ -64,6 +64,25 @@ RUN_VERSION = os.environ.get('RUN_VERSION', 'v2')
 RUN_SUFFIX = f'_{RUN_VERSION}' if RUN_VERSION else ''
 DE_PRODUCTION_TAG = 'de_beta_nll_prof_reg_foldpca_o05l15_m5' + RUN_SUFFIX
 
+# Manuscript (JQSRT) model since 2026-11-03: tuned XGBoost c41 (run prefix
+# fm1620k5v2xt41, fit method am) with feature set no_xco2_sig_shape_nok2diag,
+# on the fit-schema-v2 data.  Its evaluation tree is
+# results_doppler/model_comparison/xgb/<XGB_PRODUCTION_TAG>/{atrain,drift};
+# the ablation arms append _<arm>, the ridge tree is
+# results_doppler/model_comparison/linreg/<LINREG_PRODUCTION_TAG>.  The
+# manuscript generators read these names; do not hard-code them elsewhere.
+# (no_xco2_sig_shape, the 2026-11-02 set, is retired.)
+XGB_PRODUCTION_FEATURE_SET = 'no_xco2_sig_shape_nok2diag'
+XGB_PRODUCTION_TAG = f'fm1620k5v2xt41_am_{XGB_PRODUCTION_FEATURE_SET}'
+LINREG_PRODUCTION_TAG = f'fm1620k5v2_am_{XGB_PRODUCTION_FEATURE_SET}'
+# Same model, settings, folds and feature set trained on the raw-XCO2 anomaly
+# (target xco2_raw_anomaly_r05 / _r15 instead of xco2_bc_anomaly_*): the
+# ML(raw) series of Table C8 (SI "Model trained on the raw product").
+XGB_RAW_PRODUCTION_TAG = f'fm1620k5v2xt41raw_am_{XGB_PRODUCTION_FEATURE_SET}'
+# TabM (config C) on the same feature set: comparison column of Table 1 and
+# Table C5 (results_doppler/model_comparison/tabm/<TABM_PRODUCTION_TAG>).
+TABM_PRODUCTION_TAG = f'fm1620k5v2tuneC_am_{XGB_PRODUCTION_FEATURE_SET}'
+
 # ---------------------------------------------------------------------------
 # XCO2 clear-sky anomaly (the ML training target)
 # ---------------------------------------------------------------------------

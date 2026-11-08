@@ -105,3 +105,7 @@ fonts/
 # HYSPLIT practice meteorology (large ARL files)
 workspace/hysplit_test/met/
 workspace/hysplit_test/hysplit_install/
+
+results_doppler/
+idea_test/*/out/cache/
+._*

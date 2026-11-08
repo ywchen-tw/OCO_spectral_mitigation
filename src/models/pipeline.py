@@ -780,6 +780,15 @@ for _grp, _feats in _SIG_ABLATION_GROUPS.items():
         _spec['add'] = []
     _FEATURE_SETS[f'no_xco2_sig_shape_no_{_grp}'] = _spec
 del _grp, _feats, _spec, _extra
+# The 2026-11-03 manuscript model: no_xco2_sig_shape without the k2^diag terms (O2A
+# k2diag and its sigma, and the WCO2 k2diag shape ratio; the WCO2 k2diag itself is
+# already dropped by _CO2_K2).  Keeps sco2_k2_over_k1sq_am and sco2_over_wco2_k1_am.
+_K2DIAG = frozenset({'o2a_k2diag_am', 'o2a_sig_k2diag_am', 'wco2_k2diag_am',
+                     'wco2_sig_k2diag_am', 'wco2_k2diag_over_k1sq_am'})
+_FEATURE_SETS['no_xco2_sig_shape_nok2diag'] = {
+    'add': CO2_SHAPE_FEATURES,
+    'add_fn': lambda m, s: spectral_sigma_features(m, s),
+    'drop': XCO2_FEATURES | _CO2_K1 | _CO2_K2 | _K2DIAG}
 
 # Formal set without the k2diag diagnostics (2026-11-02 evening, handoff 4d): k2diag is the
 # free-k2 refit kept as a diagnostic of a coefficient production fixes at zero; drop the O2A

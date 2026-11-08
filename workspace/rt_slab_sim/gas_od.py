@@ -16,8 +16,16 @@ Output: slab_od.h5
     slant_tau  (nwvl,)            od_column * airmass
     full_grid/{nu_cm1, od_column} full-window column OD (diagnostics)
 
-Run:  python workspace/rt_slab_sim/gas_od.py
+--h2o-split (2026-11-02, t2s slab estimator) leaves slab_od.h5 untouched and
+writes the H2O share of its OD to slab_od_h2o.h5 (cfg.OD_H2O_FILE): the same
+layer_od call with the O2 density zeroed, at the slab_od.h5 wavelengths,
+checked against the stored O2 + H2O od_layer.
+    od_layer_h2o (nwvl, nlay), od_column_h2o, slant_tau_h2o (nwvl,)
+    frac_h2o     (nwvl,)  od_column_h2o / od_column
+
+Run:  python workspace/rt_slab_sim/gas_od.py [--h2o-split]
 """
+import argparse
 import os
 import sys
 
@@ -190,5 +198,50 @@ def main():
     print(f"Wrote {cfg.OD_FILE}")
 
 
+def h2o_split():
+    """H2O part of the stored slab OD -> cfg.OD_H2O_FILE (slab_od.h5 untouched)."""
+    with h5py.File(cfg.ATM_FILE, "r") as f:
+        lay = {k: f["lay"][k][...] for k in f["lay"]}
+    with h5py.File(cfg.OD_FILE, "r") as f:
+        nu_sel = f["nu_cm1"][...]
+        od_stored = f["od_layer"][...]
+        airmass = float(f.attrs["airmass"])
+    absco_gas = _read_absco(os.path.join(ABSCO_DIR, "o2_v52.hdf"), "Gas_07_Absorption")
+    absco_h2o = _read_absco(os.path.join(ABSCO_DIR, "h2o_v52.hdf"), "Gas_01_Absorption")
+    common = (lay["pressure_hpa"], lay["temperature_k"])
+    nu, _, od_h2o = layer_od(absco_gas, absco_h2o, *common,
+                             np.zeros_like(lay["d_o2_cm3"]), lay["d_h2o_cm3"],
+                             lay["h2o_vmr"], lay["thickness_km"])
+    _, _, od_o2 = layer_od(absco_gas, absco_h2o, *common,
+                           lay["d_o2_cm3"], np.zeros_like(lay["d_h2o_cm3"]),
+                           lay["h2o_vmr"], lay["thickness_km"])
+    sel = np.searchsorted(nu, nu_sel)
+    assert np.array_equal(nu[sel], nu_sel), "slab_od.h5 wavelengths not on the ABSCO grid"
+    split_err = np.max(np.abs(od_o2[sel] + od_h2o[sel] - od_stored))
+    assert split_err <= 1e-12 * np.max(od_stored), f"O2 + H2O != stored OD ({split_err:g})"
+    od_w = od_h2o[sel]
+    col = od_stored.sum(axis=1)
+    with h5py.File(cfg.OD_H2O_FILE, "w") as f:
+        f["nu_cm1"] = nu_sel
+        f["od_layer_h2o"] = od_w
+        f["od_column_h2o"] = od_w.sum(axis=1)
+        f["slant_tau_h2o"] = od_w.sum(axis=1) * airmass
+        f["frac_h2o"] = np.where(col > 0, od_w.sum(axis=1) / col, 0.0)
+        f.attrs["airmass"] = airmass
+        f.attrs["split_check_max_abs"] = split_err
+        f.attrs["source"] = ("gas_od.layer_od with d_o2 = 0 at the slab_od.h5 "
+                             "wavelengths; O2-only + H2O-only = stored od_layer")
+    print(f"max |O2 + H2O - stored| = {split_err:.2e}; frac_h2o "
+          f"{np.min(od_w.sum(axis=1) / col):.2e} .. {np.max(od_w.sum(axis=1) / col):.2e}")
+    print(f"Wrote {cfg.OD_H2O_FILE}")
+
+
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--h2o-split", action="store_true",
+                    help="write the H2O share of slab_od.h5 to slab_od_h2o.h5 only")
+    if ap.parse_args().h2o_split:
+        h2o_split()
+    else:
+        main()

@@ -65,6 +65,16 @@ Usage
     # manuscript Fig. 5 edition (2026-09-13)
     python3 workspace/mixed_surface_reference_count.py \
         --population snowfree --near-max 15
+
+    # 2026-11-02: fit-schema-v2 data (parquet and outputs under results_doppler/)
+    python3 workspace/mixed_surface_reference_count.py --fit-schema v2 \
+        --results-root <repo>/results_doppler --population snowfree --near-max 15
+
+FIT SCHEMA v2 (2026-11-02): the Doppler refit stores the agreed-model ``_am``
+coefficients, and its shared clear-sky pool requires finite albedo plus every
+``spectral.fitting.REF_FIT_VARS`` coefficient (the v2 counterpart of the v1
+SG-cumulant extra_vars below); the O2A continuum is ``o2a_exp_int_am`` with
+reference statistics ``r15_/r05_o2a_exp_int_am_{mean,std}``.
 """
 
 import argparse
@@ -118,27 +128,61 @@ EXTRA_VAR_COLS = [
     "exp_o2a_intercept", "exp_wco2_intercept", "exp_sco2_intercept",
 ]
 
+# v2 shared reference pool (spectral/fitting.py process_orbit, section 6):
+# albedo + every REF_FIT_VARS coefficient must be finite.
+from spectral.fitting import REF_FIT_VARS  # noqa: E402
+
+EXTRA_VAR_COLS_V2 = (["alb_o2a", "alb_wco2", "alb_sco2"]
+                     + [f"{band}_{name}" for band, names in REF_FIT_VARS.items()
+                        for name in names])
+
+# Canonical keys used by load()/analyse() -> parquet column per fit schema.
+O2A_CONT_COLS = {
+    "v1": {"exp_o2a": "exp_o2a_intercept",
+           "r15_exp_mean": "r15_exp_int_o2a_mean",
+           "r15_exp_std": "r15_exp_int_o2a_std",
+           "r05_exp_mean": "r05_exp_int_o2a_mean",
+           "r05_exp_std": "r05_exp_int_o2a_std"},
+    "v2": {"exp_o2a": "o2a_exp_int_am",
+           "r15_exp_mean": "r15_o2a_exp_int_am_mean",
+           "r15_exp_std": "r15_o2a_exp_int_am_std",
+           "r05_exp_mean": "r05_o2a_exp_int_am_mean",
+           "r05_exp_std": "r05_o2a_exp_int_am_std"},
+}
+EXTRA_VARS_BY_SCHEMA = {"v1": EXTRA_VAR_COLS, "v2": EXTRA_VAR_COLS_V2}
+K_FAMILY_BY_SCHEMA = {
+    "v1": "SG (non-_nosg), matching spectral/fitting.py ref_extra_vars",
+    "v2": "agreed-model _am/_t2 core pool, spectral.fitting.REF_FIT_VARS",
+}
+
 KEEP_F4 = [
     "lat", "cld_dist_km", "xco2_bc",
     "xco2_bc_anomaly_r15", "xco2_bc_anomaly_r05",
-    "exp_o2a_intercept",
-    "r15_exp_int_o2a_mean", "r15_exp_int_o2a_std",
-    "r05_exp_int_o2a_mean", "r05_exp_int_o2a_std",
     "sfc_type", "xco2_qf", "snow_flag",
-]
-READ_COLS = sorted(set(KEEP_F4 + EXTRA_VAR_COLS + ["date", "orbit_id", "fp_id"]))
+] + list(O2A_CONT_COLS["v1"])          # canonical keys, renamed in load()
 
 
 # ── data loading ─────────────────────────────────────────────────────────────
 
-def load(path: Path, max_row_groups=None) -> dict:
-    """Stream the parquet row-group by row-group, keeping only small arrays."""
+def load(path: Path, max_row_groups=None, fit_schema: str = "v1") -> dict:
+    """Stream the parquet row-group by row-group, keeping only small arrays.
+
+    The O2A continuum columns of ``fit_schema`` are stored under the canonical
+    keys of O2A_CONT_COLS; the reference-pool validity uses that schema's
+    extra_vars.
+    """
+    cont = O2A_CONT_COLS[fit_schema]
+    extra_cols = EXTRA_VARS_BY_SCHEMA[fit_schema]
+    src_of = {k: cont.get(k, k) for k in KEEP_F4}
+    read_cols = sorted(set(src_of.values()) | set(extra_cols)
+                       | {"date", "orbit_id", "fp_id"})
     pf = pq.ParquetFile(path)
     n_rg = pf.metadata.num_row_groups
     if max_row_groups:
         n_rg = min(n_rg, max_row_groups)
-    logger.info("Reading %d/%d row groups, %d columns from %s",
-                n_rg, pf.metadata.num_row_groups, len(READ_COLS), path.name)
+    logger.info("Reading %d/%d row groups, %d columns from %s (fit schema %s)",
+                n_rg, pf.metadata.num_row_groups, len(read_cols), path.name,
+                fit_schema)
 
     chunks = {c: [] for c in KEEP_F4}
     chunks["fp_id"] = []
@@ -148,18 +192,18 @@ def load(path: Path, max_row_groups=None) -> dict:
     t0 = time.time()
     n_rows = 0
     for rg in range(n_rg):
-        tbl = pf.read_row_group(rg, columns=READ_COLS)
+        tbl = pf.read_row_group(rg, columns=read_cols)
         n = tbl.num_rows
         n_rows += n
 
         # per-row extra_vars validity (the shared reference pool requirement)
         ok = np.ones(n, dtype=bool)
-        for c in EXTRA_VAR_COLS:
+        for c in extra_cols:
             ok &= ~np.isnan(tbl.column(c).to_numpy(zero_copy_only=False))
         chunks["extras_ok"].append(ok)
 
         for c in KEEP_F4:
-            chunks[c].append(tbl.column(c).to_numpy(zero_copy_only=False)
+            chunks[c].append(tbl.column(src_of[c]).to_numpy(zero_copy_only=False)
                              .astype(np.float32, copy=False))
         chunks["fp_id"].append(tbl.column("fp_id").to_numpy(zero_copy_only=False))
 
@@ -230,7 +274,7 @@ def analyse(data: dict, surface: int, min_cld_dist: float, near_max: float,
     snow = data["snow_flag"]
     gkey = data["gkey"]
     extras_ok = data["extras_ok"]
-    exp_o2a = data["exp_o2a_intercept"].astype(np.float64)
+    exp_o2a = data["exp_o2a"].astype(np.float64)
     anom = data[anom_col].astype(np.float64)
     rmean = data[ref_mean_col].astype(np.float64)
     rstd = data[ref_std_col].astype(np.float64)
@@ -361,13 +405,22 @@ def main():
                         format="%(asctime)s %(levelname)s: %(message)s",
                         datefmt="%H:%M:%S")
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[2])
-    ap.add_argument("--parquet", default=str(
-        ROOT / "results/csv_collection/combined_2016_2020_dates.parquet"))
+    ap.add_argument("--results-root", type=Path, default=ROOT / "results",
+                    help="Results tree supplying the default --parquet "
+                         "(<root>/csv_collection/combined_2016_2020_dates."
+                         "parquet) and --outdir (<root>/figures/cld_dist_"
+                         "analysis/spec_sensitivity/prodref/mixed_surface_"
+                         "windows); the fit-schema-v2 data live in "
+                         "results_doppler.")
+    ap.add_argument("--parquet", default=None,
+                    help="explicit input parquet (overrides --results-root)")
+    ap.add_argument("--fit-schema", choices=["v1", "v2"], default="v1",
+                    help="'v1' (default, SG cumulant columns) or 'v2' "
+                         "(agreed-model _am columns of the Doppler refit)")
     ap.add_argument("--max-row-groups", type=int, default=None,
                     help="validate on the first N row groups (~1 date each)")
-    ap.add_argument("--outdir", default=str(
-        ROOT / "results/figures/cld_dist_analysis/spec_sensitivity/prodref"
-             / "mixed_surface_windows"))
+    ap.add_argument("--outdir", default=None,
+                    help="output directory (overrides --results-root)")
     ap.add_argument("--population", choices=["qf0snowfree", "snowfree"],
                     default="qf0snowfree",
                     help="Target population: 'qf0snowfree' (default, "
@@ -380,6 +433,13 @@ def main():
                          "(10 = original, 15 adds the 10-12 and 12-15 km bins "
                          "and a _15km output tag).")
     args = ap.parse_args()
+    if args.parquet is None:
+        args.parquet = str(args.results_root / "csv_collection"
+                           / "combined_2016_2020_dates.parquet")
+    if args.outdir is None:
+        args.outdir = str(args.results_root / "figures" / "cld_dist_analysis"
+                          / "spec_sensitivity" / "prodref"
+                          / "mixed_surface_windows")
 
     require_qf0 = args.population == "qf0snowfree"
     near_max = float(args.near_max)
@@ -394,20 +454,20 @@ def main():
     logger.info("population=%s (require_qf0=%s), near_max=%.0f km, tag=%r",
                 args.population, require_qf0, near_max, tag)
 
-    data = load(Path(args.parquet), args.max_row_groups)
+    data = load(Path(args.parquet), args.max_row_groups, args.fit_schema)
 
     logger.info("── LAND targets (<%.0f km), r15 reference window ──", near_max)
     land = analyse(data, surface=1, min_cld_dist=15.0, near_max=near_max,
                    anom_col="xco2_bc_anomaly_r15",
-                   ref_mean_col="r15_exp_int_o2a_mean",
-                   ref_std_col="r15_exp_int_o2a_std",
+                   ref_mean_col="r15_exp_mean",
+                   ref_std_col="r15_exp_std",
                    require_qf0=require_qf0)
 
     logger.info("── OCEAN targets (<%.0f km), r05 reference window ──", near_max)
     ocean = analyse(data, surface=0, min_cld_dist=5.0, near_max=near_max,
                     anom_col="xco2_bc_anomaly_r05",
-                    ref_mean_col="r05_exp_int_o2a_mean",
-                    ref_std_col="r05_exp_int_o2a_std",
+                    ref_mean_col="r05_exp_mean",
+                    ref_std_col="r05_exp_std",
                     require_qf0=require_qf0)
     del data
 
@@ -518,8 +578,10 @@ def main():
         "z_thresh": Z_THRESH,
         "bin_edges_km": bin_edges,
         "anomaly_screen_ppm": ANOM_SCREEN_PPM,
-        "extra_var_cols": EXTRA_VAR_COLS,
-        "k_family": "SG (non-_nosg), matching spectral/fitting.py ref_extra_vars",
+        "fit_schema": args.fit_schema,
+        "o2a_continuum_cols": O2A_CONT_COLS[args.fit_schema],
+        "extra_var_cols": EXTRA_VARS_BY_SCHEMA[args.fit_schema],
+        "k_family": K_FAMILY_BY_SCHEMA[args.fit_schema],
         "sanity": sanity,
         "branch_flip": flip_stats,
     }
